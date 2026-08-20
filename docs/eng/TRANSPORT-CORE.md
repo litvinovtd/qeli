@@ -11,14 +11,15 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
 **Initiative status: ✅ source refactor complete.** All production clients now use the shared
-Rust transport core. The additive ABI 1.10 libraries for Windows x64, macOS universal2 and
+Rust transport core. The additive ABI 1.11 libraries for Windows x64, macOS universal2 and
 Android arm64/x86_64 were rebuilt from source commit `97ce38d` in independent byte-identical
 A/B lab passes; mirror hashes, machine-readable evidence and source provenance are current.
 The remaining checks are platform acceptance gates, not refactoring work: administrator
 Wintun full-tunnel, live macOS utun and physical-device iOS/Xcode. Written 2026-07-30;
 completed 2026-08-11.
 
-ABI 1.10 extends statistics while preserving the 64-byte V1 prefix. The added fields expose
+ABI 1.10 extended statistics while preserving the 64-byte V1 prefix. ABI 1.11 adds the
+dual-family NetworkPlan/platform-capability contract without changing those prefixes. The fields expose
 UDP kernel drops, internal bounded-queue drops, receive-buffer grow events and the size the OS
 actually granted. With no size key, the shared controller starts at 4 MiB and grows
 4→8→16 MiB only on local overflow or a measured rate/stall budget; an explicit size remains
@@ -555,7 +556,7 @@ platform code touching not one byte of payload.
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
 | TC-3.2 | Windows | ✅ ABI 1.9 library rebuilt; source path owns Wintun session/rings in Rust; managed runtime and packet methods removed; live handshake/NetworkPlan green | platform gate: administrator Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ ABI 1.9 universal2 dylib rebuilt and packaged; source path hands the utun fd to Rust and touches no payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter uses current ABI 1.10 and the shared Rust transport | code complete; Xcode/device gate remains |
+| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter uses current ABI 1.11 and the shared Rust transport | code complete; Xcode/device gate remains |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
 divergence risk there is demonstrated; iOS last — the only platform with no fd and with a
@@ -568,7 +569,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets current ABI 1.10, while a real device+simulator XCFramework/Xcode build still requires macOS |
+| TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets current ABI 1.11, while a real device+simulator XCFramework/Xcode build still requires macOS |
 | TC-4.2 | ✅ All four libraries passed live byte-identical A/B builds on labs `.10`/`.11`; the shared mock-tested harness performs scoped source sync, exact-target preflight and verified atomic pulls. Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 and cargo-ndk 4.1.2 are pinned. macOS normalizes the install name, content-derived UUID and Zig's invalid non-deterministic GOT index before deterministic ad-hoc signing; SHA256, exports and provenance are fail-closed gates |
 | TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 

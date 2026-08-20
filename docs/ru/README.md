@@ -4,7 +4,7 @@
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/
 сигнатурному DPI при удобстве классических TUN/TAP-VPN, со встроенной веб-админкой.
 
-- **Язык**: Rust 2021, версия 0.7.16 (бета)
+- **Язык**: Rust 2021, версия 0.7.17 (бета)
 - **Криптостек**: `x25519-dalek`, `ml-kem` (PQ-гибрид X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — серверная терминация настоящего TLS 1.3 в `reality-tls`
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
 - **Wire-режимы**: `plain` (без обфускации — голый шифрованный туннель, TCP) · `fake-tls` (мимикрия под TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (проксирование чужих хендшейков на реальный сайт) · `reality-tls` (настоящий TLS 1.3 несёт туннель; `handrolled` одалживает реальный серт target'а — cert-borrowing, паритет с Xray-REALITY) · QUIC-masking для UDP
@@ -154,6 +154,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 Полностью документированные примеры со всеми параметрами:
 [server.conf](../../qeli/config/server.conf) (исчерпывающий референс) ·
 [server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (готовый шаблон на 10 режимов) ·
+[server-ipv6.conf](../../qeli/config/server-ipv6.conf) (готовый dual-stack deployment) ·
 [client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
 Справочник по конфигу — [CONFIG.md](CONFIG.md).
 

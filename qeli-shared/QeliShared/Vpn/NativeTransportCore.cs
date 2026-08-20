@@ -9,7 +9,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_000a;
+    internal const uint AbiVersion = 0x0001_000b;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -31,6 +31,12 @@ internal static unsafe class NativeTransportCore
     internal const ulong PlatformTunPacketBatch = 1UL << 4;
     internal const ulong PlatformServerIdentity = 1UL << 6;
     internal const ulong PlatformTunWintun = 1UL << 7;
+    internal const ulong PlatformIpv6Tun = 1UL << 8;
+    internal const ulong PlatformIpv6Routes = 1UL << 9;
+    internal const ulong PlatformIpv6Dns = 1UL << 10;
+    internal const ulong PlatformIpv6KillSwitch = 1UL << 11;
+    internal const ulong PlatformIpv6SystemPlan =
+        PlatformIpv6Tun | PlatformIpv6Routes | PlatformIpv6Dns;
     internal const ulong DesktopBaseCapabilities = PlatformRoutes | PlatformDns |
         PlatformKillSwitch | PlatformServerIdentity;
 
@@ -164,7 +170,8 @@ internal static unsafe class NativeTransportCore
                 $"native core capabilities 0x{capabilities:x} do not include 0x{required:x}");
     }
 
-    internal static ulong New(string config, bool tunFdOwnership, bool wintunOwnership)
+    internal static ulong New(string config, bool tunFdOwnership, bool wintunOwnership,
+        ulong ipv6Capabilities = 0)
     {
         if (tunFdOwnership && wintunOwnership)
             throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
@@ -176,7 +183,7 @@ internal static unsafe class NativeTransportCore
                 ulong tunCapability = tunFdOwnership ? PlatformTunFd
                     : wintunOwnership ? PlatformTunWintun
                     : PlatformTunPacketBatch;
-                ulong capabilities = DesktopBaseCapabilities | tunCapability;
+                ulong capabilities = DesktopBaseCapabilities | tunCapability | ipv6Capabilities;
                 int rc = qeli_client_new(pointer, (nuint)bytes.Length, capabilities, 128, out ulong handle);
                 Check(rc, "qeli_client_new");
                 if (handle == 0) throw new InvalidOperationException("native core returned a zero handle");

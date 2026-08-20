@@ -557,6 +557,15 @@
           <div class="section-hdr">TUN/TAP Interface</div>
           <div class="grid grid-cols-3 gap-4">
             <div>
+              <label class="field-label">Inner IP mode</label>
+              <p class="field-desc">Address families carried inside the tunnel; independent of the outer listener address.</p>
+              <select class="inp" x-model="cfg.profiles[activeTab].tun.ip_mode" @change="markDirty()">
+                <option value="ipv4">IPv4 only</option>
+                <option value="dual">IPv4 + IPv6</option>
+                <option value="ipv6">IPv6 only</option>
+              </select>
+            </div>
+            <div>
               <label class="field-label">Device type</label>
               <p class="field-desc">TUN — IP-level (L3, the usual choice). TAP — Ethernet-level (L2, for bridging Ethernet frames).</p>
               <select class="inp" x-model="cfg.profiles[activeTab].tun.device_type" @change="markDirty()">
@@ -574,10 +583,15 @@
               <p class="field-desc">Max packet size. 1400–1480 avoids fragmentation with encapsulation overhead.</p>
               <input class="inp" type="number" min="576" max="16638" x-model.number="cfg.profiles[activeTab].tun.mtu" @input="markDirty()">
             </div>
-            <div>
-              <label class="field-label">Gateway IP (server address)</label>
-              <p class="field-desc">IP of this server on the VPN network</p>
+            <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
+              <label class="field-label">IPv4 gateway (server address)</label>
+              <p class="field-desc">IPv4 address of this server inside the VPN</p>
               <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.address" @input="markDirty()" placeholder="10.8.0.1">
+            </div>
+            <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+              <label class="field-label">IPv6 gateway (server address)</label>
+              <p class="field-desc">IPv6 address of this server inside the VPN allocation prefix</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.ipv6_address" @input="markDirty()" placeholder="fd71:e1:1234:1::1">
             </div>
             <div>
               <label class="field-label">TX queue length</label>
@@ -596,15 +610,37 @@
         <div id="sec-pool" class="card p-5 space-y-4 cfg-anchor">
           <div class="section-hdr">IP Address Pool</div>
           <div class="grid grid-cols-3 gap-4">
-            <div>
-              <label class="field-label">VPN subnet (CIDR)</label>
+            <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
+              <label class="field-label">IPv4 VPN subnet (CIDR)</label>
               <p class="field-desc">Single source for the server and client prefix, address pool, and DHCP. Must contain the gateway IP; /16 means 255.255.0.0.</p>
               <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].pool.cidr" @input="markDirty()" placeholder="10.8.0.0/24">
+            </div>
+            <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+              <label class="field-label">IPv6 allocation prefix (CIDR)</label>
+              <p class="field-desc">Unique per profile; /64 is recommended. Must contain the IPv6 gateway.</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].pool.ipv6.cidr" @input="markDirty()" placeholder="fd71:e1:1234:1::/64">
+            </div>
+          </div>
+
+          <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+            <label class="field-label">Excluded IPv6 addresses</label>
+            <p class="field-desc">IPv6 addresses inside the allocation prefix that will never be assigned</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="(ip, i) in (cfg.profiles[activeTab].pool.ipv6.exclude || [])" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono flex-1" type="text" :value="ip"
+                    @input="cfg.profiles[activeTab].pool.ipv6.exclude[i] = $event.target.value; markDirty()">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].pool.ipv6.exclude.splice(i,1); markDirty()">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].pool.ipv6.exclude = cfg.profiles[activeTab].pool.ipv6.exclude || []).push(''); markDirty()">
+                + Add excluded IPv6
+              </button>
             </div>
           </div>
 
           <!-- Excluded IPs -->
-          <div>
+          <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
             <label class="field-label">Excluded IPs</label>
             <p class="field-desc">IPs that will never be assigned to clients (e.g. gateway, reserved hosts)</p>
             <div class="space-y-2 mt-1.5">
@@ -622,7 +658,7 @@
           </div>
 
           <!-- Static reservations -->
-          <div>
+          <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
             <label class="field-label">Static reservations</label>
             <p class="field-desc">Always assign a specific IP to a specific username</p>
             <div class="space-y-2 mt-1.5">
@@ -637,6 +673,24 @@
                 </div>
               </template>
               <button class="btn btn-ghost btn-sm" @click="addReservation(activeTab)">+ Add reservation</button>
+            </div>
+          </div>
+
+          <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+            <label class="field-label">Static IPv6 reservations</label>
+            <p class="field-desc">Always assign a specific IPv6 address to a username</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="([user, ip], i) in Object.entries(cfg.profiles[activeTab].pool.ipv6.static_reservations || {})" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono w-36 flex-shrink-0" type="text" placeholder="username"
+                    :value="user" @change="updateIpv6Reservation(activeTab, user, $event.target.value, ip)">
+                  <span class="text-slate-600 self-center">→</span>
+                  <input class="inp font-mono flex-1" type="text" placeholder="fd71:e1:1234:1::2"
+                    :value="ip" @change="updateIpv6Reservation(activeTab, user, user, $event.target.value)">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="deleteIpv6Reservation(activeTab, user)">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="addIpv6Reservation(activeTab)">+ Add IPv6 reservation</button>
             </div>
           </div>
         </div>
@@ -655,6 +709,21 @@
                 <div class="text-sm font-medium text-white">Client-to-client routing</div>
                 <div class="text-xs text-slate-500">Allow connected clients to communicate with each other</div>
               </div>
+            </div>
+            <div class="field-toggle" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+              <div class="flex-1">
+                <div class="text-sm font-medium text-white">IPv6 forwarding / NAT66</div>
+                <div class="text-xs text-slate-500">route preserves client source addresses; nat66 masquerades them on the selected IPv6 uplink</div>
+              </div>
+              <select class="inp text-xs h-8 flex-shrink-0" style="width:7rem"
+                x-model="cfg.profiles[activeTab].routing.ipv6.mode" @change="markDirty()">
+                <option value="off">off</option>
+                <option value="route">route</option>
+                <option value="nat66">nat66</option>
+              </select>
+              <input x-show="cfg.profiles[activeTab].routing.ipv6.mode !== 'off'"
+                class="inp font-mono text-xs h-8 flex-shrink-0" style="width:8rem" type="text"
+                x-model="cfg.profiles[activeTab].routing.ipv6.interface" @input="markDirty()" placeholder="auto / ens18">
             </div>
             <div class="field-toggle">
               <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private; markDirty()">
@@ -714,8 +783,9 @@
                    first value it ever saw — dynamic TEXT is re-stashed because Alpine replaces the
                    node. -->
               <p class="field-desc" x-show="(cfg.profiles[activeTab].routing.advertised_routes || []).length">
-                <span>Leave the gateway empty and clients use this profile tun address:</span>
-                <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.address || '—'"></span><span>; an empty metric means 100.</span>
+                <span>Leave the gateway empty and clients use the matching-family profile address: IPv4</span>
+                <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.address || '—'"></span><span>, IPv6 </span>
+                <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.ipv6_address || '—'"></span><span>; an empty metric means 100.</span>
               </p>
               <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].routing.advertised_routes = cfg.profiles[activeTab].routing.advertised_routes || []).push({cidr:'', gateway:null, metric:100}); markDirty()">
                 + Add pushed route
@@ -760,9 +830,14 @@
           <div x-show="cfg.profiles[activeTab].dns.enabled" class="space-y-4">
             <div class="grid grid-cols-3 gap-4">
               <div>
-                <label class="field-label">Listen address</label>
-                <p class="field-desc">Should match the VPN gateway IP</p>
+                <label class="field-label">IPv4 listen address</label>
+                <p class="field-desc">Should match the IPv4 VPN gateway</p>
                 <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dns.listen" @input="markDirty()">
+              </div>
+              <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
+                <label class="field-label">IPv6 listen address</label>
+                <p class="field-desc">Should match the IPv6 VPN gateway</p>
+                <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dns.listen_ipv6" @input="markDirty()" placeholder="fd71:e1:1234:1::1">
               </div>
               <div>
                 <label class="field-label">Listen port</label>
@@ -1679,8 +1754,8 @@ function configPage() {
       // Backfill against the canonical skeleton instead of patching one field at a
       // time. Only MISSING keys are added, so a user's values are never overwritten.
       const skel = {
-        bind: {}, tun: {}, pool: {}, dns: {}, dhcp: {},
-        routing: { nat: {} },
+        bind: {}, tun: {}, pool: { ipv6: {} }, dns: {}, dhcp: {},
+        routing: { nat: {}, ipv6: {} },
         performance: { tcp: {}, tun: {}, connection: {} },
         obfuscation: {
           tls: { reality_proxy: {} },
@@ -1944,7 +2019,7 @@ function configPage() {
       const n = (this.cfg.profiles || []).length;
       const base = this.defaultProfile
         ? JSON.parse(JSON.stringify(this.defaultProfile))
-        : { name: '', bind: {}, tun: {}, pool: {}, routing: { nat: {} }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
+        : { name: '', bind: {}, tun: { ip_mode: 'ipv4' }, pool: { ipv6: { exclude: [], static_reservations: {} } }, routing: { nat: {}, ipv6: { mode: 'off', interface: '' } }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
       base.name = 'profile-' + (n + 1);
       base.enabled = true;
       base.bind.address = '0.0.0.0';
@@ -1974,6 +2049,15 @@ function configPage() {
       c.tun = c.tun || {}; c.tun.name = 'vpn' + n; c.tun.address = '10.8.' + n + '.1';
       c.pool = c.pool || {}; c.pool.cidr = '10.8.' + n + '.0/24'; c.pool.exclude = ['10.8.' + n + '.1'];
       c.dns = c.dns || {}; c.dns.listen = '10.8.' + n + '.1';
+      if ((c.tun.ip_mode || 'ipv4') !== 'ipv4') {
+        const fresh6 = this.freshIpv6Network();
+        c.tun.ipv6_address = fresh6.gateway;
+        c.pool.ipv6 = c.pool.ipv6 || {};
+        c.pool.ipv6.cidr = fresh6.cidr;
+        c.pool.ipv6.exclude = [];
+        c.pool.ipv6.static_reservations = {};
+        c.dns.listen_ipv6 = fresh6.gateway;
+      }
       this.cfg.profiles.push(c);
       this.normalizeProfiles();
       this.activeTab = this.cfg.profiles.length - 1;
@@ -2008,6 +2092,52 @@ function configPage() {
       while (res[key]) key = 'new_user_' + n++;
       res[key] = '';
       this.markDirty();
+    },
+
+    updateIpv6Reservation(pi, oldUser, newUser, ip) {
+      const pool = (this.cfg.profiles[pi].pool.ipv6 = this.cfg.profiles[pi].pool.ipv6 || {});
+      const res = (pool.static_reservations = pool.static_reservations || {});
+      delete res[oldUser];
+      if (newUser) res[newUser] = ip;
+      this.markDirty();
+    },
+
+    deleteIpv6Reservation(pi, user) {
+      const pool = (this.cfg.profiles[pi].pool.ipv6 = this.cfg.profiles[pi].pool.ipv6 || {});
+      const res = (pool.static_reservations = pool.static_reservations || {});
+      delete res[user];
+      this.markDirty();
+    },
+
+    addIpv6Reservation(pi) {
+      const pool = (this.cfg.profiles[pi].pool.ipv6 = this.cfg.profiles[pi].pool.ipv6 || {});
+      const res = (pool.static_reservations = pool.static_reservations || {});
+      let key = 'new_user', n = 1;
+      while (res[key]) key = 'new_user_' + n++;
+      res[key] = '';
+      this.markDirty();
+    },
+
+    // RFC 4193 locally-assigned /64: fd + a random 40-bit Global ID + a random 16-bit
+    // subnet id. Cloning must never retain the source prefix, or server preflight correctly
+    // rejects both profiles as overlapping.
+    freshIpv6Network() {
+      for (let attempt = 0; attempt < 32; attempt++) {
+        const random = new Uint8Array(7);
+        crypto.getRandomValues(random);
+        const h = b => b.toString(16).padStart(2, '0');
+        const prefix = [
+          'fd' + h(random[0]),
+          h(random[1]) + h(random[2]),
+          h(random[3]) + h(random[4]),
+          h(random[5]) + h(random[6]),
+        ].join(':');
+        const cidr = prefix + '::/64';
+        const occupied = (this.cfg.profiles || []).some(p =>
+          String(p.pool?.ipv6?.cidr || '').toLowerCase() === cidr.toLowerCase());
+        if (!occupied) return { cidr, gateway: prefix + '::1' };
+      }
+      throw new Error('could not allocate a unique RFC 4193 IPv6 prefix for the clone');
     },
 
     // Ensure the reality_proxy object (and its array/flag fields) exists before

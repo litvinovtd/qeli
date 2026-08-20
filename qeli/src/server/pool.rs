@@ -1,7 +1,8 @@
-use crate::config::server::PoolConfig;
+use crate::config::server::{IpMode, Ipv6PoolConfig, PoolConfig};
 use std::collections::{HashMap, HashSet};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
+#[derive(Clone)]
 pub struct IpPool {
     pub start_ip: u32,
     pub end_ip: u32,
@@ -19,6 +20,192 @@ pub struct IpPool {
     /// overflow). Replaces the old O(range) rescan-from-`start_ip` on every
     /// allocate; released addresses come back via `freed`, not by rewinding this.
     cursor: u64,
+    ipv6: Option<Ipv6Pool>,
+}
+
+/// Sparse IPv6 allocator. A `/64` is never expanded: only exclusions, reservations and live
+/// leases occupy memory, while `cursor` advances over the `u128` host space.
+#[derive(Clone)]
+pub struct Ipv6Pool {
+    network: u128,
+    prefix: u8,
+    end: u128,
+    excluded: HashSet<u128>,
+    reserved: HashSet<u128>,
+    static_reservations: Vec<(String, u128)>,
+    allocated: HashSet<u128>,
+    user_allocations: HashMap<String, u128>,
+    freed: Vec<u128>,
+    cursor: Option<u128>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AssignedAddresses {
+    pub ipv4: Option<Ipv4Addr>,
+    pub ipv6: Option<Ipv6Addr>,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum AddressAllocationError {
+    #[error("IPv4 address pool is exhausted")]
+    Ipv4Exhausted,
+    #[error("IPv6 address pool is not configured")]
+    Ipv6Unavailable,
+    #[error("IPv6 address pool is exhausted")]
+    Ipv6Exhausted,
+}
+
+impl Ipv6Pool {
+    pub fn new(config: &Ipv6PoolConfig, tun_address: Ipv6Addr) -> anyhow::Result<Self> {
+        let subnet =
+            crate::config::server::ipv6_pool_subnet(&config.cidr).map_err(anyhow::Error::msg)?;
+        let network = u128::from(subnet.network);
+        let host_mask = if subnet.prefix == 0 {
+            u128::MAX
+        } else {
+            u128::MAX >> subnet.prefix
+        };
+        let end = network | host_mask;
+        let tun = u128::from(tun_address);
+        if !subnet.contains_assignable(tun_address) {
+            anyhow::bail!(
+                "tun.ipv6_address {} is not an assignable host inside pool.ipv6.cidr {}",
+                tun_address,
+                config.cidr
+            );
+        }
+
+        let mut excluded = HashSet::new();
+        excluded.insert(network); // subnet-router anycast
+        excluded.insert(tun);
+        for value in &config.exclude {
+            let address: Ipv6Addr = value.parse().map_err(|_| {
+                anyhow::anyhow!("pool.ipv6.exclude contains invalid IPv6 address '{value}'")
+            })?;
+            let raw = u128::from(address);
+            if raw < network || raw > end {
+                anyhow::bail!(
+                    "pool.ipv6.exclude address {address} is outside {}",
+                    config.cidr
+                );
+            }
+            excluded.insert(raw);
+        }
+
+        let mut reserved = HashSet::new();
+        let mut static_reservations = Vec::new();
+        for (username, value) in &config.static_reservations {
+            let address: Ipv6Addr = value.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "pool.ipv6.reservation.{username} contains invalid IPv6 address '{value}'"
+                )
+            })?;
+            let raw = u128::from(address);
+            if raw <= network || raw > end || excluded.contains(&raw) {
+                anyhow::bail!(
+                    "pool.ipv6.reservation.{username} = {address} is not assignable in {}",
+                    config.cidr
+                );
+            }
+            if !reserved.insert(raw) {
+                anyhow::bail!("duplicate IPv6 reservation for {address}");
+            }
+            static_reservations.push((username.clone(), raw));
+        }
+
+        Ok(Self {
+            network,
+            prefix: subnet.prefix,
+            end,
+            excluded,
+            reserved,
+            static_reservations,
+            allocated: HashSet::new(),
+            user_allocations: HashMap::new(),
+            freed: Vec::new(),
+            cursor: network.checked_add(1),
+        })
+    }
+
+    pub fn prefix(&self) -> u8 {
+        self.prefix
+    }
+
+    pub fn allocate(&mut self, key: &str) -> Option<Ipv6Addr> {
+        if let Some(value) = self.user_allocations.get(key) {
+            return Some(Ipv6Addr::from(*value));
+        }
+        let reserved = self
+            .static_reservations
+            .iter()
+            .find(|(username, _)| username == key)
+            .map(|(_, address)| *address);
+        if let Some(address) = reserved {
+            if let Some(address) = self.allocate_fixed(key, Ipv6Addr::from(address)) {
+                return Some(address);
+            }
+        }
+        while let Some(value) = self.freed.pop() {
+            if self.assign_dynamic(key, value) {
+                return Some(Ipv6Addr::from(value));
+            }
+        }
+        while let Some(value) = self.cursor {
+            self.cursor = if value == self.end {
+                None
+            } else {
+                value.checked_add(1)
+            };
+            if self.assign_dynamic(key, value) {
+                return Some(Ipv6Addr::from(value));
+            }
+        }
+        None
+    }
+
+    fn assign_dynamic(&mut self, key: &str, value: u128) -> bool {
+        if value <= self.network
+            || value > self.end
+            || self.excluded.contains(&value)
+            || self.reserved.contains(&value)
+            || self.allocated.contains(&value)
+        {
+            return false;
+        }
+        self.allocated.insert(value);
+        self.user_allocations.insert(key.to_string(), value);
+        true
+    }
+
+    pub fn allocate_fixed(&mut self, key: &str, address: Ipv6Addr) -> Option<Ipv6Addr> {
+        let value = u128::from(address);
+        if value <= self.network || value > self.end || self.excluded.contains(&value) {
+            return None;
+        }
+        if let Some(&previous) = self.user_allocations.get(key) {
+            if previous == value {
+                return Some(address);
+            }
+            self.allocated.remove(&previous);
+            self.freed.push(previous);
+        }
+        self.user_allocations
+            .retain(|holder, held| !(*held == value && holder != key));
+        self.allocated.insert(value);
+        self.user_allocations.insert(key.to_string(), value);
+        Some(address)
+    }
+
+    pub fn release(&mut self, key: &str) {
+        if let Some(value) = self.user_allocations.remove(key) {
+            self.allocated.remove(&value);
+            self.freed.push(value);
+        }
+    }
+
+    pub fn get_ip_by_username(&self, key: &str) -> Option<Ipv6Addr> {
+        self.user_allocations.get(key).copied().map(Ipv6Addr::from)
+    }
 }
 
 impl IpPool {
@@ -143,7 +330,124 @@ impl IpPool {
             user_allocations: HashMap::new(),
             freed: Vec::new(),
             cursor: start_ip as u64,
+            ipv6: None,
         })
+    }
+
+    /// Build a genuinely IPv6-only allocator. Legacy IPv4 fields are deliberately not parsed:
+    /// `tun.address` and `pool.cidr` are inactive in this mode and must not be shadow
+    /// prerequisites for starting an IPv6 profile.
+    pub fn new_ipv6_only(config: &Ipv6PoolConfig, tun_address: Ipv6Addr) -> anyhow::Result<Self> {
+        Ok(Self {
+            start_ip: 0,
+            end_ip: 0,
+            excluded: HashSet::new(),
+            reserved: HashSet::new(),
+            static_reservations: Vec::new(),
+            allocated: HashSet::new(),
+            user_allocations: HashMap::new(),
+            freed: Vec::new(),
+            cursor: 0,
+            ipv6: Some(Ipv6Pool::new(config, tun_address)?),
+        })
+    }
+
+    pub fn enable_ipv6(
+        &mut self,
+        config: &Ipv6PoolConfig,
+        tun_address: Ipv6Addr,
+    ) -> anyhow::Result<()> {
+        self.ipv6 = Some(Ipv6Pool::new(config, tun_address)?);
+        Ok(())
+    }
+
+    pub fn ipv6_prefix(&self) -> Option<u8> {
+        self.ipv6.as_ref().map(Ipv6Pool::prefix)
+    }
+
+    pub fn allocate_ipv6(&mut self, key: &str) -> Option<Ipv6Addr> {
+        self.ipv6.as_mut()?.allocate(key)
+    }
+
+    pub fn allocate_fixed_ipv6(&mut self, key: &str, address: Ipv6Addr) -> Option<Ipv6Addr> {
+        self.ipv6.as_mut()?.allocate_fixed(key, address)
+    }
+
+    pub fn get_ipv6_by_username(&self, key: &str) -> Option<Ipv6Addr> {
+        self.ipv6.as_ref()?.get_ip_by_username(key)
+    }
+
+    /// Drop leases for families that are not part of a renegotiated mode. This is used by
+    /// the legacy IPv4 allocation path so a dual-stack device reconnecting with `ipv6=off`
+    /// does not pin an unreachable IPv6 address indefinitely.
+    pub fn retain_mode_leases(&mut self, key: &str, mode: IpMode) {
+        if mode == IpMode::Ipv6 {
+            self.release_ipv4(key);
+        }
+        if mode == IpMode::Ipv4 {
+            if let Some(ipv6) = &mut self.ipv6 {
+                ipv6.release(key);
+            }
+        }
+    }
+
+    /// Allocate the address set required by one negotiated profile mode. Dual-stack is a
+    /// transaction under the caller's single pool lock: either both leases become visible or
+    /// the allocator is restored byte-for-byte, including cursors and released-address stacks.
+    pub fn allocate_for_mode(
+        &mut self,
+        key: &str,
+        mode: IpMode,
+        fixed_ipv4: Option<Ipv4Addr>,
+        fixed_ipv6: Option<Ipv6Addr>,
+    ) -> Result<AssignedAddresses, AddressAllocationError> {
+        // Reconnecting a device may change negotiated mode (dual -> IPv4 because the user
+        // selected `ipv6=off`, or the reverse). The address set is one transaction for every
+        // mode: obsolete-family leases are removed, requested leases are acquired, and any
+        // failure restores cursors, freed stacks and both family maps exactly.
+        let before = self.clone();
+        match self.allocate_for_mode_inner(key, mode, fixed_ipv4, fixed_ipv6) {
+            Ok(addresses) => Ok(addresses),
+            Err(error) => {
+                *self = before;
+                Err(error)
+            }
+        }
+    }
+
+    fn allocate_for_mode_inner(
+        &mut self,
+        key: &str,
+        mode: IpMode,
+        fixed_ipv4: Option<Ipv4Addr>,
+        fixed_ipv6: Option<Ipv6Addr>,
+    ) -> Result<AssignedAddresses, AddressAllocationError> {
+        self.retain_mode_leases(key, mode);
+        let ipv4 = if matches!(mode, IpMode::Ipv4 | IpMode::Dual) {
+            Some(
+                fixed_ipv4
+                    .and_then(|address| self.allocate_fixed(key, address))
+                    .or_else(|| self.allocate(key))
+                    .ok_or(AddressAllocationError::Ipv4Exhausted)?,
+            )
+        } else {
+            None
+        };
+        let ipv6 = if matches!(mode, IpMode::Ipv6 | IpMode::Dual) {
+            let pool = self
+                .ipv6
+                .as_mut()
+                .ok_or(AddressAllocationError::Ipv6Unavailable)?;
+            Some(
+                fixed_ipv6
+                    .and_then(|address| pool.allocate_fixed(key, address))
+                    .or_else(|| pool.allocate(key))
+                    .ok_or(AddressAllocationError::Ipv6Exhausted)?,
+            )
+        } else {
+            None
+        };
+        Ok(AssignedAddresses { ipv4, ipv6 })
     }
 
     pub fn allocate(&mut self, username: &str) -> Option<Ipv4Addr> {
@@ -323,6 +627,13 @@ impl IpPool {
     }
 
     pub fn release(&mut self, username: &str) {
+        self.release_ipv4(username);
+        if let Some(ipv6) = &mut self.ipv6 {
+            ipv6.release(username);
+        }
+    }
+
+    fn release_ipv4(&mut self, username: &str) {
         if let Some(ip_val) = self.user_allocations.remove(username) {
             self.allocated.remove(&ip_val);
             // Offer it back to the next allocate (re-checked against excluded/allocated
@@ -366,7 +677,100 @@ mod tests {
             cidr: cidr.into(),
             exclude: Vec::new(),
             static_reservations: HashMap::new(),
+            ipv6: Default::default(),
         }
+    }
+
+    fn ipv6_config(cidr: &str) -> Ipv6PoolConfig {
+        Ipv6PoolConfig {
+            cidr: cidr.into(),
+            exclude: Vec::new(),
+            static_reservations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn ipv6_64_allocator_is_sparse_distinct_and_idempotent() {
+        let mut pool = Ipv6Pool::new(
+            &ipv6_config("fd42:1234:5678::/64"),
+            "fd42:1234:5678::1".parse().unwrap(),
+        )
+        .unwrap();
+        let alice = pool.allocate("alice").unwrap();
+        let bob = pool.allocate("bob").unwrap();
+        assert_eq!(alice, "fd42:1234:5678::2".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(pool.allocate("alice"), Some(alice));
+        assert_ne!(alice, bob);
+        assert_eq!(pool.allocated.len(), 2);
+        assert_eq!(pool.user_allocations.len(), 2);
+    }
+
+    #[test]
+    fn ipv6_release_reuses_address_without_enumerating_pool() {
+        let mut pool =
+            Ipv6Pool::new(&ipv6_config("fd42::/64"), "fd42::1".parse().unwrap()).unwrap();
+        let first = pool.allocate("alice").unwrap();
+        pool.release("alice");
+        assert_eq!(pool.allocate("bob"), Some(first));
+    }
+
+    #[test]
+    fn ipv6_reservation_is_assignable_only_explicitly() {
+        let mut config = ipv6_config("fd42::/120");
+        config
+            .static_reservations
+            .insert("alice".into(), "fd42::77".into());
+        let mut pool = Ipv6Pool::new(&config, "fd42::1".parse().unwrap()).expect("valid IPv6 pool");
+        let reserved = "fd42::77".parse::<Ipv6Addr>().unwrap();
+        assert_eq!(
+            pool.allocate_fixed("alice-device", reserved),
+            Some(reserved)
+        );
+        for index in 0..32 {
+            assert_ne!(pool.allocate(&format!("user-{index}")).unwrap(), reserved);
+        }
+    }
+
+    #[test]
+    fn ipv6_126_exhaustion_reserves_anycast_and_gateway() {
+        let mut pool =
+            Ipv6Pool::new(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap()).unwrap();
+        assert_eq!(pool.allocate("a"), Some("fd42::2".parse().unwrap()));
+        assert_eq!(pool.allocate("b"), Some("fd42::3".parse().unwrap()));
+        assert_eq!(pool.allocate("c"), None);
+    }
+
+    #[test]
+    fn dual_allocation_rolls_back_ipv4_when_ipv6_is_exhausted() {
+        let mut pool =
+            IpPool::new_with_tun(&pool_config("10.8.0.0/29"), "10.8.0.1".parse().unwrap()).unwrap();
+        pool.enable_ipv6(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap())
+            .unwrap();
+        assert!(pool.allocate_ipv6("v6-a").is_some());
+        assert!(pool.allocate_ipv6("v6-b").is_some());
+
+        assert_eq!(
+            pool.allocate_for_mode("dual", IpMode::Dual, None, None),
+            Err(AddressAllocationError::Ipv6Exhausted)
+        );
+        assert_eq!(pool.get_ip_by_username("dual"), None);
+        assert_eq!(pool.get_ipv6_by_username("dual"), None);
+        assert_eq!(
+            pool.allocate("next"),
+            Some("10.8.0.2".parse::<Ipv4Addr>().unwrap())
+        );
+    }
+
+    #[test]
+    fn ipv6_only_allocation_does_not_consume_ipv4_pool() {
+        let mut pool =
+            IpPool::new_ipv6_only(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap()).unwrap();
+        let assigned = pool
+            .allocate_for_mode("v6", IpMode::Ipv6, None, None)
+            .unwrap();
+        assert_eq!(assigned.ipv4, None);
+        assert_eq!(assigned.ipv6, Some("fd42::2".parse().unwrap()));
+        assert_eq!(pool.get_ip_by_username("v6"), None);
     }
 
     #[test]

@@ -231,9 +231,9 @@ from_source_install(){
   fi
   # 3) directories.
   mkdir -p /etc/qeli /var/log/qeli /var/lib/qeli
-  # 4) example configs — the same five the .deb ships.
+  # 4) example configs — the same complete set the .deb ships.
   local name
-  for name in server server-multiprofile users client client-reality; do
+  for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
     _pkg_file "qeli/config/${name}.conf" "etc/qeli/${name}.conf.example" "/etc/qeli/${name}.conf.example" \
       || die "could not obtain a VERIFIED ${name}.conf example (pass QELI_SRC=<repo checkout> for an offline install, or QELI_REF=<release tag>)."
   done
@@ -564,8 +564,15 @@ case "$PUBLIC_HOST" in
     die "PUBLIC_HOST '${PUBLIC_HOST}' starts with '-' — that is not an address." ;;
 esac
 [ "${#PUBLIC_HOST}" -le 253 ] || die "PUBLIC_HOST is ${#PUBLIC_HOST} characters long — no hostname is (max 253)."
+# Host:port authorities must bracket IPv6 literals (RFC 3986). Keep public_host itself bare:
+# qeli's config/share codec owns authority parsing and adds brackets where required.
+PUBLIC_AUTHORITY_HOST="$PUBLIC_HOST"
+PUBLIC_PANEL_BIND="0.0.0.0"
 case "$PUBLIC_HOST" in
-  *:*) die "PUBLIC_HOST '${PUBLIC_HOST}' is an IPv6 literal, but current qeli clients support IPv4 server endpoints only. Pass an IPv4 address or a hostname with an A record." ;;
+  *:*)
+    PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"
+    PUBLIC_PANEL_BIND="::"
+    ;;
 esac
 
 # ── 7. create users + save ready qeli:// connection strings ─────────────────
@@ -605,7 +612,7 @@ for i in $(seq 1 "$NUM_USERS"); do
   # account polling /proc, and put it into auditd execve records besides.
   # (Audit 2026-08-04.)
   if ! ADD_OUT="$(printf '%s' "$P" | qeli add-client "$U" --password-stdin --link \
-           --host "${PUBLIC_HOST}:${PORT}" --link-profile "$PROFILE" \
+           --host "${PUBLIC_AUTHORITY_HOST}:${PORT}" --link-profile "$PROFILE" \
            --config "$CONF" 2>&1)"; then
     printf '%s\n' "$ADD_OUT" >&2
     die "add-client failed for ${U} (output above)."
@@ -724,7 +731,7 @@ log "Enabling the web admin panel (HTTPS, generated password)"
 PANEL_PUBLIC=0
 PANEL_ALLOWED="${QELI_PANEL_ALLOWED_IPS:-}"
 if [ "${QELI_PANEL_PUBLIC:-0}" = "1" ]; then
-  [ -n "$PANEL_ALLOWED" ] || die "QELI_PANEL_PUBLIC=1 needs QELI_PANEL_ALLOWED_IPS=<ip[,ip…]> — publishing the admin panel on 0.0.0.0 with no source allowlist is refused. Use your own address, or drop QELI_PANEL_PUBLIC and reach the panel through an SSH tunnel:  ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${PUBLIC_HOST}"
+  [ -n "$PANEL_ALLOWED" ] || die "QELI_PANEL_PUBLIC=1 needs QELI_PANEL_ALLOWED_IPS=<ip[,ip…]> — publishing the admin panel on a wildcard bind with no source allowlist is refused. Use your own address, or drop QELI_PANEL_PUBLIC and reach the panel through an SSH tunnel:  ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${PUBLIC_HOST}"
   # Same reasoning as PUBLIC_HOST: this value lands in the config, so it is data only.
   # Comma-separated, no spaces (e.g. QELI_PANEL_ALLOWED_IPS=203.0.113.4,198.51.100.0/24).
   case "$PANEL_ALLOWED" in
@@ -742,9 +749,9 @@ if [ -n "$PANEL_PW" ] && printf '%s' "$PANEL_PW" \
   _conf_web_set tls true
   _conf_web_set public_host "$PUBLIC_HOST"     # default host for share links/QR
   if [ "$PANEL_PUBLIC" = "1" ]; then
-    _conf_web_set bind 0.0.0.0
+    _conf_web_set bind "$PUBLIC_PANEL_BIND"
     _conf_web_set allowed_ips "$PANEL_ALLOWED"
-    PANEL_URL="https://${PUBLIC_HOST}:${PANEL_PORT}"
+    PANEL_URL="https://${PUBLIC_AUTHORITY_HOST}:${PANEL_PORT}"
   else
     _conf_web_set bind 127.0.0.1
     PANEL_URL="https://127.0.0.1:${PANEL_PORT}  (loopback only — tunnel in: ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${PUBLIC_HOST})"
@@ -807,7 +814,7 @@ fi
 
 log "Done"
 cat <<EOF
-Server:        ${PROFILE} (${TRANSPORT_UC}) on ${PUBLIC_HOST}:${PORT}   (full-tunnel NAT enabled)
+Server:        ${PROFILE} (${TRANSPORT_UC}) on ${PUBLIC_AUTHORITY_HOST}:${PORT}   (full-tunnel NAT enabled)
 Identity key:  ${PUBKEY:-<run: qeli show-identity --config $CONF>}
 Users:         ${NUM_USERS}  (${USER_PREFIX}1 … ${USER_PREFIX}${NUM_USERS})
 Web panel:     $([ -n "$PANEL_PW" ] && echo "${PANEL_URL}  →  login: admin  /  ${PANEL_PW}" || echo "disabled (set: qeli set-web-password)")
@@ -822,6 +829,6 @@ NEXT STEPS:
   • Open inbound ${TRANSPORT_UC} ${PORT}$([ "$PANEL_PUBLIC" = "1" ] && printf ' and TCP %s (panel)' "$PANEL_PORT") in your cloud firewall / security group.
   • Add a connection string to the app — that's all. To print one:
       cat ${LINKS_DIR}/${USER_PREFIX}1.qeli
-$([ "$PANEL_PUBLIC" = "1" ] && printf '  \342\200\242 The panel is PUBLIC on 0.0.0.0:%s, restricted to allowed_ips = %s.\n    Widen or narrow it in the [web] section of %s.\n' "$PANEL_PORT" "$PANEL_ALLOWED" "$CONF")
+$([ "$PANEL_PUBLIC" = "1" ] && printf '  \342\200\242 The panel is PUBLIC at %s, restricted to allowed_ips = %s.\n    Widen or narrow it in the [web] section of %s.\n' "$PANEL_URL" "$PANEL_ALLOWED" "$CONF")
 $([ "$PANEL_PUBLIC" = "0" ] && [ -n "$PANEL_PW" ] && printf '  \342\200\242 The panel listens on LOOPBACK only. Reach it with an SSH tunnel:\n      ssh -L %s:127.0.0.1:%s root@%s   then open https://127.0.0.1:%s\n    To publish it instead, set web.bind = 0.0.0.0 AND web.allowed_ips in %s.\n' "$PANEL_PORT" "$PANEL_PORT" "$PUBLIC_HOST" "$PANEL_PORT" "$CONF")
 EOF

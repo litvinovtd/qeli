@@ -137,6 +137,11 @@ class TransportCoreEventTest {
     fun decodesCanonicalNetworkPlanAndCorrelatesGeneration() {
         val payload = """{
             "generation":9,
+            "family_mode":"ipv4",
+            "addresses":[{
+                "family":"ipv4","address":"10.8.0.2","prefix_len":24,
+                "on_link_prefix_len":24,"gateway":"10.8.0.1"
+            }],
             "tunnel_address":"10.8.0.2",
             "prefix_len":24,
             "mtu":1400,
@@ -146,6 +151,8 @@ class TransportCoreEventTest {
             "dns_servers":[{"address":"10.8.0.1","port":53}],
             "full_tunnel":false,
             "kill_switch":false,
+            "allow_ipv4_leak":false,
+            "allow_ipv6_leak":false,
             "max_streams":4,
             "adaptive":true,
             "data_plane":{
@@ -159,6 +166,8 @@ class TransportCoreEventTest {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
 
         assertEquals(9L, plan.generation)
+        assertEquals("ipv4", plan.familyMode)
+        assertEquals("10.8.0.2", plan.addresses.single().address)
         assertEquals("10.8.0.2", plan.tunnelAddress)
         assertEquals(24, plan.prefixLength)
         assertEquals(1400, plan.mtu)
@@ -171,6 +180,35 @@ class TransportCoreEventTest {
         assertEquals(true, plan.dataPlane.paddingEnabled)
         assertEquals(15000L, plan.dataPlane.heartbeatIntervalMs)
         assertEquals(listOf("server push: mtu 1400 ACCEPTED"), plan.connectionLog)
+    }
+
+    @Test
+    fun decodesDualStackAddressesWithoutCollapsingTheHostPrefixes() {
+        val payload = """{
+            "generation":9,
+            "family_mode":"dual",
+            "addresses":[
+              {"family":"ipv4","address":"10.8.0.2","prefix_len":32,
+               "on_link_prefix_len":24,"gateway":"10.8.0.1"},
+              {"family":"ipv6","address":"fd71:e100::2","prefix_len":128,
+               "on_link_prefix_len":64,"gateway":"fd71:e100::1"}
+            ],
+            "tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1280,
+            "tunnel_gateway":"10.8.0.1","routes":[],"pushed_routes":[],
+            "dns_servers":[{"address":"fd71:e100::1","port":53}],
+            "full_tunnel":true,"kill_switch":false,
+            "allow_ipv4_leak":false,"allow_ipv6_leak":false
+        }""".trimIndent().toByteArray()
+
+        val plan = TransportCoreEventCodec.decodeNetworkPlan(
+            TransportCoreEventCodec.decode(frame(payload))
+        )
+
+        assertEquals("dual", plan.familyMode)
+        assertEquals(listOf("ipv4", "ipv6"), plan.addresses.map { it.family })
+        assertEquals(32, plan.addresses[0].prefixLength)
+        assertEquals(128, plan.addresses[1].prefixLength)
+        assertEquals(64, plan.addresses[1].onLinkPrefixLength)
     }
 
     @Test
@@ -187,7 +225,10 @@ class TransportCoreEventTest {
         }
 
         val invalidDns = """{
-            "generation":9,"tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1400,
+            "generation":9,"family_mode":"ipv4",
+            "addresses":[{"family":"ipv4","address":"10.8.0.2","prefix_len":24,
+              "on_link_prefix_len":24,"gateway":"10.8.0.1"}],
+            "tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1400,
             "tunnel_gateway":"10.8.0.1","routes":[],
             "dns_servers":[{"address":"1.1.1.1","port":0}],
             "full_tunnel":true,"kill_switch":false
@@ -196,6 +237,43 @@ class TransportCoreEventTest {
             TransportCoreEventCodec.decodeNetworkPlan(
                 TransportCoreEventCodec.decode(frame(invalidDns))
             )
+        }
+    }
+
+    @Test
+    fun rejectsNetworkPlanFactsThatCannotBeAppliedByTheActiveFamily() {
+        val canonical = """{
+            "generation":9,"family_mode":"ipv4",
+            "addresses":[{"family":"ipv4","address":"10.8.0.2","prefix_len":32,
+              "on_link_prefix_len":24,"gateway":"10.8.0.1"}],
+            "tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1400,
+            "tunnel_gateway":"10.8.0.1","carrier_address":"192.0.2.10",
+            "routes":[{"cidr":"10.20.0.0/16","gateway":"10.8.0.1","metric":100}],
+            "pushed_routes":["10.20.0.0/16"],
+            "dns_servers":[{"address":"10.8.0.1","port":53}],
+            "full_tunnel":false,"kill_switch":false
+        }""".trimIndent()
+
+        val invalidPlans = listOf(
+            canonical.replace("\"on_link_prefix_len\":24", "\"on_link_prefix_len\":33"),
+            canonical.replace("\"mtu\":1400", "\"mtu\":16639"),
+            canonical.replace("\"tunnel_gateway\":\"10.8.0.1\"",
+                "\"tunnel_gateway\":\"10.8.0.9\""),
+            canonical.replace("\"cidr\":\"10.20.0.0/16\"",
+                "\"cidr\":\"2001:db8:20::/48\"")
+                .replace("\"gateway\":\"10.8.0.1\",\"metric\"",
+                    "\"gateway\":\"2001:db8::1\",\"metric\""),
+            canonical.replace("\"address\":\"10.8.0.1\",\"port\"",
+                "\"address\":\"2001:db8::53\",\"port\""),
+            canonical.replace("\"carrier_address\":\"192.0.2.10\"",
+                "\"carrier_address\":\"not-an-ip\""),
+        )
+        invalidPlans.forEach { payload ->
+            assertThrows(IllegalArgumentException::class.java) {
+                TransportCoreEventCodec.decodeNetworkPlan(
+                    TransportCoreEventCodec.decode(frame(payload.toByteArray()))
+                )
+            }
         }
     }
 }

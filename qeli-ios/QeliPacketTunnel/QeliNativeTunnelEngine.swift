@@ -4,6 +4,8 @@ import NetworkExtension
 
 private struct NativeNetworkPlan: Decodable, Sendable {
     var generation: UInt64
+    var familyMode: String
+    var addresses: [NativeNetworkAddress]
     var tunnelAddress: String
     var prefixLen: Int
     var mtu: Int
@@ -14,10 +16,20 @@ private struct NativeNetworkPlan: Decodable, Sendable {
     var dnsServers: [NativeNetworkDNS]
     var fullTunnel: Bool
     var killSwitch: Bool
+    var allowIpv4Leak: Bool
+    var allowIpv6Leak: Bool
     var maxStreams: Int
     var adaptive: Bool
     var dataPlane: NativeDataPlaneFacts
     var connectionLog: [String]?
+}
+
+private struct NativeNetworkAddress: Decodable, Sendable {
+    var family: String
+    var address: String
+    var prefixLen: Int
+    var onLinkPrefixLen: Int
+    var gateway: String?
 }
 
 private struct NativeNetworkRoute: Decodable, Sendable {
@@ -134,7 +146,7 @@ private final class NativeDNSLimiter: @unchecked Sendable {
 ///
 /// The adapter owns no wire protocol. It applies authenticated network plans, enforces the
 /// iOS trust store and copies bounded IP batches between `NEPacketTunnelFlow` and the current
-/// ABI 1.10 contract (using the packet seam introduced in ABI 1.7).
+/// ABI 1.11 contract (using the packet seam introduced in ABI 1.7).
 final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static let settingsTimeoutMilliseconds = 15_000
     private static let pollNanoseconds: UInt64 = 10_000_000
@@ -212,10 +224,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         // Re-serialize through the iOS model so platform-unsupported keys (notably the
         // Linux/desktop `kill_switch`) keep their documented iOS semantics instead of making
         // the Rust plan require a capability NetworkExtension cannot provide.
-        // Resolve all A records before installing even the bootstrap TUN. Each reconnect also
+        // Resolve all A/AAAA records before installing even the bootstrap TUN. Each reconnect also
         // refreshes this set; a temporarily unavailable resolver falls back to these last-known
         // addresses so DDNS support never makes an ordinary outage less recoverable.
-        let resolvedCarriers = try await Self.resolveIPv4Candidates(config.serverAddress)
+        let resolvedCarriers = try await Self.resolveIPCandidates(config.serverAddress)
         let transport = try QeliNativeTransport(config: try config.toTransportCoreINI())
         try transport.setDeviceID(try SecureIdentityStore().deviceID())
         try await applyBootstrapSettings()
@@ -258,7 +270,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             throw CancellationError()
         }
         if detailedLogging {
-            sharedStore.appendLog("Native ABI 1.10 transport started; TUN remains fail-closed until NetworkPlan ACK")
+            sharedStore.appendLog("Native ABI 1.11 transport started; TUN remains fail-closed until NetworkPlan ACK")
         }
     }
 
@@ -419,7 +431,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 carrierGeneration &+= 1
                 let latest: [String]
                 do {
-                    latest = try await Self.resolveIPv4Candidates(config.serverAddress)
+                        latest = try await Self.resolveIPCandidates(config.serverAddress)
                     let previous = stateLock.withLock { carrierAddresses }
                     if latest != previous {
                         sharedStore.appendLog(
@@ -597,7 +609,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             throw NativeTunnelError.invalidNetworkPlan
         }
         sharedStore.appendLog(
-            "Auth OK: user='\(Self.logValue(config.username))', IP \(plan.tunnelAddress)"
+            "Auth OK: user='\(Self.logValue(config.username))', " +
+            "addresses \(plan.addresses.map { "\($0.address)/\($0.prefixLen)" }.joined(separator: ", "))"
         )
         (plan.connectionLog ?? []).forEach { sharedStore.appendLog($0) }
         do {
@@ -611,7 +624,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             sharedStore.appendLog(
                 "Native NetworkPlan \(plan.generation) APPLIED: " +
                 "mode=\(plan.fullTunnel ? "full" : "split") " +
-                "address=\(plan.tunnelAddress)/\(plan.prefixLen) mtu=\(plan.mtu) " +
+                "family=\(plan.familyMode) addresses=" +
+                "\(plan.addresses.map { "\($0.address)/\($0.prefixLen)" }.joined(separator: ", ")) " +
+                "mtu=\(plan.mtu) " +
                 "dns=\(dns) plan_routes=\(plan.routes.count) " +
                 "pushed_routes=\(plan.pushedRoutes.count)"
             )
@@ -690,13 +705,14 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             while !Task.isCancelled, !self.stateLock.withLock({ self.stopped }) {
                 let (packets, protocols) = await self.readPackets()
                 if Task.isCancelled { return }
-                let ipv4 = zip(packets, protocols).compactMap { pair in
-                    pair.1.int32Value == AF_INET ? pair.0 : nil
+                let ipPackets = zip(packets, protocols).compactMap { pair in
+                    pair.1.int32Value == AF_INET || pair.1.int32Value == AF_INET6
+                        ? pair.0 : nil
                 }
                 var offset = 0
-                while offset < ipv4.count, !Task.isCancelled {
+                while offset < ipPackets.count, !Task.isCancelled {
                     do {
-                        let accepted = try transport.pushPackets(ipv4[offset...], generation: generation)
+                        let accepted = try transport.pushPackets(ipPackets[offset...], generation: generation)
                         if accepted == 0 {
                             try await Task.sleep(nanoseconds: Self.emptyPullNanoseconds)
                         } else {
@@ -766,6 +782,11 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private func applyBootstrapSettings() async throws {
         let plan = NativeNetworkPlan(
             generation: 0,
+            familyMode: "ipv4",
+            addresses: [NativeNetworkAddress(
+                family: "ipv4", address: "198.18.0.1", prefixLen: 32,
+                onLinkPrefixLen: 32, gateway: "198.18.0.1"
+            )],
             tunnelAddress: "198.18.0.1",
             prefixLen: 32,
             mtu: config.mtu > 0 ? config.mtu : 1_400,
@@ -776,6 +797,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             dnsServers: [],
             fullTunnel: config.isFullTunnel,
             killSwitch: false,
+            allowIpv4Leak: config.allowIPv4Leak,
+            allowIpv6Leak: config.allowIPv6Leak,
             maxStreams: 1,
             adaptive: false,
             dataPlane: NativeDataPlaneFacts(
@@ -795,12 +818,52 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         _ plan: NativeNetworkPlan,
         publishFacts: Bool = true
     ) async throws {
-        guard (0...32).contains(plan.prefixLen),
-              Self.isIPv4Address(plan.tunnelAddress),
-              Self.isIPv4Address(plan.tunnelGateway),
-              (VPNConfig.mtuMin...VPNConfig.mtuMax).contains(plan.mtu) else {
+        let ipv4Addresses = plan.addresses.filter { $0.family == "ipv4" }
+        let ipv6Addresses = plan.addresses.filter { $0.family == "ipv6" }
+        let familyMatches = switch plan.familyMode {
+        case "ipv4": ipv4Addresses.count == 1 && ipv6Addresses.isEmpty
+        case "ipv6": ipv4Addresses.isEmpty && ipv6Addresses.count == 1
+        case "dual": ipv4Addresses.count == 1 && ipv6Addresses.count == 1
+        default: false
+        }
+        guard familyMatches, plan.addresses.count == ipv4Addresses.count + ipv6Addresses.count,
+              plan.routes.count <= 256, plan.pushedRoutes.count <= 256,
+              plan.dnsServers.count <= 8, (plan.connectionLog?.count ?? 0) <= 280,
+              (VPNConfig.mtuMin...VPNConfig.mtuMax).contains(plan.mtu),
+              (ipv6Addresses.isEmpty || plan.mtu >= 1_280),
+              let projection = plan.addresses.first(where: { $0.address == plan.tunnelAddress }),
+              projection.onLinkPrefixLen == plan.prefixLen,
+              projection.gateway == plan.tunnelGateway,
+              (projection.family == "ipv4"
+                ? Self.isIPv4Address(plan.tunnelGateway)
+                : Self.isUsableTunnelIPv6(plan.tunnelGateway)) else {
             throw NativeTunnelError.invalidNetworkPlan
         }
+        if let carrier = plan.carrierAddress,
+           !Self.isIPv4Address(carrier) && !Self.isIPv6Address(carrier) {
+            throw NativeTunnelError.invalidNetworkPlan
+        }
+        for assigned in plan.addresses {
+            let ipv4 = assigned.family == "ipv4"
+            let maximum = ipv4 ? 32 : 128
+            guard (1...maximum).contains(assigned.prefixLen),
+                  (1...maximum).contains(assigned.onLinkPrefixLen),
+                  assigned.onLinkPrefixLen <= assigned.prefixLen,
+                  ipv4 ? Self.isIPv4Address(assigned.address)
+                       : Self.isUsableTunnelIPv6(assigned.address)
+            else { throw NativeTunnelError.invalidNetworkPlan }
+            if let gateway = assigned.gateway {
+                guard ipv4 ? Self.isIPv4Address(gateway) : Self.isUsableTunnelIPv6(gateway)
+                else { throw NativeTunnelError.invalidNetworkPlan }
+            }
+        }
+        guard plan.pushedRoutes.allSatisfy({
+            Self.ipv4Route($0) != nil || Self.ipv6Route($0) != nil
+        }), (plan.connectionLog ?? []).allSatisfy({ line in
+            line.utf8.count <= 1_024 && !line.unicodeScalars.contains(where: {
+                CharacterSet.controlCharacters.contains($0)
+            })
+        }) else { throw NativeTunnelError.invalidNetworkPlan }
         let requestGeneration = stateLock.withLock { () -> UInt64 in
             networkSettingsGeneration &+= 1
             return networkSettingsGeneration
@@ -808,55 +871,127 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         let network = NEPacketTunnelNetworkSettings(
             tunnelRemoteAddress: plan.carrierAddress ?? config.serverAddress
         )
-        let ipv4 = NEIPv4Settings(
-            addresses: [plan.tunnelAddress],
-            subnetMasks: [Self.ipv4Mask(prefixLength: plan.prefixLen)]
+        guard plan.routes.allSatisfy({
+            Self.ipv4Route($0.cidr) != nil || Self.ipv6Route($0.cidr) != nil
+        }) else { throw NativeTunnelError.invalidNetworkPlan }
+        for route in plan.routes {
+            let routeIsIPv4 = Self.ipv4Route(route.cidr) != nil
+            let routeIsIPv6 = Self.ipv6Route(route.cidr) != nil
+            guard (routeIsIPv4 && !ipv4Addresses.isEmpty && Self.isIPv4Address(route.gateway))
+                    || (routeIsIPv6 && !ipv6Addresses.isEmpty
+                        && Self.isUsableTunnelIPv6(route.gateway))
+            else { throw NativeTunnelError.invalidNetworkPlan }
+        }
+        let allowLAN = config.allowLAN || SettingsStore().load().allowLAN
+        let effectiveExcludes = RouteExclusionPlanner.effectiveExcludes(
+            configured: config.excludeRoutes,
+            fullTunnel: plan.fullTunnel,
+            allowLAN: allowLAN
         )
-        let plannedIPv4Routes = plan.routes.compactMap { Self.ipv4Route($0.cidr) }
-        let plannedIPv6Routes = plan.routes.compactMap { Self.ipv6Route($0.cidr) }
-        guard plannedIPv4Routes.count + plannedIPv6Routes.count == plan.routes.count else {
+        let excluded = effectiveExcludes.compactMap(Self.ipv4Route)
+        let excludedIPv6 = effectiveExcludes.compactMap(Self.ipv6Route)
+        guard excluded.count + excludedIPv6.count == effectiveExcludes.count else {
             throw NativeTunnelError.invalidNetworkPlan
         }
-        var included = plannedIPv4Routes
-        if plan.fullTunnel { included.append(.default()) }
-        ipv4.includedRoutes = Self.deduplicated(included)
-
-        var excluded = config.excludeRoutes.compactMap(Self.ipv4Route)
-        var excludedIPv6 = config.excludeRoutes.compactMap(Self.ipv6Route)
-        guard excluded.count + excludedIPv6.count == config.excludeRoutes.count else {
+        let protectedDNSRoutes = Set(plan.dnsServers.map { dns in
+            "\(dns.address)/\(Self.isIPv4Address(dns.address) ? 32 : 128)"
+        })
+        for assigned in plan.addresses {
+            guard let gateway = assigned.gateway else { continue }
+            for excludedRoute in effectiveExcludes {
+                guard let overrides = RouteExclusionPlanner.overridesOnLinkGateway(
+                    excludedRoute,
+                    gateway: gateway,
+                    onLinkPrefixLength: assigned.onLinkPrefixLen
+                ), !overrides else { throw NativeTunnelError.invalidNetworkPlan }
+            }
+        }
+        var effectivePlanCIDRs: [String] = []
+        for route in plan.routes {
+            let fragments: [String]?
+            if protectedDNSRoutes.contains(route.cidr) {
+                fragments = [route.cidr]
+            } else {
+                fragments = RouteExclusionPlanner.subtract(
+                    route.cidr,
+                    excludes: effectiveExcludes
+                )
+            }
+            guard let fragments else { throw NativeTunnelError.invalidNetworkPlan }
+            effectivePlanCIDRs += fragments
+            guard effectivePlanCIDRs.count <= RouteExclusionPlanner.maximumRoutes else {
+                throw NativeTunnelError.invalidNetworkPlan
+            }
+        }
+        let plannedIPv4Routes = effectivePlanCIDRs.compactMap(Self.ipv4Route)
+        let plannedIPv6Routes = effectivePlanCIDRs.compactMap(Self.ipv6Route)
+        guard plannedIPv4Routes.count + plannedIPv6Routes.count == effectivePlanCIDRs.count else {
             throw NativeTunnelError.invalidNetworkPlan
         }
-        if config.allowLAN || SettingsStore().load().allowLAN {
-            excluded += [
-                NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
-                NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
-                NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
-                NEIPv4Route(destinationAddress: "169.254.0.0", subnetMask: "255.255.0.0"),
-                NEIPv4Route(destinationAddress: "224.0.0.0", subnetMask: "240.0.0.0")
-            ]
+        if let assigned = ipv4Addresses.first {
+            let ipv4 = NEIPv4Settings(
+                addresses: [assigned.address],
+                subnetMasks: [Self.ipv4Mask(prefixLength: assigned.prefixLen)]
+            )
+            var included = plannedIPv4Routes
+            if assigned.onLinkPrefixLen < assigned.prefixLen {
+                guard let destination = Self.networkAddress(
+                    assigned.address,
+                    prefixLength: assigned.onLinkPrefixLen,
+                    family: AF_INET
+                ) else { throw NativeTunnelError.invalidNetworkPlan }
+                included.append(NEIPv4Route(
+                    destinationAddress: destination,
+                    subnetMask: Self.ipv4Mask(prefixLength: assigned.onLinkPrefixLen)
+                ))
+            }
+            if plan.fullTunnel { included.append(.default()) }
+            ipv4.includedRoutes = Self.deduplicated(included)
+            ipv4.excludedRoutes = Self.deduplicated(excluded)
+            network.ipv4Settings = ipv4
+        } else if plan.fullTunnel && !plan.allowIpv4Leak {
+            let sink = NEIPv4Settings(
+                addresses: ["198.18.0.1"], subnetMasks: ["255.255.255.255"]
+            )
+            sink.includedRoutes = [.default()]
+            sink.excludedRoutes = Self.deduplicated(excluded)
+            network.ipv4Settings = sink
         }
-        ipv4.excludedRoutes = Self.deduplicated(excluded)
-        network.ipv4Settings = ipv4
 
-        if (plan.fullTunnel && !config.allowIPv6Leak) || !plannedIPv6Routes.isEmpty {
+        if let assigned = ipv6Addresses.first {
             let ipv6 = NEIPv6Settings(
-                addresses: ["fd00:7165:6c69::2"],
-                networkPrefixLengths: [64]
+                addresses: [assigned.address],
+                networkPrefixLengths: [NSNumber(value: assigned.prefixLen)]
             )
             var includedIPv6 = plannedIPv6Routes
-            if plan.fullTunnel && !config.allowIPv6Leak { includedIPv6.append(.default()) }
-            ipv6.includedRoutes = Self.deduplicated(includedIPv6)
-            if config.allowLAN || SettingsStore().load().allowLAN {
-                excludedIPv6 += [
-                    NEIPv6Route(destinationAddress: "fe80::", networkPrefixLength: NSNumber(value: 10)),
-                    NEIPv6Route(destinationAddress: "fc00::", networkPrefixLength: NSNumber(value: 7)),
-                    NEIPv6Route(destinationAddress: "ff00::", networkPrefixLength: NSNumber(value: 8))
-                ]
+            if assigned.onLinkPrefixLen < assigned.prefixLen {
+                guard let destination = Self.networkAddress(
+                    assigned.address,
+                    prefixLength: assigned.onLinkPrefixLen,
+                    family: AF_INET6
+                ) else { throw NativeTunnelError.invalidNetworkPlan }
+                includedIPv6.append(NEIPv6Route(
+                    destinationAddress: destination,
+                    networkPrefixLength: NSNumber(value: assigned.onLinkPrefixLen)
+                ))
             }
+            if plan.fullTunnel { includedIPv6.append(.default()) }
+            ipv6.includedRoutes = Self.deduplicated(includedIPv6)
             ipv6.excludedRoutes = Self.deduplicated(excludedIPv6)
             network.ipv6Settings = ipv6
+        } else if plan.fullTunnel && !plan.allowIpv6Leak {
+            let sink = NEIPv6Settings(
+                addresses: ["fd00:7165:6c69::2"], networkPrefixLengths: [128]
+            )
+            sink.includedRoutes = [.default()]
+            sink.excludedRoutes = Self.deduplicated(excludedIPv6)
+            network.ipv6Settings = sink
         }
 
+        guard plan.dnsServers.allSatisfy({ dns in
+            (Self.isIPv4Address(dns.address) && !ipv4Addresses.isEmpty)
+                || (Self.isIPv6Address(dns.address) && !ipv6Addresses.isEmpty)
+        }) else { throw NativeTunnelError.invalidNetworkPlan }
         if let unsupportedDNS = plan.dnsServers.first(where: { $0.port != 53 }) {
             throw NativeTunnelError.unsupportedDNSPort(
                 address: unsupportedDNS.address,
@@ -900,8 +1035,11 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         }
 
         if publishFacts {
+            let effectiveRouteSet = Set(effectivePlanCIDRs)
+            let pushedRoutesInstalled = plan.pushedRoutes.filter(effectiveRouteSet.contains).count
             stateLock.withLock {
                 snapshot.clientAddress = plan.tunnelAddress
+                snapshot.tunnelGateway = plan.tunnelGateway
                 snapshot.pushedDNS = plan.dnsServers.first?.address
                 snapshot.appliedMTU = plan.mtu
                 snapshot.maxStreams = max(1, plan.maxStreams)
@@ -909,7 +1047,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 snapshot.pushed = PushedFacts(
                     routes: Array(plan.pushedRoutes.prefix(PushedFacts.routeSample)),
                     routeCount: plan.pushedRoutes.count,
-                    routesInstalled: plan.pushedRoutes.count,
+                    routesInstalled: pushedRoutesInstalled,
                     multipathAdaptive: plan.adaptive,
                     paddingEnabled: plan.dataPlane.paddingEnabled,
                     paddingMin: plan.dataPlane.paddingMin,
@@ -920,6 +1058,13 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 )
                 snapshot.updatedAt = Date()
                 sharedStore.save(snapshot)
+            }
+            if pushedRoutesInstalled < plan.pushedRoutes.count {
+                sharedStore.appendLog(
+                    "WARNING: \(plan.pushedRoutes.count - pushedRoutesInstalled) of "
+                        + "\(plan.pushedRoutes.count) pushed route(s) were fully or partially "
+                        + "excluded by client/LAN routing policy"
+                )
             }
         }
     }
@@ -970,6 +1115,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.message = "Connected — Rust transport core"
             snapshot.error = nil
             snapshot.clientAddress = plan.tunnelAddress
+            snapshot.tunnelGateway = plan.tunnelGateway
             if snapshot.connectedAt == nil { snapshot.connectedAt = Date() }
             snapshot.updatedAt = Date()
             sharedStore.save(snapshot)
@@ -1097,6 +1243,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.message = message
             snapshot.error = error
             snapshot.clientAddress = nil
+            snapshot.tunnelGateway = nil
             snapshot.connectedAt = nil
             snapshot.bytesUploaded = 0
             snapshot.bytesDownloaded = 0
@@ -1147,7 +1294,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static func ipv4Route(_ cidr: String) -> NEIPv4Route? {
         let parts = cidr.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
         let destination = parts.first.map(String.init) ?? ""
-        let prefix = parts.count == 1 ? 32 : Int(parts[1])
+        let prefix = parts.count == 2 ? Int(parts[1]) : nil
         guard let prefix, (0...32).contains(prefix), isIPv4Address(destination) else {
             return nil
         }
@@ -1165,7 +1312,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static func ipv6Route(_ cidr: String) -> NEIPv6Route? {
         let parts = cidr.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
         let destination = parts.first.map(String.init) ?? ""
-        let prefix = parts.count == 1 ? 128 : Int(parts[1])
+        let prefix = parts.count == 2 ? Int(parts[1]) : nil
         guard let prefix, (0...128).contains(prefix), isIPv6Address(destination) else {
             return nil
         }
@@ -1180,7 +1327,54 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         return text.withCString { inet_pton(AF_INET6, $0, &address) } == 1
     }
 
-    private static func resolveIPv4Candidates(_ host: String) async throws -> [String] {
+    private static func isUsableTunnelIPv6(_ text: String) -> Bool {
+        var address = in6_addr()
+        guard text.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else {
+            return false
+        }
+        let bytes = withUnsafeBytes(of: address) { Array($0) }
+        let unspecified = bytes.allSatisfy { $0 == 0 }
+        let loopback = bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1
+        let multicast = bytes[0] == 0xff
+        let linkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80
+        let ipv4Mapped = bytes.prefix(10).allSatisfy { $0 == 0 }
+            && bytes[10] == 0xff && bytes[11] == 0xff
+        return !unspecified && !loopback && !multicast && !linkLocal && !ipv4Mapped
+    }
+
+    private static func networkAddress(
+        _ text: String,
+        prefixLength: Int,
+        family: Int32
+    ) -> String? {
+        let byteCount = family == AF_INET ? 4 : 16
+        guard (0...(byteCount * 8)).contains(prefixLength) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let parsed = text.withCString { source in
+            bytes.withUnsafeMutableBytes { storage in
+                inet_pton(family, source, storage.baseAddress)
+            }
+        }
+        guard parsed == 1 else { return nil }
+        let wholeBytes = prefixLength / 8
+        let remainingBits = prefixLength % 8
+        if remainingBits != 0 {
+            bytes[wholeBytes] &= UInt8((0xff << (8 - remainingBits)) & 0xff)
+        }
+        let zeroFrom = wholeBytes + (remainingBits == 0 ? 0 : 1)
+        if zeroFrom < bytes.count {
+            for index in zeroFrom..<bytes.count { bytes[index] = 0 }
+        }
+        var output = [CChar](repeating: 0, count: family == AF_INET
+            ? Int(INET_ADDRSTRLEN) : Int(INET6_ADDRSTRLEN))
+        let rendered = bytes.withUnsafeBytes { storage in
+            inet_ntop(family, storage.baseAddress, &output, socklen_t(output.count))
+        }
+        return rendered == nil ? nil : String(cString: output)
+    }
+
+    private static func resolveIPCandidates(_ host: String) async throws -> [String] {
+        if isIPv4Address(host) || isIPv6Address(host) { return [host] }
         guard Self.dnsLimiter.begin() else {
             throw NativeTunnelError.transportStopped(
                 "A previous physical-network DNS lookup is still in progress."
@@ -1191,7 +1385,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             completion.park(continuation)
             DispatchQueue.global(qos: .utility).async {
                 defer { Self.dnsLimiter.finish() }
-                completion.finish(Result { try resolveIPv4CandidatesBlocking(host) })
+                completion.finish(Result { try resolveIPCandidatesBlocking(host) })
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) {
                 completion.finish(.failure(NativeTunnelError.dnsResolutionTimedOut))
@@ -1200,15 +1394,15 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         return try outcome.get()
     }
 
-    private static func resolveIPv4CandidatesBlocking(_ host: String) throws -> [String] {
+    private static func resolveIPCandidatesBlocking(_ host: String) throws -> [String] {
         var hints = addrinfo()
         hints.ai_flags = AI_ADDRCONFIG
-        hints.ai_family = AF_INET
+        hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
         var head: UnsafeMutablePointer<addrinfo>?
         let status = host.withCString { getaddrinfo($0, nil, &hints, &head) }
         guard status == 0, let first = head else {
-            let reason = status == 0 ? "no IPv4 result" : String(cString: gai_strerror(status))
+            let reason = status == 0 ? "no IP result" : String(cString: gai_strerror(status))
             throw NativeTunnelError.transportStopped(
                 "Could not resolve \(host) on the physical network: \(reason)"
             )
@@ -1226,11 +1420,19 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     let value = String(cString: buffer)
                     if seen.insert(value).inserted { output.append(value) }
                 }
+            } else if item.pointee.ai_family == AF_INET6, let raw = item.pointee.ai_addr {
+                var address = UnsafeRawPointer(raw)
+                    .assumingMemoryBound(to: sockaddr_in6.self).pointee.sin6_addr
+                var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                if inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil {
+                    let value = String(cString: buffer)
+                    if seen.insert(value).inserted { output.append(value) }
+                }
             }
             cursor = item.pointee.ai_next
         }
         guard !output.isEmpty else {
-            throw NativeTunnelError.transportStopped("\(host) has no IPv4 carrier address.")
+            throw NativeTunnelError.transportStopped("\(host) has no IPv4 or IPv6 carrier address.")
         }
         return output
     }

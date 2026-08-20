@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000b)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -57,6 +57,8 @@ enum qeli_client_payload_format {
     QELI_CLIENT_PAYLOAD_UTF8 = 2
 };
 
+/* ABI 1.11 adds the dual-family platform capability contract. NetworkPlan v2 itself is an
+ * additive JSON payload, so the fixed event/stats structure prefixes remain unchanged. */
 enum qeli_client_platform_capability {
     QELI_PLATFORM_ROUTES = UINT64_C(1) << 0,
     QELI_PLATFORM_DNS = UINT64_C(1) << 1,
@@ -65,7 +67,11 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_TUN_PACKET_BATCH = UINT64_C(1) << 4,
     QELI_PLATFORM_SOCKET_PROTECT = UINT64_C(1) << 5,
     QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6,
-    QELI_PLATFORM_TUN_WINTUN = UINT64_C(1) << 7
+    QELI_PLATFORM_TUN_WINTUN = UINT64_C(1) << 7,
+    QELI_PLATFORM_IPV6_TUN = UINT64_C(1) << 8,
+    QELI_PLATFORM_IPV6_ROUTES = UINT64_C(1) << 9,
+    QELI_PLATFORM_IPV6_DNS = UINT64_C(1) << 10,
+    QELI_PLATFORM_IPV6_KILL_SWITCH = UINT64_C(1) << 11
 };
 
 enum qeli_client_core_capability {
@@ -182,8 +188,8 @@ int32_t qeli_client_start(uint64_t handle);
  * ABI 1.6. Run one complete Rust-owned transport generation. This call blocks and must
  * execute on a platform IO worker while another worker drains and acknowledges events.
  * `input` is bounded JSON. Optional `fallback_dns_servers` supplies platform DNS fallback;
- * optional `carrier_addresses` supplies ordered IPv4 A-records resolved on the physical
- * network before/while the TUN is retained, avoiding resolver loops during reconnect.
+ * optional `carrier_addresses` supplies ordered IPv4/IPv6 A/AAAA records resolved on the
+ * physical network before/while the TUN is retained, avoiding resolver loops during reconnect.
  * Callers must require QELI_CORE_NATIVE_DATA_PLANE before invoking it.
  */
 int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);

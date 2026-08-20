@@ -29,9 +29,9 @@ in it — those are either pushed by the server on connect or set in the client'
 qeli://<user>:<pass>@<host>:<port>?<parameters>#<label>
 ```
 
-Server endpoints are IPv4-only in 0.7.16. Use an IPv4 literal or a hostname with at least one
-A record. The installer, CLI and panel reject IPv6 literals instead of issuing a link that all
-current data planes would refuse.
+Server endpoints may use IPv4, IPv6, or a hostname with A and/or AAAA records. A literal IPv6
+address is bracketed in both INI and links: `server = [2001:db8::10]:443` and
+`qeli://user:pass@[2001:db8::10]:443?...`. Bare IPv6 plus a port is rejected as ambiguous.
 
 | In the link | INI key | When it appears | Meaning |
 |---|---|---|---|
@@ -108,19 +108,23 @@ after that much total inactivity; set it to `0` to disable the policy timeout. O
 profile, however, all three liveness sources may not be disabled together: if heartbeat and shaping
 are off, set a finite idle timeout so a vanished client eventually releases its IP and client slot.
 
-**OpenVPN parity + reconnect behaviour (C# desktop clients Windows/macOS, `[qeli]` keys):**
+**OpenVPN parity + reconnect behaviour (`persist_tun` and the platform route keys are C#
+desktop-only; carrier source binding also applies to the Linux CLI):**
 - `persist_tun` (`true`/`false`, default `false`) — keep the TUN adapter + routes UP across
   reconnects until the user disconnects (no adapter flicker / route gap; fail-closed during the
   reconnect window). If the assigned IP or physical gateway/DNS topology changes, the adapter and
   its routes/resolver state are rebuilt.
-- `local = <ip>` — bind the carrier socket to a specific local address (egress selection on a
+- `local = <ip>` — bind the carrier socket to a specific local address on Linux/Windows/macOS
+  (egress selection on a
   multi-homed host). **Important when the client and server are on the same LAN.** When `local`
   is set the client does **not** pin the /32 route to the server via the physical gateway (the
   carrier follows the bound interface's routing). If the server is on-link (same subnet as the
   client), pinning it via the gateway creates an asymmetric path and the tunnel dies right after
   the handshake (reconnect loop) — set `local` to this host's LAN IP so the server is reached
   directly. See TROUBLESHOOTING §6.8.
-- `lport = <port>` — bind the carrier socket to a fixed local source port (for firewall rules).
+- `lport = <port>` — bind the primary carrier socket to a fixed local source port (for firewall
+  rules). Bonded TCP members keep `local`, but use ephemeral ports because simultaneous streams
+  to the same server cannot share one TCP four-tuple.
 - `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
 - `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority). Applied to
   **both IPv4 and IPv6** via the WinAPI `SetIpInterfaceEntry` (no `netsh`; falls back to `netsh` on failure).
@@ -268,7 +272,8 @@ perf.connection.handshake_timeout_secs = 10
 perf.connection.idle_timeout_secs = 300
 ```
 
-(A full, exhaustively commented example — [server.conf](../../qeli/config/server.conf).)
+(A full, exhaustively commented example — [server.conf](../../qeli/config/server.conf); a
+runnable dual-stack deployment — [server-ipv6.conf](../../qeli/config/server-ipv6.conf).)
 
 ## Server multi-core (`tun.queues`)
 
@@ -395,8 +400,9 @@ mtu = 1280
 
 ## Push to clients — what the server hands over on connect
 
-After a successful authentication the server sends the client a JSON (`OK:{…}`) that carries
-the client's whole runtime configuration. **The `qeli://` link does NOT carry any of it** — the
+After successful authentication the server sends encrypted JSON `OK:{…}`. Capable peers receive
+NetworkPlan v2 while the same object retains a legacy projection for old IPv4 clients.
+**The `qeli://` link does NOT carry any of it** — the
 link is only about *how to connect*; everything else arrives via the push, which is why it can
 be changed on the server **without re-issuing links** (see "What is NOT pushed" below).
 
@@ -404,11 +410,12 @@ be changed on the server **without re-issuing links** (see "What is NOT pushed" 
 
 | field | source in the server config | what the client does with it |
 |---|---|---|
-| `client_ip` | allocated from `pool.cidr` (or `pool.reservation.<user>` / the user's `static_ip`) | the TUN address |
-| `server_ip` | the profile's `tun.address` | the tunnel gateway; **the default next hop for pushed routes** |
-| `prefix` | the prefix length of `pool.cidr` | the on-link netmask (otherwise the client would assume `/24`) |
+| `family_mode` | negotiated `ipv4` / `dual` / `ipv6` | selects the families applied atomically |
+| `addresses` | IPv4/IPv6 allocation, reservations and `static_ip`/`static_ipv6` | typed addresses with assigned prefix, on-link prefix and gateway; L3 TUN uses `/32`/`/128`, TAP keeps the pool prefix |
+| `client_ip` / `server_ip` / `prefix` | projection of IPv4, or the sole IPv6 address in an IPv6-only plan | backward-compatible fields; a v2 client verifies that they agree with `addresses` |
 | `mtu` | the profile's `tun.mtu` | a client on `mtu = 0` (default, auto) **adopts** it; a client with its own `mtu > 0` keeps it |
-| `dns` | `dns.push_servers[0]` → else `dns.listen` (only if `dns.enabled = true`) → else empty | sets the resolver — **only if the client is on `dns = tunnel`** (default); ignored on `dns = off` |
+| `dns_servers` | `dns.push_servers` or the active IPv4/IPv6 proxy listeners | typed resolver list, restricted to negotiated families and applied only with `dns = tunnel` |
+| `dns` | first compatible resolver | legacy resolver projection |
 | `dns_port` | always **53** | no client platform can express another port (neither `VpnService.Builder` nor `NEDNSSettings` takes one), so 53 is pushed unconditionally; when the proxy listens elsewhere the tunnel redirects 53 → `dns.port` with an iptables rule |
 | `routes` | the user's **personal** routes, otherwise the profile's `route =` | installs the routes (since 0.7.12 — **always**) |
 | `obfuscation` | `obf.padding.*`, `obf.heartbeat.*`, `obf.traffic_normalization.*`, `obf.traffic_shaping.*` | applies the obfuscation parameters live |
@@ -451,12 +458,12 @@ route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 | part | required | rule |
 |---|---|---|
 | `<cidr>` | **yes** | **first and bare** (or explicitly `cidr=<…>`). E.g. `172.16.20.0/24` |
-| `gateway=` | no | the **next-hop IP, NOT a subnet**. Defaults to the profile's `tun.address` |
+| `gateway=` | no | the **next-hop IP, NOT a subnet**. Defaults to the active gateway of the same family: `tun.address` for IPv4 or `tun.ipv6_address` for IPv6 |
 | `metric=` | no | defaults to `100` |
 
 > ⚠️ **Keys that do NOT exist in the INI:** `advertised_routes`, `push_routes`,
-> `routing.advertised_routes`, `routing.routes`. `push_routes` is a serde **alias** — it only
-> works for JSON/TOML, while the real INI is parsed by a separate hand-written parser. An
+> `routing.advertised_routes`, `routing.routes`. `push_routes` is an internal serde **alias**, not
+> part of the supported flat-INI runtime surface. The real INI is parsed separately. An
 > unknown key is **silently ignored**, so the route simply never exists.
 
 **Personal routes OVERRIDE the profile's — they do not merge.** The server's logic is
@@ -468,11 +475,17 @@ route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 
 Personal routes live in `[user:<name>]` (`users.conf`) or in the user's card in the panel.
 
+`0.0.0.0/0` and `::/0` are the deliberate exception: they are exit-node authorization
+markers, not ordinary pushed routes. The server does not put them in AuthOK and therefore
+cannot silently force a client into full tunnel; the consumer opts in with local
+`gateway = true`. See [Exit node](#exit-node-exit_node).
+
 ### When the push works — and when it doesn't
 
 | situation | result |
 |---|---|
-| a correct `route = <cidr>`, client **≥ 0.7.12** | ✅ installed; **no client-side flag needed** |
+| a correct non-default `route = <cidr>`, client **≥ 0.7.12** | ✅ installed; **no client-side flag needed** |
+| `route = 0.0.0.0/0` / `::/0` | server-side exit authorization only; consumer needs local `gateway = true` |
 | a correct `route`, client **before 0.7.12** with `route_local = false` (default) | ❌ **silently ignored, not a single log line** — the historical trap |
 | a correct `route`, client before 0.7.12 with `route_local = true` | ✅ installed (but it also pulls in **all** of RFC1918) |
 | CIDR empty / without a prefix / garbage | ❌ **rejected at config load** with a warning; never pushed |
@@ -925,6 +938,17 @@ UDP obfuscation is a separate mechanism (`obfuscation.quic`, masking as QUIC);
   the server shows the real site. Fix: enable automatic time sync (NTP) — most often
   the clock drifts on Android without auto-time and in VMs after suspend.
 
+Client-side REALITY ClientHello controls (flat `[qeli]` keys, TCP `reality-tls` only):
+
+| key | default | meaning |
+|---|---|---|
+| `reality_compact` | `false` | emit a compact X25519-only outer TLS ClientHello so it stays below one TCP MSS on paths that drop a segmented ClientHello; the authenticated Qeli handshake remains unchanged |
+| `reality_split` | `none` | split the ClientHello across writes: `sni`, `record`, or `first`; `none`/empty disables the split |
+| `reality_split_delay` | `100` ms | delay between split writes, valid range `0..5000`; used only when `reality_split` is active |
+
+These are transport-core settings. All native profile editors accept and preserve them even
+when the UI does not expose a dedicated control.
+
 ## Server identity (per-profile)
 
 **Each profile has its own** long-term static key (X25519) — it is bound to the
@@ -1115,6 +1139,7 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 | `password_enc` | — | reversibly-encrypted (ChaCha20-Poly1305 under the panel key, base64) copy of the plaintext, so the panel can re-issue a `qeli://` link/QR without knowing the password. Absent for legacy hash-only users. Never returned over the API |
 | `enabled` | `true` | whether the account may log in. `false` = disabled (rejected at auth) without deleting it |
 | `static_ip` | — | fixed tun IP (must be inside the profile's `pool.cidr`); the address always wins and evicts whoever holds it (see the `static_ip` note above) |
+| `static_ipv6` | — | fixed IPv6 lease inside `pool.ipv6.cidr`; collision and ownership semantics mirror `static_ip` |
 | `max_sessions` | `0` | per-user simultaneous-device cap (`0` = from the group, else unlimited); see "`max_sessions`" above |
 | `profiles` | `[]` (all) | comma-separated list of profiles the user may connect to; empty = all (interface isolation, see above) |
 | `group` | — | name of a `[group:<name>]` to inherit `bandwidth`/`max_sessions`/`allowed_networks` from |
@@ -1233,23 +1258,24 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 | `exclude` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list carved **out** of the tunnel (Android — API 33+ only) |
 | `route_file` | — | — | ✓ | ✓ | — | — | split routes from a file (on the CLI use `include`/`exclude`) |
 | `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` / `system`. `system` is an accepted spelling of `off`: both mean “leave the device resolver alone”. Android/iOS still import legacy `dns = 1.1.1.1, 8.8.8.8`, but save it canonically as `dns_servers` |
-| `dns_servers` | — | ✓ | ✓ | ✓ | ✓ | ✓ | comma-separated **IPv4** resolvers under `dns = tunnel`. **Override the server push**. IPv6 resolvers are rejected until qeli has an IPv6 inner data plane. If empty with no push, host resolvers remain untouched with a warning; no third-party public DNS is silently injected |
+| `dns_servers` | — | ✓ | ✓ | ✓ | ✓ | ✓ | comma-separated IPv4/IPv6 resolvers under `dns = tunnel`. **Override the server push**. Each address must be reachable in the negotiated inner family. If empty with no push, host resolvers remain untouched with a warning; no third-party public DNS is silently injected |
 | `kill_switch` | `false` | ✓ | ✓ | ✓ | ✓\* | —\* | fail-closed firewall (iptables / WFP / pf; Android — verified system Always-on VPN lockdown) |
-| `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | don't block IPv6 in a full tunnel / under the kill-switch |
+| `ipv6` | `auto` | ✓ | ✓ | ✓ | ✓ | ✓ | inner IPv6 policy: `auto` negotiates it, `required` refuses downgrade, `off` requests IPv4 only |
+| `allow_ipv6_leak` / `allow_ipv4_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | explicit escape hatches for the family absent from an IPv4-only/IPv6-only full tunnel |
 | `gateway_nat` | `false` | ✓ | — | — | — | — | router NAT (`MASQUERADE`) out the tun (Linux) |
 | `forward` | `false` | ✓ | ✓ | ✓ | — | — | site-to-site forwarding **without** NAT (iptables / netsh / sysctl) |
-| `lan_subnet` | — | ✓ | — | — | — | — | restrict `gateway_nat` to one source subnet |
+| `lan_subnet` / `lan_subnet_ipv6` | — | ✓ | — | — | — | — | restrict router NAT/forwarding to one source subnet per family |
 | `exit_node` | `false` | ✓ | — | — | — | — | mirror of `gateway_nat`: this client is an internet **exit** for other tunnel clients (`MASQUERADE` out the physical WAN) |
 | `post_up` / `post_down` | — | ✓ | — | — | — | — | commands at start / clean stop (root, trusted config) |
-| `allow_lan` | `false` | — | — | — | ✓ | ✓ | carve RFC1918 out of the full tunnel — reach the home LAN (Android) |
+| `allow_lan` | `false` | — | — | — | ✓ | ✓ | carve local IPv4/IPv6 ranges out of the full tunnel — reach the home LAN (Android/iOS) |
 
 **OpenVPN parity — desktop only** (no UI form; set via the manual INI editor)
 
 | Key | Default | CLI | Win | mac | And | iOS | Purpose |
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `persist_tun` | `false` | — | ✓ | ✓ | — | — | keep the TUN + routes across reconnects (fail-closed in the window) |
-| `local` | — | — | ✓ | ✓ | — | — | bind the carrier socket's source address (matters when the server is on-link) |
-| `lport` | — | — | ✓ | ✓ | — | — | fixed local source port |
+| `local` | — | ✓ | ✓ | ✓ | — | — | bind the carrier socket's source address (matters when the server is on-link) |
+| `lport` | — | ✓ | ✓ | ✓ | — | — | fixed local source port on the primary carrier |
 | `dev_node` | — | — | ✓ | —\* | — | — | Wintun adapter name (**Windows**; mac parses but never applies) |
 | `metric` | — | — | ✓ | —\* | — | — | interface metric (**Windows**; mac parses but never applies) |
 
@@ -1266,11 +1292,7 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 **Desktop per-app details.** With `apps_mode = all`, Windows keeps its native Wintun
 zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
 changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
-the same ABI 1.10 Rust transport and uses the same server push, crypto and reconnect logic.
-Destination routing remains a separate axis: with `gateway = false`, a selected application uses
-the tunnel only for `include`, pushed routes and the assigned tunnel subnet; other public IPv4 and
-native IPv6 remain direct. An explicitly included IPv6 prefix is retained fail-closed until the
-inner data plane supports IPv6. With `gateway = true`, selected public IPv4 remains full-tunnel.
+the same ABI 1.11 Rust transport and uses the same server push, crypto and reconnect logic.
 Windows captures/classifies with the bundled WinDivert driver. macOS uses a signed system
 extension containing both `NETransparentProxyProvider` and `NEDNSProxyProvider`; an ad-hoc or
 cross-built macOS archive therefore rejects an app-filtered profile until a Developer-ID build
@@ -1407,19 +1429,25 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 |---|---|
 | `route_local` | pull the **broad RFC1918 ranges** (10/8, 172.16/12, 192.168/16) into the tunnel. Default `false` — it would otherwise hijack the client's own LAN. **Routes the server explicitly advertises (`route = …`) are applied ALWAYS and do not depend on this flag** (since 0.7.12; before that they sat behind it and were silently dropped) |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
-| `exclude` | comma-separated IPv4/IPv6 CIDRs to **exclude** from the tunnel — they go directly via the physical path of the same address family. Windows/macOS resolve that path before capture routes, iOS uses `NEIPv4Route`/`NEIPv6Route`, and Android uses `VpnService.excludeRoute` on API 33+ (a computed complement on older versions). Bare literals mean one host (`/32` for IPv4, `/128` for IPv6). Example: `exclude = 192.168.50.0/24, 2001:db8::7` |
-| `include` | comma-separated IPv4/IPv6 CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set). The current inner data plane forwards IPv4; an IPv6 include is captured fail-closed rather than leaking through the physical interface |
-| `allow_lan` (Android, default `false`) | shortcut over `exclude`: carve **all** private ranges out of the tunnel (RFC1918 + link-local `169.254/16` + local-multicast `224.0.0.0/24` for mDNS/SSDP) so home Wi-Fi/LAN devices stay reachable without disconnecting. Also exposed as an "Allow local network access" toggle in the app Settings. Android 13+ uses `excludeRoute`; older uses route-splitting (the RFC1918 complement of `0.0.0.0/0`) |
-| `allow_ipv6_leak` (default `false`) | the IPv6 escape hatch, now for two cases. (1) **Full tunnel, since 0.7.12:** qeli tunnels IPv4 only, so all IPv6 would otherwise keep bypassing the tunnel — it is blackholed by default (`::/1` and `8000::/1`, lifted on disconnect). (2) **Kill-switch:** on a host with global IPv6 but no `ip6tables` it **refuses** to engage (fail-closed). `true` = in both cases let IPv6 use the physical interface, accepting the leak |
+| `exclude` | comma-separated strict IPv4/IPv6 CIDRs to **exclude** from the tunnel — they go directly via the physical path of the same address family. Windows/macOS resolve that path before capture routes, iOS uses `NEIPv4Route`/`NEIPv6Route`, and Android uses `VpnService.excludeRoute` on API 33+ (a computed complement on older versions). Use `/32` for one IPv4 host or `/128` for one IPv6 host. Example: `exclude = 192.168.50.0/24, 2001:db8::7/128` |
+| `include` | comma-separated IPv4/IPv6 CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set). A route is accepted only when that family was negotiated in the authenticated NetworkPlan |
+| `allow_lan` (Android/iOS, default `false`) | full-tunnel-only shortcut over `exclude`: carve **all** private ranges out of the default capture (RFC1918 + link-local `169.254/16` + link-local multicast `224.0.0.0/24` + SSDP `239.255.255.250/32`) so home Wi-Fi/LAN devices stay reachable without disconnecting. It never subtracts authenticated pushed/include routes in split-tunnel mode. Also exposed as an "Allow local network access" toggle in app Settings. Android 13+ uses `excludeRoute`; older versions compute the exact complement of the same exclusions against `0.0.0.0/0`; iOS applies equivalent Network Extension exclusions |
+| `ipv6` (default `auto`) | authenticated inner-family policy. `auto` uses IPv6 only when server, Rust core and platform adapter all advertise the complete capability set; `required` refuses an IPv4 downgrade; `off` requests the IPv4 side of a dual profile and refuses IPv6-only |
+| `allow_ipv6_leak` / `allow_ipv4_leak` (default `false`) | symmetric full-tunnel escape hatches. When the negotiated plan lacks one family, qeli blocks that family's native egress by default; the matching `true` deliberately lets it bypass the VPN. `allow_ipv6_leak` also opts out of the IPv6 half of the Linux kill-switch readiness check |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
-| `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
+| `lan_subnet` / `lan_subnet_ipv6` | restrict `gateway_nat`/`forward` to one source CIDR per family; empty = apply to all traffic of that family leaving the tun |
 | `forward` (default `false`) | site-to-site **without NAT**: forward traffic between the tun and the LAN behind the client while preserving the original source IP (unlike `gateway_nat`, which masquerades it). Use it when a routed network sits behind the client and its addresses must stay visible on the server. See "Routing networks behind nodes WITHOUT NAT" below |
 | `exit_node` (default `false`) | **mirror of `gateway_nat`.** `gateway_nat` masquerades a LAN behind the client INTO the tunnel; `exit_node` masquerades traffic that arrived FROM the tunnel out the physical WAN — so other clients reach the internet under THIS host's IP (e.g. behind a grey/NAT'd line). See "Exit node (`exit_node`)" below. Linux/router-only |
 | `dev_attach = <name>` | **attach to a pre-existing** interface instead of creating one. qeli only opens it for packet IO: it does **not** create, address, route, or delete it — an external manager (router firmware, your own script) owns all of that. The assigned tunnel IP is written to `$QELI_TUNIP_FILE` (if set in the environment) so the external script can bring up the address/routes itself |
 | `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
 | `dns` | client DNS mode. `tunnel` (default) = route DNS through the tunnel: the client **rewrites `/etc/resolv.conf`** (Linux) to the tunnel resolver to prevent DNS leaks. `off` = **leave the system resolver untouched**, use the host's DNS as-is (for routers and any Linux host that already has DNS configured and shouldn't have `resolv.conf` touched). File-only; emitted to INI only when `!= tunnel` |
 | `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
+
+On Android and iOS, `allow_lan` also excludes IPv6 ULA, link-local and multicast
+(`fc00::/7`, `fe80::/10`, `ff00::/8`). A site's local IPv6 GUA prefix cannot be inferred
+safely; add that exact prefix to `exclude`. Android 13+ uses `excludeRoute`; older versions
+build complete route complements for both IPv4 and IPv6.
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, 1 s base, cap 60s, infinite retries). A client
@@ -1505,7 +1533,9 @@ manual wiring or watchdog entrypoint needed.
 
 > On `iptables-nft` hosts the `filter` table's `FORWARD` chain can be legacy-
 > incompatible (same as `server/nat.rs`) — then it's installed best-effort and
-> forwarding works thanks to the `FORWARD` policy being `ACCEPT` (a warning is logged).
+> forwarding may continue only when qeli verifies an otherwise empty `FORWARD` chain whose
+> built-in policy is `ACCEPT` (a warning is logged). Any explicit rule/jump or an unreadable
+> chain fails router-mode setup instead of risking a silent black hole.
 > `MASQUERADE` and the MSS-clamp are mandatory.
 
 ## Kill-switch (`kill_switch`)
@@ -1664,11 +1694,12 @@ server    = <public-IP-of-server>:443
 user      = exit
 pass      = ...
 gateway   = false     # keep this host's own internet on the WAN — it is the exit
+ipv6      = required  # use auto/off for an IPv4-only exit
 exit_node = true
 ```
 
-**Server** — register the exit behind the exit user, allow client-to-client, and push the
-default route to whoever is entitled to that exit:
+**Server** — register the exit behind the exit user, allow client-to-client, and grant the
+exit families to the consumers entitled to use them:
 ```ini
 [profile:tcp]
 routing.client_to_client = true   # without this the server won't move a packet session-to-session
@@ -1677,41 +1708,48 @@ routing.client_to_client = true   # without this the server won't move a packet 
 [user:exit]
 password_hash = $argon2id$...
 client_subnet = 0.0.0.0/0         # "the whole internet is behind this client" (inbound iroute)
+client_subnet = ::/0               # IPv6 internet is behind the same exit
 
-# A consumer of the exit — the default route is pushed to THIS user
+# A consumer of the exit — /0 is the server-side exit authorization marker
 [user:alice]
 password_hash = $argon2id$...
 route = 0.0.0.0/0                 # CIDR FIRST; see "Routes (route) — in detail"
+route = ::/0                       # authorize IPv6 exit use for this consumer too
 
 # A plain user without that line does NOT use the exit — it egresses via the server
 [user:bob]
 password_hash = $argon2id$...
 ```
 
-**Consumer** (Win/any client) — knows nothing about the exit; it just accepts the pushed
-default:
+**Consumer** (Win/any client) — explicitly opts into full-tunnel capture locally:
 ```ini
 [qeli]
 server  = <public-IP-of-server>:443
 user    = alice
 pass    = ...
 gateway = true
+ipv6    = required
 ```
 
-Who gets the exit is decided **on the server**, by the `route = 0.0.0.0/0` line in the
-relevant `[user:*]`. One exit node therefore serves a chosen few rather than everyone: in the
-example above `bob` still egresses through the server itself (`routing.nat.enabled`) while
-`alice` goes out through the exit node.
+Who may use the exit is decided **on the server**, independently per family, by the
+`route = 0.0.0.0/0` / `route = ::/0` lines in the relevant `[user:*]`. These two defaults are
+authorization markers: qeli removes them from AuthOK rather than allowing a server to force
+full-tunnel capture. The consumer explicitly consents with local `gateway = true`; once that
+traffic reaches the server, only an authorized source session may take the internal `/0` next
+hop. In the example `bob` still egresses through the server itself (`routing.nat.enabled`),
+while `alice` goes out through the exit node.
 
 **Checking that it came up.** From the consumer, the public IP should become the exit node's,
 not the server's:
 ```bash
 curl -s https://api.ipify.org ; echo      # expect the exit node's WAN IP
+curl -6s https://api64.ipify.org ; echo   # expect its IPv6 WAN address
 ```
 On the exit node the startup log carries `Exit-node engaged` with the WAN it picked, and the
 forward counters are visible there too:
 ```bash
 sudo iptables -t nat -L POSTROUTING -v -n | grep MASQUERADE   # packets should climb
+sudo ip6tables -t nat -L POSTROUTING -v -n | grep MASQUERADE  # IPv6/NAT66 counter
 ```
 
 ### How it works and what the flag programs
@@ -1721,9 +1759,16 @@ the exit client's session via `client_to_client` (the exit registered `0.0.0.0/0
 client forwards it out its WAN and **masquerades** it; the reply returns the same way. **The
 internet sees the exit node's IP** — that is the point.
 
+The server keeps `0.0.0.0/0` and `::/0` in qeli's internal longest-prefix table. It does
+**not** install either as the Linux host's default route: doing that would capture the
+server's own WAN and control connection. Packets move directly into the normal downlink
+pipeline, where client isolation, MTU/fragmentation, rate limits and encryption still apply.
+
 `exit_node = true` installs (idempotent, by interface name, kept across reconnects, removed on
 a clean stop):
 - `net.ipv4.ip_forward = 1` + relaxed `rp_filter` on the tun and WAN (asymmetric path);
+- for negotiated IPv6, `net.ipv6.conf.all.forwarding = 1`, `accept_ra = 2` on an
+  RA-based IPv6 WAN, and a separately verified `ip6tables` NAT66 path;
 - a mark on `tun→WAN` packets and a `MASQUERADE` of **only those** out the WAN (scoped by
   packet mark, not source subnet: the pool is unknown until after auth, and locally-generated
   host traffic is never marked, so it is never masqueraded);
@@ -1735,7 +1780,8 @@ a clean stop):
   Pi-hole or corporate resolver at 1.1.1.1 over a management interface, or a blackhole entry
   for it) `MASQUERADE` and `MARK` were installed on the **wrong interface**: traffic left with
   a private source address, the return path was a black hole, and the log still said
-  `Exit-node engaged`.
+  `Exit-node engaged`. IPv6 performs the same lookup with `ip -6 route` and may select a
+  different physical interface from IPv4.
 
 The rules are removed on a **clean** stop; **a crash leaves them in place** — like the
 kill-switch this is fail-safe, not forgetfulness. Manual cleanup after a crash is in
@@ -1743,10 +1789,12 @@ kill-switch this is fail-safe, not forgetfulness. Manual cleanup after a crash i
 
 ### Caveats
 
-- **Linux only** (iptables), like `gateway_nat`/`forward`. An exit node is a server/router/RPi;
-  the flag does nothing on Windows/macOS/Android. The consumer of the exit needs nothing special.
-- **Split-tunnel only.** With `gateway = true` the host's own default flips into the tunnel and
-  there is no WAN to forward out of — the client warns on that combination.
+- **Linux only** (`iptables` and, when IPv6 is negotiated, `ip6tables`), like
+  `gateway_nat`/`forward`. An exit node is a server/router/RPi;
+  the flag does nothing on Windows/macOS/Android. The consumer must opt into full tunnel
+  locally with `gateway = true` and have the matching server-side `/0` authorization marker.
+- **Split-tunnel only.** With `gateway = true` the host's own default flips into the tunnel
+  and there is no WAN to forward out of; validation rejects that combination.
 - Not needed on the server: the server is already an exit via `routing.nat.enabled` (it
   masquerades clients out its public IP). `exit_node` is about exiting through *another* client.
 - **Liability.** All traffic leaves under the exit owner's IP.
@@ -1761,7 +1809,8 @@ client, **without NAT** (real source IPs preserved; NAT is only for internet egr
 
 By default the server routes to a client ONLY by its assigned pool IP (`by_ip`) — a packet to any
 other of its addresses is dropped. `client_subnet` registers an extra address/subnet as an **inbound**
-route into that client's tunnel (and adds `ip route … dev <tun>` on the server). Set per user (panel
+route into that client's tunnel (and adds `ip route … dev <tun>` on the server for non-default
+prefixes; exit-node `/0` routes remain internal). Set per user (panel
 → user card → "Client subnets", or the users file):
 
 ```ini
@@ -1801,6 +1850,10 @@ Previously the server raised `ip_forward`+`FORWARD` only inside `routing.nat`. N
 and `forward_private = true`, the server enables `ip_forward` + `FORWARD ACCEPT` tun↔networks
 **without MASQUERADE** — for transit of third-party hosts to subnets behind clients. A packet the
 server itself originates to a `client_subnet` needs no forwarding — the route from step 1 suffices.
+This mode requires `iptables`: qeli verifies the permits after insertion and starts without explicit
+rules only when the built-in `FORWARD` chain is otherwise empty and its policy is read back as exactly
+`ACCEPT`. A `DROP`, any explicit rule/jump, or an unreadable chain fails profile startup instead of
+acknowledging a route that would black-hole transit traffic.
 
 ### Site-to-site example (server LAN ↔ LAN behind branch1), no NAT
 
@@ -1840,7 +1893,9 @@ An arbitrary command (`/bin/sh -c …`) qeli runs at a tunnel lifecycle point �
 firewall. The analogue of `wg-quick`'s `PostUp`/`PostDown`.
 
 **Client** (`[qeli]`, file-only — NOT included in the `qeli://` link):
-- `post_up` — once at start, **after** the kill-switch/gateway-NAT, **before** the connect loop;
+- `post_up` — once, after the first authenticated NetworkPlan has created the TUN, applied
+  routes/DNS, and installed the active-family gateway/exit firewall. Authentication or plan
+  failures therefore do not run it; reconnects do not run it again;
 - `post_down` — only on a **clean** stop (SIGINT/SIGTERM, `reconnect.enabled=false`,
   `max_retries` exhausted);
 - hook env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET`.
@@ -1855,7 +1910,11 @@ post_down = ip rule del from 192.168.254.0/24 table 100; ip route flush table 10
 **Server** (`[profile:*]`, per-profile):
 - `routing.post_up` — after this profile's TUN + NAT are up;
 - `routing.post_down` — on a clean server stop;
-- hook env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL`, `QELI_WAN`, `QELI_BIND_PORT`.
+- hook env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL_IPV4`, `QELI_POOL_IPV6`,
+  `QELI_WAN_IPV4`, `QELI_WAN_IPV6`, `QELI_BIND_PORT`. Compatibility aliases
+  `QELI_POOL`/`QELI_WAN` select IPv4 for IPv4/dual profiles and IPv6 for IPv6-only profiles.
+  WAN values are the interfaces actually selected by the running NAT/routed setup (including
+  auto-detection), and the same generation snapshot is passed to `post_down`.
 
 The server hook closes **site-to-site** (reaching a LAN behind a client) with no manual
 steps — the reverse route + NAT for the client's subnet:
@@ -2043,23 +2102,61 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.awg.jc` | `0` | number of junk packets sent before the handshake (`0` = none; capped at `128`) |
 | `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`; on UDP each junk datagram is additionally capped at 1200 so it never IP-fragments) |
 
+## Inner IPv4/IPv6 addressing
+
+The outer listener family and inner tunnel family are independent. A profile reached over
+IPv4 may carry dual-stack traffic, and an IPv6 carrier may serve an IPv4-only profile.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `tun.ip_mode` | `ipv4` | `ipv4`, `dual`, or `ipv6` inside the tunnel |
+| `tun.address` | `10.9.0.1` | server IPv4 TUN address; used in `ipv4`/`dual` |
+| `tun.ipv6_address` | — | server IPv6 TUN address; required in `dual`/`ipv6` |
+| `pool.cidr` | `10.9.0.0/24` | IPv4 allocation/on-link prefix |
+| `pool.ipv6.cidr` | — | IPv6 allocation/on-link prefix; required in `dual`/`ipv6` (normally `/64`) |
+| `pool.ipv6.exclude` | — | comma-separated IPv6 addresses never allocated |
+| `pool.ipv6.reservation.<user>` | — | fixed IPv6 lease for one user |
+
+For an L3 TUN, clients receive host routes (`/32` and `/128`) while the NetworkPlan carries
+the separate pool/on-link prefix. This avoids IPv6 neighbor discovery on a point-to-point TUN.
+TAP keeps the pool prefix because Ethernet NDP/RA is available. IPv6 requires
+`tun.mtu >= 1280`; `dhcp.*` remains DHCPv4 and must be disabled in an IPv6-only profile.
+In `tun.ip_mode = ipv6`, the legacy IPv4 shadow fields `tun.address`, `pool.cidr`, and
+`dns.listen` are not parsed or used. `routing.nat.enabled` is NAT44 and is rejected in this
+mode; `routing.forward_private` is also IPv4-only. Configure IPv6 egress explicitly through
+`routing.ipv6.mode = route` or `nat66`.
+
+Every profile carrying inner IPv6 requires `ip6tables`, including
+`routing.ipv6.mode = off`. In `off`, qeli installs a verified per-profile drop for packets
+leaving that TUN toward any other interface, so an isolated profile cannot accidentally
+inherit host-wide forwarding enabled by a sibling profile. `route` permits bidirectional
+inbound forwarding only to that profile's delegated prefix and preserves source addresses;
+`nat66` adds MASQUERADE and accepts only related/established return traffic from the WAN.
+
 ## Built-in DNS resolver (`dns.*`)
 
 An optional in-tunnel DNS proxy: the server hands clients its own resolver and
 (optionally) filters domains. Disabled (default) — clients keep their own resolvers
 and the server pushes no DNS. Per-profile.
 
+Enabling the proxy requires `iptables` for IPv4 and `ip6tables` for each active IPv6
+listener. qeli inserts narrow `INPUT` permits for the exact TUN, client pool, address and
+port, verifies them, and falls back only when the built-in `INPUT` chain is otherwise empty
+and its policy is exactly `ACCEPT`; missing tooling, `DROP`, any explicit rule/jump, or an
+unreadable chain fails profile startup.
+
 | Key | Default | Purpose |
 |---|---|---|
-| `dns.enabled` | `false` | enable the in-tunnel DNS proxy |
+| `dns.enabled` | `false` | enable the in-tunnel DNS proxy (requires the firewall CLI for every active listener family) |
 | `dns.listen` | `10.9.0.1` | listen address (usually the tun IP) |
-| `dns.port` | `53` | the port the **server-side proxy** listens on. Change it when 53 is taken on the host (`ss -lunp \| grep ':53 '`). Clients are still told 53, and the tunnel installs an `iptables -t nat PREROUTING … REDIRECT` from 53 to this port — so `dns.port != 53` **requires iptables**, or the server refuses to start |
+| `dns.listen_ipv6` | — | IPv6 listener; required with `dns.enabled` in `dual`/`ipv6` and must equal `tun.ipv6_address` |
+| `dns.port` | `53` | the port the **server-side proxy** listens on. Clients are still told 53, and qeli redirects 53 to this port; a non-53 port requires `iptables` for IPv4 and `ip6tables` for IPv6 |
 | `dns.upstream` | `1.1.1.1, 8.8.8.8` | upstream resolvers (comma-separated) |
 | `dns.upstream_protocol` | `udp` | `udp` \| `tcp`. `tcp` really does force TCP to the upstream, and a UDP answer that comes back TRUNCATED is retried over TCP either way. ⚠️ **`tls` (DoT) is REJECTED at config load** — the server refuses to start rather than silently sending plaintext UDP while the config says DoT |
 | `dns.cache_size` | `1000` | record cache size |
 | `dns.timeout_secs` | `5` | upstream timeout (seconds) |
 | `dns.blocklist` | `[]` | domains answered with `0.0.0.0` (ad/tracker blocking) |
-| `dns.push_servers` | `[]` | hand clients this resolver (first IP in the list) **without** running the proxy — e.g. a LAN / AdGuard / NextDNS box. Empty = as before (the proxy's listen IP when `dns.enabled`, else nothing is pushed). The client applies it in `dns = tunnel` mode; the value is strict-IP-validated before it touches resolv.conf |
+| `dns.push_servers` | `[]` | hand clients IPv4/IPv6 resolvers **without** running the proxy. Empty = the active proxy listeners when `dns.enabled`, else nothing. Every address is strict-IP-validated and must belong to an active inner family |
 
 ## DHCP server (`dhcp.*`)
 
@@ -2118,11 +2215,13 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 |---|---|---|
 | `enabled` | `true` | whether this profile is active. `true` = bound and served; `false` = kept in the config but **skipped at startup** (turn an interface off without deleting it). Omitting the key keeps the profile enabled |
 | `routing.client_to_client` | `false` | allow client↔client traffic within the tunnel subnet. **Enforced** server-side: when `false` (the default) a packet whose source IP is one client and whose destination is another client is dropped — clients are isolated. Internet traffic (external source) is unaffected |
-| `routing.forward_private` | `true` | forward private (RFC1918) networks behind the server to clients |
-| `routing.nat.enabled` | `false` | MASQUERADE client traffic to the internet (full-tunnel gateway) |
+| `routing.forward_private` | `true` | forward IPv4 private (RFC1918) networks behind the server to clients; inactive in IPv6-only mode |
+| `routing.nat.enabled` | `false` | IPv4 NAT44/MASQUERADE for client Internet traffic; rejected in IPv6-only mode |
 | `routing.nat.interface` | `eth0` | NAT egress interface (auto-detected when left at default) |
+| `routing.ipv6.mode` | `off` | IPv6 egress: fail-closed isolated `off`, bidirectional source-preserving `route`, or stateful `nat66`; every IPv6 profile requires `ip6tables`, including `off` |
+| `routing.ipv6.interface` | — | IPv6 uplink; empty = detect it from the IPv6 default route |
 | `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]` |
-| `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env: `QELI_PROFILE`/`QELI_TUN`/`QELI_POOL`/`QELI_WAN`/`QELI_BIND_PORT` |
+| `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env includes `QELI_PROFILE`, `QELI_TUN`, explicit `QELI_POOL_IPV4`/`QELI_POOL_IPV6`, actual `QELI_WAN_IPV4`/`QELI_WAN_IPV6`, `QELI_BIND_PORT`; legacy `QELI_POOL`/`QELI_WAN` select the profile's primary family |
 | `routing.post_down` | — | command run on a clean profile/server stop (mirrors `routing.post_up`; a crash doesn't run it) |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe |

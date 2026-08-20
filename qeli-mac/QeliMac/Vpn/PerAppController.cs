@@ -48,6 +48,8 @@ internal sealed class PerAppController
         IReadOnlyList<string> includeRoutes,
         IReadOnlyList<string> excludeRoutes,
         IReadOnlyList<string> pushedRoutes,
+        bool tunnelIpv4,
+        bool tunnelIpv6,
         bool tunnelUp)
     {
         string helper = Path.Combine(AppContext.BaseDirectory, HelperName);
@@ -78,6 +80,9 @@ internal sealed class PerAppController
             CarrierAddress = carrierIp.ToString(),
             CarrierPort = config.Port,
             CarrierProtocol = config.Protocol,
+            TunnelIpv4 = tunnelIpv4,
+            TunnelIpv6 = tunnelIpv6,
+            AllowIpv4Leak = config.AllowIpv4Leak,
             AllowIpv6Leak = config.AllowIpv6Leak,
             FullTunnel = config.IsFullTunnel,
             RouteLocalNetworks = config.RouteLocalNetworks,
@@ -262,6 +267,9 @@ internal sealed class PerAppController
         public string CarrierAddress { get; init; } = "";
         public int CarrierPort { get; init; }
         public string CarrierProtocol { get; init; } = "tcp";
+        public bool TunnelIpv4 { get; init; }
+        public bool TunnelIpv6 { get; init; }
+        public bool AllowIpv4Leak { get; init; }
         public bool AllowIpv6Leak { get; init; }
         public bool FullTunnel { get; init; }
         public bool RouteLocalNetworks { get; init; }

@@ -166,6 +166,9 @@ enum Commands {
         /// Static tunnel IP for this client (optional).
         #[arg(long)]
         static_ip: Option<String>,
+        /// Static IPv6 tunnel address for this client (optional).
+        #[arg(long)]
+        static_ipv6: Option<String>,
         /// Max concurrent sessions (0 = group/default).
         #[arg(long, default_value_t = 0)]
         max_sessions: u32,
@@ -699,6 +702,7 @@ async fn main() -> anyhow::Result<()> {
             password_stdin,
             profiles,
             static_ip,
+            static_ipv6,
             max_sessions,
             link,
             link_profile,
@@ -713,6 +717,7 @@ async fn main() -> anyhow::Result<()> {
                     password,
                     profiles,
                     static_ip,
+                    static_ipv6,
                     max_sessions,
                     link,
                     link_profile,
@@ -1048,6 +1053,7 @@ fn add_client(
     password: Option<String>,
     profiles: Option<String>,
     static_ip: Option<String>,
+    static_ipv6: Option<String>,
     max_sessions: u32,
     link: bool,
     link_profile: Option<String>,
@@ -1140,6 +1146,7 @@ fn add_client(
         // later without the plaintext (best-effort; None if the panel key is absent).
         password_enc: qeli::crypto::secret::encrypt_password(&plaintext).ok(),
         static_ip,
+        static_ipv6,
         enabled: true,
         max_sessions,
         profiles: profile_list,

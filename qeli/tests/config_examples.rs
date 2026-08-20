@@ -14,15 +14,20 @@ use qeli::config::users::UsersDb;
 
 #[test]
 fn shipped_server_examples_have_no_unread_keys() {
-    // The two server examples the .deb installs. `server.conf` is the exhaustive
+    // The server examples the .deb installs. `server.conf` is the exhaustive
     // single-profile reference (every server key); the multiprofile one exercises
-    // repeated [profile:*] sections. Neither carries GUI-only or retired keys, so
-    // the unread set must be exactly empty.
+    // repeated [profile:*] sections and the IPv6 example is the runnable dual-stack
+    // deployment template. None carries GUI-only or retired keys, so the unread set
+    // must be exactly empty.
     for (name, text) in [
         ("server.conf", include_str!("../config/server.conf")),
         (
             "server-multiprofile.conf",
             include_str!("../config/server-multiprofile.conf"),
+        ),
+        (
+            "server-ipv6.conf",
+            include_str!("../config/server-ipv6.conf"),
         ),
         // The maximum-obfuscation reference was shipped and never tested. It is the one an
         // operator on a hostile network copies, and it exercises the REALITY combination

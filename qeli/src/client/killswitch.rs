@@ -118,6 +118,10 @@ pub(crate) fn ipt_path(bin: &str) -> Option<String> {
     None
 }
 
+pub(crate) fn ipv6_available() -> bool {
+    ipt_path("ip6tables").is_some()
+}
+
 pub(crate) fn ipt(path: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     Command::new(path).args(args).output()
 }
@@ -342,6 +346,14 @@ fn engage_family(
     };
     require(&["-o", "lo", "-j", "ACCEPT"]);
     require(&["-o", tun_if, "-j", "ACCEPT"]);
+    if guard_forward {
+        // The same user chain is hooked into FORWARD in router mode. Replies and
+        // server-initiated site-to-site traffic enter from the tunnel and leave toward
+        // the LAN, so `-o <tun>` alone would drop the return half of every forwarded
+        // connection. OUTPUT never has this input interface, therefore the rule is inert
+        // on the host-local hook and precise on FORWARD.
+        require(&["-i", tun_if, "-j", "ACCEPT"]);
+    }
     // DHCP client → server, so the physical lease can renew while locked.
     require(&["-p", "udp", "--dport", "67", "-j", "ACCEPT"]);
     // DNS, so a hostname server can be (re)resolved during a reconnect — but scoped to the
@@ -475,12 +487,14 @@ fn host_has_global_ipv6() -> bool {
 }
 
 /// Engage the kill-switch: allow only loopback, `tun_if`, DHCP, DNS, and the server
-/// IP(s). Idempotent — rebuilds the `QELI_KS` chain on both families. Fails closed on
-/// the IPv6 leg (unless `allow_ipv6_leak`) — see the IPv6 block below.
+/// IP(s). Idempotent — rebuilds the `QELI_KS` chain on both families. Each family fails
+/// closed when the host has usable egress but its firewall cannot be armed, unless the
+/// matching `allow_ipv*_leak` escape hatch was explicitly enabled.
 pub fn engage(
     server_addr: &str,
     server_port: u16,
     tun_if: &str,
+    allow_ipv4_leak: bool,
     allow_ipv6_leak: bool,
     // True when qeli routes a LAN through the tunnel (gateway/forward mode). Routed
     // packets bypass OUTPUT entirely, so the chain must also cover FORWARD.
@@ -512,11 +526,32 @@ pub fn engage(
         }
     }
 
-    // IPv4 leg is mandatory: without it we can't promise the real IP stays hidden.
-    let v4_path = ipt_path("iptables").ok_or_else(|| {
-        anyhow::anyhow!("kill-switch: `iptables` is not installed (apt install iptables)")
-    })?;
-    engage_family(&v4_path, tun_if, &v4, guard_forward)?;
+    // IPv4 and IPv6 are independent. Requiring iptables unconditionally made a genuine
+    // IPv6-only host fail before connecting even though it had no IPv4 path to leak over;
+    // ignoring a missing tool on a dual-stack host would be the opposite (false security).
+    // Protect a family whenever its firewall is available, and otherwise use the same
+    // evidence + explicit escape-hatch rule for both families.
+    let v4_path = ipt_path("iptables");
+    let v4_protected = match v4_path.as_deref() {
+        Some(path) => match engage_family(path, tun_if, &v4, guard_forward) {
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!("kill-switch: IPv4 leg not engaged ({error})");
+                false
+            }
+        },
+        None => false,
+    };
+    if !v4_protected {
+        if host_has_ipv4_default_route() && !allow_ipv4_leak {
+            anyhow::bail!(
+                "kill-switch: this host has IPv4 egress but iptables is unavailable or could not be programmed, so IPv4 egress can't be locked — refusing to engage a leaking kill-switch. Install iptables, remove the IPv4 default route, or set allow_ipv4_leak = true to connect and accept the IPv4 leak."
+            );
+        }
+        log::warn!(
+            "kill-switch: IPv4 egress is NOT restricted (no IPv4 default route detected, or allow_ipv4_leak is set)"
+        );
+    }
 
     // IPv6 leg. Program ip6tables where present; where it's missing (or programming
     // fails) the host would leak over v6 while the switch reports ENGAGED — a false
@@ -535,17 +570,18 @@ pub fn engage(
     };
     if !v6_protected {
         if host_has_global_ipv6() && !allow_ipv6_leak {
-            // Roll back the v4 leg we just armed so a refusal leaves the host exactly as
-            // it was — not half-locked to a server the client will never reach.
-            let cleanup = teardown_family(&v4_path, &chain_for(tun_if))
-                .err()
-                .map(|error| format!(" Rollback also failed: {error}"))
-                .unwrap_or_default();
+            // Roll back the v4 leg we may have armed so a refusal leaves the host exactly
+            // as it was — not half-locked to a server the client will never reach.
+            if v4_protected {
+                if let Some(path) = v4_path.as_deref() {
+                    teardown_family(path, &chain_for(tun_if));
+                }
+            }
             anyhow::bail!(
                 "kill-switch: this host has global IPv6 but ip6tables is unavailable, so IPv6 \
                  egress can't be locked — refusing to engage a leaking kill-switch. Install \
-                 ip6tables, use an IPv4-only host, or set routing.allow_ipv6_leak = true to \
-                 connect and accept the IPv6 leak.{cleanup}"
+                 ip6tables, use an IPv4-only host, or set allow_ipv6_leak = true to \
+                 connect and accept the IPv6 leak."
             );
         }
         log::warn!(
@@ -563,6 +599,17 @@ pub fn engage(
         ips.join(", ")
     );
     Ok(())
+}
+
+/// Best-effort evidence that the host can send ordinary IPv4 traffic. `iproute2` is a
+/// required Linux client dependency and the default route is the relevant leak path; a
+/// link-local or tunnel-only address without a default is harmless here.
+fn host_has_ipv4_default_route() -> bool {
+    std::process::Command::new("ip")
+        .args(["-4", "route", "show", "default"])
+        .output()
+        .map(|output| output.status.success() && !output.stdout.is_empty())
+        .unwrap_or(false)
 }
 
 /// Re-resolve the server hostname and ADD any newly-seen server IP(s) to the live
@@ -874,7 +921,7 @@ mod fault_injection {
     // failing closed on a host that happens to have global IPv6.
     fn engage_test(ipt: &Ipt, tun_if: &str, guard_forward: bool) -> anyhow::Result<()> {
         let _ = ipt;
-        engage("203.0.113.7", 443, tun_if, true, guard_forward)
+        engage("203.0.113.7", 443, tun_if, true, true, guard_forward)
     }
 
     /// The port-53 allowance must be scoped to real upstream resolvers.
@@ -1006,6 +1053,18 @@ mod fault_injection {
         assert!(
             err.to_string().contains("FORWARD"),
             "a gateway whose forwarded traffic is uncovered must refuse, got: {err}"
+        );
+    }
+
+    #[test]
+    fn gateway_mode_allows_both_directions_of_tunnel_forwarding() {
+        let ipt = Ipt::new("fwd-bidirectional", &[]);
+        engage_test(&ipt, "qtest", true).expect("arm");
+        let calls = ipt.calls();
+        assert!(
+            calls.contains("-A QELI_KS_qtest -o qtest -j ACCEPT")
+                && calls.contains("-A QELI_KS_qtest -i qtest -j ACCEPT"),
+            "FORWARD protection must pass both LAN→TUN and TUN→LAN halves:\n{calls}"
         );
     }
 

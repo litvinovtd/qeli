@@ -1,5 +1,5 @@
 use crate::config::QuicMaskingConfig;
-use crate::crypto::{derive_keys_hybrid, derive_keys_hybrid_bound, Keypair};
+use crate::crypto::{derive_data_frag_key, derive_keys_hybrid, derive_keys_hybrid_bound, Keypair};
 use crate::protocol::{
     generate_connection_id, looks_like_quic_initial, unwrap_quic_payload, wrap_quic_long,
     wrap_quic_short, wrap_quic_short_into, Obfuscator, PacketCodec,
@@ -44,19 +44,41 @@ fn max_concurrent_udp_handshakes() -> usize {
     std::cmp::max(64, cores.saturating_mul(4))
 }
 
+fn empty_udp_record_padding_cap(
+    codec: &PacketCodec,
+    outer_ipv6: bool,
+    obfs_overhead: usize,
+    quic_enabled: bool,
+) -> usize {
+    let record_budget = crate::protocol::data_frag::unfragmented_record_budget(
+        crate::protocol::data_frag::conservative_udp_payload_budget(outer_ipv6),
+        obfs_overhead,
+        quic_enabled,
+    )
+    .expect("conservative UDP budget always fits one empty encrypted record");
+    codec
+        .max_padding_for_record_budget(0, record_budget)
+        .unwrap_or(0)
+}
+
+#[allow(dead_code)] // session_id retained for symmetry with the TCP session model
 enum UdpSessionState {
     AwaitingAuth,
     Authenticated {
         session_id: u64,
         /// Per-device pool/session key — used to release the IP on cleanup.
         device_key: String,
-        client_ip: std::net::Ipv4Addr,
+        client_ip: std::net::IpAddr,
     },
 }
 
 struct UdpClient {
     rx_codec: Arc<std::sync::Mutex<PacketCodec>>,
     tx_codec: Arc<std::sync::Mutex<PacketCodec>>,
+    rx_data_frag_key: [u8; 32],
+    tx_data_frag_key: [u8; 32],
+    data_frag_enabled: bool,
+    data_reassembler: crate::protocol::data_frag::DataReassembler,
     state: UdpSessionState,
     last_activity: std::time::Instant,
     /// Inbound (client->server) byte counter, shared with this client's
@@ -115,6 +137,8 @@ struct UdpClient {
     /// Which SOURCE addresses this session may claim. Mirrors
     /// `SessionShared.src_guard` on the TCP path.
     src_guard: Option<crate::server::acl::SrcGuard>,
+    /// Per-family authorization for an internal `/0` exit route.
+    exit_access: crate::server::ExitAccess,
     /// Shared with this client's `SessionShared`; raised by `kick_all` (kick, quota
     /// cut-off, supersede). `None` until authenticated.
     ///
@@ -223,6 +247,13 @@ pub(crate) fn bind_reuseport(
         Domain::IPV6
     };
     let sock = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+    if sa.is_ipv6() {
+        // Keep the IPv6 listener in its own address family. Without V6ONLY, binding
+        // `[::]:port` can also claim IPv4-mapped traffic and either collide with the
+        // explicit `0.0.0.0:port` listener or distribute IPv4 datagrams across the wrong
+        // profile/socket set.
+        sock.set_only_v6(true)?;
+    }
     sock.set_reuse_address(true)?;
     sock.set_reuse_port(true)?;
     sock.set_nonblocking(true)?;
@@ -459,7 +490,16 @@ pub(crate) async fn run_udp_server(
                         {
                             continue;
                         }
-                        let size = client.shaper.next_size(&mut rand::rng());
+                        let requested_size = client.shaper.next_size(&mut rand::rng());
+                        let size = {
+                            let tx = lock_or_recover(&client.tx_codec, "udp::cover_budget");
+                            requested_size.min(empty_udp_record_padding_cap(
+                                &tx,
+                                addr.is_ipv6(),
+                                socket.seal_overhead(),
+                                client.quic_enabled,
+                            ))
+                        };
                         if !client.shaper.try_spend(size, now) {
                             continue;
                         }
@@ -526,12 +566,17 @@ pub(crate) async fn run_udp_server(
                             let mut obf = Obfuscator::new();
                             // saturating: data_size_bytes is a u16 config knob — `+ 32`
                             // would wrap in release / panic in debug at the top of range.
-                            obf.generate_padding_into(
-                                hb_config.data_size_bytes,
-                                hb_config.data_size_bytes.saturating_add(32),
-                                &mut padding,
-                            );
                             let mut tx = lock_or_recover(&client.tx_codec, "udp::heartbeat");
+                            let cap = empty_udp_record_padding_cap(
+                                &tx,
+                                addr.is_ipv6(),
+                                socket.seal_overhead(),
+                                client.quic_enabled,
+                            )
+                            .min(u16::MAX as usize) as u16;
+                            let low = hb_config.data_size_bytes.min(cap);
+                            let high = hb_config.data_size_bytes.saturating_add(32).min(cap);
+                            obf.generate_padding_into(low, high, &mut padding);
                             let ok = tx
                                 .encrypt_packet_into(&[], &padding, pkt.as_vec_mut())
                                 .is_ok();
@@ -598,7 +643,7 @@ pub(crate) async fn run_udp_server(
                     // Collect the authenticated victims' pool/IP keys under the
                     // `sessions` write guard, drop it, then release pool + remove
                     // from profile.sessions in a second loop — same order everywhere.
-                    let mut to_release: Vec<(String, std::net::Ipv4Addr, u64)> = Vec::new();
+                    let mut to_release: Vec<(String, std::net::IpAddr, u64)> = Vec::new();
                     {
                         let mut sessions_guard = sessions.write().await;
                         for addr in expired {
@@ -645,8 +690,7 @@ pub(crate) async fn run_udp_server(
                             .unwrap_or(false);
                         let mut iroutes: Vec<String> = Vec::new();
                         if ip_still_ours {
-                            if let Some(sess) = prof_sessions.by_ip.remove(&client_ip) {
-                                prof_sessions.by_token.remove(&sess.token);
+                            if let Some(sess) = prof_sessions.remove(client_ip) {
                                 // Signal the UDP writer task to exit. Without kick_all it
                                 // parks forever on writer_rx (whose Sender lives in this
                                 // session), leaking the task + session on the normal
@@ -859,7 +903,7 @@ async fn handle_udp_datagram(
     // is echoed (gates it to an authenticated peer); the ACK is QUIC-wrapped with the
     // session's connection id + next packet number, exactly like the heartbeat reply.
     if crate::protocol::udp_frag::is_mtu_probe(payload) {
-        if let Some((id, size)) = crate::protocol::udp_frag::parse_mtu_probe(payload) {
+        if let Some((id, size)) = crate::protocol::udp_frag::parse_mtu_probe_request(payload) {
             let wrap = {
                 let guard = sessions.read().await;
                 guard.get(&addr).map(|c| {
@@ -1018,7 +1062,43 @@ async fn handle_udp_datagram(
                 );
                 return;
             }
-            let is_awaiting_auth = matches!(client.state, UdpSessionState::AwaitingAuth);
+            let source_session_id = match &client.state {
+                UdpSessionState::Authenticated { session_id, .. } => Some(*session_id),
+                UdpSessionState::AwaitingAuth => None,
+            };
+            let is_awaiting_auth = source_session_id.is_none();
+            let reassembled_record;
+            let payload = if crate::protocol::data_frag::is_data_fragment(payload) {
+                if is_awaiting_auth || !client.data_frag_enabled {
+                    log::debug!(
+                        "UDP drop from {} on profile '{}': DATA_FRAG_V1 was not negotiated",
+                        addr,
+                        profile.name
+                    );
+                    return;
+                }
+                match client
+                    .data_reassembler
+                    .push(payload, &client.rx_data_frag_key)
+                {
+                    Ok(Some(record)) => {
+                        reassembled_record = record;
+                        reassembled_record.as_slice()
+                    }
+                    Ok(None) => return,
+                    Err(error) => {
+                        log::debug!(
+                            "UDP drop from {} on profile '{}': bad data fragment ({})",
+                            addr,
+                            profile.name,
+                            error
+                        );
+                        return;
+                    }
+                }
+            } else {
+                payload
+            };
             let Some(mut plaintext) = tun_tx.pool.try_acquire() else {
                 client
                     .dropped
@@ -1074,6 +1154,7 @@ async fn handle_udp_datagram(
             // the guard is dropped. Cheap: an unrestricted ACL is an empty Vec.
             let dst_acl = client.dst_acl.clone();
             let src_guard = client.src_guard.clone();
+            let exit_access = client.exit_access;
             // Same reason as recv_ctr: taken with the lock, used after it drops.
             let path_mtu = client.path_mtu.clone();
             let client_info = client.client_info.clone();
@@ -1171,7 +1252,17 @@ async fn handle_udp_datagram(
                     // Preserve the direct fast path for unlimited users.
                     recv_ctr
                         .fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                    let _ = tun_tx.sender.send(ServerTunPacket::Pooled(plaintext)).await;
+                    // Keep exit-node/default iroutes out of the host routing table. The
+                    // direct branch still enters the common TUN downlink forwarder, so UDP
+                    // receives the same MTU, fragmentation, rate and encryption treatment.
+                    let _ = tun_tx
+                        .send_client_packet(
+                            profile,
+                            source_session_id.expect("authenticated UDP session has an id"),
+                            exit_access,
+                            ServerTunPacket::Pooled(plaintext),
+                        )
+                        .await;
                 } else if upload_tx
                     .as_ref()
                     .is_none_or(|tx| tx.try_send(plaintext).is_err())
@@ -1347,7 +1438,16 @@ async fn handle_udp_auth(
     }
     let mut client_key_proof = [0u8; 32];
     client_key_proof.copy_from_slice(&plaintext[..32]);
-    let (device_id, creds) = handler::split_device_id(&plaintext[32..]);
+    let (device_id, auth_bytes) = handler::split_device_id(&plaintext[32..]);
+    let (capabilities, creds) =
+        match crate::protocol::capabilities::split_client_capabilities(auth_bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!("UDP: invalid client capability extension from {addr}: {error}");
+                sessions.write().await.remove(&addr);
+                return;
+            }
+        };
     let auth_str = match String::from_utf8(creds.to_vec()) {
         Ok(s) => s,
         Err(_) => {
@@ -1409,6 +1509,24 @@ async fn handle_udp_auth(
         return;
     }
 
+    let negotiated_ip_mode = match crate::protocol::capabilities::negotiated_profile_ip_mode(
+        pcfg.tun.ip_mode,
+        capabilities,
+    ) {
+        Ok(mode) => mode,
+        Err(error) => {
+            log::warn!(
+                "UDP: client {addr} cannot use profile '{}': {error}",
+                profile.name
+            );
+            sessions.write().await.remove(&addr);
+            return;
+        }
+    };
+    let data_frag_enabled = capabilities.is_some_and(|caps| {
+        caps.core_bits & crate::protocol::capabilities::client_capability::UDP_DATA_FRAG_V1 != 0
+    });
+
     // Per-device key (same as the TCP path) — pool IPs + sessions are keyed by it
     // so multiple devices of one login coexist.
     let dkey = handler::device_key(&username, device_id);
@@ -1437,7 +1555,7 @@ async fn handle_udp_auth(
                     let sess_map = profile.sessions.read().await;
                     let mut others: Vec<(
                         SocketAddr,
-                        std::net::Ipv4Addr,
+                        std::net::IpAddr,
                         std::time::Instant,
                         String,
                     )> = sess_map
@@ -1457,9 +1575,8 @@ async fn handle_udp_auth(
                     Some((peer, ip, _, ev_dkey)) => {
                         let old = {
                             let mut sm = profile.sessions.write().await;
-                            match sm.by_ip.remove(&ip) {
+                            match sm.remove(ip) {
                                 Some(old) => {
-                                    sm.by_token.remove(&old.token);
                                     // Strip the evicted session's iroutes (map only — a new
                                     // session is admitted at this IP; no kernel del to race it).
                                     let _ = sm.take_client_routes(ip);
@@ -1489,52 +1606,94 @@ async fn handle_udp_auth(
     // different device, or a dynamic user who took it while the owner was offline) from
     // BOTH the shared session map and the per-source-addr UDP map, then steal it below —
     // so a reconnect from a new source IP always lands on the same tunnel address.
-    let fixed_ip = {
+    let (fixed_ip, fixed_ipv6) = {
         let db = server_state.users_db.read().await;
-        handler::resolve_static_ip(&db, pcfg, &username)
+        (
+            handler::resolve_static_ip(&db, pcfg, &username),
+            handler::resolve_static_ipv6(&db, pcfg, &username),
+        )
     };
-    if let Some(ip) = fixed_ip {
-        let holder = {
-            let sess_map = profile.sessions.read().await;
-            sess_map
-                .by_ip
-                .get(&ip)
-                .map(|s| (s.peer, s.device_key.clone()))
-        };
-        if let Some((peer, ev_dkey)) = holder {
-            if ev_dkey != dkey {
-                let old = {
-                    let mut sm = profile.sessions.write().await;
-                    match sm.by_ip.remove(&ip) {
-                        Some(old) => {
-                            sm.by_token.remove(&old.token);
-                            // Strip the evicted holder's iroutes (map only — a new session is
-                            // admitted at this IP; no kernel del to race its re-program).
-                            let _ = sm.take_client_routes(ip);
-                            Some(old)
+    if negotiated_ip_mode != crate::config::server::IpMode::Ipv6 {
+        if let Some(ip) = fixed_ip {
+            let primary = std::net::IpAddr::V4(ip);
+            let holder = {
+                let sess_map = profile.sessions.read().await;
+                sess_map
+                    .by_ip
+                    .get(&primary)
+                    .map(|s| (s.peer, s.device_key.clone()))
+            };
+            if let Some((peer, ev_dkey)) = holder {
+                if ev_dkey != dkey {
+                    let old = {
+                        let mut sm = profile.sessions.write().await;
+                        match sm.remove(primary) {
+                            Some(old) => {
+                                // Strip the evicted holder's iroutes (map only — a new session is
+                                // admitted at this IP; no kernel del to race its re-program).
+                                let _ = sm.take_client_routes(primary);
+                                Some(old)
+                            }
+                            None => None,
                         }
-                        None => None,
+                    };
+                    sessions.write().await.remove(&peer);
+                    deferred_release.push(ev_dkey.clone());
+                    if let Some(old) = old {
+                        old.kick_all();
                     }
-                };
-                sessions.write().await.remove(&peer);
-                deferred_release.push(ev_dkey.clone());
-                if let Some(old) = old {
-                    old.kick_all();
-                }
-                log::info!(
+                    log::info!(
                     "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
                     ip, username, ev_dkey, profile.name
                 );
+                }
+            }
+        }
+    }
+    if negotiated_ip_mode != crate::config::server::IpMode::Ipv4 {
+        if let Some(address) = fixed_ipv6 {
+            let requested = std::net::IpAddr::V6(address);
+            let holder = {
+                let session_map = profile.sessions.read().await;
+                session_map
+                    .get_by_address(requested)
+                    .map(|session| (session.client_ip, session.peer, session.device_key.clone()))
+            };
+            if let Some((primary, peer, evicted_key)) = holder {
+                if evicted_key != dkey {
+                    let old = {
+                        let mut session_map = profile.sessions.write().await;
+                        let old = session_map.remove(primary);
+                        if let Some(old) = &old {
+                            let _ = session_map.take_client_routes(old.client_ip);
+                        }
+                        old
+                    };
+                    sessions.write().await.remove(&peer);
+                    deferred_release.push(evicted_key.clone());
+                    if let Some(old) = old {
+                        old.kick_all();
+                    }
+                    log::info!(
+                        "Static IPv6 {} for user '{}' evicts holder device '{}' on profile '{}'",
+                        address,
+                        username,
+                        evicted_key,
+                        profile.name
+                    );
+                }
             }
         }
     }
 
-    let client_ip = {
+    let assigned = {
         let mut pool = profile.pool.lock().await;
         for k in &deferred_release {
             pool.release(k);
         }
-        let allocated = match fixed_ip {
+        pool.retain_mode_leases(&dkey, negotiated_ip_mode);
+        if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+            let allocated = match fixed_ip {
             Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
                 log::warn!(
                     "UDP: static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
@@ -1544,24 +1703,57 @@ async fn handle_udp_auth(
             }),
             None => pool.allocate(&dkey),
         };
-        match allocated {
-            Some(ip) => ip,
-            None => {
-                log::warn!(
-                    "UDP: no IP available for {} on profile '{}'",
-                    username,
-                    profile.name
-                );
-                sessions.write().await.remove(&addr);
-                return;
+            let ipv4 = match allocated {
+                Some(ip) => ip,
+                None => {
+                    log::warn!(
+                        "UDP: no IP available for {} on profile '{}'",
+                        username,
+                        profile.name
+                    );
+                    sessions.write().await.remove(&addr);
+                    return;
+                }
+            };
+            crate::server::pool::AssignedAddresses {
+                ipv4: Some(ipv4),
+                ipv6: None,
+            }
+        } else {
+            match pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6) {
+                Ok(addresses) => addresses,
+                Err(error) => {
+                    log::warn!(
+                        "UDP: cannot allocate {} address set for '{}' on profile '{}': {}",
+                        negotiated_ip_mode,
+                        username,
+                        profile.name,
+                        error
+                    );
+                    sessions.write().await.remove(&addr);
+                    return;
+                }
             }
         }
     };
+    let client_ip = assigned
+        .ipv4
+        .map(std::net::IpAddr::V4)
+        .or_else(|| assigned.ipv6.map(std::net::IpAddr::V6))
+        .expect("negotiated address mode assigns at least one family");
 
     let session_id: u64 = rand::random();
 
     // Extract session data in a scoped borrow so sessions_guard is free for error handling
-    let (auth_response, quic_enabled, connection_id, writer_codec, writer_pn) = {
+    let (
+        auth_response,
+        quic_enabled,
+        connection_id,
+        writer_codec,
+        writer_pn,
+        writer_data_frag_key,
+        exit_access,
+    ) = {
         let mut sessions_guard = sessions.write().await;
         let client = match sessions_guard.get_mut(&addr) {
             Some(c) => c,
@@ -1580,33 +1772,39 @@ async fn handle_udp_auth(
             }
         };
 
-        let routes_json = {
+        let (routes_json, exit_access) = {
             let db = server_state.users_db.read().await;
-            handler::build_routes_json_pub(pcfg, &db, &username)
+            let raw_routes = handler::build_routes_json_pub(pcfg, &db, &username, assigned);
+            (
+                handler::routes_without_exit_defaults(&raw_routes),
+                handler::exit_access_from_routes_json(&raw_routes),
+            )
         };
 
         let qe = client.quic_enabled;
         let cid = client.connection_id;
         let wc = client.tx_codec.clone();
         let wpn = client.packet_counter.clone();
+        let fragment_key = client.tx_data_frag_key;
 
         // Self-describing keyed OK payload, same as the TCP path (handler.rs).
         let enc_result = {
             // UDP has no head-of-line blocking, so no stream bonding: empty token,
             // single stream.
-            let msg = handler::build_auth_ok(
-                &client_ip.to_string(),
+            let msg = handler::build_auth_ok_for_addresses(
+                assigned,
                 pcfg,
                 &routes_json,
                 &[0u8; crate::server::handler::JOIN_TOKEN_LEN],
                 1,
+                capabilities,
             );
             let mut tx = lock_or_recover(&client.tx_codec, "udp::auth_response");
             tx.encrypt_packet(msg.as_bytes(), &[])
         };
 
         match enc_result {
-            Ok(enc) => (enc, qe, cid, wc, wpn),
+            Ok(enc) => (enc, qe, cid, wc, wpn, fragment_key, exit_access),
             Err(e) => {
                 log::error!(
                     "UDP: failed to encrypt auth response for {} on profile '{}': {}",
@@ -1734,6 +1932,9 @@ async fn handle_udp_auth(
     let upload_rate = rates.upload.clone();
     let upload_bytes = bytes_recv.clone();
     let upload_tun = tun_tx.clone();
+    let upload_profile = profile.clone();
+    let upload_session_id = session_id;
+    let upload_exit_access = exit_access;
     let upload_revoked = revoked.clone();
     tasks.spawn(async move {
         while let Some(packet) = upload_rx.recv().await {
@@ -1754,8 +1955,12 @@ async fn handle_udp_auth(
             }
             upload_bytes.fetch_add(packet.len() as u64, std::sync::atomic::Ordering::Relaxed);
             if upload_tun
-                .sender
-                .send(ServerTunPacket::Pooled(packet))
+                .send_client_packet(
+                    &upload_profile,
+                    upload_session_id,
+                    upload_exit_access,
+                    ServerTunPacket::Pooled(packet),
+                )
                 .await
                 .is_err()
             {
@@ -1778,6 +1983,7 @@ async fn handle_udp_auth(
                 device_key: dkey.clone(),
                 client_ip,
             };
+            client.data_frag_enabled = data_frag_enabled;
             // Cache for idempotent AuthOK re-emit: a lost AuthOK leaves the client
             // retransmitting THIS exact AUTH datagram, which the replay window would
             // drop — the existing-session re-emit branch resends `auth_ok` on a byte
@@ -1789,11 +1995,18 @@ async fn handle_udp_auth(
             // Destination ACL now that we know WHICH user this session belongs to;
             // the data path below checks it on every inner packet.
             client.dst_acl = dst_acl.clone();
-            client.src_guard = Some(crate::server::acl::SrcGuard::new(
-                client_ip,
+            let assigned_sources: Vec<std::net::IpAddr> = assigned
+                .ipv4
+                .map(std::net::IpAddr::V4)
+                .into_iter()
+                .chain(assigned.ipv6.map(std::net::IpAddr::V6))
+                .collect();
+            client.src_guard = Some(crate::server::acl::SrcGuard::new_dual(
+                &assigned_sources,
                 &src_subnets,
                 &username,
             ));
+            client.exit_access = exit_access;
             client.wire_pool = Some(wire_pool.clone());
         }
     }
@@ -1823,18 +2036,35 @@ async fn handle_udp_auth(
     let writer_addr = addr;
     let writer_quic = quic_enabled;
     let writer_cid = connection_id;
+    let writer_obfs_overhead = socket.seal_overhead();
+    let writer_outer_ipv6 = addr.is_ipv6();
+    let writer_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
+        crate::protocol::data_frag::conservative_udp_payload_budget(writer_outer_ipv6),
+        writer_obfs_overhead,
+        writer_quic,
+    )
+    .expect("conservative UDP budget always fits the data-fragment header");
 
     // Per-user bandwidth cap (own value, else group, else 0 = unlimited). Upload and
     // download use independent session-wide buckets, and `set-bandwidth` updates both.
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     // UDP is a single logical stream per session (no bonding).
     // Built before the struct literal: `username` is moved into it below.
-    let src_guard = crate::server::acl::SrcGuard::new(client_ip, &src_subnets, &username);
+    let assigned_sources: Vec<std::net::IpAddr> = assigned
+        .ipv4
+        .map(std::net::IpAddr::V4)
+        .into_iter()
+        .chain(assigned.ipv6.map(std::net::IpAddr::V6))
+        .collect();
+    let src_guard =
+        crate::server::acl::SrcGuard::new_dual(&assigned_sources, &src_subnets, &username);
     let session = std::sync::Arc::new(crate::server::handler::SessionShared {
         session_id,
         username,
         device_key: dkey,
         client_ip,
+        client_ipv4: assigned.ipv4,
+        client_ipv6: assigned.ipv6,
         peer: addr,
         token: [0u8; crate::server::handler::JOIN_TOKEN_LEN],
         max_streams: 1,
@@ -1858,6 +2088,7 @@ async fn handle_udp_auth(
         rates,
         dst_acl: dst_acl.clone(),
         src_guard,
+        exit_access,
         // 0 = not reported yet; the receive loop fills it in from the client's in-tunnel
         // control frame, and the TUN forwarder reads it. (Audit 2026-07-30, #13.)
         path_mtu: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
@@ -1873,11 +2104,12 @@ async fn handle_udp_auth(
     // Kick any previous session occupying this IP before inserting, and register this
     // client's inbound iroute subnets (#13) — the same helper as the TCP path, so a
     // UDP-profile user with client_subnets gets inbound routing too (previously a no-op).
-    let server_tun: Option<std::net::Ipv4Addr> = profile.config.tun.address.parse().ok();
+    let server_tun = crate::server::handler::configured_tun_addresses(&profile.config);
     let max_clients = profile.config.performance.connection.max_clients as usize;
     let (old_to_evict, programmed_iroutes, rejected) = {
         let mut sess_map = profile.sessions.write().await;
-        let old = sess_map.by_ip.remove(&client_ip);
+        let primary = client_ip;
+        let old = sess_map.remove(primary);
         // Enforce max_clients on UDP too — the TCP auth path does (T7), but this one never
         // did, so a UDP profile admitted clients up to the pool size and silently ignored a
         // smaller configured cap. A brand-new client (no prior session at this IP) beyond
@@ -1886,15 +2118,15 @@ async fn handle_udp_auth(
         if old.is_none() && sess_map.by_ip.len() >= max_clients {
             (None, Vec::new(), true)
         } else {
-            sess_map.by_ip.insert(client_ip, session);
+            sess_map.insert(session);
             // Strip any stale iroutes for a reused IP before re-registering (avoids dups).
-            let _ = sess_map.take_client_routes(client_ip);
+            let _ = sess_map.take_client_routes(primary);
             let programmed = crate::server::handler::register_client_subnets(
                 &mut sess_map,
                 &client_subnets,
                 client_ip,
                 &writer_session,
-                server_tun,
+                &server_tun,
                 &writer_session.username,
                 &profile.name,
             );
@@ -1994,6 +2226,7 @@ async fn handle_udp_auth(
         let mut quic_record = Vec::with_capacity(
             wire_pool.buffer_capacity() + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
         );
+        let mut record_id: u64 = rand::random();
         loop {
             tokio::select! {
                 biased;
@@ -2012,6 +2245,60 @@ async fn handle_udp_auth(
                     let limit = writer_session
                         .bandwidth_limit_mbps
                         .load(std::sync::atomic::Ordering::Relaxed);
+                    if data_frag_enabled && data.len() > writer_record_budget {
+                        let this_record_id = record_id;
+                        record_id = record_id.wrapping_add(1);
+                        let fragments = match crate::protocol::data_frag::fragment_record(
+                            &data,
+                            &writer_data_frag_key,
+                            this_record_id,
+                            writer_record_budget - crate::protocol::data_frag::HEADER_LEN,
+                        ) {
+                            Ok(fragments) => fragments,
+                            Err(error) => {
+                                log::warn!(
+                                    "UDP writer for {} could not fragment a data record: {}",
+                                    writer_addr,
+                                    error
+                                );
+                                writer_session
+                                    .dropped
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                continue;
+                            }
+                        };
+                        let wrappers = writer_obfs_overhead
+                            + if writer_quic {
+                                crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+                            } else {
+                                0
+                            };
+                        let wire_len: u64 = fragments
+                            .iter()
+                            .map(|fragment| (fragment.len() + wrappers) as u64)
+                            .sum();
+                        let delay = writer_session.rates.download.consume(wire_len * 8, limit);
+                        if !delay.is_zero() {
+                            tokio::time::sleep(delay).await;
+                        }
+                        writer_session
+                            .bytes_sent
+                            .fetch_add(wire_len, std::sync::atomic::Ordering::Relaxed);
+                        for fragment in fragments {
+                            let pkt: &[u8] = if writer_quic {
+                                let pn = writer_pn
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                wrap_quic_short_into(&fragment, &writer_cid, pn, &mut quic_record);
+                                &quic_record
+                            } else {
+                                &fragment
+                            };
+                            if writer_socket.send_to(pkt, writer_addr).await.is_err() {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
                     // Build the actual wire datagram FIRST, then account and throttle on its
                     // length. `data` is the encrypted record; in QUIC mode the short-header
                     // wrapper adds bytes that genuinely go on the wire. Counting `data.len()`
@@ -2026,7 +2313,7 @@ async fn handle_udp_auth(
                     } else {
                         &data
                     };
-                    let wire_len = pkt.len() as u64;
+                    let wire_len = (pkt.len() + writer_obfs_overhead) as u64;
                     let delay = writer_session.rates.download.consume(wire_len * 8, limit);
                     if !delay.is_zero() {
                         tokio::time::sleep(delay).await;
@@ -2092,6 +2379,9 @@ async fn handle_new_udp_client(
         None => derive_keys_hybrid(&shared.0, &mlkem_shared),
     };
 
+    let tx_data_frag_key = derive_data_frag_key(&server_to_client_key);
+    let rx_data_frag_key = derive_data_frag_key(&client_to_server_key);
+
     let mut server_tx = PacketCodec::new(server_to_client_key);
     let server_rx = PacketCodec::new(client_to_server_key);
 
@@ -2149,8 +2439,13 @@ async fn handle_new_udp_client(
         UdpClient {
             rx_codec: Arc::new(std::sync::Mutex::new(server_rx)),
             tx_codec: Arc::new(std::sync::Mutex::new(server_tx)),
+            rx_data_frag_key,
+            tx_data_frag_key,
+            data_frag_enabled: false,
+            data_reassembler: crate::protocol::data_frag::DataReassembler::new(),
             state: UdpSessionState::AwaitingAuth,
             src_guard: None,
+            exit_access: crate::server::ExitAccess::default(),
             revoked: None,
             path_mtu: None,
             client_info: None,

@@ -232,13 +232,17 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val PLATFORM_TUN_FD = 1L shl 3
         const val PLATFORM_SOCKET_PROTECT = 1L shl 5
         const val PLATFORM_SERVER_IDENTITY = 1L shl 6
+        const val PLATFORM_IPV6_TUN = 1L shl 8
+        const val PLATFORM_IPV6_ROUTES = 1L shl 9
+        const val PLATFORM_IPV6_DNS = 1L shl 10
+        const val PLATFORM_IPV6_KILL_SWITCH = 1L shl 11
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x0001000a
+        private const val ABI_VERSION = 0x0001000b
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2

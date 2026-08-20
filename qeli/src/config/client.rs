@@ -145,8 +145,50 @@ pub struct ClientTunConfig {
     pub attach_existing: bool,
 }
 
+/// Client policy for accepting an inner IPv6 plan from the server.
+///
+/// This does not select the server profile's family mode. `required` fails closed when either
+/// the server or the platform adapter cannot provide complete IPv6 support; `off` requests the
+/// IPv4 side of a dual profile and refuses an IPv6-only profile.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientIpv6Policy {
+    #[default]
+    Auto,
+    Required,
+    Off,
+}
+
+impl std::fmt::Display for ClientIpv6Policy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "auto",
+            Self::Required => "required",
+            Self::Off => "off",
+        })
+    }
+}
+
+impl std::str::FromStr for ClientIpv6Policy {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "required" => Ok(Self::Required),
+            "off" => Ok(Self::Off),
+            _ => Err(format!(
+                "expected one of auto, required, off; got '{value}'"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct ClientRoutingConfig {
+    /// Inner IPv6 acceptance policy (`auto|required|off`).
+    #[serde(default)]
+    pub ipv6: ClientIpv6Policy,
     #[serde(default = "default_routing_mode")]
     pub mode: String,
     /// Route ALL client traffic through the tunnel (install a default route via
@@ -184,6 +226,10 @@ pub struct ClientRoutingConfig {
     /// on a host where IPv6 is disabled by other means). Default false.
     #[serde(default = "default_false")]
     pub allow_ipv6_leak: bool,
+    /// Symmetric escape hatch for an IPv6-only full tunnel. The secure default blocks native
+    /// IPv4 egress instead of silently bypassing the tunnel.
+    #[serde(default = "default_false")]
+    pub allow_ipv4_leak: bool,
     /// Gateway/router NAT (Linux/iptables). When `true`, the client programs
     /// `ip_forward` + `MASQUERADE` out the tun device + a FORWARD accept + a TCP
     /// MSS-clamp, so a LAN *behind* this client reaches the internet through the
@@ -196,6 +242,10 @@ pub struct ClientRoutingConfig {
     /// only that LAN is masqueraded. Empty = masquerade everything leaving the tun.
     #[serde(default)]
     pub lan_subnet: String,
+    /// Optional IPv6 source prefix for gateway NAT/forwarding. Kept separate from
+    /// `lan_subnet` so each firewall family receives a CIDR it can actually parse.
+    #[serde(default)]
+    pub lan_subnet_ipv6: String,
     /// #13: pure L3 forwarding for a LAN *behind* this client WITHOUT NAT — enable
     /// `ip_forward` + a FORWARD accept + MSS-clamp, but NO MASQUERADE, so the tunnel↔LAN
     /// transit keeps real source IPs (site-to-site routing). Use INSTEAD of `gateway_nat`
@@ -207,14 +257,17 @@ pub struct ClientRoutingConfig {
     /// forwards + MASQUERADEs traffic that arrived FROM the tunnel OUT its physical WAN, so
     /// OTHER tunnel clients reach the internet under THIS host's IP (e.g. a grey/NAT'd
     /// residential line). Pairs with the server: the profile needs `client_to_client` and
-    /// this user needs `client_subnet = 0.0.0.0/0`; consumer clients get the exit by being
-    /// pushed a default route. This host must be SPLIT-tunnel (`gateway = false`) — its own
+    /// this user needs `client_subnet = 0.0.0.0/0` (and `::/0` for IPv6). A consumer's
+    /// matching server-side `route = .../0` is an authorization marker; the consumer opts
+    /// into full-tunnel capture locally with `gateway = true`. This host must be
+    /// SPLIT-tunnel (`gateway = false`) — its own
     /// internet stays on the WAN, which is what carries the forwarded traffic. Linux/router
     /// only. Default false.
     #[serde(default = "default_false")]
     pub exit_node: bool,
-    /// Command run once when the client starts, AFTER the kill-switch/gateway NAT
-    /// is in place (Linux only, runs as the client's user — typically root). Use
+    /// Command run once after the first authenticated NetworkPlan has created the TUN
+    /// and installed its active-family gateway/exit firewall (Linux only, runs as the
+    /// client's user — typically root). Use
     /// for custom routing/firewall. SECURITY: honoured ONLY from a trusted local
     /// config file (root-owned, not world-writable); the panel/API never writes it.
     #[serde(default)]
@@ -223,17 +276,6 @@ pub struct ClientRoutingConfig {
     /// `post_up`. Same security rules. A crash does NOT run it.
     #[serde(default)]
     pub post_down: String,
-    #[serde(default)]
-    pub custom_routes: Vec<CustomRoute>,
-}
-
-#[derive(Debug, Default, Deserialize, Clone)]
-pub struct CustomRoute {
-    pub dest: String,
-    #[serde(default = "default_route_via")]
-    pub via: String,
-    #[serde(default = "default_route_metric")]
-    pub metric: u32,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -271,6 +313,18 @@ pub struct ClientObfuscationConfig {
     /// `auth.server_public_key`) in the session_id. Empty = no REALITY.
     #[serde(default)]
     pub reality_short_id: Option<String>,
+    /// Emit a compact X25519-only REALITY-TLS ClientHello. This keeps the full
+    /// discriminator below one TCP MSS on mobile paths that drop a segmented
+    /// post-quantum ClientHello. It affects only `mode = reality-tls`.
+    #[serde(default)]
+    pub reality_compact: bool,
+    /// Split the REALITY-TLS ClientHello across writes to evade DPI that only
+    /// parses the first payload segment. Values: empty/none, sni, record, first.
+    #[serde(default)]
+    pub reality_split: String,
+    /// Delay between the two ClientHello writes when `reality_split` is active.
+    #[serde(default = "default_reality_split_delay")]
+    pub reality_split_delay_ms: u64,
     /// SNI to present in the fake-tls ClientHello. When empty, the client uses
     /// the connect hostname (or a random decoy SNI when connecting to a bare
     /// IP). Lets a QR/link pin a specific front domain.
@@ -342,6 +396,9 @@ fn default_protocol() -> String {
 fn default_conn_timeout() -> u64 {
     30
 }
+fn default_reality_split_delay() -> u64 {
+    100
+}
 fn default_max_retries_inf() -> i32 {
     -1
 }
@@ -359,12 +416,6 @@ fn default_client_tun_name() -> String {
 }
 fn default_routing_mode() -> String {
     "split-tunnel".into()
-}
-fn default_route_via() -> String {
-    "10.0.0.1".into()
-}
-fn default_route_metric() -> u32 {
-    100
 }
 fn default_dns_mode() -> String {
     "tunnel".into()
@@ -535,6 +586,13 @@ impl ClientConfig {
             .get("reality_sid")
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        cfg.obfuscation.reality_compact =
+            q.bool_or("reality_compact", cfg.obfuscation.reality_compact);
+        cfg.obfuscation.reality_split = q.get_or("reality_split", "").to_string();
+        cfg.obfuscation.reality_split_delay_ms = q.parse_or(
+            "reality_split_delay",
+            cfg.obfuscation.reality_split_delay_ms,
+        );
         cfg.obfuscation.quic.enabled = q.bool_or("quic", cfg.obfuscation.quic.enabled);
         cfg.obfuscation.sni = q.get("sni").filter(|s| !s.is_empty()).map(str::to_string);
 
@@ -639,7 +697,9 @@ impl ClientConfig {
         // Firewall kill-switch (Linux/iptables, full-tunnel only) — block egress
         // leaks while the tunnel is down. A file key, not in the qeli:// link.
         cfg.routing.kill_switch = q.bool_or("kill_switch", cfg.routing.kill_switch);
+        cfg.routing.ipv6 = q.parse_or("ipv6", cfg.routing.ipv6);
         cfg.routing.allow_ipv6_leak = q.bool_or("allow_ipv6_leak", cfg.routing.allow_ipv6_leak);
+        cfg.routing.allow_ipv4_leak = q.bool_or("allow_ipv4_leak", cfg.routing.allow_ipv4_leak);
 
         // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
         // она для телефонов):
@@ -678,6 +738,9 @@ impl ClientConfig {
         if let Some(s) = q.get("lan_subnet").filter(|s| !s.is_empty()) {
             cfg.routing.lan_subnet = s.to_string();
         }
+        if let Some(s) = q.get("lan_subnet_ipv6").filter(|s| !s.is_empty()) {
+            cfg.routing.lan_subnet_ipv6 = s.to_string();
+        }
         if let Some(s) = q.get("post_up").filter(|s| !s.is_empty()) {
             cfg.routing.post_up = s.to_string();
         }
@@ -688,12 +751,13 @@ impl ClientConfig {
         // Explicit per-CIDR routing lists (file-only; JSON configs set the same fields).
         // Comma-separated CIDRs. `exclude` carves specific subnets OUT of the tunnel
         // (routed via the physical gateway, so it works even in full-tunnel); `include`
-        // forces subnets INTO the tunnel (split-tunnel). Malformed entries are dropped.
+        // forces subnets INTO the tunnel (split-tunnel). A malformed entry is fatal: silently
+        // changing either list changes the operator's routing/security policy.
         if let Some(s) = q.get("exclude").filter(|s| !s.is_empty()) {
-            cfg.routing.exclude = parse_cidr_list(s);
+            cfg.routing.exclude = parse_cidr_list("exclude", s)?;
         }
         if let Some(s) = q.get("include").filter(|s| !s.is_empty()) {
-            cfg.routing.include = parse_cidr_list(s);
+            cfg.routing.include = parse_cidr_list("include", s)?;
         }
 
         // Auto-connect this profile when the supervisor/panel starts. File-level key
@@ -919,28 +983,15 @@ impl ClientConfig {
             }
         }
         if let Some(address) = self.server.local_address.as_deref() {
-            address
-                .parse::<std::net::Ipv4Addr>()
-                .map_err(|_| anyhow::anyhow!("'local' must be an IPv4 address, got '{address}'"))?;
+            address.parse::<std::net::IpAddr>().map_err(|_| {
+                anyhow::anyhow!("'local' must be an IPv4 or IPv6 address, got '{address}'")
+            })?;
         }
 
         // Only the INLINE password can be judged here. `password_file` / `password_command`
         // are resolved at connect time, so the client re-runs this on what they produced —
         // see `check_credential_size`, which exists precisely so the two callers cannot drift.
         self.check_credential_size(self.auth.password.as_deref().unwrap_or(""), "pass")?;
-        // An IPv6 endpoint parses and round-trips, but no core can USE it: the Rust client
-        // builds `host:port` unbracketed and binds an IPv4 UDP socket, and the desktop creates
-        // InterNetwork sockets and discards AAAA. Accepting it produced a confusing failure at
-        // connect time instead of a clear one here. Real support is tracked for 0.8.0 —
-        // see ROADMAP, "IPv6 server endpoint". (Audit 2026-07-31, §11.)
-        if self.server.address.parse::<std::net::Ipv6Addr>().is_ok()
-            || (self.server.address.contains(':') && self.server.address.starts_with('['))
-        {
-            anyhow::bail!(
-                "'server' is an IPv6 address ('{}') — not supported yet: the data plane binds                  IPv4 only. Use an IPv4 address or a hostname that resolves to one.",
-                self.server.address
-            );
-        }
         check("proto", &self.server.protocol, &["tcp", "udp"])?;
         check(
             "mode",
@@ -978,6 +1029,14 @@ impl ClientConfig {
         // `deadbee` here and matched nothing there. Rejecting the malformed value is the only
         // way the two ends can agree about what was configured. (Audit 2026-08-03, P2.)
         if self.obfuscation.mode == "reality-tls" {
+            check(
+                "reality_split",
+                &self.obfuscation.reality_split,
+                &["", "none", "sni", "record", "first"],
+            )?;
+            if self.obfuscation.reality_split_delay_ms > 5_000 {
+                anyhow::bail!("'reality_split_delay' must be 0..5000 ms");
+            }
             let sid = self
                 .obfuscation
                 .reality_short_id
@@ -1105,13 +1164,8 @@ impl ClientConfig {
             ("fallback DNS", &self.dns.fallback_servers),
         ] {
             for server in servers {
-                match server.trim().parse::<std::net::IpAddr>() {
-                    Ok(std::net::IpAddr::V4(_)) => {}
-                    Ok(std::net::IpAddr::V6(_)) => anyhow::bail!(
-                        "'{source}' contains IPv6 resolver '{server}', but qeli {} carries only IPv4 inner packets",
-                        env!("CARGO_PKG_VERSION")
-                    ),
-                    Err(_) => anyhow::bail!("'{source}' contains invalid resolver '{server}'"),
+                if server.trim().parse::<std::net::IpAddr>().is_err() {
+                    anyhow::bail!("'{source}' contains invalid resolver '{server}'");
                 }
             }
         }
@@ -1122,17 +1176,58 @@ impl ClientConfig {
             &self.tun.device_type.to_ascii_lowercase(),
             &["tun", "tap"],
         )?;
+        if self.routing.ipv6 == ClientIpv6Policy::Required
+            && self.tun.mtu > 0
+            && self.tun.mtu < 1280
+        {
+            anyhow::bail!(
+                "'ipv6 = required' needs an explicit 'mtu' of at least 1280 (or 0 for auto), got {}",
+                self.tun.mtu
+            );
+        }
         check(
             "routing mode",
             &self.routing.mode,
             &["split-tunnel", "full-tunnel", "all"],
         )?;
-        if self.routing.exit_node && self.routing.add_default_gateway {
+        if self.routing.exit_node
+            && (self.routing.add_default_gateway
+                || self.routing.mode == "full-tunnel"
+                || self.routing.mode == "all")
+        {
             anyhow::bail!(
-                "'exit_node = true' cannot be combined with 'gateway = true': an exit node \
-                 must keep its own default route on the physical WAN so forwarded tunnel \
-                 traffic has an egress path"
+                "'exit_node = true' requires split-tunnel routing (`gateway = false` and `routing = split-tunnel`) so the physical WAN remains available"
             );
+        }
+        if !self.routing.lan_subnet.trim().is_empty()
+            && self
+                .routing
+                .lan_subnet
+                .trim()
+                .parse::<ipnet::Ipv4Net>()
+                .is_err()
+        {
+            anyhow::bail!(
+                "'lan_subnet' must be one IPv4 CIDR (got '{}'); use lan_subnet_ipv6 for IPv6",
+                self.routing.lan_subnet
+            );
+        }
+        if !self.routing.lan_subnet_ipv6.trim().is_empty() {
+            if self
+                .routing
+                .lan_subnet_ipv6
+                .trim()
+                .parse::<ipnet::Ipv6Net>()
+                .is_err()
+            {
+                anyhow::bail!(
+                    "'lan_subnet_ipv6' must be one IPv6 CIDR (got '{}')",
+                    self.routing.lan_subnet_ipv6
+                );
+            }
+            if self.routing.ipv6 == ClientIpv6Policy::Off {
+                anyhow::bail!("'lan_subnet_ipv6' cannot be used with ipv6 = off");
+            }
         }
         if self.obfuscation.padding.min_bytes > self.obfuscation.padding.max_bytes
             || self.obfuscation.padding.max_bytes > 1_400
@@ -1177,7 +1272,7 @@ impl ClientConfig {
         let mut q = Section::new("qeli", None);
         q.set(
             "server",
-            format!("{}:{}", self.server.address, self.server.port),
+            crate::util::join_host_port(&self.server.address, self.server.port),
         )
         .set("proto", &self.server.protocol)
         .set("user", &self.auth.username);
@@ -1248,6 +1343,16 @@ impl ClientConfig {
         // (the qeli:// link already carries it as `rsid`).
         if let Some(sid) = &self.obfuscation.reality_short_id {
             q.set("reality_sid", sid);
+        }
+        if self.obfuscation.reality_compact {
+            q.set("reality_compact", "true");
+        }
+        if !self.obfuscation.reality_split.is_empty() && self.obfuscation.reality_split != "none" {
+            q.set("reality_split", &self.obfuscation.reality_split);
+            q.set(
+                "reality_split_delay",
+                self.obfuscation.reality_split_delay_ms.to_string(),
+            );
         }
         if self.obfuscation.fronting != "websocket" {
             q.set("front", &self.obfuscation.fronting);
@@ -1341,8 +1446,14 @@ impl ClientConfig {
         if self.routing.kill_switch {
             q.set("kill_switch", "true");
         }
+        if self.routing.ipv6 != ClientIpv6Policy::Auto {
+            q.set("ipv6", self.routing.ipv6.to_string());
+        }
         if self.routing.allow_ipv6_leak {
             q.set("allow_ipv6_leak", "true");
+        }
+        if self.routing.allow_ipv4_leak {
+            q.set("allow_ipv4_leak", "true");
         }
         if self.routing.add_default_gateway {
             q.set("gateway", "true");
@@ -1358,6 +1469,9 @@ impl ClientConfig {
         }
         if !self.routing.lan_subnet.is_empty() {
             q.set("lan_subnet", &self.routing.lan_subnet);
+        }
+        if !self.routing.lan_subnet_ipv6.is_empty() {
+            q.set("lan_subnet_ipv6", &self.routing.lan_subnet_ipv6);
         }
         if !self.routing.post_up.is_empty() {
             q.set("post_up", &self.routing.post_up);
@@ -1431,12 +1545,14 @@ fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
         let (host, port) = rest
             .split_once("]:")
             .ok_or_else(|| anyhow::anyhow!("'server' IPv6 must be [host]:port, got '{}'", s))?;
-        if host.is_empty() {
-            anyhow::bail!("'server' has empty host: '{}'", s);
-        }
+        host.parse::<std::net::Ipv6Addr>()
+            .map_err(|_| anyhow::anyhow!("'server' has invalid IPv6 address: '{}'", s))?;
         let port: u16 = port
             .parse()
             .map_err(|_| anyhow::anyhow!("'server' has invalid port: '{}'", s))?;
+        if port == 0 {
+            anyhow::bail!("'server' port must be 1..65535: '{}'", s);
+        }
         return Ok((host.to_string(), port));
     }
     let (host, port) = s
@@ -1456,34 +1572,30 @@ fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
     let port: u16 = port
         .parse()
         .map_err(|_| anyhow::anyhow!("'server' has invalid port: '{}'", s))?;
+    if port == 0 {
+        anyhow::bail!("'server' port must be 1..65535: '{}'", s);
+    }
     Ok((host.to_string(), port))
 }
 
-/// Split a comma-separated CIDR list and keep only well-formed entries. These values
-/// are spliced into `ip route ...` argument lines, so a malformed token is dropped
-/// rather than passed through (defence against argument injection).
-fn parse_cidr_list(s: &str) -> Vec<String> {
-    s.split(',')
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .filter(|p| {
-            // Say so when an entry is dropped. Silently discarding one changes what is
-            // routed — an unusable `exclude` entry means that subnet goes through the
-            // tunnel after all, and an unusable `include` entry means it does not — with
-            // nothing in the log to explain why the config "did not take". The server
-            // side already warns when it ignores a route; this is the client's half.
-            let ok = is_cidr(p);
-            if !ok {
-                log::warn!(
-                    "config: ignoring '{}' in a routing list — not a bare CIDR (expected \
-                     e.g. 192.168.1.0/24)",
-                    p
-                );
-            }
-            ok
-        })
-        .map(str::to_string)
-        .collect()
+/// Split one comma-separated routing list. These values become route arguments, so accept
+/// only bare CIDRs and fail the complete config when any element is invalid. Dropping one
+/// element is not a safe recovery: it silently reverses that subnet's include/exclude policy.
+fn parse_cidr_list(key: &str, s: &str) -> anyhow::Result<Vec<String>> {
+    let mut parsed = Vec::new();
+    for raw in s.split(',') {
+        let value = raw.trim();
+        if value.is_empty() {
+            anyhow::bail!("key '{key}' contains an empty routing-list element");
+        }
+        if !is_cidr(value) {
+            anyhow::bail!(
+                "key '{key}' contains invalid CIDR '{value}' (expected a bare address/prefix, e.g. 192.168.1.0/24 or 2001:db8::7/128)"
+            );
+        }
+        parsed.push(value.to_string());
+    }
+    Ok(parsed)
 }
 
 /// True only for a bare `addr/prefix` CIDR: no leading `-` (an `ip` option), the address
@@ -1515,6 +1627,46 @@ mod auth_size_tests {
         let ini = format!("[qeli]\nserver = vpn.example.com:443\nuser = {user}\npass = {pass}\n");
         let doc = crate::config::format::IniDoc::parse(&ini).expect("valid INI");
         ClientConfig::from_ini(&doc).expect("parses")
+    }
+
+    #[test]
+    fn invalid_include_or_exclude_cidr_rejects_the_complete_ini() {
+        for (key, value) in [
+            ("include", "10.20.0.0/16, not-a-cidr"),
+            ("exclude", "192.168.0.0/33"),
+            ("include", "-6 route add ::/0"),
+        ] {
+            let ini = format!("[qeli]\nserver = vpn.example.com:443\n{key} = {value}\n");
+            let document = crate::config::format::IniDoc::parse(&ini).unwrap();
+            let error = ClientConfig::from_ini(&document).unwrap_err();
+            let message = error.to_string();
+            assert!(message.contains(key), "missing key in error: {message}");
+            assert!(message.contains("invalid CIDR"), "unexpected error: {message}");
+        }
+    }
+
+    #[test]
+    fn valid_dual_family_routing_lists_are_preserved() {
+        let ini = "[qeli]\nserver = vpn.example.com:443\ninclude = 10.20.0.0/16, 2001:db8:20::/48\nexclude = 192.168.0.7/32, fc00::/7\n";
+        let document = crate::config::format::IniDoc::parse(ini).unwrap();
+        let config = ClientConfig::from_ini(&document).unwrap();
+        assert_eq!(
+            config.routing.include,
+            vec!["10.20.0.0/16".to_string(), "2001:db8:20::/48".to_string()]
+        );
+        assert_eq!(
+            config.routing.exclude,
+            vec!["192.168.0.7/32".to_string(), "fc00::/7".to_string()]
+        );
+    }
+
+    #[test]
+    fn empty_routing_list_element_is_not_silently_skipped() {
+        let ini = "[qeli]\nserver = vpn.example.com:443\nexclude = 10.0.0.0/8,\n";
+        let document = crate::config::format::IniDoc::parse(ini).unwrap();
+        let error = ClientConfig::from_ini(&document).unwrap_err().to_string();
+        assert!(error.contains("exclude"), "unexpected error: {error}");
+        assert!(error.contains("empty"), "unexpected error: {error}");
     }
 
     /// Credentials that do not fit one datagram are refused at load, not discovered as a
@@ -1589,6 +1741,69 @@ sni    = www.cloudflare.com
         // mtu defaults to 0 = auto (adopt the server-pushed MTU)
         assert_eq!(c.tun.mtu, 0);
         assert_eq!(c.routing.mode, "split-tunnel");
+    }
+
+    #[test]
+    fn required_ipv6_rejects_an_explicit_mtu_below_1280() {
+        let required = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = vpn.example.com:443\nipv6 = required\nmtu = 1200\n")
+                .unwrap(),
+        )
+        .unwrap();
+        let error = required
+            .validate()
+            .expect_err("required IPv6 cannot run below its minimum link MTU")
+            .to_string();
+        assert!(error.contains("at least 1280"), "unexpected error: {error}");
+
+        for mtu in [0, 1280] {
+            let config = ClientConfig::from_ini(
+                &IniDoc::parse(&format!(
+                    "[qeli]\nserver = vpn.example.com:443\nipv6 = required\nmtu = {mtu}\n"
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+            config
+                .validate()
+                .unwrap_or_else(|error| panic!("mtu {mtu} must remain valid: {error}"));
+        }
+    }
+
+    #[test]
+    fn exit_node_rejects_every_full_tunnel_spelling() {
+        let gateway = ClientConfig::from_ini(
+            &IniDoc::parse(
+                "[qeli]\nserver = vpn.example.com:443\nexit_node = true\ngateway = true\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let error = gateway
+            .validate()
+            .expect_err("an exit node needs its physical default route")
+            .to_string();
+        assert!(error.contains("requires split-tunnel"), "{error}");
+
+        // `routing.mode` is retained as an internal/legacy representation; current flat
+        // configs select full tunnel with `gateway`. Keep programmatic callers safe too.
+        for mode in ["full-tunnel", "all"] {
+            let mut config = ClientConfig::from_ini(
+                &IniDoc::parse("[qeli]\nserver = vpn.example.com:443\nexit_node = true\n").unwrap(),
+            )
+            .unwrap();
+            config.routing.mode = mode.to_string();
+            assert!(config.validate().is_err(), "mode {mode} must be rejected");
+        }
+
+        let split = ClientConfig::from_ini(
+            &IniDoc::parse(
+                "[qeli]\nserver = vpn.example.com:443\nexit_node = true\ngateway = false\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        split.validate().unwrap();
     }
 
     #[test]
@@ -1689,7 +1904,7 @@ sni    = www.cloudflare.com
     }
 
     #[test]
-    fn ipv6_dns_is_rejected_while_the_inner_data_plane_is_ipv4_only() {
+    fn ipv6_dns_is_valid_and_round_trips() {
         let src = concat!(
             "[qeli]\n",
             "server = 1.2.3.4:443\n",
@@ -1699,8 +1914,10 @@ sni    = www.cloudflare.com
             "dns_servers = 2001:4860:4860::8888\n",
         );
         let config = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("IPv6 resolver"));
+        config.validate().unwrap();
+        let output = config.to_ini_string();
+        let reparsed = ClientConfig::from_ini(&IniDoc::parse(&output).unwrap()).unwrap();
+        assert_eq!(reparsed.dns.servers, ["2001:4860:4860::8888"]);
     }
 
     #[test]
@@ -1726,6 +1943,21 @@ sni    = www.cloudflare.com
         let c2 = ClientConfig::from_ini(&IniDoc::parse(&out).unwrap()).unwrap();
         assert_eq!(c2.server.address, "h");
         assert_eq!(c2.auth.username, "u");
+    }
+
+    #[test]
+    fn ipv6_server_and_local_address_validate_and_round_trip() {
+        let src = "[qeli]\nserver = [2001:db8::10]:443\nlocal = 2001:db8::20\nuser = u\npass = p\n";
+        let config = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.server.address, "2001:db8::10");
+        assert_eq!(config.server.local_address.as_deref(), Some("2001:db8::20"));
+
+        let output = config.to_ini_string();
+        assert!(output.contains("server = [2001:db8::10]:443"));
+        let reparsed = ClientConfig::from_ini(&IniDoc::parse(&output).unwrap()).unwrap();
+        assert_eq!(reparsed.server.address, config.server.address);
+        assert_eq!(reparsed.server.local_address, config.server.local_address);
     }
 
     #[test]
@@ -1877,6 +2109,43 @@ sni    = www.cloudflare.com
             back.routing.allow_ipv6_leak,
             "allow_ipv6_leak must round-trip through to_ini_string"
         );
+
+        // The IPv6-only mirror has the same fail-closed default and round-trip contract.
+        assert!(!c.routing.allow_ipv4_leak);
+        let on = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:1\nallow_ipv4_leak = on\n").unwrap(),
+        )
+        .unwrap();
+        assert!(on.routing.allow_ipv4_leak);
+        let back = ClientConfig::from_ini(&IniDoc::parse(&on.to_ini_string()).unwrap()).unwrap();
+        assert!(back.routing.allow_ipv4_leak);
+    }
+
+    #[test]
+    fn ipv6_acceptance_policy_defaults_parses_and_round_trips() {
+        let default =
+            ClientConfig::from_ini(&IniDoc::parse("[qeli]\nserver = h:443\n").unwrap()).unwrap();
+        assert_eq!(default.routing.ipv6, ClientIpv6Policy::Auto);
+        assert!(!default.to_ini_string().contains("\nipv6 ="));
+
+        for (raw, expected) in [
+            ("auto", ClientIpv6Policy::Auto),
+            ("required", ClientIpv6Policy::Required),
+            ("off", ClientIpv6Policy::Off),
+        ] {
+            let text = format!("[qeli]\nserver = h:443\nipv6 = {raw}\n");
+            let parsed = ClientConfig::from_ini(&IniDoc::parse(&text).unwrap()).unwrap();
+            assert_eq!(parsed.routing.ipv6, expected);
+            let back =
+                ClientConfig::from_ini(&IniDoc::parse(&parsed.to_ini_string()).unwrap()).unwrap();
+            assert_eq!(back.routing.ipv6, expected);
+        }
+
+        let error =
+            crate::config::parse_client_config_strict("[qeli]\nserver = h:443\nipv6 = sometimes\n")
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("ipv6"), "{error}");
     }
 
     #[test]
@@ -2116,6 +2385,7 @@ shaping_max_size = 1100
 shaping_stealth = true
 shaping_stealth_mbps = 3
 route_local = true
+ipv6 = required
 include = 10.0.0.0/8, 172.16.0.0/12
 exclude = 192.168.9.0/24
 kill_switch = true
@@ -2125,6 +2395,7 @@ gateway_nat = true
 forward = true
 exit_node = true
 lan_subnet = 192.168.50.0/24
+lan_subnet_ipv6 = 2001:db8:50::/64
 post_up = echo up
 post_down = echo down
 dns = off
@@ -2186,6 +2457,7 @@ file = /tmp/client.log
             "shaping_stealth = true",
             "shaping_stealth_mbps = 3",
             "route_local = true",
+            "ipv6 = required",
             "include = 10.0.0.0/8",
             "exclude = 192.168.9.0/24",
             "kill_switch = true",
@@ -2195,6 +2467,7 @@ file = /tmp/client.log
             "forward = true",
             "exit_node = true",
             "lan_subnet = 192.168.50.0/24",
+            "lan_subnet_ipv6 = 2001:db8:50::/64",
             "post_up = echo up",
             "post_down = echo down",
             "dns = off",

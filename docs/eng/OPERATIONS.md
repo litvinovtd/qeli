@@ -302,10 +302,11 @@ Caveats that actually bite:
   `ufw`) and verifies each rule by re-reading it (`-C`) instead of trusting the exit code —
   which lies under the nft wrapper. Rules are split into essential (MASQUERADE and the two
   MSS clamps: on failure the partial set is rolled back and the profile refuses to start)
-  and best-effort (`FORWARD … ACCEPT`: on failure, a warning only). If you see
+  and conditional (`FORWARD … ACCEPT`: omission is safe only for an otherwise empty chain
+  whose built-in policy is `ACCEPT`). If you see
   `FORWARD ACCEPT rules could not be applied (host has a mixed legacy/nft filter table)`,
-  egress still works while the FORWARD policy is `ACCEPT`; with `DROP` you must permit the
-  forwarding yourself.
+  egress continues only after qeli verifies that empty/`ACCEPT` state; `DROP`, any explicit
+  rule/jump, or an unreadable chain fails profile startup.
 - **OpenWrt** has its own firewall (fw4/nftables): the package creates a `qeli` zone and a
   `lan → qeli` forwarding rule **once, at install time**. That is deliberate — fw4 flushes
   raw iptables rules on `/etc/init.d/firewall reload`. The side effect: the zone is bound

@@ -137,6 +137,38 @@ final class ParityHardeningTests: XCTestCase {
         XCTAssertTrue(ProtectionSummary(config: config, globalAllowLAN: false).carriesEverything)
     }
 
+    func testLANToggleDoesNotPretendToExcludeSplitTunnelRoutes() throws {
+        let config = try VPNConfig(parsing: minimalINI(
+            "gateway = false\ninclude = 10.20.0.0/16\nallow_lan = true"
+        ))
+        let summary = ProtectionSummary(config: config, globalAllowLAN: true)
+        XCTAssertEqual(summary.scope, .splitRoutes)
+        XCTAssertFalse(summary.warnings.contains(.lanOutside))
+    }
+
+    func testLegacyTunnelSnapshotDecodesWithoutGateway() throws {
+        let legacy = Data(#"""
+        {"phase":"connected","message":"ok","clientAddress":"fd71:e100::2",
+         "bytesUploaded":0,"bytesDownloaded":0,"uploadBytesPerSecond":0,
+         "downloadBytesPerSecond":0,"updatedAt":0,"maxStreams":1,"pushedRoutes":0}
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let snapshot = try decoder.decode(TunnelSnapshot.self, from: legacy)
+        XCTAssertEqual(snapshot.clientAddress, "fd71:e100::2")
+        XCTAssertNil(snapshot.tunnelGateway)
+
+        var current = snapshot
+        current.tunnelGateway = "fd71:e100::1"
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        let roundTrip = try decoder.decode(
+            TunnelSnapshot.self,
+            from: encoder.encode(current)
+        )
+        XCTAssertEqual(roundTrip.tunnelGateway, "fd71:e100::1")
+    }
+
     /// `apps_mode` is REPORTED on iOS, never applied — `NEAppRule` needs an MDM-managed
     /// configuration, so every app goes through the tunnel whatever the profile says.
     ///

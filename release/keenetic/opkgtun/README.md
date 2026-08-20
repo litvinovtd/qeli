@@ -32,8 +32,12 @@
 
 Поэтому qeli в **attach-режиме** (`dev_attach = true`): открывает существующее
 ndm-устройство **только для перекачки пакетов** — не создаёт его, не ставит адрес, не
-поднимает линк, не трогает маршруты, не удаляет при выходе. Выданный сервером IP qeli пишет
-в `$QELI_TUNIP_FILE`, а адрес/линк/маршруты держит `ndm` (через хук).
+поднимает линк, не трогает маршруты, не удаляет при выходе. После успешного commit всего
+аутентифицированного NetworkPlan qeli атомарно пишет выданные IPv4/IPv6 и MTU в
+`$QELI_TUNIP_FILE`; частично применённый и затем откаченный план в файл не попадает. Хук
+читает только этот committed-файл (не старые строки лога) и передаёт IPv6 в ndm вместе с
+согласованным host-prefix, обычно `/128`.
+Адрес/линк/маршруты держит `ndm` (через хук).
 
 > ℹ️ **Про «gvisor only».** Форумные упоминания, что «на OpkgTun разрешён только gvisor»,
 > относятся к ВНУТРЕННИМ tun-stack режимам Clash/sing-box (`system`/`gvisor`/`mixed` — опция
@@ -42,10 +46,12 @@ ndm-устройство **только для перекачки пакетов
 
 ## Файлы в этой папке
 
-- `010-qeli.sh` — wan.d-хук: создаёт `OpkgTun0`, ждёт IP от qeli, ставит L3 через ndmc.
+- `010-qeli.sh` — wan.d-хук: создаёт `OpkgTun0`, ждёт IPv4 и/или IPv6 и MTU из NetworkPlan qeli, ставит
+  dual-stack L3 через ndmc.
 - `S99qeli` — init-скрипт с преднастроенным `OPKGTUN=opkgtun0` (в OpkgTun-режиме свой NAT
   выключен; сигналит хуку и экспортит `QELI_TUNIP_FILE`).
-- `client.conf.example` — пример конфига (`dev = opkgtun0`, `dev_attach = true`, `gateway = false`).
+- `client.conf.example` — пример (`dev = opkgtun0`, `dev_attach = true`, `gateway = false`,
+  `ipv6 = auto`).
 
 ## Установка
 
@@ -59,18 +65,20 @@ ndm-устройство **только для перекачки пакетов
    ```
 3. В `/opt/etc/qeli/client.conf` задай `dev = opkgtun0`, `dev_attach = true`, `gateway = false`
    (см. `opkgtun/client.conf.example`).
-4. **Пин статического IP на сервере** для этого пользователя (обязательно для ребута) — см. ниже.
+4. **Пин статических IPv4/IPv6 на сервере** для этого пользователя (обязательно для
+   стабильного сохранённого L3 после ребута) — см. ниже.
 5. `/opt/etc/init.d/S99qeli start`.
 
-## Статический IP (обязательно для переживания ребута)
+## Статические IPv4/IPv6 (обязательно для переживания ребута)
 
-Сервер по умолчанию выдаёт IP из пула, и после ребута он может смениться → сохранённый в ndm
-адрес устареет → маршрутизация сломается. Зафиксируй IP на сервере (сервер это умеет):
+Сервер по умолчанию выдаёт адреса из пулов, и после ребута они могут смениться → сохранённый
+в ndm L3 устареет. Зафиксируй обе используемые семьи на сервере:
 
 - **веб-панель**: пользователь → поле статического IP;
-- **CLI (новый юзер)**: `qeli add-client <user> --static-ip 10.9.0.2 …`;
+- **CLI (новый юзер)**: `qeli add-client <user> --static-ip 10.9.0.2 --static-ipv6 fd71:e1:1234:1::2 …`;
 - **конфиг сервера**: `static_ip = "10.9.0.2"` в `[user:<name>]`, либо
-  `pool.reservation.<user> = "10.9.0.2"` в профиле (см. `docs/eng/CONFIG.md`).
+  `static_ipv6 = "fd71:e1:1234:1::2"`; профильные эквиваленты —
+  `pool.reservation.<user>` и `pool.ipv6.reservation.<user>`.
 
 Применяется на следующем коннекте (user db читается на auth в реальном времени).
 
@@ -82,16 +90,19 @@ wan.d-хук на бусте часто не может выполнить ndmc.
 ```sh
 ndmc -c "interface OpkgTun0"                 # 1. ndm создаёт kernel-device opkgtun0
 /opt/etc/init.d/S99qeli start                # 2. qeli цепляется, пишет IP в файл
-IP=$(cat /opt/var/run/qeli.tunip)            # 3. берём IP и отдаём L3 целиком ndm (адрес /32!)
+IP=$(sed -n 's/^ipv4=\([^/]*\)\/.*/\1/p' /opt/var/run/qeli.tunip | head -n1)
+IP6_CIDR=$(sed -n 's/^ipv6=//p' /opt/var/run/qeli.tunip | head -n1)
+MTU=$(sed -n 's/^mtu=\([0-9][0-9]*\)$/\1/p' /opt/var/run/qeli.tunip | head -n1)
+[ -n "$MTU" ] || MTU=1400
 ndmc -c "interface OpkgTun0 ip global auto"
-ndmc -c "interface OpkgTun0 ip address $IP 255.255.255.255"
-ndmc -c "interface OpkgTun0 ip mtu 1400"
+[ -z "$IP" ] || ndmc -c "interface OpkgTun0 ip address $IP 255.255.255.255"
+[ -z "$IP6_CIDR" ] || ndmc -c "interface OpkgTun0 ipv6 address $IP6_CIDR"
+ndmc -c "interface OpkgTun0 ip mtu $MTU"
 ndmc -c "interface OpkgTun0 ip tcp adjust-mss pmtu"
 ndmc -c "interface OpkgTun0 security-level public"
 ndmc -c "interface OpkgTun0 up"
-ndmc -c "ip route default OpkgTun0"
 ndmc -c "system configuration save"
-ndmc -c "show interface OpkgTun0" | grep -E "connected|global"   # ждём connected: yes, global: yes
+ndmc -c "show interface OpkgTun0" | grep -E "connected|global|address" # обе семьи должны совпасть
 ```
 Снять интерфейс: `ndmc -c "no interface OpkgTun0"`.
 
@@ -105,6 +116,9 @@ ndmc -c "show interface OpkgTun0" | grep -E "connected|global"   # ждём conn
 - Интерфейс обязан быть `connected: yes` и `global: yes` — иначе маршруты не активируются.
 - НЕ ставь `ip route default OpkgTun0` для роутера в целом — завернётся и соединение qeli с
   сервером → петля. Заворачивай клиентов через Приоритеты.
+- `dev_attach = true` означает, что L3 полностью владеет ndm. Хук автоматически переносит
+  адреса и MTU, но server-pushed маршруты и DNS в Keenetic не устанавливает: их нужно задать
+  в «Приоритетах подключений»/статических маршрутах и в настройках DNS самого Keenetic.
 
 Проверка exit-IP туннеля (минуя роутинг/DNS): `curl --interface opkgtun0 -s https://api.ipify.org`.
 
@@ -115,8 +129,8 @@ ndmc -c "show interface OpkgTun0" | grep -E "connected|global"   # ждём conn
 | `system failed [0xcffd00a9]` + qeli `already exists` | Инверсия владения: поставь `dev_attach = true`, дай ndm создать интерфейс первым |
 | Маршрут не идёт; `show interface` = `connected: no` / `link: pending`, `global: no` | L3 должен держать ndm. Проверь `dev_attach = true`, что qeli пишет IP в `/opt/var/run/qeli.tunip`, и что адрес `/32` + `ip global` ставит ndm |
 | Хук: `OpkgTun0 недоступен` / `не принял` | ndmc в контексте wan.d (особенно на бусте) не отвечает — зарегистрируй вручную из ssh-логина |
-| После ребута маршрут отвалился, IP сменился | Нет статического IP → пин на сервере (см. выше) |
-| Файла `/opt/var/run/qeli.tunip` нет | `OPKGTUN=` пуст в S99qeli, либо старый бинарь без `dev_attach` |
+| После ребута маршрут отвалился, адрес сменился | Нет `static_ip`/`static_ipv6` → закрепи используемые семьи на сервере |
+| Файла `/opt/var/run/qeli.tunip` нет | `OPKGTUN=` пуст в S99qeli, либо старый бинарь без dual-stack `dev_attach` |
 | Нет тумблера вкл/выкл в «Других подключениях» | Штатно не поддерживается (фича-реквест Keenetic); управляй через `ndmc interface OpkgTun0 up/down` + стоп qeli |
 
 ## Удаление / откат на gateway

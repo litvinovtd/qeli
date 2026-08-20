@@ -173,6 +173,29 @@ pub fn parse_mtu_probe(d: &[u8]) -> Option<(u16, u16)> {
     Some((id, size))
 }
 
+/// Parse a client-to-server path-MTU probe only when its complete wire shape is valid.
+///
+/// The size field is a claim about this payload before QUIC/obfs wrapping. Echoing it from a
+/// short packet would let a spoofed source obtain an ACK for a size that never crossed the
+/// server ingress path. The generic [`parse_mtu_probe`] remains deliberately length-agnostic
+/// because a probe ACK is tiny while echoing the original (large) probe size.
+pub fn parse_mtu_probe_request(d: &[u8]) -> Option<(u16, u16)> {
+    if !is_mtu_probe(d) || d[4] != 0 || d[5] != 1 {
+        return None;
+    }
+    let parsed = parse_mtu_probe(d)?;
+    (usize::from(parsed.1) == d.len()).then_some(parsed)
+}
+
+/// Parse the fixed-size server-to-client ACK form. Trailing bytes and fragment-like
+/// `idx/count` values are rejected so the PMTU state machine accepts one unambiguous shape.
+pub fn parse_mtu_probe_ack(d: &[u8]) -> Option<(u16, u16)> {
+    if !is_mtu_probe_ack(d) || d.len() != FRAG_HDR_LEN + PROBE_BODY_LEN || d[4] != 0 || d[5] != 1 {
+        return None;
+    }
+    parse_mtu_probe(d)
+}
+
 /// Build a probe datagram padded so the TOTAL outer datagram is `outer_size` bytes.
 /// `id` correlates the ACK. `None` if `outer_size` can't hold header+body.
 pub fn mtu_probe_datagram(id: u16, outer_size: usize) -> Option<Vec<u8>> {
@@ -537,16 +560,40 @@ mod tests {
         assert!(!is_mtu_probe_ack(&d));
         assert!(!is_junk(&d));
         assert_eq!(parse_mtu_probe(&d), Some((0xBEEF, 1400)));
+        assert_eq!(parse_mtu_probe_request(&d), Some((0xBEEF, 1400)));
+        assert_eq!(parse_mtu_probe_ack(&d), None);
 
         // Server echo: tiny, carries the same id/size.
         let ack = mtu_probe_ack_datagram(0xBEEF, 1400);
         assert!(is_mtu_probe_ack(&ack));
         assert!(!is_mtu_probe(&ack));
         assert_eq!(parse_mtu_probe(&ack), Some((0xBEEF, 1400)));
+        assert_eq!(parse_mtu_probe_ack(&ack), Some((0xBEEF, 1400)));
+        assert_eq!(parse_mtu_probe_request(&ack), None);
         assert!(
             ack.len() < 32,
             "the ACK is small — only the big probe tests the path"
         );
+    }
+
+    #[test]
+    fn mtu_probe_parsers_reject_false_size_and_ambiguous_shapes() {
+        let mut short_claim = mtu_probe_datagram(7, 1200).unwrap();
+        short_claim.truncate(FRAG_HDR_LEN + PROBE_BODY_LEN);
+        assert_eq!(parse_mtu_probe(&short_claim), Some((7, 1200)));
+        assert_eq!(parse_mtu_probe_request(&short_claim), None);
+
+        let mut multi = mtu_probe_datagram(8, 1200).unwrap();
+        multi[5] = 2;
+        assert_eq!(parse_mtu_probe_request(&multi), None);
+
+        let mut ack_with_trailing = mtu_probe_ack_datagram(9, 1200);
+        ack_with_trailing.push(0);
+        assert_eq!(parse_mtu_probe_ack(&ack_with_trailing), None);
+        let mut fragmented_ack = mtu_probe_ack_datagram(10, 1200);
+        fragmented_ack[4] = 1;
+        fragmented_ack[5] = 2;
+        assert_eq!(parse_mtu_probe_ack(&fragmented_ack), None);
     }
 
     #[test]

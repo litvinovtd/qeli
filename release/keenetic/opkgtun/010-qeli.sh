@@ -32,14 +32,19 @@ NDM_IF="OpkgTun${IF#opkgtun}"             # opkgtun0 -> OpkgTun0 (ndm капит
 # Разведка формата событий (раскомментируй ОДИН раз на устройстве, потом верни назад):
 # { echo "--- wan.d/010-qeli $(date) ---"; env; } >> "$LOG" 2>&1
 
-# IP, который qeli выдал сервер (нужен и для guard'а, и для регистрации ниже).
-WANT_IP="$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$TUNIP" 2>/dev/null | head -n1)"
+# Адреса, которые qeli выдал сервер. Новый формат содержит family=address/prefix;
+# первая строка остаётся legacy primary address для старых хуков.
+WANT_IP="$(sed -n 's/^ipv4=\([^/]*\)\/.*/\1/p' "$TUNIP" 2>/dev/null | head -n1)"
+[ -n "$WANT_IP" ] || WANT_IP="$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$TUNIP" 2>/dev/null | head -n1)"
+WANT_IP6_CIDR="$(sed -n 's/^ipv6=//p' "$TUNIP" 2>/dev/null | head -n1)"
+WANT_IP6="${WANT_IP6_CIDR%/*}"
 
 # Уже поднят, подключён и с нужным адресом? Тихо выходим — работы нет (идемпотентность +
 # защита от петли событий ndm: наш `... up`/`ip route` ниже сами генерят события wan.d).
 CUR="$(ndmc -c "show interface $NDM_IF" 2>/dev/null)"
 if echo "$CUR" | grep -q "connected: yes" \
-   && { [ -z "$WANT_IP" ] || echo "$CUR" | grep -q "address: $WANT_IP"; }; then
+   && { [ -z "$WANT_IP" ] || echo "$CUR" | grep -q "address: $WANT_IP"; } \
+   && { [ -z "$WANT_IP6" ] || echo "$CUR" | grep -q "$WANT_IP6"; }; then
   exit 0
 fi
 
@@ -57,31 +62,39 @@ fi
 # В attach-режиме qeli НЕ ставит адрес сам (иначе ndm застрянет в connected:no), поэтому
 # IP берём из файла, а не с интерфейса. Таймаут короткий, чтобы не блокировать обработчик
 # событий ndm — если qeli ещё в backoff, регистрацию докрутит следующий вызов хука.
-i=0; IP="$WANT_IP"
-while [ -z "$IP" ] && [ $i -lt 10 ]; do
-  IP="$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$TUNIP" 2>/dev/null | head -n1)"
-  [ -n "$IP" ] && break
-  # запасной источник: вытащить из лога qeli ("Auth OK, assigned IP: 10.9.0.3")
-  IP="$(sed -n 's/.*assigned IP: \([0-9.]*\).*/\1/p' "$LOG" 2>/dev/null | tail -n1)"
-  [ -n "$IP" ] && break
+i=0; IP="$WANT_IP"; IP6="$WANT_IP6"; IP6_CIDR="$WANT_IP6_CIDR"
+while [ -z "$IP" ] && [ -z "$IP6" ] && [ $i -lt 10 ]; do
+  IP="$(sed -n 's/^ipv4=\([^/]*\)\/.*/\1/p' "$TUNIP" 2>/dev/null | head -n1)"
+  [ -n "$IP" ] || IP="$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$TUNIP" 2>/dev/null | head -n1)"
+  IP6_CIDR="$(sed -n 's/^ipv6=//p' "$TUNIP" 2>/dev/null | head -n1)"
+  IP6="${IP6_CIDR%/*}"
+  if [ -n "$IP" ] || [ -n "$IP6" ]; then
+    break
+  fi
   i=$((i + 1)); sleep 1
 done
-[ -n "$IP" ] || { echo "wan.d/010-qeli: $NDM_IF создан, ждём attach qeli (нет IP в $TUNIP)" >> "$LOG"; exit 0; }
+[ -n "$IP" ] || [ -n "$IP6" ] || { echo "wan.d/010-qeli: $NDM_IF создан, ждём attach qeli (нет IP в $TUNIP)" >> "$LOG"; exit 0; }
 
-MTU=1400   # MTU туннеля (в логе qeli: "TUN MTU: 1400"). Поменяй, если сервер пушит другой.
+MTU="$(sed -n 's/^mtu=\([0-9][0-9]*\)$/\1/p' "$TUNIP" 2>/dev/null | head -n1)"
+case "$MTU" in
+  ''|*[!0-9]*) MTU=1400 ;;
+  *) [ "$MTU" -ge 576 ] && [ "$MTU" -le 16638 ] || MTU=1400 ;;
+esac
 
 # (3) Ставим L3 через ndm — ndm ДОЛЖЕН владеть адресом/линком, иначе connected:no и нет
 # маршрутизации. Команды декларативные → повторный вызов с теми же значениями безопасен.
 # `ip global auto` = «для выхода в интернет» (без него маршруты через интерфейс не идут).
 # `security-level public` = ndm сам делает masquerade/firewall (свой NAT не нужен).
-# `ip route default $NDM_IF` даёт policy-routing через tun; конкретные маршруты — из UI/ndmc.
+# Глобальный default здесь не ставим: без отдельного bypass для адреса qeli-сервера
+# он заворачивает несущее соединение в сам туннель. Policy-routing включается в Keenetic UI,
+# где ndm может атомарно учесть приоритеты и исключения.
 ndmc -c "interface $NDM_IF description qeli-VPN"
 ndmc -c "interface $NDM_IF ip global auto"
-ndmc -c "interface $NDM_IF ip address $IP 255.255.255.255"
+[ -z "$IP" ] || ndmc -c "interface $NDM_IF ip address $IP 255.255.255.255"
+[ -z "$IP6_CIDR" ] || ndmc -c "interface $NDM_IF ipv6 address $IP6_CIDR"
 ndmc -c "interface $NDM_IF ip mtu $MTU"
 ndmc -c "interface $NDM_IF ip tcp adjust-mss pmtu"
 ndmc -c "interface $NDM_IF security-level public"
 ndmc -c "interface $NDM_IF up"
-ndmc -c "ip route default $NDM_IF"
 ndmc -c "system configuration save"
-echo "wan.d/010-qeli: $NDM_IF up ($IP/32, mtu $MTU) — L3 держит ndm" >> "$LOG"
+echo "wan.d/010-qeli: $NDM_IF up (IPv4=${IP:-none}, IPv6=${IP6:-none}, mtu $MTU) — L3 держит ndm" >> "$LOG"

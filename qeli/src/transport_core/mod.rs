@@ -6,7 +6,8 @@
 //! data plane through ABI 1.6, iOS uses the ABI 1.7 packet seam, macOS adopts its utun fd,
 //! and the same common sessions run behind the in-process Linux adapter. ABI 1.8 exposes the
 //! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust;
-//! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure.
+//! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure; ABI 1.11
+//! adds the dual-family NetworkPlan representation while retaining the legacy IPv4 projection.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -16,9 +17,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroize;
-
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 
 #[cfg(any(feature = "client", feature = "server", feature = "transport-core-ffi"))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -90,7 +88,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 10;
+pub const ABI_VERSION_MINOR: u16 = 11;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -119,7 +117,8 @@ pub mod core_capability {
     pub const TUN_PACKET_IO: u64 = 1 << 9;
     pub const UDP_DIAGNOSTIC: u64 = 1 << 10;
     pub const WINTUN_IO: u64 = 1 << 11;
-    pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
+    pub const NETWORK_PLAN_V2: u64 = 1 << 12;
+    pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
         | TUN_FD_OWNERSHIP
@@ -179,6 +178,14 @@ pub mod platform_capability {
     pub const SOCKET_PROTECT: u64 = 1 << 5;
     pub const SERVER_IDENTITY: u64 = 1 << 6;
     pub const TUN_WINTUN: u64 = 1 << 7;
+    /// The adapter can configure an IPv6 address on its TUN/packet tunnel.
+    pub const IPV6_TUN: u64 = 1 << 8;
+    /// The adapter can atomically install and roll back IPv6 routes.
+    pub const IPV6_ROUTES: u64 = 1 << 9;
+    /// The adapter can apply IPv6 resolvers without bypassing the tunnel.
+    pub const IPV6_DNS: u64 = 1 << 10;
+    /// The adapter can enforce the IPv6 side of a kill switch.
+    pub const IPV6_KILL_SWITCH: u64 = 1 << 11;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
 
@@ -278,33 +285,46 @@ struct AttachedWintun {
     adapter_name: String,
 }
 
-/// A carrier socket created by Rust before Android routes the VPN through its TUN.
-///
-/// `pending` keeps the descriptor alive while `VpnService.protect(fd)` is in flight.
-/// Only a positive ACK moves it to `protected`; rejection, stop and free close it.
-#[cfg(unix)]
-struct PendingWireSocket {
-    sequence: u64,
-    socket: socket2::Socket,
-    result: tokio::sync::oneshot::Receiver<Result<(), String>>,
-}
-
-#[cfg(unix)]
-struct ProtectedWireSocket {
-    _socket: socket2::Socket,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkRoute {
     pub cidr: String,
     pub gateway: String,
     pub metric: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkDns {
     pub address: String,
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkFamilyMode {
+    Ipv4,
+    Dual,
+    Ipv6,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkAddressFamily {
+    Ipv4,
+    Ipv6,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkAddress {
+    pub family: NetworkAddressFamily,
+    pub address: String,
+    /// Prefix applied to the assigned address. L3 IPv6 TUN plans normally use `/128`.
+    pub prefix_len: u8,
+    /// Pool/on-link prefix, kept distinct from the assigned host prefix.
+    pub on_link_prefix_len: u8,
+    /// Point-to-point routes may deliberately omit a next hop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
 }
 
 /// Effective post-authentication data-plane facts exposed to platform status UIs.
@@ -340,6 +360,10 @@ impl NetworkDataPlaneFacts {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NetworkPlan {
     pub generation: u64,
+    pub family_mode: NetworkFamilyMode,
+    pub addresses: Vec<NetworkAddress>,
+    /// ABI 1.10 IPv4 projection. In IPv6-only mode this mirrors the sole IPv6 address, but
+    /// such a plan is emitted only to an adapter that advertised the IPv6 capability set.
     pub tunnel_address: String,
     pub prefix_len: u8,
     pub mtu: u16,
@@ -354,6 +378,14 @@ pub struct NetworkPlan {
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
+    /// In a full tunnel whose negotiated plan has no IPv4 address, permit native IPv4
+    /// egress instead of failing closed. Platform adapters must apply this symmetrically
+    /// with `allow_ipv6_leak`; keeping the decision in the authenticated plan prevents
+    /// mobile/desktop adapters from re-parsing transport configuration differently.
+    pub allow_ipv4_leak: bool,
+    /// In a full tunnel whose negotiated plan has no IPv6 address, permit native IPv6
+    /// egress instead of capturing/blocking that family.
+    pub allow_ipv6_leak: bool,
     pub max_streams: u32,
     pub adaptive: bool,
     /// Effective negotiated data-plane values, for platform UI only.
@@ -389,6 +421,40 @@ impl NetworkPlan {
         if self.kill_switch {
             required |= platform_capability::KILL_SWITCH;
         }
+        let has_ipv6_address = self
+            .addresses
+            .iter()
+            .any(|address| address.family == NetworkAddressFamily::Ipv6);
+        let has_ipv6_route = self.routes.iter().any(|route| {
+            route
+                .cidr
+                .split_once('/')
+                .and_then(|(address, _)| address.parse::<IpAddr>().ok())
+                .is_some_and(|address| address.is_ipv6())
+        });
+        let has_ipv6_dns = self.dns_servers.iter().any(|dns| {
+            dns.address
+                .parse::<IpAddr>()
+                .is_ok_and(|address| address.is_ipv6())
+        });
+        // IPv4-only full tunnel is not an IPv6-free plan: unless the explicit leak
+        // escape hatch is enabled, every adapter must still capture/blackhole native
+        // IPv6. Requiring IPv6 operations only when an IPv6 tunnel address existed let
+        // an adapter advertise IPv4-only routing, accept the plan, and then have no
+        // declared ability to enforce its fail-closed IPv6 half.
+        let controls_ipv6_family = has_ipv6_address || (self.full_tunnel && !self.allow_ipv6_leak);
+        if has_ipv6_address {
+            required |= platform_capability::IPV6_TUN;
+        }
+        if has_ipv6_route || (self.full_tunnel && controls_ipv6_family) {
+            required |= platform_capability::IPV6_ROUTES;
+        }
+        if has_ipv6_dns {
+            required |= platform_capability::IPV6_DNS;
+        }
+        if self.kill_switch && controls_ipv6_family {
+            required |= platform_capability::IPV6_KILL_SWITCH;
+        }
         required
     }
 
@@ -397,6 +463,92 @@ impl NetworkPlan {
             return Err(CoreError::InvalidArgument(
                 "network plan generation must be non-zero".into(),
             ));
+        }
+        if self.addresses.is_empty() || self.addresses.len() > 2 {
+            return Err(CoreError::InvalidArgument(
+                "network plan must contain one address per active IP family".into(),
+            ));
+        }
+        let mut has_ipv4 = false;
+        let mut has_ipv6 = false;
+        for assigned in &self.addresses {
+            if assigned.address.len() > MAX_PLAN_STRING_BYTES {
+                return Err(CoreError::InvalidArgument(
+                    "network plan address is too long".into(),
+                ));
+            }
+            let parsed: IpAddr = assigned.address.parse().map_err(|_| {
+                CoreError::InvalidArgument(format!(
+                    "invalid network plan address '{}'",
+                    assigned.address
+                ))
+            })?;
+            let (expected_family, max_prefix) = if parsed.is_ipv4() {
+                if has_ipv4 {
+                    return Err(CoreError::InvalidArgument(
+                        "network plan contains duplicate IPv4 addresses".into(),
+                    ));
+                }
+                has_ipv4 = true;
+                (NetworkAddressFamily::Ipv4, 32)
+            } else {
+                if has_ipv6 {
+                    return Err(CoreError::InvalidArgument(
+                        "network plan contains duplicate IPv6 addresses".into(),
+                    ));
+                }
+                has_ipv6 = true;
+                (NetworkAddressFamily::Ipv6, 128)
+            };
+            if let IpAddr::V6(address) = parsed {
+                crate::config::server::validate_tunnel_ipv6_address(
+                    "network plan address",
+                    address,
+                )
+                .map_err(CoreError::InvalidArgument)?;
+            }
+            if assigned.family != expected_family
+                || assigned.prefix_len == 0
+                || assigned.prefix_len > max_prefix
+                || assigned.on_link_prefix_len == 0
+                || assigned.on_link_prefix_len > max_prefix
+                || assigned.on_link_prefix_len > assigned.prefix_len
+            {
+                return Err(CoreError::InvalidArgument(format!(
+                    "invalid {:?} address metadata for '{}'",
+                    assigned.family, assigned.address
+                )));
+            }
+            if let Some(gateway) = &assigned.gateway {
+                let gateway: IpAddr = gateway.parse().map_err(|_| {
+                    CoreError::InvalidArgument(format!("invalid tunnel gateway '{gateway}'"))
+                })?;
+                if gateway.is_ipv4() != parsed.is_ipv4() {
+                    return Err(CoreError::InvalidArgument(format!(
+                        "address '{}' and gateway '{}' use different families",
+                        assigned.address, gateway
+                    )));
+                }
+                if let IpAddr::V6(gateway) = gateway {
+                    crate::config::server::validate_tunnel_ipv6_address(
+                        "network plan tunnel gateway",
+                        gateway,
+                    )
+                    .map_err(CoreError::InvalidArgument)?;
+                }
+            }
+        }
+        let expected_mode = match (has_ipv4, has_ipv6) {
+            (true, false) => NetworkFamilyMode::Ipv4,
+            (true, true) => NetworkFamilyMode::Dual,
+            (false, true) => NetworkFamilyMode::Ipv6,
+            (false, false) => unreachable!("empty address list rejected above"),
+        };
+        if self.family_mode != expected_mode {
+            return Err(CoreError::InvalidArgument(format!(
+                "network plan family mode {:?} does not match its addresses",
+                self.family_mode
+            )));
         }
         if self.tunnel_address.len() > MAX_PLAN_STRING_BYTES {
             return Err(CoreError::InvalidArgument(
@@ -407,7 +559,7 @@ impl NetworkPlan {
             CoreError::InvalidArgument(format!("invalid tunnel address '{}'", self.tunnel_address))
         })?;
         let max_prefix = if address.is_ipv4() { 32 } else { 128 };
-        if self.prefix_len > max_prefix {
+        if self.prefix_len == 0 || self.prefix_len > max_prefix {
             return Err(CoreError::InvalidArgument(format!(
                 "prefix {} is invalid for {}",
                 self.prefix_len, self.tunnel_address
@@ -421,6 +573,12 @@ impl NetworkPlan {
                 crate::config::server::MTU_MAX
             )));
         }
+        if has_ipv6 && self.mtu < 1280 {
+            return Err(CoreError::InvalidArgument(format!(
+                "IPv6 network plan MTU {} is below the IPv6 minimum 1280",
+                self.mtu
+            )));
+        }
         if self.tunnel_gateway.len() > MAX_PLAN_STRING_BYTES
             || self.tunnel_gateway.parse::<IpAddr>().is_err()
         {
@@ -428,6 +586,16 @@ impl NetworkPlan {
                 "invalid tunnel gateway '{}'",
                 self.tunnel_gateway
             )));
+        }
+        let projection_matches = self.addresses.iter().any(|assigned| {
+            assigned.address == self.tunnel_address
+                && assigned.on_link_prefix_len == self.prefix_len
+                && assigned.gateway.as_deref() == Some(self.tunnel_gateway.as_str())
+        });
+        if !projection_matches {
+            return Err(CoreError::InvalidArgument(
+                "legacy network-plan projection disagrees with typed addresses".into(),
+            ));
         }
         if let Some(carrier) = &self.carrier_address {
             if carrier.len() > MAX_PLAN_STRING_BYTES || carrier.parse::<IpAddr>().is_err() {
@@ -462,6 +630,34 @@ impl NetworkPlan {
                     route.gateway, route.cidr
                 )));
             }
+            let route_family = route
+                .cidr
+                .split_once('/')
+                .and_then(|(address, _)| address.parse::<IpAddr>().ok())
+                .expect("CIDR validated above");
+            let gateway_family = route
+                .gateway
+                .parse::<IpAddr>()
+                .expect("gateway validated above");
+            if route_family.is_ipv4() != gateway_family.is_ipv4() {
+                return Err(CoreError::InvalidArgument(format!(
+                    "route '{}' and gateway '{}' use different families",
+                    route.cidr, route.gateway
+                )));
+            }
+            if let IpAddr::V6(gateway) = gateway_family {
+                crate::config::server::validate_tunnel_ipv6_address(
+                    "network plan route gateway",
+                    gateway,
+                )
+                .map_err(CoreError::InvalidArgument)?;
+            }
+            if (route_family.is_ipv4() && !has_ipv4) || (route_family.is_ipv6() && !has_ipv6) {
+                return Err(CoreError::InvalidArgument(format!(
+                    "route '{}' uses a family absent from the tunnel",
+                    route.cidr
+                )));
+            }
         }
         if self.dns_servers.len() > MAX_DNS_SERVERS {
             return Err(CoreError::InvalidArgument(format!(
@@ -470,13 +666,18 @@ impl NetworkPlan {
             )));
         }
         for dns in &self.dns_servers {
-            if dns.address.len() > MAX_PLAN_STRING_BYTES
-                || dns.address.parse::<IpAddr>().is_err()
-                || dns.port == 0
-            {
+            let parsed = dns.address.parse::<IpAddr>();
+            if dns.address.len() > MAX_PLAN_STRING_BYTES || parsed.is_err() || dns.port == 0 {
                 return Err(CoreError::InvalidArgument(format!(
                     "invalid DNS server '{}:{}'",
                     dns.address, dns.port
+                )));
+            }
+            let parsed = parsed.expect("DNS address validated above");
+            if (parsed.is_ipv4() && !has_ipv4) || (parsed.is_ipv6() && !has_ipv6) {
+                return Err(CoreError::InvalidArgument(format!(
+                    "DNS server '{}' uses a family absent from the tunnel",
+                    dns.address
                 )));
             }
         }
@@ -611,10 +812,6 @@ pub struct ClientCore {
     pending_plan: Option<u64>,
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
-    #[cfg(unix)]
-    pending_wire_socket: Option<PendingWireSocket>,
-    #[cfg(unix)]
-    protected_wire_socket: Option<ProtectedWireSocket>,
     last_plan_generation: u64,
     /// Largest inbound wire record this session can produce, computed when the plan is built
     /// (see `publish_network_plan`) and used to size the packet bridge's buffers instead of
@@ -684,10 +881,6 @@ impl ClientCore {
             pending_plan: None,
             pending_socket_protect: BTreeMap::new(),
             pending_server_identity: BTreeMap::new(),
-            #[cfg(unix)]
-            pending_wire_socket: None,
-            #[cfg(unix)]
-            protected_wire_socket: None,
             last_plan_generation: 0,
             last_downlink_record_bytes: 0,
             #[cfg(unix)]
@@ -765,22 +958,7 @@ impl ClientCore {
                 })
             }
         }
-        let needs_socket_protect =
-            self.platform_capabilities & platform_capability::SOCKET_PROTECT != 0;
-        self.require_event_slots(if needs_socket_protect { 2 } else { 1 })?;
-
-        #[cfg(unix)]
-        let wire_socket = if needs_socket_protect {
-            Some(open_wire_socket(&self.config)?)
-        } else {
-            None
-        };
-        #[cfg(not(unix))]
-        if needs_socket_protect {
-            return Err(CoreError::Unsupported(
-                "socket-protect ownership requires a Unix descriptor",
-            ));
-        }
+        self.require_event_slots(1)?;
 
         self.pending_plan = None;
         self.pending_socket_protect.clear();
@@ -788,8 +966,6 @@ impl ClientCore {
         #[cfg(unix)]
         {
             self.attached_tun = None;
-            self.pending_wire_socket = None;
-            self.protected_wire_socket = None;
         }
         #[cfg(target_os = "windows")]
         {
@@ -811,16 +987,6 @@ impl ClientCore {
         self.state = ClientState::Connecting;
         self.push_event(EventKind::StateChanged, None, None, None, None);
 
-        #[cfg(unix)]
-        if let Some(socket) = wire_socket {
-            let fd = socket.as_raw_fd();
-            let (sequence, result) = self.request_socket_protect(fd)?;
-            self.pending_wire_socket = Some(PendingWireSocket {
-                sequence,
-                socket,
-                result,
-            });
-        }
         Ok(())
     }
 
@@ -908,11 +1074,14 @@ impl ClientCore {
                     operation: "publish_handshake_network after generation exhaustion",
                 })?;
         let network = network::HandshakeNetwork {
+            family_mode: auth.family_mode,
+            addresses: &auth.addresses,
             client_ip: &auth.client_ip,
             prefix: auth.prefix,
             tunnel_gateway: &auth.server_ip,
             dns_ip: &auth.dns_ip,
             dns_port: &auth.dns_port,
+            dns_servers: &auth.dns_servers,
             routes_json: &auth.routes_json,
             mtu: i32::from(input.effective_mtu),
             fallback_dns_servers: &input.fallback_dns_servers,
@@ -1353,19 +1522,6 @@ impl ClientCore {
         protected: bool,
         reason: Option<&str>,
     ) -> Result<(), CoreError> {
-        #[cfg(unix)]
-        let owns_wire_socket = self
-            .pending_wire_socket
-            .as_ref()
-            .is_some_and(|pending| pending.sequence == request_sequence);
-        #[cfg(not(unix))]
-        let owns_wire_socket = false;
-
-        // A rejected core-owned socket produces Error + Failed atomically. Do not consume
-        // the one-shot request when the bounded event queue cannot report that failure.
-        if owns_wire_socket && !protected {
-            self.require_event_slots(2)?;
-        }
         let sender = self
             .pending_socket_protect
             .remove(&request_sequence)
@@ -1384,44 +1540,6 @@ impl ClientCore {
         sender.send(result).map_err(|_| CoreError::StaleRequest {
             got: request_sequence,
         })?;
-
-        #[cfg(unix)]
-        if owns_wire_socket {
-            let mut pending = self
-                .pending_wire_socket
-                .take()
-                .ok_or(CoreError::StaleRequest {
-                    got: request_sequence,
-                })?;
-            let delivered = pending
-                .result
-                .try_recv()
-                .map_err(|_| CoreError::StaleRequest {
-                    got: request_sequence,
-                })?;
-            match delivered {
-                Ok(()) => {
-                    self.protected_wire_socket = Some(ProtectedWireSocket {
-                        _socket: pending.socket,
-                    });
-                }
-                Err(message) => {
-                    self.protected_wire_socket = None;
-                    self.state = ClientState::Failed;
-                    self.push_event(
-                        EventKind::Error,
-                        None,
-                        None,
-                        None,
-                        Some(CoreFault {
-                            code: ErrorCode::PlatformRejected,
-                            message,
-                        }),
-                    );
-                    self.push_event(EventKind::StateChanged, None, None, None, None);
-                }
-            }
-        }
         Ok(())
     }
 
@@ -1522,8 +1640,6 @@ impl ClientCore {
         #[cfg(unix)]
         {
             self.attached_tun = None;
-            self.pending_wire_socket = None;
-            self.protected_wire_socket = None;
         }
         #[cfg(target_os = "windows")]
         {
@@ -1649,40 +1765,6 @@ impl ClientCore {
         &self.config
     }
 
-    /// Transfer the protected, still-unconnected carrier into the async handshake owner.
-    /// The descriptor cannot be taken before the matching platform ACK and can be taken once.
-    #[cfg(unix)]
-    #[allow(dead_code)]
-    pub(crate) fn take_protected_wire_socket(&mut self) -> Result<socket2::Socket, CoreError> {
-        if self.state != ClientState::Connecting {
-            return Err(CoreError::InvalidState {
-                state: self.state,
-                operation: "take_protected_wire_socket",
-            });
-        }
-        self.protected_wire_socket
-            .take()
-            .map(|protected| protected._socket)
-            .ok_or(CoreError::InvalidState {
-                state: self.state,
-                operation: "take_protected_wire_socket before platform ACK",
-            })
-    }
-
-    /// Consume the protected carrier and connect it under the configured shared deadline.
-    /// `start()` only publishes lifecycle/platform requests; the external runner consumes and
-    /// connects the carrier after the protect ACK.
-    #[cfg(unix)]
-    #[allow(dead_code)]
-    pub(crate) async fn connect_protected_carrier(
-        &mut self,
-    ) -> Result<carrier::ConnectedCarrier, CoreError> {
-        let socket = self.take_protected_wire_socket()?;
-        carrier::connect(socket, &self.config)
-            .await
-            .map_err(|error| CoreError::Platform(format!("carrier connect failed: {error}")))
-    }
-
     #[cfg(feature = "transport-core-ffi")]
     pub(crate) fn peek_event(&self) -> Option<&ClientEvent> {
         self.events.front()
@@ -1709,20 +1791,6 @@ impl ClientCore {
     fn attached_tun_raw_fd(&self) -> Option<i32> {
         use std::os::fd::AsRawFd;
         self.attached_tun.as_ref().map(|tun| tun._fd.as_raw_fd())
-    }
-
-    #[cfg(all(test, unix))]
-    fn pending_wire_socket_raw_fd(&self) -> Option<i32> {
-        self.pending_wire_socket
-            .as_ref()
-            .map(|pending| pending.socket.as_raw_fd())
-    }
-
-    #[cfg(all(test, unix))]
-    fn protected_wire_socket_raw_fd(&self) -> Option<i32> {
-        self.protected_wire_socket
-            .as_ref()
-            .map(|protected| protected._socket.as_raw_fd())
     }
 
     fn require_event_slots(&self, count: usize) -> Result<(), CoreError> {
@@ -1755,12 +1823,6 @@ impl ClientCore {
         });
         sequence
     }
-}
-
-#[cfg(unix)]
-fn open_wire_socket(config: &ClientConfig) -> Result<socket2::Socket, CoreError> {
-    carrier::open(config)
-        .map_err(|error| CoreError::Platform(format!("could not create wire socket: {error}")))
 }
 
 pub(crate) fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
@@ -1803,6 +1865,14 @@ mod tests {
     fn plan(generation: u64) -> NetworkPlan {
         NetworkPlan {
             generation,
+            family_mode: NetworkFamilyMode::Ipv4,
+            addresses: vec![NetworkAddress {
+                family: NetworkAddressFamily::Ipv4,
+                address: "10.10.0.2".into(),
+                prefix_len: 24,
+                on_link_prefix_len: 24,
+                gateway: Some("10.10.0.1".into()),
+            }],
             tunnel_address: "10.10.0.2".into(),
             prefix_len: 24,
             mtu: 1400,
@@ -1820,6 +1890,8 @@ mod tests {
             }],
             full_tunnel: true,
             kill_switch: true,
+            allow_ipv4_leak: false,
+            allow_ipv6_leak: false,
             max_streams: 1,
             adaptive: false,
             data_plane: Default::default(),
@@ -1827,12 +1899,16 @@ mod tests {
         }
     }
 
+    const TEST_SYSTEM_PLAN_CAPABILITIES: u64 = platform_capability::SYSTEM_PLAN
+        | platform_capability::IPV6_ROUTES
+        | platform_capability::IPV6_KILL_SWITCH;
+
     fn started_core(capacity: usize) -> ClientCore {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES,
                 event_capacity: capacity,
-                ..CoreOptions::default()
             },
         )
         .unwrap();
@@ -2062,6 +2138,27 @@ mod tests {
     }
 
     #[test]
+    fn ipv4_only_full_tunnel_requires_ipv6_fail_closed_capabilities() {
+        let mut fail_closed = plan(1);
+        let required = fail_closed.required_capabilities();
+        assert_ne!(required & platform_capability::IPV6_ROUTES, 0);
+        assert_ne!(required & platform_capability::IPV6_KILL_SWITCH, 0);
+
+        fail_closed.kill_switch = false;
+        let without_kill_switch = fail_closed.required_capabilities();
+        assert_ne!(without_kill_switch & platform_capability::IPV6_ROUTES, 0);
+        assert_eq!(
+            without_kill_switch & platform_capability::IPV6_KILL_SWITCH,
+            0
+        );
+
+        fail_closed.allow_ipv6_leak = true;
+        let explicit_leak = fail_closed.required_capabilities();
+        assert_eq!(explicit_leak & platform_capability::IPV6_ROUTES, 0);
+        assert_eq!(explicit_leak & platform_capability::IPV6_KILL_SWITCH, 0);
+    }
+
+    #[test]
     fn invalid_plan_is_rejected_without_changing_state() {
         let mut core = started_core(DEFAULT_EVENT_CAPACITY);
         let mut invalid = plan(1);
@@ -2075,6 +2172,41 @@ mod tests {
             Err(CoreError::InvalidArgument(_))
         ));
         assert_eq!(core.state(), ClientState::Connecting);
+    }
+
+    #[test]
+    fn ipv6_plan_rejects_unusable_next_hops_before_platform_dispatch() {
+        let mut invalid = plan(1);
+        invalid.family_mode = NetworkFamilyMode::Ipv6;
+        invalid.addresses = vec![NetworkAddress {
+            family: NetworkAddressFamily::Ipv6,
+            address: "fd71:e1::2".into(),
+            prefix_len: 128,
+            on_link_prefix_len: 64,
+            gateway: Some("::".into()),
+        }];
+        invalid.tunnel_address = "fd71:e1::2".into();
+        invalid.prefix_len = 64;
+        invalid.tunnel_gateway = "::".into();
+        invalid.routes = vec![NetworkRoute {
+            cidr: "2001:db8::/32".into(),
+            gateway: "::".into(),
+            metric: 100,
+        }];
+        invalid.dns_servers.clear();
+        assert!(matches!(
+            invalid.validate(),
+            Err(CoreError::InvalidArgument(message))
+                if message.contains("gateway") && message.contains("unspecified")
+        ));
+
+        invalid.addresses[0].gateway = Some("fd71:e1::1".into());
+        invalid.tunnel_gateway = "fd71:e1::1".into();
+        assert!(matches!(
+            invalid.validate(),
+            Err(CoreError::InvalidArgument(message))
+                if message.contains("route gateway") && message.contains("unspecified")
+        ));
     }
 
     #[test]
@@ -2126,12 +2258,6 @@ mod tests {
         core.poll_event();
         core.start().unwrap();
         core.poll_event();
-
-        let initial = core.poll_event().unwrap();
-        assert_eq!(initial.kind, EventKind::SocketProtect);
-        core.ack_socket_protect(initial.sequence, true, None)
-            .unwrap();
-        assert!(core.protected_wire_socket_raw_fd().is_some());
 
         let (sequence, mut result) = core.request_socket_protect(42).unwrap();
         let event = core.poll_event().unwrap();
@@ -2280,9 +2406,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn start_owns_wire_socket_until_platform_ack_and_fails_closed_on_rejection() {
-        use std::os::fd::BorrowedFd;
-
+    fn start_defers_socket_creation_until_runtime_knows_the_candidate_family() {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
@@ -2295,24 +2419,7 @@ mod tests {
         core.poll_event();
         core.start().unwrap();
         assert_eq!(core.poll_event().unwrap().state, ClientState::Connecting);
-        let request = core.poll_event().unwrap();
-        assert_eq!(request.kind, EventKind::SocketProtect);
-        let fd = request.socket_protect.unwrap().fd;
-        assert_eq!(core.pending_wire_socket_raw_fd(), Some(fd));
-        // SAFETY: the core owns the descriptor and keeps it open until this ACK.
-        assert!(unsafe { BorrowedFd::borrow_raw(fd) }
-            .try_clone_to_owned()
-            .is_ok());
-
-        core.ack_socket_protect(request.sequence, false, Some("protect denied"))
-            .unwrap();
-        assert_eq!(core.state(), ClientState::Failed);
-        assert!(core.pending_wire_socket_raw_fd().is_none());
-        assert!(core.protected_wire_socket_raw_fd().is_none());
-        let error = core.poll_event().unwrap();
-        assert_eq!(error.kind, EventKind::Error);
-        assert_eq!(error.fault.unwrap().message, "protect denied");
-        assert_eq!(core.poll_event().unwrap().state, ClientState::Failed);
+        assert!(core.poll_event().is_none());
     }
 
     #[cfg(unix)]
@@ -2333,8 +2440,7 @@ mod tests {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
-                platform_capabilities: platform_capability::SYSTEM_PLAN
-                    | platform_capability::TUN_FD,
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES | platform_capability::TUN_FD,
                 event_capacity: DEFAULT_EVENT_CAPACITY,
             },
         )
@@ -2368,7 +2474,7 @@ mod tests {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
-                platform_capabilities: platform_capability::SYSTEM_PLAN
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES
                     | platform_capability::TUN_WINTUN,
                 event_capacity: DEFAULT_EVENT_CAPACITY,
             },

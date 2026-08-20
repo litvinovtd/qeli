@@ -204,6 +204,44 @@ struct QuickStartSpec {
     awg: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuickStartIpMode {
+    Auto,
+    Ipv4,
+    Dual,
+    Ipv6,
+}
+
+impl QuickStartIpMode {
+    fn parse_body(body: &Value) -> Result<Option<Self>, String> {
+        let Some(value) = body.get("ip_mode") else {
+            return Ok(None); // compatibility with panel/API clients predating IPv6
+        };
+        let value = value
+            .as_str()
+            .ok_or_else(|| "Quick Start ip_mode must be a string".to_string())?;
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Some(Self::Auto)),
+            "ipv4" => Ok(Some(Self::Ipv4)),
+            "dual" => Ok(Some(Self::Dual)),
+            "ipv6" => Ok(Some(Self::Ipv6)),
+            _ => Err(format!(
+                "unknown Quick Start ip_mode '{value}'; expected auto, ipv4, dual or ipv6"
+            )),
+        }
+    }
+
+    fn concrete(self) -> Option<crate::config::server::IpMode> {
+        use crate::config::server::IpMode;
+        match self {
+            Self::Auto => None,
+            Self::Ipv4 => Some(IpMode::Ipv4),
+            Self::Dual => Some(IpMode::Dual),
+            Self::Ipv6 => Some(IpMode::Ipv6),
+        }
+    }
+}
+
 const QUICKSTART_SPECS: &[QuickStartSpec] = &[
     QuickStartSpec {
         id: "reality-tls",
@@ -416,6 +454,10 @@ fn build_quickstart_profile(
     profile.bind.address = "0.0.0.0".into();
     profile.bind.transport = spec.transport.into();
     profile.bind.port = spec.port;
+    // Outer carrier family is independent from the inner tunnel mode. The server
+    // creates the IPv6 socket V6ONLY, so this is a safe dual-listener pair rather
+    // than relying on platform-specific IPv4-mapped behavior of `[::]`.
+    profile.bind.listen = vec![format!("[::]:{}", spec.port)];
     profile.tun.name = format!("vpn{}", spec.index);
     profile.tun.address = format!("10.9.{}.1", spec.index);
     profile.tun.mtu = 1400;
@@ -556,6 +598,219 @@ fn place_quickstart_network(
     Ok(profile)
 }
 
+fn host_has_native_ipv6_egress(host: Option<&crate::server::preflight::HostNet>) -> bool {
+    let Some(host) = host else { return false };
+    host.ipv6_addrs.iter().any(|(interface, address)| {
+        // Internet-assigned global unicast space. ULA or link-local plus a default route
+        // is not evidence that NAT66 can reach the public IPv6 Internet.
+        (address.segments()[0] & 0xe000) == 0x2000
+            && host.ipv6_default_interfaces.contains(interface)
+    })
+}
+
+fn ipv6_nets_overlap(a: &ipnet::Ipv6Net, b: &ipnet::Ipv6Net) -> bool {
+    a.contains(&b.network()) || b.contains(&a.network())
+}
+
+fn quickstart_ipv6_pool_is_free(
+    pool: &ipnet::Ipv6Net,
+    target_name: &str,
+    target_interface: &str,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> bool {
+    if current
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled && profile.name != target_name)
+        .filter_map(|profile| profile.pool.ipv6.cidr.trim().parse::<ipnet::Ipv6Net>().ok())
+        .any(|occupied| ipv6_nets_overlap(pool, &occupied))
+    {
+        return false;
+    }
+    let Some(host) = host else { return true };
+    let mut own_interfaces: std::collections::HashSet<&str> = current
+        .profiles
+        .iter()
+        .map(|profile| profile.tun.name.as_str())
+        .collect();
+    own_interfaces.insert(target_interface);
+    if host
+        .ipv6_gateways
+        .iter()
+        .any(|gateway| pool.contains(gateway))
+    {
+        return false;
+    }
+    if host.ipv6_addrs.iter().any(|(interface, address)| {
+        !own_interfaces.contains(interface.as_str()) && pool.contains(address)
+    }) {
+        return false;
+    }
+    !host.ipv6_routes.iter().any(|(interface, route)| {
+        !own_interfaces.contains(interface.as_str()) && ipv6_nets_overlap(pool, route)
+    })
+}
+
+fn quickstart_subnet_from_site_prefix(site_prefix: u128, index: u8) -> ipnet::Ipv6Net {
+    // RFC4193 site prefix is /48. Give each canonical Quick Start mode a stable,
+    // non-zero /64 subnet ID inside it.
+    let address = std::net::Ipv6Addr::from(
+        (site_prefix & (u128::MAX << 80)) | ((u128::from(index) + 1) << 64),
+    );
+    ipnet::Ipv6Net::new(address, 64).expect("a /64 is always valid")
+}
+
+fn existing_quickstart_site_prefix(current: &crate::config::server::ServerConfig) -> Option<u128> {
+    current
+        .profiles
+        .iter()
+        .filter(|profile| QUICKSTART_SPECS.iter().any(|spec| spec.id == profile.name))
+        .filter_map(|profile| profile.pool.ipv6.cidr.trim().parse::<ipnet::Ipv6Net>().ok())
+        .map(|network| u128::from(network.network()) & (u128::MAX << 80))
+        .find(|prefix| (*prefix >> 120) as u8 == 0xfd)
+}
+
+fn select_quickstart_ipv6_pool(
+    target_name: &str,
+    target_interface: &str,
+    index: u8,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> Result<ipnet::Ipv6Net, String> {
+    if let Some(site_prefix) = existing_quickstart_site_prefix(current) {
+        let candidate = quickstart_subnet_from_site_prefix(site_prefix, index);
+        if quickstart_ipv6_pool_is_free(&candidate, target_name, target_interface, current, host) {
+            return Ok(candidate);
+        }
+    }
+
+    use rand::Rng;
+    for _ in 0..128 {
+        let mut global_id = [0u8; 5];
+        rand::rng().fill_bytes(&mut global_id);
+        let mut bytes = [0u8; 16];
+        bytes[0] = 0xfd;
+        bytes[1..6].copy_from_slice(&global_id);
+        let site_prefix = u128::from_be_bytes(bytes);
+        let candidate = quickstart_subnet_from_site_prefix(site_prefix, index);
+        if quickstart_ipv6_pool_is_free(&candidate, target_name, target_interface, current, host) {
+            return Ok(candidate);
+        }
+    }
+    Err("could not generate a collision-free RFC4193 /64 for Quick Start".into())
+}
+
+fn configure_quickstart_ip_mode(
+    profile: &mut crate::config::server::ProfileConfig,
+    desired: crate::config::server::IpMode,
+    index: u8,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+    ipv6_firewall_available: bool,
+) -> Result<(), String> {
+    use crate::config::server::{IpMode, Ipv6RoutingMode};
+
+    profile.tun.ip_mode = desired;
+    if desired == IpMode::Ipv4 {
+        // Quick Start IPv4 always promises ordinary Internet egress. Restore NAT44 when
+        // an existing IPv6-only profile (where NAT44 is deliberately disabled) is
+        // switched back to IPv4.
+        profile.routing.nat.enabled = true;
+        profile.tun.ipv6_address = None;
+        profile.pool.ipv6 = Default::default();
+        profile.routing.ipv6.mode = Ipv6RoutingMode::Off;
+        profile.routing.ipv6.interface.clear();
+        profile.dns.listen_ipv6 = None;
+        profile
+            .dns
+            .push_servers
+            .retain(|value| value.trim().parse::<std::net::Ipv4Addr>().is_ok());
+        return Ok(());
+    }
+
+    if profile.tun.mtu < 1280 {
+        return Err(format!(
+            "profile '{}': IPv6 requires tun.mtu >= 1280 (current value is {}); change the MTU in Configuration first",
+            profile.name, profile.tun.mtu
+        ));
+    }
+    if !host_has_native_ipv6_egress(host) {
+        return Err(
+            "this host has no observed global IPv6 address on an IPv6 default-route interface; Quick Start cannot promise Internet IPv6 (use IPv4, or configure routed/off IPv6 manually)"
+                .into(),
+        );
+    }
+    if !ipv6_firewall_available {
+        return Err(
+            "Quick Start IPv6 requires ip6tables to enforce and verify the IPv6 forwarding policy; install ip6tables or configure the profile manually after fixing the host firewall"
+                .into(),
+        );
+    }
+
+    let existing_addressing = profile
+        .tun
+        .ipv6_address
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && !profile.pool.ipv6.cidr.trim().is_empty();
+    if !existing_addressing {
+        let pool =
+            select_quickstart_ipv6_pool(&profile.name, &profile.tun.name, index, current, host)?;
+        let gateway = std::net::Ipv6Addr::from(u128::from(pool.network()) + 1);
+        profile.tun.ipv6_address = Some(gateway.to_string());
+        profile.pool.ipv6.cidr = pool.to_string();
+        profile.pool.ipv6.exclude.clear();
+        profile.pool.ipv6.static_reservations.clear();
+    }
+    // Selecting IPv6/dual in Quick Start is an explicit request for working Internet IPv6,
+    // not merely for an address. Existing profiles can legally retain dormant IPv6 address
+    // fields while ip_mode=ipv4 and mode=off; normalize those too instead of silently
+    // reusing addressing with no egress (or failing later because DNS has no IPv6 listener).
+    profile.routing.ipv6.mode = Ipv6RoutingMode::Nat66;
+    profile.dns.listen_ipv6 = profile.tun.ipv6_address.clone();
+
+    if desired == IpMode::Ipv6 {
+        // An IPv6-only profile has no IPv4 lease or TUN address to forward. Leaving the
+        // Quick Start NAT44 switch on would install irrelevant IPv4 sysctl/firewall state.
+        profile.routing.nat.enabled = false;
+        profile.routing.forward_private = false;
+        profile
+            .dns
+            .push_servers
+            .retain(|value| value.trim().parse::<std::net::Ipv6Addr>().is_ok());
+    } else {
+        // Quick Start dual-stack promises Internet egress for both families. Restore NAT44
+        // when an existing IPv6-only Quick Start profile is deliberately changed to dual.
+        profile.routing.nat.enabled = true;
+        profile.routing.forward_private = true;
+    }
+    Ok(())
+}
+
+fn resolve_new_quickstart_ip_mode(
+    requested: Option<QuickStartIpMode>,
+    host: Option<&crate::server::preflight::HostNet>,
+    ipv6_firewall_available: bool,
+) -> crate::config::server::IpMode {
+    use crate::config::server::IpMode;
+    match requested {
+        Some(QuickStartIpMode::Auto) => {
+            // Auto promises a profile that can be launched immediately. Native IPv6 is not
+            // sufficient when the host lacks the firewall backend required to enforce and
+            // verify forwarding; fall back to the fully usable IPv4 profile. Explicit dual/
+            // IPv6 selections remain fail-closed with the actionable ip6tables error.
+            if host_has_native_ipv6_egress(host) && ipv6_firewall_available {
+                IpMode::Dual
+            } else {
+                IpMode::Ipv4
+            }
+        }
+        Some(mode) => mode.concrete().unwrap_or(IpMode::Ipv4),
+        None => IpMode::Ipv4,
+    }
+}
+
 /// Build a profile only on the first Quick Start launch.  Re-launching a mode is an
 /// operational "make sure this profile is up" action, not an implicit credential rotation or
 /// factory reset: preserve the complete existing profile and merely re-enable it.  Rotation is
@@ -565,6 +820,8 @@ fn quickstart_profile_for_current(
     mode: &str,
     current: &crate::config::server::ServerConfig,
     host: Option<&crate::server::preflight::HostNet>,
+    ipv6_firewall_available: bool,
+    requested_ip_mode: Option<QuickStartIpMode>,
 ) -> Result<
     (
         crate::config::server::ProfileConfig,
@@ -586,6 +843,24 @@ fn quickstart_profile_for_current(
     {
         let mut profile = existing.clone();
         profile.enabled = true;
+        // Missing/auto on an existing profile is deliberately non-mutating. `auto` is
+        // resolved only at creation time, so a temporary IPv6 uplink outage on a later
+        // Launch cannot silently downgrade a stored dual-stack profile.
+        if let Some(desired) = requested_ip_mode.and_then(QuickStartIpMode::concrete) {
+            // The explicit selection describes the complete Quick Start egress contract,
+            // not only the `tun.ip_mode` enum. Re-apply it even when the enum is already
+            // equal: a manually edited dual profile may still have IPv6 mode=off or no DNS
+            // listener, and Launch must repair that dormant state instead of returning a
+            // profile that cannot deliver the Internet mode the panel just promised.
+            configure_quickstart_ip_mode(
+                &mut profile,
+                desired,
+                spec.index,
+                current,
+                host,
+                ipv6_firewall_available,
+            )?;
+        }
         let short_id = spec
             .needs_short_id
             .then(|| {
@@ -618,7 +893,17 @@ fn quickstart_profile_for_current(
     }
 
     let (profile, short_id, obfs_key) = build_quickstart_profile(mode)?;
-    let profile = place_quickstart_network(profile, current, host)?;
+    let mut profile = place_quickstart_network(profile, current, host)?;
+    let desired =
+        resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
+    configure_quickstart_ip_mode(
+        &mut profile,
+        desired,
+        spec.index,
+        current,
+        host,
+        ipv6_firewall_available,
+    )?;
     Ok((profile, short_id, obfs_key, false))
 }
 
@@ -636,7 +921,13 @@ pub async fn get_quickstart_profile(
         state.config.clone()
     };
     let host = crate::server::preflight::gather_host_net();
-    match quickstart_profile_for_current(&mode, &current, host.as_ref()) {
+    match quickstart_profile_for_current(
+        &mode,
+        &current,
+        host.as_ref(),
+        crate::server::nat::ip6tables_path().is_some(),
+        None,
+    ) {
         Ok((profile, short_id, obfs_key, reused)) => Ok(Json(json!({
             "ok": true,
             "profile": profile,
@@ -675,6 +966,10 @@ pub async fn apply_quickstart_profile(
     if let Some(conflict) = revision_conflict(&body, &current_raw) {
         return Ok(Json(conflict));
     }
+    let requested_ip_mode = match QuickStartIpMode::parse_body(&body) {
+        Ok(mode) => mode,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut current = match crate::config::parse_server_config(&current_raw) {
         Ok(config) => config,
         Err(error) => {
@@ -684,11 +979,16 @@ pub async fn apply_quickstart_profile(
         }
     };
     let host = crate::server::preflight::gather_host_net();
-    let (profile, short_id, obfs_key, reused) =
-        match quickstart_profile_for_current(&mode, &current, host.as_ref()) {
-            Ok(result) => result,
-            Err(error) => return Ok(Json(super::err_json(error))),
-        };
+    let (profile, short_id, obfs_key, reused) = match quickstart_profile_for_current(
+        &mode,
+        &current,
+        host.as_ref(),
+        crate::server::nat::ip6tables_path().is_some(),
+        requested_ip_mode,
+    ) {
+        Ok(result) => result,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     current.profiles.retain(|item| item.name != profile.name);
     current.profiles.push(profile.clone());
     if let Some(error) = validate_config_structure(&current) {
@@ -2032,6 +2332,232 @@ mod raw_secret_tests {
         assert!(error.contains("no collision-free private /24"));
     }
 
+    fn native_ipv6_host() -> crate::server::preflight::HostNet {
+        crate::server::preflight::HostNet {
+            ipv6_addrs: vec![(
+                "eth0".into(),
+                "2001:db8::10".parse::<std::net::Ipv6Addr>().unwrap(),
+            )],
+            ipv6_gateways: vec!["fe80::1".parse().unwrap()],
+            ipv6_default_interfaces: vec!["eth0".into()],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn quickstart_auto_is_resolved_once_to_a_concrete_dual_stack_profile() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (profile, _, _, reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Auto),
+        )
+        .unwrap();
+
+        assert!(!reused);
+        assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Dual);
+        assert!(profile.pool.ipv6.cidr.starts_with("fd"));
+        assert!(profile.pool.ipv6.cidr.ends_with("/64"));
+        assert_eq!(
+            profile.routing.ipv6.mode,
+            crate::config::server::Ipv6RoutingMode::Nat66
+        );
+        assert_eq!(profile.dns.listen_ipv6, profile.tun.ipv6_address);
+        assert!(profile.routing.nat.enabled);
+    }
+
+    #[test]
+    fn quickstart_auto_falls_back_to_ipv4_without_ipv6_firewall_support() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (profile, _, _, reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            false,
+            Some(QuickStartIpMode::Auto),
+        )
+        .unwrap();
+
+        assert!(!reused);
+        assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Ipv4);
+        assert!(profile.tun.ipv6_address.is_none());
+        assert!(profile.pool.ipv6.cidr.is_empty());
+        assert_eq!(
+            profile.routing.ipv6.mode,
+            crate::config::server::Ipv6RoutingMode::Off
+        );
+        assert!(profile.routing.nat.enabled);
+    }
+
+    #[test]
+    fn quickstart_auto_relaunch_does_not_downgrade_on_uplink_outage() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (profile, _, _, _) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Auto),
+        )
+        .unwrap();
+        let ipv6_cidr = profile.pool.ipv6.cidr.clone();
+        current.profiles.push(profile);
+
+        let (reused, _, _, was_reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&crate::server::preflight::HostNet::default()),
+            true,
+            Some(QuickStartIpMode::Auto),
+        )
+        .unwrap();
+        assert!(was_reused);
+        assert_eq!(reused.tun.ip_mode, crate::config::server::IpMode::Dual);
+        assert_eq!(reused.pool.ipv6.cidr, ipv6_cidr);
+    }
+
+    #[test]
+    fn quickstart_modes_share_a_site_ula_but_get_distinct_subnets() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (first, _, _, _) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Dual),
+        )
+        .unwrap();
+        current.profiles.push(first.clone());
+        let (second, _, _, _) = quickstart_profile_for_current(
+            "udp-obfs",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Dual),
+        )
+        .unwrap();
+        let first_net = first.pool.ipv6.cidr.parse::<ipnet::Ipv6Net>().unwrap();
+        let second_net = second.pool.ipv6.cidr.parse::<ipnet::Ipv6Net>().unwrap();
+        assert_eq!(
+            u128::from(first_net.network()) >> 80,
+            u128::from(second_net.network()) >> 80
+        );
+        assert_ne!(first_net, second_net);
+    }
+
+    #[test]
+    fn explicit_quickstart_ipv6_refuses_to_promise_egress_without_native_ipv6() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let error = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&crate::server::preflight::HostNet::default()),
+            true,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("cannot promise Internet IPv6"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn quickstart_ipv6_requires_firewall_support_and_does_not_install_nat44() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let error = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&host),
+            false,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap_err();
+        assert!(error.contains("ip6tables"), "got: {error}");
+
+        let (profile, _, _, _) = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap();
+        assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Ipv6);
+        assert!(!profile.routing.nat.enabled);
+        assert!(!profile.routing.forward_private);
+        assert_eq!(
+            profile.routing.ipv6.mode,
+            crate::config::server::Ipv6RoutingMode::Nat66
+        );
+
+        current.profiles.push(profile);
+        let (profile, _, _, reused) = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&host),
+            false,
+            Some(QuickStartIpMode::Ipv4),
+        )
+        .unwrap();
+        assert!(reused);
+        assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Ipv4);
+        assert!(profile.routing.nat.enabled);
+        assert!(profile.routing.forward_private);
+        assert!(profile.tun.ipv6_address.is_none());
+        assert!(profile.pool.ipv6.cidr.is_empty());
+        assert_eq!(
+            profile.routing.ipv6.mode,
+            crate::config::server::Ipv6RoutingMode::Off
+        );
+    }
+
+    #[test]
+    fn quickstart_dual_normalizes_dormant_existing_ipv6_addressing() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let (mut profile, _, _) = build_quickstart_profile("fake-tls").unwrap();
+        // The enum already says dual, but its egress policy is dormant. This is the
+        // important regression: comparing only `desired != ip_mode` skipped normalization.
+        profile.tun.ip_mode = crate::config::server::IpMode::Dual;
+        profile.tun.ipv6_address = Some("fd71:e1:42::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1:42::/64".into();
+        profile.routing.ipv6.mode = crate::config::server::Ipv6RoutingMode::Off;
+        profile.dns.listen_ipv6 = None;
+        current.profiles.push(profile);
+
+        let (normalized, _, _, reused) = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&native_ipv6_host()),
+            true,
+            Some(QuickStartIpMode::Dual),
+        )
+        .unwrap();
+
+        assert!(reused);
+        assert_eq!(normalized.tun.ip_mode, crate::config::server::IpMode::Dual);
+        assert_eq!(normalized.pool.ipv6.cidr, "fd71:e1:42::/64");
+        assert_eq!(
+            normalized.routing.ipv6.mode,
+            crate::config::server::Ipv6RoutingMode::Nat66
+        );
+        assert_eq!(normalized.dns.listen_ipv6, normalized.tun.ipv6_address);
+    }
+
     #[test]
     fn repeated_quickstart_preserves_credentials_and_manual_settings() {
         let (mut profile, original_sid, _) = build_quickstart_profile("reality-tls").unwrap();
@@ -2044,7 +2570,7 @@ mod raw_secret_tests {
         current.profiles = vec![profile.clone()];
 
         let (reused, sid, obfs_key, was_reused) =
-            quickstart_profile_for_current("reality-tls", &current, None).unwrap();
+            quickstart_profile_for_current("reality-tls", &current, None, false, None).unwrap();
 
         assert!(was_reused);
         assert!(reused.enabled, "Launch must re-enable an existing profile");
@@ -2067,7 +2593,7 @@ mod raw_secret_tests {
         current.profiles = vec![profile];
 
         let (_, sid, obfs_key, reused) =
-            quickstart_profile_for_current("udp-obfs", &current, None).unwrap();
+            quickstart_profile_for_current("udp-obfs", &current, None, false, None).unwrap();
         assert!(reused);
         assert!(sid.is_none());
         assert_eq!(obfs_key.as_deref(), Some("operator-kept-key"));

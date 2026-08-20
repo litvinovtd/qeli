@@ -12,6 +12,7 @@ run as root (or via `sudo`).
 > References this guide builds on:
 > [CONFIG.md](CONFIG.md) — every config key · [PANEL.md](PANEL.md) — web panel ·
 > example configs: [`server.conf`](../../qeli/config/server.conf) ·
+> [`server-ipv6.conf`](../../qeli/config/server-ipv6.conf) ·
 > [`users.conf`](../../qeli/config/users.conf) · [`client.conf`](../../qeli/config/client.conf).
 
 ## Contents
@@ -177,7 +178,7 @@ What the package does:
 - creates the system user **`qeli`** plus `/etc/qeli`, `/var/log/qeli`, `/var/lib/qeli`, then
   `chown -R qeli:qeli` on them;
 - creates an empty `/etc/qeli/users.conf` (the sample file with a KNOWN hash is never seeded);
-- ships **examples** `/etc/qeli/{server,server-multiprofile,users,client,client-reality}.conf.example`
+- ships **examples** `/etc/qeli/{server,server-multiprofile,server-ipv6,server-maxobf,users,client,client-reality,client-maxobf}.conf.example`
   (you create the real configs yourself — step 3);
 - installs the systemd unit `qeli.service` (`ExecStart=/usr/bin/qeli server --config /etc/qeli/server.conf`)
   and the polkit rule `/etc/polkit-1/rules.d/49-qeli.rules`;

@@ -146,7 +146,11 @@ const MAX_INFLIGHT: usize = 512;
 /// the cause. Binding here lets the caller fail the profile BEFORE it advertises a resolver it
 /// cannot provide. (Audit 2026-08-01, §4.)
 pub async fn bind_dns_proxy(dns_cfg: &DnsConfig) -> anyhow::Result<UdpSocket> {
-    let bind_addr = crate::util::join_host_port(&dns_cfg.listen, dns_cfg.port);
+    bind_dns_proxy_at(dns_cfg, &dns_cfg.listen).await
+}
+
+pub async fn bind_dns_proxy_at(dns_cfg: &DnsConfig, listen: &str) -> anyhow::Result<UdpSocket> {
+    let bind_addr = crate::util::join_host_port(listen, dns_cfg.port);
     UdpSocket::bind(&bind_addr)
         .await
         .map_err(|e| anyhow::anyhow!("DNS proxy cannot bind {bind_addr}: {e}"))
@@ -161,7 +165,14 @@ pub async fn bind_dns_proxy(dns_cfg: &DnsConfig) -> anyhow::Result<UdpSocket> {
 /// used to forward answers whole regardless of size. Binding it is what makes the TC path in
 /// `apply_udp_size_limit` truthful. (Audit 2026-08-01, §10.)
 pub async fn bind_dns_proxy_tcp(dns_cfg: &DnsConfig) -> anyhow::Result<TcpListener> {
-    let bind_addr = crate::util::join_host_port(&dns_cfg.listen, dns_cfg.port);
+    bind_dns_proxy_tcp_at(dns_cfg, &dns_cfg.listen).await
+}
+
+pub async fn bind_dns_proxy_tcp_at(
+    dns_cfg: &DnsConfig,
+    listen: &str,
+) -> anyhow::Result<TcpListener> {
+    let bind_addr = crate::util::join_host_port(listen, dns_cfg.port);
     TcpListener::bind(&bind_addr)
         .await
         .map_err(|e| anyhow::anyhow!("DNS proxy cannot bind {bind_addr}/tcp: {e}"))
@@ -475,14 +486,6 @@ async fn resolve(
     // (The in-flight permit is already held — acquired by the accept loop before spawn.)
     // A fresh ephemeral socket per query: no cross-query demux, so one slow
     // resolver only delays its own task.
-    let upstream_sock = match UdpSocket::bind("0.0.0.0:0").await {
-        Ok(s) => s,
-        Err(e) => {
-            log::debug!("DNS: cannot open upstream socket: {}", e);
-            return None;
-        }
-    };
-
     // `dns.upstream_protocol` was parsed, serialized back out and shown in the panel, but
     // NOTHING read it — every query went out over UDP regardless. An operator who set
     // `tcp` (e.g. because the network mangles UDP/53) got silent UDP anyway. (S-14)
@@ -516,11 +519,12 @@ async fn resolve(
     let mut response = None;
     for attempt in 0..upstreams.len() {
         let idx = (start + attempt) % upstreams.len();
-        let upstream_addr = format!("{}:53", upstreams[idx]);
-        let upstream_sa = match upstream_addr.parse::<SocketAddr>() {
-            Ok(sa) => sa,
+        let upstream_ip = match upstreams[idx].parse::<std::net::IpAddr>() {
+            Ok(address) => address,
             Err(_) => continue,
         };
+        let upstream_sa = SocketAddr::new(upstream_ip, 53);
+        let upstream_addr = upstream_sa.to_string();
         if force_tcp {
             if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
                 // Same anti-spoof check as the UDP path (TCP is connection-bound, so
@@ -533,7 +537,19 @@ async fn resolve(
             }
             continue;
         }
-        if upstream_sock.send_to(&query, &upstream_addr).await.is_err() {
+        let bind_addr = if upstream_ip.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        };
+        let upstream_sock = match UdpSocket::bind(bind_addr).await {
+            Ok(socket) => socket,
+            Err(error) => {
+                log::debug!("DNS: cannot open {bind_addr} upstream socket: {error}");
+                continue;
+            }
+        };
+        if upstream_sock.send_to(&query, upstream_sa).await.is_err() {
             continue;
         }
         // Accept only a reply that (a) came from the resolver we queried and (b)

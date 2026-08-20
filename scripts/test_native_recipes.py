@@ -69,11 +69,45 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("original_server_bytes", source)
         self.assertNotIn("AutoAddPolicy", source)
 
-    def test_installer_rejects_ipv6_until_all_clients_support_it(self):
+    def test_installer_formats_ipv6_authorities_and_public_panel_bind(self):
         source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("clients support IPv4 server endpoints only", source)
+        self.assertIn('PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"', source)
+        self.assertIn('PUBLIC_PANEL_BIND="::"', source)
+        self.assertIn('--host "${PUBLIC_AUTHORITY_HOST}:${PORT}"', source)
+
+    def test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys(self):
+        root = Path(__file__).parent.parent
+        defaults = (root / "qeli-openwrt/files/qeli.config").read_text(encoding="utf-8")
+        init = (root / "qeli-openwrt/files/qeli.init").read_text(encoding="utf-8")
+        luci = (
+            root
+            / "qeli-openwrt/luci-app-qeli/htdocs/luci-static/resources/view/qeli/config.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("option ipv6 'auto'", defaults)
+        self.assertIn("option dns 'off'", defaults)
+        self.assertIn("list dns_servers '1.1.1.1'", defaults)
+        self.assertIn("config_list_foreach main dns_servers append_dns_server", init)
+        self.assertIn('ini_kv dns "$dns_mode"', init)
+        self.assertIn('ini_kv dns_servers "$dns_servers"', init)
+        self.assertIn('ini_kv ipv6 "$ipv6"', init)
+        self.assertIn("form.ListValue, 'dns'", luci)
+        self.assertIn("form.DynamicList, 'dns_servers'", luci)
+        self.assertIn("mtu >= 576 && mtu <= 16638", luci)
+
+    def test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop(self):
+        hook = (
+            Path(__file__).parent.parent / "release/keenetic/opkgtun/010-qeli.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("s/^ipv4=", hook)
+        self.assertIn("s/^ipv6=", hook)
+        self.assertIn("s/^mtu=", hook)
+        self.assertIn('ipv6 address $IP6', hook)
+        self.assertIn('ip mtu $MTU', hook)
+        self.assertNotIn('ipv6 force-default', hook)
+        self.assertNotIn('ip route default $NDM_IF', hook)
 
     def test_installer_selects_and_verifies_the_host_deb_architecture(self):
         source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(

@@ -1,5 +1,8 @@
+pub mod capabilities;
 pub mod ctrl;
+pub mod data_frag;
 pub mod icmp;
+pub mod ip;
 pub mod obfs;
 pub mod obfuscate;
 pub mod packet;
@@ -26,38 +29,39 @@ pub use tls::{pick_random_sni, FakeTlsHandshake};
 pub const JOIN_MAGIC: &[u8; 8] = b"QELIJOIN";
 pub const JOIN_TOKEN_LEN: usize = 16;
 
-/// Hash of an IPv4 packet's flow tuple — protocol, src/dst address, and (for
-/// TCP/UDP) src/dst port. Multipath uses it to PIN each inner flow to ONE bonded
+/// Hash of an IPv4 or IPv6 packet's flow tuple: address family, protocol,
+/// source/destination address, and (for unfragmented TCP/UDP) source/destination
+/// port. Multipath uses it to PIN each inner flow to ONE bonded
 /// stream, so a single connection's packets keep their order. Round-robin striping
 /// instead split one flow across streams, and with no resequencing the receiver
 /// saw reordering → inner-TCP dup-ACKs/retransmits that could hurt throughput.
 /// Each side hashes only its own outbound packets (the two directions decide
 /// independently), so the hash need not agree across peers — only be deterministic
-/// per flow within one process. Non-IPv4 / truncated packets hash by their bytes.
+/// per flow within one process. Every fragment of one datagram is pinned by its
+/// fragment ID; malformed/non-IP records hash by their complete bytes.
 pub fn flow_hash(pkt: &[u8]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    if pkt.len() >= 20 && (pkt[0] >> 4) == 4 {
-        let ihl = ((pkt[0] & 0x0f) as usize) * 4;
-        pkt[9].hash(&mut h); // protocol
-        pkt[12..20].hash(&mut h); // src+dst IPv4
-
-        // Only a whole, non-fragmented datagram carries the L4 ports at `ihl`. A
-        // non-first fragment (offset > 0) has payload there, not ports; and the FIRST
-        // fragment (MF set) hashing WITH ports would split it from its own
-        // continuations onto a different stream → reassembly sees reordering. So for
-        // any fragment we hash on proto+src+dst only, keeping every fragment of a
-        // datagram pinned to one stream. Bytes 6-7 are flags+offset: 0x2000 = MF,
-        // low 13 bits = fragment offset.
-        let flags_frag = u16::from_be_bytes([pkt[6], pkt[7]]);
-        let is_fragment = (flags_frag & 0x2000) != 0 || (flags_frag & 0x1fff) != 0;
-        // IHL must be a valid IPv4 header (>= 5 words = 20 bytes); a crafted smaller
-        // IHL would otherwise make us hash header bytes as if they were L4 ports.
-        if !is_fragment && ihl >= 20 && matches!(pkt[9], 6 | 17) && pkt.len() >= ihl + 4 {
-            pkt[ihl..ihl + 4].hash(&mut h); // src+dst ports (TCP/UDP)
+    match ip::parse_ip_packet(pkt) {
+        Ok(meta) => {
+            meta.version.hash(&mut h);
+            meta.source.hash(&mut h);
+            meta.destination.hash(&mut h);
+            if let Some(fragment) = meta.fragment.filter(|fragment| fragment.is_fragmented()) {
+                // IPv6 fragment zero may carry Destination Options or AH after the Fragment
+                // Header, while later fragments begin in the middle of the fragmentable part.
+                // `meta.protocol` is therefore not stable across the datagram. The protocol
+                // copied from the fragmentation header is stable by construction.
+                fragment.protocol.hash(&mut h);
+                fragment.id.hash(&mut h);
+            } else {
+                meta.protocol.hash(&mut h);
+                if let Some(ports) = meta.ports(pkt) {
+                    ports.hash(&mut h);
+                }
+            }
         }
-    } else {
-        pkt.hash(&mut h);
+        Err(_) => pkt.hash(&mut h),
     }
     h.finish()
 }
@@ -71,3 +75,57 @@ pub fn flow_hash(pkt: &[u8]) -> u64 {
 /// each other, while the SAME device cleanly supersedes its own old session on an
 /// IP change (Wi-Fi <-> LTE).
 pub const DEVICE_ID_LEN: usize = 16;
+
+#[cfg(test)]
+mod flow_hash_tests {
+    use super::flow_hash;
+
+    fn ipv6_fragment(offset: u16, more: bool) -> Vec<u8> {
+        let mut packet = vec![0u8; 56];
+        packet[0] = 0x60;
+        packet[4..6].copy_from_slice(&16u16.to_be_bytes());
+        packet[6] = 44;
+        packet[7] = 64;
+        packet[8..24].copy_from_slice(&[0xfd, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+        packet[24..40].copy_from_slice(&[0xfd, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        packet[40] = 17;
+        let wire = (offset << 3) | u16::from(more);
+        packet[42..44].copy_from_slice(&wire.to_be_bytes());
+        packet[44..48].copy_from_slice(&0x1234_5678u32.to_be_bytes());
+        packet
+    }
+
+    fn ipv6_fragment_with_post_fragment_destination_options(offset: u16, more: bool) -> Vec<u8> {
+        let mut packet = ipv6_fragment(offset, more);
+        packet[40] = 60; // Fragment Header -> Destination Options.
+        if offset == 0 {
+            // Destination Options -> UDP. Only fragment zero is guaranteed to begin with this
+            // header; later fragments may begin anywhere in the fragmentable payload.
+            packet[48] = 17;
+            packet[49] = 0;
+        }
+        packet
+    }
+
+    #[test]
+    fn ipv6_fragments_of_one_datagram_use_one_bonded_stream() {
+        let first = ipv6_fragment(0, true);
+        let later = ipv6_fragment(1, false);
+        assert_eq!(flow_hash(&first), flow_hash(&later));
+    }
+
+    #[test]
+    fn ipv6_fragment_ids_separate_independent_datagrams() {
+        let first = ipv6_fragment(0, true);
+        let mut other = first.clone();
+        other[44..48].copy_from_slice(&0x8765_4321u32.to_be_bytes());
+        assert_ne!(flow_hash(&first), flow_hash(&other));
+    }
+
+    #[test]
+    fn ipv6_post_fragment_extensions_do_not_change_fragment_affinity() {
+        let first = ipv6_fragment_with_post_fragment_destination_options(0, true);
+        let later = ipv6_fragment_with_post_fragment_destination_options(1, false);
+        assert_eq!(flow_hash(&first), flow_hash(&later));
+    }
+}

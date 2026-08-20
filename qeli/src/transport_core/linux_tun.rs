@@ -5,6 +5,7 @@
 //! so reconnect teardown has one implementation independent of the selected wire mode.
 
 use super::buffer_pool::{BufferPool, PooledBuffer};
+use crate::tun::{client_tap_control_reply, destination_mac_for_ip, TapGateway};
 use std::io;
 use std::ops::{Deref, Range};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -40,19 +41,33 @@ const WRITER_STOP_POLL: Duration = Duration::from_millis(100);
 const READER_BUFFER_POLL: Duration = Duration::from_millis(100);
 const ETHERNET_HEADER_LEN: usize = 14;
 const ETHERTYPE_IPV4: [u8; 2] = [0x08, 0x00];
+const ETHERTYPE_IPV6: [u8; 2] = [0x86, 0xdd];
+const DARWIN_AF_INET: u32 = 2;
+const DARWIN_AF_INET6: u32 = 30;
 
-fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
-    if frame.len() < ETHERNET_HEADER_LEN + 20 || frame[12..14] != ETHERTYPE_IPV4 {
-        return None;
+fn packet_family(packet: &[u8]) -> Option<(u32, [u8; 2])> {
+    match packet.first().map(|byte| byte >> 4) {
+        Some(4) if packet.len() >= 20 => Some((DARWIN_AF_INET, ETHERTYPE_IPV4)),
+        Some(6) if packet.len() >= 40 => Some((DARWIN_AF_INET6, ETHERTYPE_IPV6)),
+        _ => None,
     }
-    Some(&frame[ETHERNET_HEADER_LEN..])
 }
 
-fn ethernet_header(dst_mac: &[u8; 6], src_mac: &[u8; 6]) -> [u8; ETHERNET_HEADER_LEN] {
+fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
+    let packet = frame.get(ETHERNET_HEADER_LEN..)?;
+    let (_, ethertype) = packet_family(packet)?;
+    (frame[12..14] == ethertype).then_some(packet)
+}
+
+fn ethernet_header(
+    dst_mac: &[u8; 6],
+    src_mac: &[u8; 6],
+    ethertype: [u8; 2],
+) -> [u8; ETHERNET_HEADER_LEN] {
     let mut header = [0u8; ETHERNET_HEADER_LEN];
     header[..6].copy_from_slice(dst_mac);
     header[6..12].copy_from_slice(src_mac);
-    header[12..].copy_from_slice(&ETHERTYPE_IPV4);
+    header[12..].copy_from_slice(&ethertype);
     header
 }
 
@@ -60,6 +75,9 @@ fn ethernet_header(dst_mac: &[u8; 6], src_mac: &[u8; 6]) -> [u8; ETHERNET_HEADER
 pub struct TapHeaders {
     pub client_mac: [u8; 6],
     pub gateway_mac: [u8; 6],
+    pub gateway_ipv4: Option<std::net::Ipv4Addr>,
+    pub gateway_ipv6: Option<std::net::Ipv6Addr>,
+    pub ipv6_prefix_len: u8,
 }
 
 /// Framing carried by one fd-backed TUN implementation.
@@ -446,18 +464,52 @@ fn reader_loop(
 
         let raw = &buffer[..read as usize];
         let range = match config.framing {
-            TunFraming::Tap(_) => match strip_ethernet_header(raw) {
-                Some(ip) => {
-                    let start = ip.as_ptr() as usize - raw.as_ptr() as usize;
-                    start..start + ip.len()
-                }
-                None => {
+            TunFraming::Tap(headers) => {
+                // ARP, NDP and Router Solicitation are valid Ethernet frames. Looking for a
+                // control reply only after IP decapsulation made the IPv6 branches unreachable:
+                // NS/RS stripped successfully and escaped into the L3 tunnel. Handle the local
+                // L2 control plane first, then forward only ordinary IPv4/IPv6 payloads.
+                if let Some(reply) = client_tap_control_reply(
+                    raw,
+                    TapGateway {
+                        mac: headers.gateway_mac,
+                        ipv4: headers.gateway_ipv4,
+                        ipv6: headers.gateway_ipv6,
+                        ipv6_prefix_len: headers.ipv6_prefix_len,
+                    },
+                ) {
+                    let _ = unsafe {
+                        libc::write(
+                            reader_fd.as_raw_fd(),
+                            reply.as_ptr() as *const libc::c_void,
+                            reply.len(),
+                        )
+                    };
                     let _ = recycle.try_send(buffer);
                     continue;
                 }
-            },
+                match strip_ethernet_header(raw) {
+                    Some(ip) => {
+                        let start = ip.as_ptr() as usize - raw.as_ptr() as usize;
+                        start..start + ip.len()
+                    }
+                    None => {
+                        let _ = recycle.try_send(buffer);
+                        continue;
+                    }
+                }
+            }
             TunFraming::Utun => {
-                if raw.len() <= 4 {
+                let Some(packet) = raw.get(4..) else {
+                    let _ = recycle.try_send(buffer);
+                    continue;
+                };
+                let Some((expected_family, _)) = packet_family(packet) else {
+                    let _ = recycle.try_send(buffer);
+                    continue;
+                };
+                let actual_family = u32::from_be_bytes(raw[..4].try_into().unwrap());
+                if actual_family != expected_family {
                     let _ = recycle.try_send(buffer);
                     continue;
                 }
@@ -499,16 +551,20 @@ fn writer_loop(
             continue;
         }
 
+        let Some((address_family, ethertype)) = packet_family(&packet) else {
+            log::warn!("dropping malformed non-IP packet at TUN writer boundary");
+            continue;
+        };
         let mut header = [0u8; ETHERNET_HEADER_LEN];
         let header_len = match framing {
             TunFraming::Raw => 0,
             TunFraming::Tap(headers) => {
-                header = ethernet_header(&headers.client_mac, &headers.gateway_mac);
+                let destination = destination_mac_for_ip(&packet).unwrap_or(headers.client_mac);
+                header = ethernet_header(&destination, &headers.gateway_mac, ethertype);
                 ETHERNET_HEADER_LEN
             }
             TunFraming::Utun => {
-                // AF_INET = 2 in network byte order, matching the Darwin utun contract.
-                header[..4].copy_from_slice(&2u32.to_be_bytes());
+                header[..4].copy_from_slice(&address_family.to_be_bytes());
                 4
             }
         };
@@ -710,12 +766,18 @@ mod tests {
     async fn tap_mode_strips_and_restores_ethernet_headers() {
         let (reader_test, reader_fd) = packet_pair();
         let (writer_test, writer_fd) = packet_pair();
+        reader_test
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         writer_test
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
         let headers = TapHeaders {
             client_mac: [2, 0, 0, 0, 0, 2],
             gateway_mac: [2, 0, 0, 0, 0, 1],
+            gateway_ipv4: Some("10.0.0.1".parse().unwrap()),
+            gateway_ipv6: Some("fd71::1".parse().unwrap()),
+            ipv6_prefix_len: 64,
         };
         let mut pump = LinuxTunPump::start(
             reader_fd,
@@ -731,7 +793,8 @@ mod tests {
         let ip_packet = vec![
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
         ];
-        let mut frame = ethernet_header(&headers.gateway_mac, &headers.client_mac).to_vec();
+        let mut frame =
+            ethernet_header(&headers.gateway_mac, &headers.client_mac, ETHERTYPE_IPV4).to_vec();
         frame.extend_from_slice(&ip_packet);
         reader_test.send(&frame).unwrap();
         let received = tokio::time::timeout(Duration::from_secs(1), pump.recv_from_tun())
@@ -746,9 +809,57 @@ mod tests {
         tun_writer.try_send(packet).unwrap();
         let mut received = [0u8; 128];
         let count = writer_test.recv(&mut received).unwrap();
-        let mut expected = ethernet_header(&headers.client_mac, &headers.gateway_mac).to_vec();
+        let mut expected =
+            ethernet_header(&headers.client_mac, &headers.gateway_mac, ETHERTYPE_IPV4).to_vec();
         expected.extend_from_slice(&ip_packet);
         assert_eq!(&received[..count], expected);
+
+        let mut ipv6_packet = vec![0u8; 40];
+        ipv6_packet[0] = 0x60;
+        ipv6_packet[6] = 59;
+        let mut frame =
+            ethernet_header(&headers.gateway_mac, &headers.client_mac, ETHERTYPE_IPV6).to_vec();
+        frame.extend_from_slice(&ipv6_packet);
+        reader_test.send(&frame).unwrap();
+        let outbound_ipv6 = pump.recv_from_tun().await.unwrap();
+        assert_eq!(&*outbound_ipv6, ipv6_packet);
+
+        let mut packet = tun_writer.acquire().await.unwrap();
+        packet.as_vec_mut().extend_from_slice(&ipv6_packet);
+        tun_writer.try_send(packet).unwrap();
+        let count = writer_test.recv(&mut received).unwrap();
+        let mut expected =
+            ethernet_header(&headers.client_mac, &headers.gateway_mac, ETHERTYPE_IPV6).to_vec();
+        expected.extend_from_slice(&ipv6_packet);
+        assert_eq!(&received[..count], expected);
+
+        // Router Solicitation is a valid IPv6 Ethernet frame, but it belongs to the local
+        // TAP control plane. It must receive a Router Advertisement on the TAP fd and must
+        // never appear on the L3 transport queue.
+        let mut solicitation = vec![0u8; 14 + 40 + 8];
+        solicitation[..6].copy_from_slice(&[0x33, 0x33, 0, 0, 0, 2]);
+        solicitation[6..12].copy_from_slice(&headers.client_mac);
+        solicitation[12..14].copy_from_slice(&ETHERTYPE_IPV6);
+        solicitation[14] = 0x60;
+        solicitation[18..20].copy_from_slice(&8u16.to_be_bytes());
+        solicitation[20] = 58;
+        solicitation[21] = 255;
+        solicitation[22..38]
+            .copy_from_slice(&"fe80::2".parse::<std::net::Ipv6Addr>().unwrap().octets());
+        solicitation[38..54]
+            .copy_from_slice(&"ff02::2".parse::<std::net::Ipv6Addr>().unwrap().octets());
+        solicitation[54] = 133;
+        reader_test.send(&solicitation).unwrap();
+        let count = reader_test.recv(&mut received).unwrap();
+        assert!(count >= 14 + 40 + 8);
+        assert_eq!(&received[12..14], &ETHERTYPE_IPV6);
+        assert_eq!(received[54], 134);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), pump.recv_from_tun())
+                .await
+                .is_err(),
+            "TAP Router Solicitation leaked into the L3 transport queue"
+        );
 
         pump.shutdown().await;
     }
@@ -786,6 +897,20 @@ mod tests {
         inbound.as_vec_mut().extend_from_slice(&ip_packet);
         writer.try_send(inbound).unwrap();
         let mut got = [0u8; 64];
+        let read = writer_test.recv(&mut got).unwrap();
+        assert_eq!(&got[..read], framed);
+
+        let mut ipv6 = vec![0u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[6] = 59;
+        let mut framed = DARWIN_AF_INET6.to_be_bytes().to_vec();
+        framed.extend_from_slice(&ipv6);
+        reader_test.send(&framed).unwrap();
+        assert_eq!(&*pump.recv_from_tun().await.unwrap(), ipv6);
+
+        let mut inbound = writer.acquire().await.unwrap();
+        inbound.as_vec_mut().extend_from_slice(&ipv6);
+        writer.try_send(inbound).unwrap();
         let read = writer_test.recv(&mut got).unwrap();
         assert_eq!(&got[..read], framed);
 

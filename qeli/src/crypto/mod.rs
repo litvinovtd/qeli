@@ -12,7 +12,10 @@ pub use auth::{
     verify_server_proof_only,
 };
 pub use cipher::Cipher;
-pub use derive::{derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound};
+pub use derive::{
+    derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
+    derive_keys_hybrid_bound,
+};
 pub use exchange::{compute_auth_proof, Keypair, PublicKey, StaticKeypair};
 
 /// The Argon2id profile qeli hashes NEW passwords with: m = 19456 KiB, t = 2, p = 1.

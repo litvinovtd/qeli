@@ -30,7 +30,7 @@ ARCHIVE="$ROOT/dist/Qeli-macos-$ARCH.tar.gz"
 PER_APP_OUT="$ROOT/dist/per-app-$ARCH"
 SIGNED_PER_APP=0
 
-# 1. Native whole-client core (ABI 1.10 + realtls FFI) — universal libqeli.dylib. Built once
+# 1. Native whole-client core (ABI 1.11 + realtls FFI) — universal libqeli.dylib. Built once
 #    into QeliMac/native/ by build_dylib.sh (cargo + lipo on Mac, cargo-zigbuild on Linux).
 if [[ ! -f "$ROOT/QeliMac/native/libqeli.dylib" && -d "$ROOT/../qeli" ]]; then
   echo "==> Building native whole-client dylib…"

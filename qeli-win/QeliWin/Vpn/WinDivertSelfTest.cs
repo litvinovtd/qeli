@@ -219,11 +219,21 @@ internal static class WinDivertSelfTest
             check("exclude: unknown owner is Drop until refreshed (no policy leak)",
                 d == PacketDisposition.Drop);
         }
-        check("ipv6: classification Drop remains Drop in exclude mode",
-            WinDivertAdapter.Ipv6Disposition(PacketDisposition.Drop) == PacketDisposition.Drop);
-        check("ipv6: only an explicit app bypass reaches the physical network",
-            WinDivertAdapter.Ipv6Disposition(PacketDisposition.Tunnel) == PacketDisposition.Drop
-            && WinDivertAdapter.Ipv6Disposition(PacketDisposition.Bypass)
+        check("family policy: active IPv6 tunnels selected traffic",
+            WinDivertAdapter.DispositionForFamily(
+                PacketDisposition.Tunnel, familyAvailable: true, allowLeak: false)
+                == PacketDisposition.Tunnel);
+        check("family policy: unavailable family is fail-closed by default",
+            WinDivertAdapter.DispositionForFamily(
+                PacketDisposition.Tunnel, familyAvailable: false, allowLeak: false)
+                == PacketDisposition.Drop);
+        check("family policy: explicit leak opt-out bypasses an unavailable family",
+            WinDivertAdapter.DispositionForFamily(
+                PacketDisposition.Tunnel, familyAvailable: false, allowLeak: true)
+                == PacketDisposition.Bypass);
+        check("family policy: explicit app bypass is never captured",
+            WinDivertAdapter.DispositionForFamily(
+                PacketDisposition.Bypass, familyAvailable: true, allowLeak: false)
                 == PacketDisposition.Bypass);
 
         // Filter captures both families and no longer relies on a TTL marker to avoid
@@ -364,6 +374,7 @@ internal static class WinDivertSelfTest
 
         var ipv6WithHopOptions = new byte[68];
         ipv6WithHopOptions[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6WithHopOptions.AsSpan(4, 2), 28);
         ipv6WithHopOptions[6] = 0;
         ipv6WithHopOptions[40] = 6;
         ipv6WithHopOptions[41] = 0;
@@ -372,8 +383,46 @@ internal static class WinDivertSelfTest
                 ipv6WithHopOptions, ipv6WithHopOptions.Length, out byte v6Proto, out int v6Offset)
             && v6Proto == 6 && v6Offset == 48);
 
+        var ipv6Syn = new byte[64];
+        ipv6Syn[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6Syn.AsSpan(4, 2), 24);
+        ipv6Syn[6] = 6;
+        ipv6Syn[52] = 0x60; // 24-byte TCP header
+        ipv6Syn[53] = 0x02; // SYN
+        ipv6Syn[60] = 2; ipv6Syn[61] = 4;
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6Syn.AsSpan(62, 2), 1460);
+        check("ipv6: TCP SYN MSS accounts for the 40-byte IPv6 header",
+            WinDivertAdapter.TryParseIpv6Packet(
+                ipv6Syn, ipv6Syn.Length, out var ipv6SynMeta)
+            && WinDivertAdapter.ClampIpv6TcpMss(
+                ipv6Syn, ipv6Syn.Length, ipv6SynMeta, 1400)
+            && BinaryPrimitives.ReadUInt16BigEndian(ipv6Syn.AsSpan(62, 2)) == 1340);
+
+        var icmpv6 = new byte[92];
+        icmpv6[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(icmpv6.AsSpan(4, 2), 52);
+        icmpv6[6] = 58;
+        icmpv6[40] = 2; // Packet Too Big
+        icmpv6[48] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(icmpv6.AsSpan(52, 2), 4);
+        icmpv6[54] = 6;
+        var clientV6 = IPAddress.Parse("fd71::2");
+        var remoteV6 = IPAddress.Parse("2001:db8::20");
+        clientV6.GetAddressBytes().CopyTo(icmpv6, 56);
+        remoteV6.GetAddressBytes().CopyTo(icmpv6, 72);
+        BinaryPrimitives.WriteUInt16BigEndian(icmpv6.AsSpan(88, 2), 40001);
+        BinaryPrimitives.WriteUInt16BigEndian(icmpv6.AsSpan(90, 2), 443);
+        check("icmpv6: Packet Too Big recovers the quoted TCP flow",
+            WinDivertAdapter.TryParseIcmpv6QuotedFlow(
+                icmpv6, icmpv6.Length, out byte quotedV6Proto, out var quotedV6Remote,
+                out ushort quotedV6RemotePort, out ushort quotedV6LocalPort,
+                out _, out _)
+            && quotedV6Proto == 6 && quotedV6Remote.Equals(remoteV6)
+            && quotedV6RemotePort == 443 && quotedV6LocalPort == 40001);
+
         var ipv6Fragment = new byte[56];
         ipv6Fragment[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6Fragment.AsSpan(4, 2), 16);
         ipv6Fragment[6] = 44;
         ipv6Fragment[40] = 17;
         BinaryPrimitives.WriteUInt32BigEndian(ipv6Fragment.AsSpan(44, 4), 0x10203040);
@@ -392,9 +441,44 @@ internal static class WinDivertSelfTest
         check("ipv6: later fragment follows first-fragment disposition",
             flows.TryGetIpv6Frag(v6src, v6dst, 17, 0x10203040, out var v6Disposition)
             && v6Disposition == PacketDisposition.Bypass);
+        flows.SetIpv6FragTunnelDestination(
+            v6src, v6dst, 17, 0x10203040, IPAddress.Parse("2001:db8::53"));
+        check("ipv6: DNS fragment affinity retains the rewritten destination",
+            flows.TryGetIpv6FragEntry(
+                v6src, v6dst, 17, 0x10203040, out var v6FragmentEntry)
+            && IPAddress.Parse("2001:db8::53").Equals(v6FragmentEntry.TunnelDestination));
+        var inboundV6Flow = new WinDivertFlowTable.FlowEntry
+        {
+            OriginalSrc = IPAddress.Parse("2001:db8:1::10"),
+            OriginalLocalPort = 53000,
+        };
+        flows.RememberInboundIpv6Frag(
+            v6dst, v6src, 17, 0xAABBCCDD, in inboundV6Flow);
+        check("ipv6: inbound non-first fragment restores first-fragment flow",
+            flows.TryGetInboundIpv6Frag(
+                v6dst, v6src, 17, 0xAABBCCDD, out var restoredV6Flow)
+            && restoredV6Flow.OriginalSrc.Equals(inboundV6Flow.OriginalSrc)
+            && restoredV6Flow.OriginalLocalPort == 53000);
+
+        var natOldSource = IPAddress.Parse("2001:db8:1::10").GetAddressBytes();
+        var natNewSource = IPAddress.Parse("fd71::2").GetAddressBytes();
+        var natOldDestination = IPAddress.Parse("2001:db8:2::20").GetAddressBytes();
+        var natNewDestination = IPAddress.Parse("2001:db8:2::53").GetAddressBytes();
+        const ushort originalChecksum = 0x4A21;
+        ushort translatedChecksum = WinDivertAdapter.AdjustIpv6NatChecksum(
+            originalChecksum,
+            natOldSource, natNewSource, natOldDestination, natNewDestination,
+            53000, 54000, 53, 53, 17);
+        ushort restoredChecksum = WinDivertAdapter.AdjustIpv6NatChecksum(
+            translatedChecksum,
+            natNewSource, natOldSource, natNewDestination, natOldDestination,
+            54000, 53000, 53, 53, 17);
+        check("ipv6: fragmented NAT checksum adjustment is reversible",
+            translatedChecksum != originalChecksum && restoredChecksum == originalChecksum);
 
         var ipv6FragmentThenOptions = new byte[68];
         ipv6FragmentThenOptions[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6FragmentThenOptions.AsSpan(4, 2), 28);
         ipv6FragmentThenOptions[6] = 44;
         ipv6FragmentThenOptions[40] = 60; // destination options after Fragment header
         BinaryPrimitives.WriteUInt32BigEndian(
@@ -448,6 +532,19 @@ internal static class WinDivertSelfTest
             WinDivertDestinationPolicy.TryParseCidr("10.0.0.0/8", out var c8)
             && c8.Contains(IPAddress.Parse("10.255.255.255"))
             && !c8.Contains(IPAddress.Parse("11.0.0.1")));
+        var defaultDestinations = new WinDivertDestinationPolicy(
+            routeLocal: false, includeRoutes: null, excludeRoutes: null, pushedRoutes: null);
+        check("ipv6 policy: ULA and multicast stay local by default",
+            defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("fd00::1"))
+            && defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("ff02::1")));
+        var includedV6Destinations = new WinDivertDestinationPolicy(
+            routeLocal: false,
+            includeRoutes: new[] { "fd12:3456::/48" },
+            excludeRoutes: null,
+            pushedRoutes: new[] { "ff05::/16" });
+        check("ipv6 policy: explicit and pushed local routes enter the tunnel",
+            !includedV6Destinations.ShouldBypassTunnel(IPAddress.Parse("fd12:3456::1"))
+            && !includedV6Destinations.ShouldBypassTunnel(IPAddress.Parse("ff05::1234")));
 
         // Elevated NativeLoader path is ProgramData when admin (document-only check of
         // directory naming; full ACL probe needs elevation).
@@ -571,9 +668,11 @@ internal static class WinDivertSelfTest
 
             var adapter = new WinDivertAdapter(
                 IPAddress.Parse("10.8.0.2"),
+                null,
                 new[] { Environment.ProcessPath ?? @"C:\Windows\System32\cmd.exe" },
                 includeMode: true,
                 dnsServers: Array.Empty<string>(),
+                allowIpv4Leak: false,
                 allowIpv6Leak: false,
                 fullTunnel: true,
                 clientPrefix: 24,

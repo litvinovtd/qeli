@@ -22,6 +22,7 @@ if [ "$zone_exists" = 0 ]; then
 	uci set firewall."$z".output='ACCEPT'
 	uci set firewall."$z".forward='REJECT'
 	uci set firewall."$z".masq='1'            # NAT the LAN out the tunnel
+	uci set firewall."$z".masq6='1'           # NAT66 when the tunnel carries IPv6
 	uci set firewall."$z".mtu_fix='1'         # clamp MSS — important for the tunnel MTU
 	uci add_list firewall."$z".device="$DEV"  # match the tun by device name
 

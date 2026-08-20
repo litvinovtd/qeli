@@ -59,6 +59,29 @@ pub fn build_client_hello(
     server_name: &str,
     session_id: &[u8; 32],
 ) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
+    build_client_hello_inner(key_public, server_name, session_id, true)
+}
+
+/// Build a compact Chrome-like ClientHello without the 1216-byte
+/// X25519MLKEM768 key share. Some mobile DPI paths mishandle a ClientHello that
+/// crosses the first TCP segment; the classic X25519 offer keeps the complete
+/// REALITY discriminator in a single packet while retaining a genuine TLS 1.3
+/// handshake. The server already falls back to X25519 when the hybrid share is
+/// absent.
+pub fn build_client_hello_compact(
+    key_public: &PublicKey,
+    server_name: &str,
+    session_id: &[u8; 32],
+) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
+    build_client_hello_inner(key_public, server_name, session_id, false)
+}
+
+fn build_client_hello_inner(
+    key_public: &PublicKey,
+    server_name: &str,
+    session_id: &[u8; 32],
+    include_pq: bool,
+) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
     let mut rng = rand::rng();
     // Real hybrid key exchange (L3.2): generate the ML-KEM-768 keypair and keep
     // the decapsulation key, so the client handshake can open the server's
@@ -103,7 +126,9 @@ pub fn build_client_hello(
     {
         let mut list = Vec::new();
         list.extend_from_slice(&grease_group.to_be_bytes());
-        list.extend_from_slice(&crate::crypto::mlkem::X25519MLKEM768.to_be_bytes());
+        if include_pq {
+            list.extend_from_slice(&crate::crypto::mlkem::X25519MLKEM768.to_be_bytes());
+        }
         list.extend_from_slice(&0x001du16.to_be_bytes());
         list.extend_from_slice(&0x0017u16.to_be_bytes());
         list.extend_from_slice(&0x0018u16.to_be_bytes());
@@ -163,9 +188,11 @@ pub fn build_client_hello(
         shares.extend_from_slice(&grease_group.to_be_bytes());
         shares.extend_from_slice(&0x0001u16.to_be_bytes());
         shares.push(0x00);
-        shares.extend_from_slice(&crate::crypto::mlkem::X25519MLKEM768.to_be_bytes());
-        shares.extend_from_slice(&(pq.len() as u16).to_be_bytes());
-        shares.extend_from_slice(&pq);
+        if include_pq {
+            shares.extend_from_slice(&crate::crypto::mlkem::X25519MLKEM768.to_be_bytes());
+            shares.extend_from_slice(&(pq.len() as u16).to_be_bytes());
+            shares.extend_from_slice(&pq);
+        }
         shares.extend_from_slice(&0x001du16.to_be_bytes());
         shares.extend_from_slice(&0x0020u16.to_be_bytes());
         shares.extend_from_slice(key_public.as_bytes());
@@ -578,6 +605,29 @@ mod tests {
             32,
             "x25519 key_share recovered despite the PQ entry"
         );
+    }
+
+    #[test]
+    fn compact_hello_fits_one_lte_segment_and_keeps_reality_token() {
+        let reality_kp = StaticKeypair::generate();
+        let eph = Keypair::generate();
+        let id = reality::short_id_from_hex("0123456789abcdef");
+        let sid = reality::seal_session_id(&reality_kp.public, &eph, &id);
+        let hello = build_client_hello_compact(eph.public(), "account.microsoft.com", &sid).0;
+
+        assert!(
+            hello.len() < 1200,
+            "compact ClientHello is {} bytes",
+            hello.len()
+        );
+        assert!(
+            !hello.windows(2).any(|w| w == [0x11, 0xEC]),
+            "compact hello must not advertise X25519MLKEM768"
+        );
+        let (got_sid, key_share) =
+            FakeTlsHandshake::parse_client_hello_full(&hello).expect("server parses compact hello");
+        assert_eq!(got_sid, sid);
+        assert_eq!(key_share, eph.public().as_bytes());
     }
 
     #[test]

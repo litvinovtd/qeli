@@ -1,6 +1,6 @@
 [package]
 name = "qeli"
-version = "0.7.16"
+version = "0.7.17"
 edition = "2021"
 description = "Quick Easy Link IP"
 authors = ["qeli"]
@@ -48,7 +48,7 @@ default = ["server", "client"]
 # Server side pulls the only MIPS-incompatible deps (rustls/ring via rcgen) plus
 # the web stack. A client-only build (`--no-default-features --features client-bin`)
 # excludes all of these and cross-compiles to mipsel/aarch64.
-server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile", "dep:ipnet"]
+server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile"]
 client = []
 client-bin = ["client"]
 # Swap the server binary's global allocator to jemalloc. Opt-in + OFF by default:
@@ -137,8 +137,9 @@ axum-server = { version = "0.8", features = ["tls-rustls-no-provider"], optional
 tower = { version = "0.5", optional = true }
 # Load PEM cert/key (operator-provided or persisted self-signed) for the panel TLS.
 rustls-pemfile = { version = "2", optional = true }
-# Source-IP allowlist for the panel (CIDR contains-check).
-ipnet = { version = "2", optional = true }
+# CIDR parsing is part of the base config validation surface: even no-feature parser/fuzz
+# builds validate client LAN CIDRs, while server builds also use it for panel allowlists.
+ipnet = "2"
 base64 = "0.22"
 # Pure-Rust QR generation for the web UI share/QR feature (SVG output, no JS/CDN).
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }

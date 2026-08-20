@@ -207,13 +207,16 @@ struct QeliTransportStats: Sendable {
 /// Thin owner of the whole-client C ABI. Rust owns the transport and every wire byte; this
 /// object only moves lifecycle events and bounded packet batches across NetworkExtension.
 final class QeliNativeTransport: @unchecked Sendable {
-    static let abiVersion: UInt32 = 0x0001_000a
+    static let abiVersion: UInt32 = 0x0001_000b
     static let platformRoutes: UInt64 = 1 << 0
     static let platformDNS: UInt64 = 1 << 1
     static let platformPacketBatch: UInt64 = 1 << 4
     static let platformServerIdentity: UInt64 = 1 << 6
+    static let platformIPv6Tun: UInt64 = 1 << 8
+    static let platformIPv6Routes: UInt64 = 1 << 9
+    static let platformIPv6DNS: UInt64 = 1 << 10
     static let platformCapabilities = platformRoutes | platformDNS | platformPacketBatch
-        | platformServerIdentity
+        | platformServerIdentity | platformIPv6Tun | platformIPv6Routes | platformIPv6DNS
     static let coreNativeDataPlane: UInt64 = 1 << 8
     static let corePacketIO: UInt64 = 1 << 9
     static let coreUDPDiagnostic: UInt64 = 1 << 10

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using QeliMac.Model;
@@ -123,59 +124,101 @@ public sealed class NetworkConfigurator : IDisposable
         return PathToServer(destination);
     }
 
+    private sealed record ExistingHostRoute(string? Gateway, string? Interface);
+
     /// <summary>
-    /// Gateway of an existing HOST (/32) route for <paramref name="ip"/>, or null when the
-    /// host has none. Read from `netstat -rn -f inet` and matched on an exact destination,
-    /// deliberately not from `route -n get`: that resolves through the default route and
-    /// would report a gateway even when no host-specific entry exists, so restoring it
-    /// afterwards would ADD a /32 the machine never had. (C-18)
+    /// Existing exact HOST (/32 or /128) route, or null when lookup resolved through a
+    /// broader/default prefix. `route get` is safe here because its `destination:` field is
+    /// required to equal the requested address; merely receiving a gateway is not enough.
+    /// Preserve interface routes as well as gateway routes so scoped/on-link IPv6 policy is
+    /// restored byte-for-byte at disconnect.
     /// </summary>
-    private string? ExistingHostRouteGateway(string ip)
+    private ExistingHostRoute? ExistingHostRouteFor(IPAddress ip)
     {
         try
         {
-            var (outp, _) = RunOut("/usr/sbin/netstat", "-rn -f inet");
-            foreach (var line in outp.Split('\n'))
+            bool v6 = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+            var (outp, _) = RunOut("/sbin/route", $"-n get {(v6 ? "-inet6" : "-inet")} {ip}");
+            string? destination = null, gateway = null, iface = null;
+            foreach (var raw in outp.Split('\n'))
             {
-                var f = line.Split(' ', '\t').Where(t => t.Length > 0).ToArray();
-                // Destination must be the bare address: `1.2.3.4` is a host route,
-                // `1.2.3.0/24` (or `default`) is not the entry we replaced.
-                if (f.Length >= 2 && f[0] == ip) return f[1];
+                string line = raw.Trim();
+                if (line.StartsWith("destination:", StringComparison.Ordinal))
+                    destination = line["destination:".Length..].Trim();
+                else if (line.StartsWith("gateway:", StringComparison.Ordinal))
+                    gateway = line["gateway:".Length..].Trim();
+                else if (line.StartsWith("interface:", StringComparison.Ordinal))
+                    iface = line["interface:".Length..].Trim();
             }
+            if (destination == null || !SameAddressIgnoringScope(destination, ip)) return null;
+            // link#N is a kernel interface next-hop, not a gateway accepted by route(8).
+            return gateway != null && gateway.StartsWith("link#", StringComparison.Ordinal)
+                ? new ExistingHostRoute(null, iface)
+                : new ExistingHostRoute(gateway, iface);
         }
-        catch (Exception e) { _log($"could not read the existing route for {ip}: {e.Message}"); }
+        catch (Exception e) { _log($"could not read the existing host route for {ip}: {e.Message}"); }
         return null;
     }
 
-    /// <summary>Pin a /32 host route to the VPN server through the physical gateway so the
-    /// encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
+    private static bool SameAddressIgnoringScope(string literal, IPAddress expected)
+    {
+        int zone = literal.IndexOf('%');
+        if (zone >= 0) literal = literal[..zone];
+        return IPAddress.TryParse(literal, out var parsed)
+               && parsed.AddressFamily == expected.AddressFamily
+               && parsed.GetAddressBytes().SequenceEqual(expected.GetAddressBytes());
+    }
+
+    /// <summary>Pin a /32 or /128 host route to the VPN server through the physical gateway so
+    /// the encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
     public void PinServerRoute(IPAddress serverIp, IPAddress gateway)
     {
+        if (serverIp.AddressFamily != gateway.AddressFamily)
+            throw new InvalidOperationException(
+                $"server route family mismatch: server {serverIp}, gateway {gateway}");
         string s = serverIp.ToString();
         // Remember any PRE-EXISTING host route for this IP before we replace it. The undo
         // only ever deleted ours, so a host that had its own /32 for the server (a second
         // link, a management route) lost it permanently on the first connect — the delete
         // below is destructive and nothing put it back. (C-18)
-        string? previousGw = ExistingHostRouteGateway(s);
-        Run("/sbin/route", $"-n delete -host {s}", optional: true);
-        Run("/sbin/route", $"-n add -host {s} {gateway}");
+        bool v6 = serverIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+        string family = v6 ? "-inet6" : "-inet";
+        ExistingHostRoute? previous = ExistingHostRouteFor(serverIp);
+        Run("/sbin/route", $"-n delete {family} -host {s}", optional: true);
+        Run("/sbin/route", $"-n add {family} -host {s} {gateway}");
         _undo.Add(() =>
         {
-            Run("/sbin/route", $"-n delete -host {s}", optional: true);
-            if (previousGw != null)
+            Run("/sbin/route", $"-n delete {family} -host {s}", optional: true);
+            if (previous?.Gateway != null)
             {
-                Run("/sbin/route", $"-n add -host {s} {previousGw}", optional: true);
-                _log($"restored the pre-existing host route {s} via {previousGw}");
+                Run("/sbin/route", $"-n add {family} -host {s} {previous.Gateway}", optional: true);
+                _log($"restored the pre-existing host route {s} via {previous.Gateway}");
+            }
+            else if (previous?.Interface != null)
+            {
+                Run("/sbin/route", $"-n add {family} -host {s} -interface {previous.Interface}", optional: true);
+                _log($"restored the pre-existing host route {s} on {previous.Interface}");
             }
         });
         _log($"Pinned server route {s} via {gateway}"
-             + (previousGw != null ? $" (replacing an existing route via {previousGw})" : ""));
+             + (previous != null ? " (temporarily replacing an existing exact host route)" : ""));
     }
 
     /// <summary>Assign the client IP to the point-to-point utun interface and bring it up,
     /// using the server-pushed subnet prefix.</summary>
     public void SetAddress(string dev, string clientIp, int prefix = 24)
     {
+        if (!IPAddress.TryParse(clientIp, out var address))
+            throw new InvalidOperationException($"invalid tunnel address {clientIp}");
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            if (prefix is < 1 or > 128)
+                throw new InvalidOperationException($"invalid IPv6 tunnel prefix {prefix}");
+            Run("/sbin/ifconfig", $"{dev} inet6 {clientIp} prefixlen {prefix} alias up");
+            _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 {clientIp} -alias", optional: true));
+            _log($"Set {dev} address {clientIp}/{prefix}");
+            return;
+        }
         // utun is point-to-point: local == dest, server-pushed mask for the tunnel subnet.
         int p = (prefix is >= 1 and <= 32) ? prefix : 24;
         string mask = PrefixToMask(p);
@@ -192,7 +235,7 @@ public sealed class NetworkConfigurator : IDisposable
     }
 
     public void SetMtu(string dev, int mtu) =>
-        Run("/sbin/ifconfig", $"{dev} mtu {mtu}", optional: true);
+        Run("/sbin/ifconfig", $"{dev} mtu {mtu}");
 
     /// <summary>Override the default route via the tunnel using two /1 routes (WireGuard-style),
     /// which beat the existing default without deleting it.</summary>
@@ -205,15 +248,29 @@ public sealed class NetworkConfigurator : IDisposable
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
-    /// <summary>Capture IPv6 into the tunnel in full-tunnel mode so dual-stack traffic
-    /// can't bypass it (the classic VPN IPv6 leak). The server is IPv4-only, so these
-    /// packets are blackholed inside the tunnel rather than leaked — apps fall back to
-    /// IPv4. `::/1 + 8000::/1` beat the default `::/0`, but a router-advertised `2000::/3`
+    public void SetFullTunnelRoutesV6(string dev)
+    {
+        string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
+        foreach (var net in nets)
+        {
+            Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}");
+            string captured = net;
+            _undo.Add(() => Run("/sbin/route",
+                $"-n delete -inet6 -net {captured}", optional: true));
+        }
+        _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
+    }
+
+    /// <summary>Legacy fail-closed capture used only when a full-tunnel NetworkPlan has no
+    /// IPv6 address. A dual/IPv6 plan uses SetFullTunnelRoutesV6 with its real assignment.
+    /// `::/1 + 8000::/1` beat the default `::/0`, but a router-advertised `2000::/3`
     /// (GUA) is MORE specific and would still win by longest-prefix — so we ALSO add
     /// `2000::/4 + 3000::/4` (= all of `2000::/3`) and `fc00::/7` (ULA), like OpenVPN's
-    /// redirect-gateway. Optional: a host with IPv6 disabled has nothing to capture.</summary>
+    /// redirect-gateway. A total route failure is tolerated only when the host has no usable
+    /// native IPv6 address; a partial capture or a live native path fails the plan closed.</summary>
     public void CaptureIPv6(string dev)
     {
+        bool nativeIpv6Present = HasUsableNativeIpv6(dev);
         bool addrOk = Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 prefixlen 64 up", optional: true);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         var failed = new List<string>();
@@ -225,31 +282,56 @@ public sealed class NetworkConfigurator : IDisposable
             string n = net; // capture per-iteration for the undo closure
             _undo.Add(() => Run("/sbin/route", $"-n delete -inet6 -net {n}", optional: true));
         }
+        _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 -alias", optional: true));
 
-        // Report what ACTUALLY happened. These commands are optional by design — a host
-        // with IPv6 disabled has nothing to capture and every add fails harmlessly, so a
-        // failure is NOT proof of a leak and must not abort the connection. But claiming
-        // "captured" unconditionally hid the opposite case (IPv6 present, capture partly
-        // or wholly failed → traffic leaves outside the tunnel while the log said it was
-        // covered). Say which ranges are actually covered and flag the leak risk.
+        // A partial route set is never safe: longest-prefix routing can still send the
+        // uncovered classes to a physical interface. A total failure is harmless only on
+        // a host that genuinely has no usable native IPv6 address at apply time.
+        if (failed.Count != 0 && (failed.Count != nets.Length || nativeIpv6Present))
+            throw new InvalidOperationException(
+                $"IPv6 fail-closed capture failed ({nets.Length - failed.Count}/{nets.Length} " +
+                $"routes installed; failed: {string.Join(", ", failed)}; " +
+                $"native IPv6 present: {nativeIpv6Present})");
         if (failed.Count == 0)
             _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
-        else if (failed.Count == nets.Length)
-            _log("IPv6 NOT captured: every route add failed. If this host has IPv6 disabled " +
-                 "there is nothing to capture and nothing leaks; if it does have IPv6, that " +
-                 "traffic is leaving OUTSIDE the tunnel — check that qeli runs as root.");
         else
-            _log($"WARNING: IPv6 only partially captured — {nets.Length - failed.Count}/{nets.Length} " +
-                 $"ranges; failed: {string.Join(", ", failed)}. IPv6 matching the failed ranges may " +
-                 "leave OUTSIDE the tunnel.");
+            _log("IPv6 is disabled on every non-tunnel interface; no native family exists to capture");
         if (!addrOk && failed.Count != nets.Length)
             _log("note: the tunnel's IPv6 address could not be added; IPv6 capture may be incomplete.");
     }
 
-    public void AddRoute(string cidr, string dev)
+    private static bool HasUsableNativeIpv6(string tunnelDevice)
+    {
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up ||
+                ni.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                string.Equals(ni.Name, tunnelDevice, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(ni.Id, tunnelDevice, StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                foreach (var unicast in ni.GetIPProperties().UnicastAddresses)
+                {
+                    var address = unicast.Address;
+                    if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 &&
+                        !address.Equals(IPAddress.IPv6Any) &&
+                        !address.Equals(IPAddress.IPv6Loopback) &&
+                        !address.IsIPv6LinkLocal &&
+                        !address.IsIPv6Multicast &&
+                        !address.IsIPv4MappedToIPv6)
+                        return true;
+                }
+            }
+            catch { /* an interface can disappear while the snapshot is being read */ }
+        }
+        return false;
+    }
+
+    public bool AddRoute(string cidr, string dev)
     {
         var (addr, prefix) = ParseCidr(cidr);
-        if (addr == null) { _log($"bad route {cidr}"); return; }
+        if (addr == null) { _log($"bad route {cidr}"); return false; }
         string net = $"{addr}/{prefix}";
         string family = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
             ? "-inet6" : "-inet";
@@ -257,10 +339,11 @@ public sealed class NetworkConfigurator : IDisposable
         if (!Run("/sbin/route", $"-n add {family} -net {net} -interface {dev}", optional: true))
         {
             Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
-            return;
+            return false;
         }
         _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
         _log($"route {cidr} via tunnel");
+        return true;
     }
 
     /// <summary>Split-tunnel exclude: drop a destination from the tunnel so it falls back
@@ -282,7 +365,8 @@ public sealed class NetworkConfigurator : IDisposable
     public void PinBypassRoute(string cidr, IPAddress? gateway, string? physicalInterface)
     {
         var (addr, prefix) = ParseCidr(cidr);
-        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        if (addr == null)
+            throw new InvalidOperationException($"invalid exclude route {cidr}");
         string net = $"{addr}/{prefix}";
         bool v6 = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         string family = v6 ? "-inet6" : "-inet";
@@ -298,10 +382,8 @@ public sealed class NetworkConfigurator : IDisposable
             : !string.IsNullOrWhiteSpace(physicalInterface) ? $"-interface {physicalInterface}"
             : null;
         if (nextHop == null || !Run("/sbin/route", $"-n add {family} -net {net} {nextHop}", optional: true))
-        {
-            Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
-            return;
-        }
+            throw new InvalidOperationException(
+                $"exclude route {cidr} has no usable physical path or was not programmed");
         _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
         _log($"exclude {cidr} via physical path {nextHop}");
     }
@@ -316,8 +398,9 @@ public sealed class NetworkConfigurator : IDisposable
     /// to carry and the link deadlocks. Everything checked before this only proved a
     /// command was ISSUED; this asks the OS what the routing table actually decided.
     ///
-    /// Degraded rather than fatal: the check is new and unexercised on real hardware, so a
-    /// false positive must not tear down a working tunnel.
+    /// An unresolved path remains degraded because the OS supplied no answer. A path that
+    /// resolves to the exact utun is definitive and fatal: ACKing that plan would start a
+    /// carrier whose packets are routed back into itself.
     /// </remarks>
     public void VerifyCarrierPath(IPAddress serverIp, string tunDev)
     {
@@ -330,19 +413,19 @@ public sealed class NetworkConfigurator : IDisposable
         }
         if (iface == tunDev)
         {
-            Degrade($"the route to the server {serverIp} now resolves to the TUNNEL interface " +
-                    $"({tunDev}) — the encrypted carrier would loop back into the tunnel and the " +
-                    "link cannot work. The server-route pin did not take effect.");
-            return;
+            throw new InvalidOperationException(
+                $"the route to the server {serverIp} resolves to the TUNNEL interface " +
+                $"({tunDev}); the encrypted carrier would loop back into itself. " +
+                "The server-route pin did not take effect");
         }
         _log($"carrier path verified: {serverIp} leaves via {iface} (tunnel is {tunDev})");
     }
 
     /// <summary>Point the primary network service's resolvers at the tunnel DNS, saving the
     /// previous setting for restore on disconnect.</summary>
-    public void SetDns(IReadOnlyList<string> servers)
+    public bool SetDns(IReadOnlyList<string> servers)
     {
-        if (servers.Count == 0) return;
+        if (servers.Count == 0) return true;
         // Validate every resolver is a literal IP before splicing it into the networksetup
         // argument string. DNS values come from the profile / server-push and — unlike routes,
         // which go through strict ParseCidr — were used unchecked; a crafted value could add
@@ -353,7 +436,7 @@ public sealed class NetworkConfigurator : IDisposable
         {
             Degrade("DNS NOT applied — no valid resolver IP in the configured DNS list; " +
                     "queries will use the system resolver, not the tunnel's");
-            return;
+            return false;
         }
         var service = PrimaryNetworkService();
         if (service == null)
@@ -362,7 +445,7 @@ public sealed class NetworkConfigurator : IDisposable
             // tunnel and every query goes to the system resolver. (C-17)
             Degrade("DNS NOT applied — could not find the primary network service; " +
                     "queries will use the system resolver, not the tunnel's");
-            return;
+            return false;
         }
 
         // networksetup changes the PHYSICAL service, not the disposable utun. Persist the
@@ -375,10 +458,11 @@ public sealed class NetworkConfigurator : IDisposable
         {
             Degrade($"DNS NOT applied to “{service}” — queries will use the system resolver, " +
                     $"not the tunnel's ({string.Join(", ", servers)}): {error}");
-            return;
+            return false;
         }
         _dnsRelease = release;
         _log($"DNS set to {string.Join(", ", servers)} on “{service}”");
+        return true;
     }
 
     public void Dispose()

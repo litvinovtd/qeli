@@ -191,22 +191,51 @@ return view.extend({
 
 		o = s.option(form.Flag, 'gateway', _('Route the whole LAN (full-tunnel)'),
 			_('Send all router/LAN traffic through the tunnel. Off = split-tunnel ' +
-			  '(only the tunnel subnet + pushed routes). The firewall zone <code>qeli</code> NATs it out.'));
+			  '(only the tunnel subnet + pushed routes). The firewall zone <code>qeli</code> applies IPv4/IPv6 masquerading.'));
 
-		o = s.option(form.Value, 'dns', _('DNS'),
-			_('<code>off</code> = leave the router resolver alone (recommended); ' +
-			  '<code>tunnel</code> = use the server\'s; or a comma list of resolvers.'));
+		o = s.option(form.ListValue, 'ipv6', _('Inner IPv6 policy'),
+			_('<code>auto</code> accepts IPv6 when the server and this router support it; ' +
+			  '<code>required</code> fails closed without IPv6; <code>off</code> requests IPv4 only.'));
+		o.value('auto', _('auto'));
+		o.value('required', _('required'));
+		o.value('off', _('off'));
+		o.default = 'auto';
+
+		o = s.option(form.ListValue, 'dns', _('DNS mode'),
+			_('<code>off</code>/<code>system</code> leaves the router resolver alone; ' +
+			  '<code>tunnel</code> installs the server-pushed or explicit resolver list.'));
+		o.value('off', _('off (recommended on a router)'));
+		o.value('system', _('system'));
+		o.value('tunnel', _('tunnel'));
 		o.default = 'off';
+
+		o = s.option(form.DynamicList, 'dns_servers', _('Tunnel DNS servers'),
+			_('Optional IPv4/IPv6 resolver literals. Empty uses the resolver pushed by the server.'));
+		o.datatype = 'ipaddr';
+		o.depends('dns', 'tunnel');
 
 		o = s.option(form.Value, 'dev', _('TUN device'));
 		o.default = 'qeli0';
 		o.datatype = 'maxlength(15)';
 
 		o = s.option(form.Value, 'mtu', _('MTU'), _('0 = auto (server-pushed).'));
-		o.datatype = 'range(0,16638)';   // see config/server.rs MTU_MAX (derived from the record size)
+		o.datatype = 'uinteger';
+		o.validate = function(section_id, value) {
+			if (value === '' || value === '0') return true;
+			var mtu = Number(value);
+			return Number.isInteger(mtu) && mtu >= 576 && mtu <= 16638
+				? true
+				: _('MTU must be 0 (auto) or between 576 and 16638.');
+		}; // mirrors config/server.rs MTU_MIN..=MTU_MAX
 
 		o = s.option(form.Flag, 'kill_switch', _('Kill-switch'),
-			_('Client-side firewall lock: block all egress except the tunnel while connected.'));
+			_('Firewall lock for host traffic and, in full-tunnel router mode, forwarded LAN traffic: block egress except the tunnel while connected or reconnecting.'));
+
+		o = s.option(form.Flag, 'allow_ipv6_leak', _('Allow IPv6 WAN bypass'),
+			_('Unsafe escape hatch used only when the negotiated tunnel has no IPv6. Off blocks native IPv6 in full-tunnel mode; on lets it bypass through WAN.'));
+
+		o = s.option(form.Flag, 'allow_ipv4_leak', _('Allow IPv4 WAN bypass'),
+			_('Unsafe escape hatch used only when the negotiated tunnel has no IPv4. Off blocks native IPv4 in full-tunnel mode; on lets it bypass through WAN.'));
 
 		o = s.option(form.ListValue, 'log_level', _('Log level'));
 		o.value('error'); o.value('warn'); o.value('info'); o.value('debug');

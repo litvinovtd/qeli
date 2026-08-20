@@ -16,8 +16,9 @@ core-side fix automatically**:
 
 | Fix (release) | Why it matters on a router |
 |---|---|
-| Kill-switch on **iptables**+ip6tables, verified with `-C` (0.7.3) | OpenWrt firewall is nft-backed; the binary's `-C`-verified path already tolerates the iptables-nft wrapper. |
-| **UDP handshake fragmentation** (0.7.4) | Routers on an **LTE / 4G / CGNAT WAN** drop IP fragments — the big PQ handshake now app-fragments to ≤1200 B and connects. |
+| Dual-family kill-switch on **iptables**+ip6tables, verified with `-C` | In full-tunnel gateway mode the rendered config also guards FORWARD, so LAN traffic cannot fall back to WAN during reconnect; both TUN directions remain allowed. |
+| **UDP handshake + encrypted data-record fragmentation** | Routers on an **LTE / 4G / CGNAT WAN** may drop IP fragments — the PQ handshake and oversized encrypted records are fragmented below the outer budget in the application layer. |
+| Native inner IPv4/IPv6/dual NetworkPlan | UCI/LuCI expose `ipv6=auto|required|off` and symmetric `allow_ipv4_leak` / `allow_ipv6_leak`; the firewall zone applies NAT44/NAT66. |
 | UDP idle/download **liveness** (0.7.4) | No false reconnects on an idle or download-only router tunnel. |
 | `gateway` / `dns` INI keys, `bind_static`/H-1, persistent **device-id** + TOFU `known_hosts` | Router runs headless; these are exactly the keys the init script writes. |
 
@@ -61,8 +62,9 @@ qeli-openwrt/
 4. **Gateway (full-tunnel for the LAN)**: handled by an **OpenWrt firewall zone**
    (`config zone … name 'qeli' … masq '1'` + a `lan → qeli` forwarding), created once by
    `qeli.firewall.uci-defaults`. This is fw4-native and survives `/etc/init.d/firewall reload`
-   — unlike raw iptables, which fw4 would flush. The qeli kill-switch (client-side) is a
-   separate, independent layer.
+   — unlike raw iptables, which fw4 would flush. The qeli kill-switch is a separate layer;
+   when both `gateway=1` and `kill_switch=1`, the renderer enables no-NAT core forwarding
+   ownership so the switch protects forwarded LAN traffic as well as router-local OUTPUT.
 
 ## Quick start (on the router)
 
@@ -90,8 +92,10 @@ Or just use **LuCI → Services → qeli VPN**.
 
 - Wire mode by CPU: on low-end **mipsel** prefer `fake-tls` / `obfs` / `plain` (ChaCha20);
   `reality-tls` (double AEAD) is sane only on ARM (aarch64) routers.
-- `dns`: default `off` (leave the router's dnsmasq/resolver alone). `tunnel` to push
-  the server's resolver; or a comma list of resolvers.
+- `dns`: resolver **mode**, default `off` (leave the router's dnsmasq/resolver alone).
+  Set it to `tunnel` to use the server-pushed resolver, and optionally add IPv4/IPv6
+  literals through the repeatable `dns_servers` UCI/LuCI field. Older installations that
+  stored a comma list directly in `dns` are migrated by the init renderer at startup.
 - The `.ipk` ships per-arch; `build/build_openwrt.py` cross-builds the binary (zig), the
   OpenWrt `Makefile` also builds it from source via the SDK rust feed.
 - TODO before marking stable: test on a real OpenWrt 23.05 device; confirm fw4 zone

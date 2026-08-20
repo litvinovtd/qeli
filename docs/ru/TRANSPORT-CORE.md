@@ -11,14 +11,15 @@ multipath, автоматический fallback и обработку конф�
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро. Библиотеки additive ABI 1.10 для Windows x64, macOS universal2
+общее транспортное Rust-ядро. Библиотеки additive ABI 1.11 для Windows x64, macOS universal2
 и Android arm64/x86_64 пересобраны из source commit `97ce38d` независимыми побайтно
 идентичными A/B-проходами на лабах; mirror hashes, machine-readable evidence и source
 provenance актуальны. Остались платформенные приёмочные gate, а не работа по рефакторингу:
 administrator Wintun full-tunnel, живой macOS utun и physical-device iOS/Xcode. Составлено
 2026-07-30; завершено 2026-08-11.
 
-ABI 1.10 расширяет статистику без изменения её 64-байтового V1-префикса. Новые поля
+ABI 1.10 расширил статистику без изменения её 64-байтового V1-префикса. ABI 1.11 добавляет
+dual-family NetworkPlan/platform-capability contract без изменения этих префиксов. Поля
 показывают UDP kernel drops, внутренние drops bounded-очередей, число автоматических
 увеличений receive buffer и фактически выданный ОС размер. При отсутствующем ключе общий
 контроллер начинает с 4 МиБ и растёт 4→8→16 МиБ только по локальному overflow либо
@@ -552,7 +553,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | ✅ библиотека ABI 1.9 пересобрана; source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены; live handshake/NetworkPlan зелёный | platform gate: admin Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ universal2 dylib ABI 1.9 пересобран и упакован; source path передаёт utun fd Rust-ядру и не трогает payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter использует текущий ABI 1.10 и общее Rust-ядро | code complete; Xcode/device gate остаётся |
+| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter использует текущий ABI 1.11 и общее Rust-ядро | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
 расхождения там доказан; iOS последним — единственная платформа без fd и с потолком памяти.
@@ -564,7 +565,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на текущий ABI 1.10; реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на текущий ABI 1.11; реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 

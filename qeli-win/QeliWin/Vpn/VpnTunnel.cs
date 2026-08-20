@@ -14,11 +14,12 @@ public sealed class VpnTunnel : VpnTunnelBase
     private bool _useWinDivert;
 
     // Normal profiles keep the zero-copy Rust-owned Wintun path. Per-app profiles use
-    // WinDivert as an IPacketTunDevice, so the shared ABI 1.10 packet pumps connect it to
+    // WinDivert as an IPacketTunDevice, so the shared ABI 1.11 packet pumps connect it to
     // the same Rust transport core without replacing or duplicating that core.
     protected override bool NativeWintunOwnership => !_useWinDivert;
 
-    protected override bool SupportsPlanReplacementGuard => true;
+    protected override ulong NativeIpv6Capabilities(VpnConfig config) =>
+        NativeIpv6SystemPlanCapabilities | NativeIpv6KillSwitchCapability;
 
     protected override void PrepareTransport(VpnConfig config) =>
         _useWinDivert = config.UsesAppFilter;
@@ -56,7 +57,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         });
     }
 
-    protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
+    protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
+        IReadOnlyList<IPAddress> carrierCandidates)
     {
         // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
         // the same client IP can arrive with different routes, DNS, prefix or MTU.
@@ -82,17 +84,25 @@ public sealed class VpnTunnel : VpnTunnelBase
             return;
         }
 
+        var assigned = session.NetworkAddresses
+            ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
+                session.Prefix, null) };
+
         if (_useWinDivert)
         {
             _net = null;
+            var ipv4 = assigned.FirstOrDefault(address =>
+                address.Family.Equals("ipv4", StringComparison.OrdinalIgnoreCase));
+            var ipv6 = assigned.FirstOrDefault(address =>
+                address.Family.Equals("ipv6", StringComparison.OrdinalIgnoreCase));
             var adapter = new WinDivertAdapter(
-                IPAddress.Parse(session.ClientIp),
+                ipv4 == null ? null : IPAddress.Parse(ipv4.Address),
+                ipv6 == null ? null : IPAddress.Parse(ipv6.Address),
                 config.Apps,
                 includeMode: config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
                 dnsServers: EffectiveDns(config, session),
-                allowIpv6Leak: config.AllowIpv6Leak,
-                fullTunnel: config.IsFullTunnel,
-                clientPrefix: session.Prefix,
+                allowIpv4Leak: session.AllowIpv4Leak,
+                allowIpv6Leak: session.AllowIpv6Leak,
                 routeLocal: config.RouteLocalNetworks,
                 includeRoutes: config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
                 excludeRoutes: config.ExcludeRoutes,
@@ -111,8 +121,17 @@ public sealed class VpnTunnel : VpnTunnelBase
         }
 
         _net = new NetworkConfigurator(Log);
-        uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
-        var gateway = _net.FindGatewayFor(serverIp);
+        // Resolve every possible A/AAAA carrier path before the /1 or /0 capture routes
+        // exist. The Rust core can select any candidate on a later reconnect; pinning
+        // only the first authenticated peer would let another candidate recurse into
+        // Wintun after DNS rotation.
+        var carrierPaths = carrierCandidates
+            .Distinct()
+            .Select(address => (address,
+                ifIndex: _net.PhysicalIfIndexFor(address),
+                gateway: _net.FindGatewayFor(address),
+                onLink: _net.IsServerOnLink(address)))
+            .ToArray();
         // Resolve every bypass before installing the /1 capture routes. IPv4 and IPv6
         // commonly leave through different gateways; reusing the carrier's IPv4 path made
         // an IPv6 exclude syntactically accepted but impossible to install.
@@ -149,10 +168,18 @@ public sealed class VpnTunnel : VpnTunnelBase
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
         _tun = wintun;
 
-        _net.SetAddress(alias, session.ClientIp, session.Prefix);
+        foreach (var address in assigned)
+            _net.SetAddress(alias, address.Address, address.PrefixLength);
+        var connectedPrefixes = ConnectedTunnelPrefixes(session);
+        foreach (var cidr in connectedPrefixes)
+            if (!_net.AddRoute(cidr, session.ClientIp, tunIndex))
+                throw new InvalidOperationException(
+                    $"connected tunnel prefix {cidr} was not applied");
         int mtu = EffectiveMtu(config.Mtu, session.PushedMtu);  // explicit > pushed > 1400
         Log($"TUN MTU: {mtu}");
-        _net.SetMtu(alias, mtu);
+        _net.SetMtu(alias, mtu,
+            assigned.Any(address => address.Family == "ipv4"),
+            assigned.Any(address => address.Family == "ipv6"));
         if (config.InterfaceMetric > 0) _net.SetMetric(wintun.Luid, alias, config.InterfaceMetric);  // OpenVPN route-metric (IPv4+IPv6)
 
         // Pin the carrier route to the server through the physical gateway BEFORE we hijack
@@ -164,22 +191,47 @@ public sealed class VpnTunnel : VpnTunnelBase
         // (issue #69).
         if (!string.IsNullOrEmpty(config.LocalAddress))
             Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
-        else if (_net.IsServerOnLink(serverIp))
-            // Server is on the same subnet as the client (on-link). The connected-subnet route
-            // already keeps the carrier off the tunnel; pinning it via the gateway would make the
-            // path asymmetric and stall the tunnel on a same-LAN setup (see TROUBLESHOOTING §6.8).
-            Log($"server {serverIp} is on-link (same subnet) — not pinning via the gateway; the connected route keeps the carrier off the tunnel");
-        else if (gateway != null && physicalIf != 0)
-            _net.PinServerRoute(serverIp, gateway, physicalIf);
         else
-            Log("WARN: could not determine physical gateway; full-tunnel may loop");
+        {
+            foreach (var (address, ifIndex, gateway, onLink) in carrierPaths)
+            {
+                if (onLink)
+                {
+                    // A connected-subnet route is the correct physical path for a
+                    // same-LAN peer; forcing it through the gateway can be asymmetric.
+                    Log($"server {address} is on-link (same subnet) — not pinning via the gateway; the connected route keeps the carrier off the tunnel");
+                }
+                else if (gateway != null && ifIndex != 0)
+                {
+                    _net.PinServerRoute(address, gateway, ifIndex);
+                }
+                else if (config.IsFullTunnel)
+                {
+                    throw new InvalidOperationException(
+                        $"carrier {address} has no usable physical path in full-tunnel mode");
+                }
+                else
+                {
+                    Log($"WARN: could not determine a physical path for carrier {address}");
+                }
+            }
+        }
 
         if (config.IsFullTunnel)
         {
-            _net.SetFullTunnelRoutes(session.ClientIp, tunIndex);
-            // Capture IPv6 into the (IPv4-only) tunnel to close the dual-stack leak (E2),
-            // unless the user opted out via allow_ipv6_leak to keep native IPv6.
-            if (!config.AllowIpv6Leak)
+            var ipv4 = assigned.FirstOrDefault(address => address.Family == "ipv4");
+            var ipv6 = assigned.FirstOrDefault(address => address.Family == "ipv6");
+            if (ipv4 != null)
+                _net.SetFullTunnelRoutes(ipv4.Address, tunIndex);
+            else if (!session.AllowIpv4Leak)
+            {
+                const string sink = "169.254.71.1";
+                _net.SetAddress(alias, sink, 32);
+                _net.SetFullTunnelRoutes(sink, tunIndex);
+            }
+            if (ipv6 != null)
+                _net.SetFullTunnelRoutesV6(alias);
+            else if (!session.AllowIpv6Leak)
                 _net.CaptureIPv6(alias);
         }
         else if (!session.PlanIncludesClientRoutes)
@@ -194,7 +246,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // specific, explicit admin decision — always honoured, like OpenVPN's
         // `push "route …"`. Until 0.7.12 these sat behind RouteLocalNetworks, so a
         // correctly configured route was silently dropped on every default client.
-        ApplyPushedRoutes(session.RoutesJson, session.ClientIp, tunIndex);
+        ApplyPushedRoutes(session.RoutesJson, session.ClientIp, tunIndex, connectedPrefixes);
 
         // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
         // default because it would hijack the machine's own LAN (printers, NAS, router).
@@ -212,7 +264,11 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             if (path.gateway != null && path.ifIndex != 0)
                 _net.PinBypassRoute(r, path.gateway, path.ifIndex);
-            else _net.DeleteRoute(r);
+            else if (config.IsFullTunnel)
+                throw new InvalidOperationException(
+                    $"exclude route {r} has no usable physical path in full-tunnel mode");
+            else
+                _net.DeleteRoute(r);
         }
 
         // #13: pure L3 forwarding for a LAN BEHIND this Windows node (no NAT), so the far
@@ -227,7 +283,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Skipped when `local` binds the carrier elsewhere (e.g. through another VPN) —
         // there the user owns the path and the server route is deliberately not pinned. (C-17)
         if (string.IsNullOrEmpty(config.LocalAddress))
-            _net.VerifyCarrierPath(serverIp, tunIndex);
+            foreach (var address in carrierPaths.Select(path => path.address))
+                _net.VerifyCarrierPath(address, tunIndex);
     }
 
     /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
@@ -249,19 +306,31 @@ public sealed class VpnTunnel : VpnTunnelBase
             };
             using var p = System.Diagnostics.Process.Start(psi);
             p?.WaitForExit(3000);
+            var ipv6 = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh,
+                $"interface ipv6 set interface \"{alias}\" forwarding=enabled")
+            {
+                UseShellExecute = false, RedirectStandardOutput = true,
+                RedirectStandardError = true, CreateNoWindow = true,
+                WorkingDirectory = SystemPaths.SystemDirectory,
+            };
+            using var p6 = System.Diagnostics.Process.Start(ipv6);
+            p6?.WaitForExit(3000);
             Log($"IP forwarding enabled on '{alias}' (no NAT). For LAN->tunnel routing enable " +
                 "forwarding on the LAN NIC too (netsh …forwarding=enabled) or set IPEnableRouter.");
         }
         catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
     }
 
-    private void ApplyPushedRoutes(string routesJson, string clientIp, uint tunIndex)
+    private void ApplyPushedRoutes(string routesJson, string clientIp, uint tunIndex,
+        IReadOnlyList<string> alreadyApplied)
     {
         if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]") return;
         try
         {
-            if (JsonNode.Parse(routesJson) is JsonArray arr)
-                foreach (var n in arr)
+            var seen = new HashSet<string>(alreadyApplied, StringComparer.OrdinalIgnoreCase);
+            if (JsonNode.Parse(routesJson) is not JsonArray arr)
+                throw new InvalidOperationException("NetworkPlan routes payload is not an array");
+            foreach (var n in arr)
                 {
                     string cidr = (n?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
                     if (cidr.Length == 0)
@@ -269,6 +338,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                         Log("pushed route IGNORED: empty CIDR (fix the server's `route =` line)");
                         continue;
                     }
+                    if (!seen.Add(cidr)) continue;
                     // Report the route EXACTLY as it arrived, then what actually happened to it.
                     // Our routes are interface-scoped (CreateIpForwardEntry2 against the tun's
                     // index), so a pushed next-hop/metric cannot be honoured — traffic enters the
@@ -278,13 +348,19 @@ public sealed class VpnTunnel : VpnTunnelBase
                     string got = cidr
                                + (gw.Length > 0 ? $" gateway={gw}" : "")
                                + (mt.Length > 0 && mt != "0" ? $" metric={mt}" : "");
-                    _net!.AddRoute(cidr, clientIp, tunIndex);
+                    if (!_net!.AddRoute(cidr, clientIp, tunIndex))
+                        throw new InvalidOperationException(
+                            $"canonical NetworkPlan route {cidr} was not applied");
                     Log(gw.Length > 0 || (mt.Length > 0 && mt != "0")
                         ? $"pushed route: {got} -> APPLIED via the tunnel interface (next-hop/metric not settable here)"
                         : $"pushed route: {got} -> APPLIED via the tunnel interface");
                 }
         }
-        catch (Exception e) { Log($"routes parse error: {e.Message}"); }
+        catch (Exception e)
+        {
+            throw new InvalidOperationException(
+                $"could not apply canonical NetworkPlan routes: {e.Message}", e);
+        }
     }
 
     private static IReadOnlyList<string> PushedRouteCidrs(string routesJson)

@@ -358,19 +358,40 @@ final class AppModel: ObservableObject {
         while !effectiveSettings.connectionDesired {
             let onDemandRevision = tunnelManager.reserveOnDemandUpdate()
             do {
-                try await tunnelManager.updateOnDemand(
-                    settings: effectiveSettings,
-                    revision: onDemandRevision
-                )
-                guard !effectiveSettings.connectionDesired else { return }
-                tunnelManager.disconnect()
-                return
-            } catch is CancellationError {
-                // A concurrent settings edit also captured connectionDesired=false. Retry
-                // its latest policy instead of restoring true and diverging from the rules
-                // that newer task is about to persist. An explicit Connect flips the bit and
-                // exits the loop without stopping its new generation.
-                continue
+                let config = try VPNConfig(parsing: profile.configText)
+                // While THIS profile's tunnel is up, dialing the public endpoint measures a
+                // looped-back path (or is carried by the tunnel it is probing) and reports a
+                // meaningless RTT. Probe the tunnel gateway instead, like Android does.
+                let viaTunnel = tunnelSnapshot.phase.isActive && profile.id == activeProfileID
+                let host = viaTunnel
+                    ? (tunnelSnapshot.tunnelGateway ?? config.serverAddress)
+                    : config.serverAddress
+                let milliseconds: Int
+                if config.isUDP {
+                    let profileText: String
+                    if viaTunnel {
+                        // Keep identity/SNI/REALITY credentials unchanged and replace only
+                        // the validated network endpoint used by the handle-free UDP probe.
+                        var probeConfig = config
+                        probeConfig.serverAddress = host
+                        profileText = try probeConfig.toTransportCoreINI()
+                    } else {
+                        profileText = profile.configText
+                    }
+                    milliseconds = try await Task.detached(priority: .utility) {
+                        Int(try QeliNativeCore.udpProbe(
+                            config: profileText,
+                            timeoutMilliseconds: 2_000
+                        ))
+                    }.value
+                } else {
+                    milliseconds = try await ReachabilityProbe.tcp(
+                        host: host,
+                        port: config.port,
+                        timeout: 4
+                    )
+                }
+                reachability[profile.id] = .reachable(milliseconds: milliseconds)
             } catch {
                 // The system preference still contains the previous rules, so keep our persisted
                 // intent consistent and leave the live tunnel up instead of pretending it stopped.
@@ -515,14 +536,6 @@ final class AppModel: ObservableObject {
             return NSLocalizedString(key, comment: "")
         }
         return NSLocalizedString(key, bundle: bundle, comment: "")
-    }
-
-    /// The tunnel gateway is `.1` of the assigned client address (10.9.2.2 → 10.9.2.1),
-    /// same derivation as the Android client. Nil for anything that isn't dotted IPv4.
-    static func gateway(forClientAddress address: String) -> String? {
-        let octets = address.split(separator: ".")
-        guard octets.count == 4 else { return nil }
-        return "\(octets[0]).\(octets[1]).\(octets[2]).1"
     }
 
     func present(_ error: Error, title: String) {

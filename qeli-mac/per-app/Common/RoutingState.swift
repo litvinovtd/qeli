@@ -21,6 +21,9 @@ struct RoutingState: Codable, Equatable {
     var carrierAddress: String
     var carrierPort: Int
     var carrierProtocol: String
+    var tunnelIpv4: Bool
+    var tunnelIpv6: Bool
+    var allowIpv4Leak: Bool
     var allowIpv6Leak: Bool
     var fullTunnel: Bool
     var routeLocalNetworks: Bool
@@ -73,8 +76,10 @@ struct RoutingState: Codable, Equatable {
             .contains(where: { $0.contains(address) })
         if address.isIPv6 {
             if address.isIPv6LoopbackOrLinkLocal { return .bypass }
-            if explicitlyTunneled { return .drop }
-            if !fullTunnel { return .bypass }
+            let explicit = (includeRoutes + pushedRoutes).compactMap(CIDR.init)
+                .contains(where: { $0.contains(address) })
+            if address.isIPv6Local && !routeLocalNetworks && !explicit { return .bypass }
+            if tunnelIpv6 { return .tunnel }
             return allowIpv6Leak ? .bypass : .drop
         }
         if address.isIPv4LoopbackOrLinkLocal { return .bypass }
@@ -82,7 +87,8 @@ struct RoutingState: Codable, Equatable {
         if address.isRFC1918 {
             return routeLocalNetworks ? .tunnel : .bypass
         }
-        return fullTunnel ? .tunnel : .bypass
+        if tunnelIpv4 { return .tunnel }
+        return allowIpv4Leak ? .bypass : .drop
     }
 }
 
@@ -182,6 +188,9 @@ private struct IPAddress {
         guard isIPv6 else { return false }
         return (bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1)
             || (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80)
+    }
+    var isIPv6Local: Bool {
+        isIPv6 && ((bytes[0] & 0xfe) == 0xfc || bytes[0] == 0xff)
     }
 }
 

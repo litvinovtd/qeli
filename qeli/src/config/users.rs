@@ -42,7 +42,12 @@ pub struct UserEntry {
     /// (`skip_serializing`); persisted only in the users file via the INI codec.
     #[serde(default, skip_serializing)]
     pub password_enc: Option<String>,
+    /// Fixed address from the profile's legacy IPv4 pool.
     pub static_ip: Option<String>,
+    /// Fixed address from the profile's IPv6 pool. Kept separate so old IPv4-only clients and
+    /// profiles retain their exact allocation behavior.
+    #[serde(default)]
+    pub static_ipv6: Option<String>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     #[serde(default)]
@@ -200,8 +205,8 @@ impl UsersDb {
                 bad.join("\n  ")
             );
         }
-        reject_unread_keys(&doc, source.as_ref())?;
-        db.validate_access_controls()?;
+        reject_unread_keys(&doc, path.as_ref())?;
+        db.validate_network_fields()?;
         Ok(db)
     }
 
@@ -227,7 +232,7 @@ impl UsersDb {
     /// `std::fs::write` мог оставить усечённый/битый файл и заблокировать вход
     /// всем. `write_atomic` сохраняет права исходного файла (0600 не расширяется).
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
-        self.validate_access_controls()?;
+        self.validate_network_fields()?;
         crate::util::write_atomic_private(path, self.to_ini_string().as_bytes())
     }
 
@@ -301,6 +306,7 @@ impl UsersDb {
                 // this file, so saving would drop the line and take the operator's last clue
                 // with it.
                 reject_unread_keys(&doc, path)?;
+                db.validate_network_fields()?;
                 db
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => UsersDb::default(),
@@ -314,9 +320,112 @@ impl UsersDb {
         };
         db.validate_access_controls()?;
         let out = change(&mut db);
-        db.validate_access_controls()?;
+        db.validate_network_fields()?;
         db.save(path)?;
         Ok((db, out))
+    }
+
+    /// Validate the network policy stored in the user database. These values control source
+    /// authorization and routing, so silently ignoring a malformed family or prefix would be
+    /// fail-open.
+    pub fn validate_network_fields(&self) -> anyhow::Result<()> {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+        fn network_family(value: &str) -> Option<bool> {
+            let address = value
+                .split_once('/')
+                .map_or(value, |(address, _)| address)
+                .trim()
+                .parse::<IpAddr>()
+                .ok()?;
+            Some(address.is_ipv6())
+        }
+
+        fn validate_network_list(
+            username: &str,
+            field: &str,
+            values: &[String],
+        ) -> anyhow::Result<()> {
+            for raw in values {
+                let value = raw.trim();
+                if value.is_empty() {
+                    continue;
+                }
+                if !crate::util::is_valid_cidr(value) && value.parse::<IpAddr>().is_err() {
+                    anyhow::bail!(
+                        "user '{}': {} entry '{}' is not a valid IPv4/IPv6 CIDR or address",
+                        username,
+                        field,
+                        value
+                    );
+                }
+            }
+            Ok(())
+        }
+
+        for user in &self.users {
+            if let Some(raw) = user.static_ip.as_deref() {
+                let value = raw.trim();
+                value.parse::<Ipv4Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "user '{}': static_ip '{}' is not a bare IPv4 address: {}",
+                        user.username,
+                        value,
+                        error
+                    )
+                })?;
+            }
+            if let Some(raw) = user.static_ipv6.as_deref() {
+                let value = raw.trim();
+                let address = value.parse::<Ipv6Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "user '{}': static_ipv6 '{}' is not a bare IPv6 address: {}",
+                        user.username,
+                        value,
+                        error
+                    )
+                })?;
+                crate::config::server::validate_tunnel_ipv6_address("static_ipv6", address)
+                    .map_err(|error| anyhow::anyhow!("user '{}': {}", user.username, error))?;
+            }
+
+            validate_network_list(&user.username, "allowed_networks", &user.allowed_networks)?;
+            validate_network_list(&user.username, "client_subnet", &user.client_subnets)?;
+            for route in &user.routes {
+                if !crate::util::is_valid_cidr(&route.cidr) {
+                    anyhow::bail!(
+                        "user '{}': route CIDR '{}' is invalid",
+                        user.username,
+                        route.cidr
+                    );
+                }
+                if let Some(gateway) = route.gateway.as_deref() {
+                    let gateway = gateway.trim();
+                    let gateway_ip = gateway.parse::<IpAddr>().map_err(|error| {
+                        anyhow::anyhow!(
+                            "user '{}': route gateway '{}' is not a bare IP address: {}",
+                            user.username,
+                            gateway,
+                            error
+                        )
+                    })?;
+                    if network_family(&route.cidr) != Some(gateway_ip.is_ipv6()) {
+                        anyhow::bail!(
+                            "user '{}': route '{}' and gateway '{}' use different address families",
+                            user.username,
+                            route.cidr,
+                            gateway
+                        );
+                    }
+                }
+            }
+        }
+        for (group, template) in &self.groups {
+            if let Some(networks) = &template.allowed_networks {
+                validate_network_list(&format!("group:{group}"), "allowed_networks", networks)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -378,6 +487,52 @@ impl UserEntry {
 #[cfg(test)]
 mod load_tests {
     use super::*;
+
+    #[test]
+    fn ipv4_and_ipv6_user_network_policy_validates_together() {
+        let mut user = UserEntry {
+            username: "alice".into(),
+            static_ip: Some("10.9.0.50".into()),
+            static_ipv6: Some("fd71:e1:1234:1::50".into()),
+            allowed_networks: vec!["10.0.0.0/8".into(), "2001:db8:100::/48".into()],
+            client_subnets: vec!["192.168.50.0/24".into(), "2001:db8:200::/56".into()],
+            ..Default::default()
+        };
+        user.routes.push(UserRoute {
+            cidr: "2001:db8:300::/48".into(),
+            gateway: Some("fd71:e1:1234:1::1".into()),
+            metric: Some(10),
+        });
+        let db = UsersDb {
+            users: vec![user.clone()],
+            groups: HashMap::new(),
+        };
+        db.validate_network_fields().unwrap();
+
+        user.routes[0].gateway = Some("10.9.0.1".into());
+        let error = UsersDb {
+            users: vec![user],
+            groups: HashMap::new(),
+        }
+        .validate_network_fields()
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("different address families"), "{error}");
+    }
+
+    #[test]
+    fn invalid_static_ipv6_is_rejected_before_it_can_be_saved() {
+        let db = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ipv6: Some("fe80::1".into()),
+                ..Default::default()
+            }],
+            groups: HashMap::new(),
+        };
+        let error = db.validate_network_fields().unwrap_err().to_string();
+        assert!(error.contains("link-local"), "{error}");
+    }
 
     /// A MISSPELLED key must refuse the load too — the more dangerous half of the same bug.
     ///

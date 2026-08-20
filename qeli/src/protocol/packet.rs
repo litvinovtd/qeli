@@ -284,6 +284,29 @@ impl PacketCodec {
         Ok(header_len + NONCE_SIZE + plaintext_len + TAG_SIZE)
     }
 
+    /// Largest padding region that keeps the complete encrypted record within
+    /// `max_record_len`. UDP callers use this after subtracting outer QUIC/obfs and IP/UDP
+    /// overhead, so heartbeat and cover records obey the same no-fragmentation budget as
+    /// ordinary DATA records.
+    pub(crate) fn max_padding_for_record_budget(
+        &self,
+        data_len: usize,
+        max_record_len: usize,
+    ) -> Result<usize, PacketError> {
+        let base_len = self.encrypted_record_len(data_len, 0)?;
+        if base_len > max_record_len {
+            return Err(PacketError::PacketTooLarge);
+        }
+        let (_, _, header_len) = self.record_sizes(data_len, 0)?;
+        let format_ceiling = header_len
+            .checked_add(MAX_RECORD_SIZE)
+            .ok_or(PacketError::PacketTooLarge)?;
+        Ok(max_record_len
+            .min(format_ceiling)
+            .saturating_sub(base_len)
+            .min(u16::MAX as usize))
+    }
+
     pub fn new(key: [u8; 32]) -> Self {
         let mut nonce_seed = [0u8; 4];
         rand::rng().fill_bytes(&mut nonce_seed);
@@ -847,6 +870,40 @@ mod tests {
         let big = vec![0u8; MAX_RECORD_SIZE + 1];
         assert!(matches!(
             PacketCodec::new(key).encrypt_packet(&big, &[]),
+            Err(PacketError::PacketTooLarge)
+        ));
+    }
+
+    #[test]
+    fn padding_budget_matches_exact_tls_and_raw_record_lengths() {
+        for mut codec in [
+            PacketCodec::new([0x21; 32]),
+            PacketCodec::new_raw([0x22; 32]),
+        ] {
+            for budget in [512usize, 1232, TLS_RECORD_HEADER + MAX_RECORD_SIZE] {
+                let cap = codec.max_padding_for_record_budget(0, budget).unwrap();
+                let format_ceiling = match codec.framing {
+                    Framing::Tls => TLS_RECORD_HEADER + MAX_RECORD_SIZE,
+                    Framing::Raw => RAW_RECORD_HEADER + MAX_RECORD_SIZE,
+                };
+                let mut record = Vec::new();
+                codec
+                    .encrypt_packet_into(&[], &vec![0xA5; cap], &mut record)
+                    .unwrap();
+                assert!(record.len() <= budget);
+                if cap < u16::MAX as usize {
+                    assert_eq!(
+                        record.len(),
+                        budget.min(format_ceiling),
+                        "the computed cap must use all available wire budget"
+                    );
+                }
+            }
+        }
+
+        let codec = PacketCodec::new([0x23; 32]);
+        assert!(matches!(
+            codec.max_padding_for_record_budget(0, 1),
             Err(PacketError::PacketTooLarge)
         ));
     }

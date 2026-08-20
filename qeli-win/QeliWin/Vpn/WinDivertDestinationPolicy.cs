@@ -31,6 +31,8 @@ internal sealed class WinDivertDestinationPolicy
             AddTunnel("10.0.0.0/8");
             AddTunnel("172.16.0.0/12");
             AddTunnel("192.168.0.0/16");
+            AddTunnel("fc00::/7");
+            AddTunnel("ff00::/8");
         }
         if (includeRoutes != null)
             foreach (var c in includeRoutes) AddTunnel(c);
@@ -49,9 +51,9 @@ internal sealed class WinDivertDestinationPolicy
         if (dst.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (IsIpv6LinkLocalOrLoopback(dst)) return true;
-            // An explicit IPv6 include remains captured (and is dropped by the IPv4-only
-            // per-app data plane); otherwise split tunnel must leave native IPv6 direct.
-            return !Matches(_tunnelRoutes, dst) && !_fullTunnel;
+            if (IsIpv6UlaOrMulticast(dst))
+                return !Matches(_tunnelPrivate, dst);
+            return false;
         }
 
         if (IsIpv4LoopbackOrLinkLocal(dst)) return true;
@@ -89,9 +91,18 @@ internal sealed class WinDivertDestinationPolicy
         return b[0] == 0xfe && (b[1] & 0xc0) == 0x80;
     }
 
+    public static bool IsIpv6UlaOrMulticast(IPAddress ip)
+    {
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6) return false;
+        var b = ip.GetAddressBytes();
+        // fc00::/7 (ULA) or ff00::/8 (multicast).
+        return (b[0] & 0xfe) == 0xfc || b[0] == 0xff;
+    }
+
     private void AddTunnel(string cidr)
     {
-        if (TryParseCidr(cidr, out var c)) _tunnelRoutes.Add(c);
+        if (TryParseCidr(cidr, out var c))
+            _tunnelPrivate.Add(c);
     }
 
     private void AddExclude(string cidr)

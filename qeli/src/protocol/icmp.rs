@@ -12,9 +12,9 @@
 //! next-hop MTU (RFC 1191), which is how path-MTU discovery is *supposed* to converge.
 //! That is what this builds, so the server behaves like the router it is.
 //!
-//! Scope: IPv4 only, because the server's forwarder is IPv4 only — it discards anything
-//! whose version nibble is not 4 before this point. When IPv6 forwarding lands, this needs
-//! an ICMPv6 Packet Too Big (type 2) sibling.
+//! IPv4 uses Fragmentation Needed when DF is set and may otherwise be fragmented by the
+//! forwarder. IPv6 routers never fragment: the sibling below emits ICMPv6 Packet Too Big and
+//! lets the origin retry at the advertised MTU.
 
 /// ICMP Destination Unreachable.
 const ICMP_DEST_UNREACH: u8 = 3;
@@ -323,10 +323,168 @@ pub fn frag_needed(
     Some(out)
 }
 
+/// Build an ICMPv6 Packet Too Big response (RFC 4443 section 3.2).
+///
+/// The result is a complete IPv6 packet ready for the server TUN. The quoted offender is
+/// capped so the error itself fits the IPv6 minimum MTU (1280 bytes). ICMPv6 errors never
+/// trigger another ICMPv6 error.
+pub fn packet_too_big_v6(
+    offender: &[u8],
+    router_ip: std::net::Ipv6Addr,
+    next_hop_mtu: u32,
+) -> Option<Vec<u8>> {
+    const IPV6_HEADER: usize = 40;
+    const ICMPV6_HEADER: usize = 8;
+    const IPPROTO_ICMPV6: u8 = 58;
+    const ICMPV6_PACKET_TOO_BIG: u8 = 2;
+    const IPV6_MIN_MTU: usize = 1280;
+
+    // Be defensive even though the server forwarder already applies this floor before it
+    // compares packet length.  No caller of this public helper may emit an invalid sub-1280
+    // ICMPv6 next-hop MTU if it is ever reused elsewhere.
+    let next_hop_mtu = next_hop_mtu.max(IPV6_MIN_MTU as u32);
+
+    if router_ip.is_unspecified() || router_ip.is_multicast() {
+        return None;
+    }
+    let meta = crate::protocol::ip::parse_ip_packet(offender).ok()?;
+    if meta.version != crate::protocol::ip::IpVersion::V6 {
+        return None;
+    }
+    let std::net::IpAddr::V6(destination) = meta.source else {
+        return None;
+    };
+    if destination.is_unspecified() || destination.is_multicast() {
+        return None;
+    }
+    if meta.protocol == IPPROTO_ICMPV6 {
+        let icmp_type = *offender.get(meta.l4_offset?)?;
+        if icmp_type < 128 {
+            return None;
+        }
+    }
+
+    let quote_len = offender
+        .len()
+        .min(IPV6_MIN_MTU - IPV6_HEADER - ICMPV6_HEADER);
+    let payload_len = ICMPV6_HEADER + quote_len;
+    let mut out = vec![0u8; IPV6_HEADER + payload_len];
+    out[0] = 0x60;
+    out[4..6].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    out[6] = IPPROTO_ICMPV6;
+    out[7] = 64;
+    out[8..24].copy_from_slice(&router_ip.octets());
+    out[24..40].copy_from_slice(&destination.octets());
+
+    let icmp = IPV6_HEADER;
+    out[icmp] = ICMPV6_PACKET_TOO_BIG;
+    out[icmp + 1] = 0;
+    out[icmp + 4..icmp + 8].copy_from_slice(&next_hop_mtu.to_be_bytes());
+    out[icmp + ICMPV6_HEADER..].copy_from_slice(&offender[..quote_len]);
+
+    let mut pseudo = Vec::with_capacity(40 + payload_len);
+    pseudo.extend_from_slice(&router_ip.octets());
+    pseudo.extend_from_slice(&destination.octets());
+    pseudo.extend_from_slice(&(payload_len as u32).to_be_bytes());
+    pseudo.extend_from_slice(&[0, 0, 0, IPPROTO_ICMPV6]);
+    pseudo.extend_from_slice(&out[icmp..]);
+    let icmp_checksum = checksum(&pseudo);
+    out[icmp + 2..icmp + 4].copy_from_slice(&icmp_checksum.to_be_bytes());
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    fn tcp_packet_v6(payload: usize, next_header: u8) -> Vec<u8> {
+        let mut packet = vec![0u8; 40 + payload];
+        packet[0] = 0x60;
+        packet[4..6].copy_from_slice(&(payload as u16).to_be_bytes());
+        packet[6] = next_header;
+        packet[7] = 64;
+        packet[8..24].copy_from_slice(&"2001:db8::9".parse::<Ipv6Addr>().unwrap().octets());
+        packet[24..40].copy_from_slice(&"2001:db8::2".parse::<Ipv6Addr>().unwrap().octets());
+        packet
+    }
+
+    fn icmpv6_checksum_valid(packet: &[u8]) -> bool {
+        let payload_len = u16::from_be_bytes([packet[4], packet[5]]) as usize;
+        let mut pseudo = Vec::with_capacity(40 + payload_len);
+        pseudo.extend_from_slice(&packet[8..24]);
+        pseudo.extend_from_slice(&packet[24..40]);
+        pseudo.extend_from_slice(&(payload_len as u32).to_be_bytes());
+        pseudo.extend_from_slice(&[0, 0, 0, 58]);
+        pseudo.extend_from_slice(&packet[40..40 + payload_len]);
+        checksum(&pseudo) == 0
+    }
+
+    #[test]
+    fn packet_too_big_v6_is_well_formed_and_bounded() {
+        let offender = tcp_packet_v6(2_000, 6);
+        let router: Ipv6Addr = "fd42:7165:6c69::1".parse().unwrap();
+        let reply = packet_too_big_v6(&offender, router, 1280).expect("builds");
+
+        assert_eq!(
+            reply.len(),
+            1280,
+            "ICMPv6 error must fit the minimum IPv6 MTU"
+        );
+        assert_eq!(reply[0] >> 4, 6);
+        assert_eq!(reply[6], 58);
+        assert_eq!(reply[7], 64);
+        assert_eq!(&reply[8..24], &router.octets());
+        assert_eq!(&reply[24..40], &offender[8..24]);
+        assert_eq!(reply[40], 2, "Packet Too Big type");
+        assert_eq!(reply[41], 0);
+        assert_eq!(u32::from_be_bytes(reply[44..48].try_into().unwrap()), 1280);
+        assert_eq!(&reply[48..], &offender[..1232]);
+        assert_eq!(
+            u16::from_be_bytes([reply[4], reply[5]]) as usize,
+            reply.len() - 40
+        );
+        assert!(icmpv6_checksum_valid(&reply));
+    }
+
+    #[test]
+    fn packet_too_big_v6_answers_queries_but_not_icmpv6_errors() {
+        let router: Ipv6Addr = "fd42:7165:6c69::1".parse().unwrap();
+        let mut echo = tcp_packet_v6(64, 58);
+        echo[40] = 128;
+        assert!(packet_too_big_v6(&echo, router, 1280).is_some());
+
+        for error_type in [1u8, 2, 3, 4, 100, 127] {
+            let mut error = tcp_packet_v6(64, 58);
+            error[40] = error_type;
+            assert!(
+                packet_too_big_v6(&error, router, 1280).is_none(),
+                "must not answer ICMPv6 error type {error_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn packet_too_big_v6_refuses_invalid_endpoints_and_non_ipv6() {
+        let offender = tcp_packet_v6(64, 17);
+        let router: Ipv6Addr = "fd42:7165:6c69::1".parse().unwrap();
+        assert!(packet_too_big_v6(&offender, Ipv6Addr::UNSPECIFIED, 1280).is_none());
+        assert!(packet_too_big_v6(&offender, "ff02::1".parse().unwrap(), 1280).is_none());
+
+        let mut bad_source = offender.clone();
+        bad_source[8..24].fill(0);
+        assert!(packet_too_big_v6(&bad_source, router, 1280).is_none());
+        assert!(packet_too_big_v6(&tcp_packet(64, true), router, 1280).is_none());
+        assert!(packet_too_big_v6(&[0x60, 0, 0], router, 1280).is_none());
+    }
+
+    #[test]
+    fn packet_too_big_v6_never_advertises_a_subminimum_mtu() {
+        let offender = tcp_packet_v6(2_000, 6);
+        let router: Ipv6Addr = "fd42:7165:6c69::1".parse().unwrap();
+        let reply = packet_too_big_v6(&offender, router, 576).expect("builds");
+        assert_eq!(u32::from_be_bytes(reply[44..48].try_into().unwrap()), 1280);
+    }
 
     /// A TCP packet from 203.0.113.9 to 10.8.0.2, DF set, `payload` bytes past the header.
     fn tcp_packet(payload: usize, df: bool) -> Vec<u8> {

@@ -1,7 +1,11 @@
 package com.qeli
 
+import com.qeli.model.VpnConfig
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 import org.json.JSONObject
 
 /** Stable Android view of one shared-core control-plane event. */
@@ -38,6 +42,14 @@ internal data class TransportCoreNetworkDns(
     val port: Int,
 )
 
+internal data class TransportCoreNetworkAddress(
+    val family: String,
+    val address: String,
+    val prefixLength: Int,
+    val onLinkPrefixLength: Int,
+    val gateway: String?,
+)
+
 internal data class TransportCoreDataPlaneFacts(
     val paddingEnabled: Boolean = false,
     val paddingMin: Int = 0,
@@ -49,6 +61,8 @@ internal data class TransportCoreDataPlaneFacts(
 
 internal data class TransportCoreNetworkPlan(
     val generation: Long,
+    val familyMode: String,
+    val addresses: List<TransportCoreNetworkAddress>,
     val tunnelAddress: String,
     val prefixLength: Int,
     val mtu: Int,
@@ -58,6 +72,8 @@ internal data class TransportCoreNetworkPlan(
     val dnsServers: List<TransportCoreNetworkDns>,
     val fullTunnel: Boolean,
     val killSwitch: Boolean,
+    val allowIpv4Leak: Boolean,
+    val allowIpv6Leak: Boolean,
     val maxStreams: Int,
     val adaptive: Boolean,
     val dataPlane: TransportCoreDataPlaneFacts,
@@ -143,6 +159,60 @@ internal object TransportCoreEventCodec {
         val payload = JSONObject(event.payload.toString(Charsets.UTF_8))
         val generation = payload.getLong("generation")
         require(generation == event.planGeneration) { "network plan generation mismatch" }
+        val familyMode = payload.getString("family_mode")
+        require(familyMode in setOf("ipv4", "dual", "ipv6")) {
+            "invalid network plan family mode"
+        }
+        val addressJson = payload.getJSONArray("addresses")
+        require(addressJson.length() in 1..2) {
+            "network plan must contain one address per active family"
+        }
+        val addresses = ArrayList<TransportCoreNetworkAddress>(addressJson.length())
+        val addressFamilies = HashSet<String>()
+        for (index in 0 until addressJson.length()) {
+            val item = addressJson.getJSONObject(index)
+            val family = item.getString("family")
+            require(family == "ipv4" || family == "ipv6") {
+                "invalid network plan address family"
+            }
+            require(addressFamilies.add(family)) {
+                "network plan contains duplicate address family"
+            }
+            val address = item.getString("address")
+            val parsed = parseIpLiteral(address)
+            require((family == "ipv4" && parsed is Inet4Address) ||
+                (family == "ipv6" && parsed is Inet6Address)) {
+                "network plan address does not match its family"
+            }
+            require(parsed !is Inet6Address || isUsableTunnelIpv6(parsed)) {
+                "network plan contains an unusable IPv6 tunnel address"
+            }
+            val prefix = item.getInt("prefix_len")
+            val onLinkPrefix = item.getInt("on_link_prefix_len")
+            val maxPrefix = if (family == "ipv4") 32 else 128
+            require(prefix in 1..maxPrefix && onLinkPrefix in 1..prefix) {
+                "invalid network plan address prefix"
+            }
+            val gateway = if (item.isNull("gateway")) null else item.getString("gateway")
+            if (gateway != null) {
+                val parsedGateway = parseIpLiteral(gateway)
+                require((family == "ipv4" && parsedGateway is Inet4Address) ||
+                    (family == "ipv6" && parsedGateway is Inet6Address &&
+                        isUsableTunnelIpv6(parsedGateway))) {
+                    "network plan gateway does not match its family"
+                }
+            }
+            addresses += TransportCoreNetworkAddress(
+                family, address, prefix, onLinkPrefix, gateway,
+            )
+        }
+        require(
+            when (familyMode) {
+                "ipv4" -> addressFamilies == setOf("ipv4")
+                "ipv6" -> addressFamilies == setOf("ipv6")
+                else -> addressFamilies == setOf("ipv4", "ipv6")
+            }
+        ) { "network plan addresses do not match its family mode" }
         val tunnelAddress = payload.getString("tunnel_address")
         val prefixLength = payload.getInt("prefix_len")
         val mtu = payload.getInt("mtu")
@@ -150,11 +220,22 @@ internal object TransportCoreEventCodec {
         require(tunnelAddress.isNotBlank() && tunnelAddress.length <= 128) {
             "invalid network plan tunnel address"
         }
-        require(prefixLength in 0..128) { "invalid network plan prefix" }
-        require(mtu in 576..65535) { "invalid network plan MTU" }
-        require(tunnelGateway.isNotBlank() && tunnelGateway.length <= 128) {
-            "invalid network plan gateway"
+        val projectedAddress = addresses.singleOrNull { it.address == tunnelAddress }
+            ?: throw IllegalArgumentException(
+                "legacy network plan address is not present in typed addresses")
+        val parsedTunnelGateway = parseIpLiteral(tunnelGateway)
+        require(prefixLength == projectedAddress.onLinkPrefixLength &&
+            tunnelGateway == projectedAddress.gateway &&
+            ((projectedAddress.family == "ipv4" && parsedTunnelGateway is Inet4Address) ||
+                (projectedAddress.family == "ipv6" && parsedTunnelGateway is Inet6Address &&
+                    isUsableTunnelIpv6(parsedTunnelGateway)))) {
+            "legacy network plan projection does not match typed address"
         }
+        require(mtu in VpnConfig.MTU_MIN..VpnConfig.MTU_MAX) { "invalid network plan MTU" }
+        require("ipv6" !in addressFamilies || mtu >= 1280) {
+            "IPv6 network plan MTU is below 1280"
+        }
+        payload.optString("carrier_address").takeIf { it.isNotBlank() }?.let(::parseIpLiteral)
 
         val routeJson = payload.getJSONArray("routes")
         require(routeJson.length() <= 256) { "network plan contains too many routes" }
@@ -164,9 +245,13 @@ internal object TransportCoreEventCodec {
             val cidr = route.getString("cidr")
             val gateway = route.getString("gateway")
             val metric = route.getLong("metric")
-            require(cidr.isNotBlank() && cidr.length <= 128) { "invalid network plan route" }
-            require(gateway.isNotBlank() && gateway.length <= 128) {
-                "invalid network plan route gateway"
+            val (destination, _) = parseCidr(cidr)
+            val parsedGateway = parseIpLiteral(gateway)
+            require((destination is Inet4Address) == (parsedGateway is Inet4Address) &&
+                (parsedGateway !is Inet6Address || isUsableTunnelIpv6(parsedGateway)) &&
+                (destination is Inet4Address && "ipv4" in addressFamilies ||
+                    destination is Inet6Address && "ipv6" in addressFamilies)) {
+                "network plan route/gateway uses an invalid or inactive family"
             }
             require(metric in 0..0xffff_ffffL) { "invalid network plan route metric" }
             routes += TransportCoreNetworkRoute(cidr, gateway, metric)
@@ -180,9 +265,7 @@ internal object TransportCoreEventCodec {
         if (pushedRouteJson != null) {
             for (index in 0 until pushedRouteJson.length()) {
                 val cidr = pushedRouteJson.getString(index)
-                require(cidr.isNotBlank() && cidr.length <= 128) {
-                    "invalid network plan pushed route"
-                }
+                parseCidr(cidr)
                 pushedRoutes += cidr
             }
         }
@@ -194,8 +277,10 @@ internal object TransportCoreEventCodec {
             val dns = dnsJson.getJSONObject(index)
             val address = dns.getString("address")
             val port = dns.getInt("port")
-            require(address.isNotBlank() && address.length <= 128) {
-                "invalid network plan DNS address"
+            val parsedAddress = parseIpLiteral(address)
+            require(parsedAddress is Inet4Address && "ipv4" in addressFamilies ||
+                parsedAddress is Inet6Address && "ipv6" in addressFamilies) {
+                "network plan DNS uses an inactive family"
             }
             require(port in 1..65535) { "invalid network plan DNS port" }
             dnsServers += TransportCoreNetworkDns(address, port)
@@ -228,6 +313,8 @@ internal object TransportCoreEventCodec {
 
         return TransportCoreNetworkPlan(
             generation = generation,
+            familyMode = familyMode,
+            addresses = addresses,
             tunnelAddress = tunnelAddress,
             prefixLength = prefixLength,
             mtu = mtu,
@@ -237,10 +324,50 @@ internal object TransportCoreEventCodec {
             dnsServers = dnsServers,
             fullTunnel = payload.getBoolean("full_tunnel"),
             killSwitch = payload.getBoolean("kill_switch"),
+            allowIpv4Leak = payload.optBoolean("allow_ipv4_leak", false),
+            allowIpv6Leak = payload.optBoolean("allow_ipv6_leak", false),
             maxStreams = payload.optInt("max_streams", 1).coerceIn(1, 64),
             adaptive = payload.optBoolean("adaptive", false),
             dataPlane = dataPlane,
             connectionLog = connectionLog,
         )
     }
+
+    private fun parseIpLiteral(value: String): InetAddress {
+        require(value.isNotBlank() && value.length <= 128 && '%' !in value) {
+            "invalid IP literal"
+        }
+        val looksIpv4 = '.' in value && ':' !in value && value.all { it.isDigit() || it == '.' }
+        val looksIpv6 = ':' in value
+        require(looksIpv4 || looksIpv6) { "address is not an IP literal" }
+        if (looksIpv4) {
+            val octets = value.split('.')
+            require(octets.size == 4 && octets.all { octet ->
+                val parsed = octet.toIntOrNull()
+                parsed != null && parsed in 0..255 && parsed.toString() == octet
+            }) { "address is not a canonical IPv4 literal" }
+        }
+        val parsed = InetAddress.getByName(value)
+        require((looksIpv4 && parsed is Inet4Address) || (looksIpv6 && parsed is Inet6Address)) {
+            "address is not an IP literal"
+        }
+        return parsed
+    }
+
+    private fun parseCidr(value: String): Pair<InetAddress, Int> {
+        require(value.isNotBlank() && value.length <= 128) { "invalid IP CIDR" }
+        val separator = value.indexOf('/')
+        require(separator > 0 && separator == value.lastIndexOf('/') && separator < value.lastIndex) {
+            "invalid IP CIDR"
+        }
+        val address = parseIpLiteral(value.substring(0, separator))
+        val prefix = value.substring(separator + 1).toIntOrNull()
+            ?: throw IllegalArgumentException("invalid IP CIDR")
+        require(prefix in 0..if (address is Inet4Address) 32 else 128) { "invalid IP CIDR" }
+        return address to prefix
+    }
+
+    private fun isUsableTunnelIpv6(address: Inet6Address): Boolean =
+        !address.isAnyLocalAddress && !address.isLoopbackAddress &&
+            !address.isMulticastAddress && !address.isLinkLocalAddress
 }

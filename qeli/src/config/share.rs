@@ -64,36 +64,54 @@ pub struct ClientLink {
     pub label: Option<String>,
 }
 
-/// Parse an operator-supplied public endpoint and reject address families the current client
-/// data plane cannot use. Keeping this at the common link boundary prevents the installer,
-/// CLI and panel from successfully issuing a polished but unusable IPv6 configuration.
+/// Parse an operator-supplied public endpoint. IPv6 literals use the URI-compatible
+/// `[address]:port` form when a port is present; a bare literal inherits `default_port`.
 pub fn supported_public_endpoint(input: &str, default_port: u16) -> Result<(String, u16), String> {
     let value = input.trim();
     if value.is_empty() {
         return Err("public endpoint is empty".into());
     }
-    if value.starts_with('[')
-        || value.parse::<std::net::Ipv6Addr>().is_ok()
-        || value.matches(':').count() > 1
-    {
-        return Err(format!(
-            "IPv6 server endpoint '{value}' is not supported yet; use an IPv4 address or a hostname with an A record"
-        ));
-    }
-    let (host, port) = match value.rsplit_once(':') {
-        Some((host, port)) => {
-            if host.is_empty() || port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit())
-            {
-                return Err(format!(
-                    "invalid public endpoint '{value}' (expected host or host:port)"
-                ));
-            }
-            let port = port
+    let (host, port) = if let Some(bracketed) = value.strip_prefix('[') {
+        let (host, suffix) = bracketed.split_once(']').ok_or_else(|| {
+            format!("invalid public endpoint '{value}' (missing closing IPv6 bracket)")
+        })?;
+        host.parse::<std::net::Ipv6Addr>()
+            .map_err(|_| format!("invalid IPv6 public endpoint address in '{value}'"))?;
+        let port = if suffix.is_empty() {
+            default_port
+        } else {
+            suffix
+                .strip_prefix(':')
+                .filter(|port| !port.is_empty() && port.bytes().all(|byte| byte.is_ascii_digit()))
+                .ok_or_else(|| format!("invalid public endpoint '{value}' (expected [IPv6]:port)"))?
                 .parse::<u16>()
-                .map_err(|_| format!("invalid public endpoint port in '{value}'"))?;
-            (host.to_string(), port)
+                .map_err(|_| format!("invalid public endpoint port in '{value}'"))?
+        };
+        (host.to_string(), port)
+    } else if value.parse::<std::net::Ipv6Addr>().is_ok() {
+        (value.to_string(), default_port)
+    } else if value.matches(':').count() > 1 {
+        return Err(format!(
+            "invalid public endpoint '{value}' (IPv6 literals with a port must use [address]:port)"
+        ));
+    } else {
+        match value.rsplit_once(':') {
+            Some((host, port)) => {
+                if host.is_empty()
+                    || port.is_empty()
+                    || !port.bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return Err(format!(
+                        "invalid public endpoint '{value}' (expected host or host:port)"
+                    ));
+                }
+                let port = port
+                    .parse::<u16>()
+                    .map_err(|_| format!("invalid public endpoint port in '{value}'"))?;
+                (host.to_string(), port)
+            }
+            None => (value.to_string(), default_port),
         }
-        None => (value.to_string(), default_port),
     };
     if port == 0 {
         return Err("public endpoint port must be 1..65535".into());
@@ -288,11 +306,17 @@ impl ClientLink {
             let (h, p) = rest
                 .split_once("]:")
                 .ok_or(LinkError("malformed IPv6 [host]:port"))?;
+            h.parse::<std::net::Ipv6Addr>()
+                .map_err(|_| LinkError("invalid IPv6 address"))?;
             (h, p)
         } else {
-            hostport
+            let (h, p) = hostport
                 .rsplit_once(':')
-                .ok_or(LinkError("authority missing :port"))?
+                .ok_or(LinkError("authority missing :port"))?;
+            if h.contains(':') || h.contains('[') || h.contains(']') {
+                return Err(LinkError("IPv6 authority must be [address]:port"));
+            }
+            (h, p)
         };
         if host.is_empty() {
             return Err(LinkError("empty host"));
@@ -393,11 +417,25 @@ mod endpoint_tests {
             supported_public_endpoint("198.51.100.8:9443", 443).unwrap(),
             ("198.51.100.8".into(), 9443)
         );
+        assert_eq!(
+            supported_public_endpoint("2001:db8::1", 443).unwrap(),
+            ("2001:db8::1".into(), 443)
+        );
+        assert_eq!(
+            supported_public_endpoint("[2001:db8::1]:8443", 443).unwrap(),
+            ("2001:db8::1".into(), 8443)
+        );
     }
 
     #[test]
-    fn rejects_ipv6_and_invalid_ports_until_the_data_plane_supports_them() {
-        for endpoint in ["2001:db8::1", "[2001:db8::1]:443", "host:0", "host:nope"] {
+    fn rejects_malformed_endpoints_and_invalid_ports() {
+        for endpoint in [
+            "[2001:db8::1",
+            "[2001:db8::1]:nope",
+            "2001:db8::1:443:garbage",
+            "host:0",
+            "host:nope",
+        ] {
             assert!(
                 supported_public_endpoint(endpoint, 443).is_err(),
                 "{endpoint} must be refused"
@@ -584,6 +622,9 @@ mod tests {
         assert!(ClientLink::from_uri("qeli://hostonly").is_err());
         assert!(ClientLink::from_uri("qeli://h:notaport").is_err());
         assert!(ClientLink::from_uri("qeli://u:p@[2001:db8::1]").is_err()); // bracket, no port
+        assert!(ClientLink::from_uri("qeli://u:p@2001:db8::443").is_err()); // bare IPv6
+        assert!(ClientLink::from_uri("qeli://u:p@[2001:db8:::1]:443").is_err());
+        assert!(ClientLink::from_uri("qeli://u:p@[vpn.example.com]:443").is_err());
     }
 
     #[test]

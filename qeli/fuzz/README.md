@@ -26,7 +26,8 @@ artifact). See `.github/workflows/ci.yml`.
 | `packet_decrypt` | `PacketCodec::decrypt_packet` (TLS and raw framing) — data-plane record framing, length/nonce/tag slicing, padding length, replay accounting. |
 | `realtls_record` | `realtls::record::RecordCrypto::decrypt` — the hand-rolled TLS 1.3 record-layer framing (largest unaudited surface). |
 | `obfs_datagram` | Datagram obfuscation framing and length checks. |
-| `udp_frag` | UDP fragment header/reassembly parser. |
+| `udp_frag` | UDP handshake-fragment header/reassembly parser. |
+| `data_frag` | Authenticated UDP data-record fragments: malformed input, reorder, duplicates, conflicts and bounded reassembly. |
 | `quic` | QUIC-like header and packet-number parsing. |
 
 ## Running

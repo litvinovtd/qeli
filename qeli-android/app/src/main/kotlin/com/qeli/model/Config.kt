@@ -43,6 +43,8 @@ data class VpnConfig(
     // from `gateway`, and the UI writes it — so `validate` is where a bad value is caught.
     val routingMode: String = "full-tunnel",   // "full-tunnel" | "split-tunnel"
     val addDefaultGateway: Boolean = true,
+    // Inner IPv6 acceptance policy negotiated with the server.
+    val ipv6: String = "auto",                 // "auto" | "required" | "off"
     // Android implements the shared kill-switch contract by requiring the OS-owned
     // Always-on VPN lockdown before a full-tunnel connection may start. The app cannot
     // flip that system policy itself, but it can verify it from the running VpnService and
@@ -55,10 +57,12 @@ data class VpnConfig(
     // so LAN resources behind the server work through the tunnel. When false
     // (default), local networks are not tunnelled and pushed networks are ignored.
     val routeLocalNetworks: Boolean = false,
-    // Full-tunnel captures IPv6 into the (IPv4-only) tunnel to close the classic dual-stack
+    // Full-tunnel blocks IPv6 only when the negotiated plan is IPv4-only, closing the dual-stack
     // leak; set true to OPT OUT and keep native IPv6 (it bypasses the tunnel). Default off;
     // mirrors the Rust/desktop `allow_ipv6_leak`.
     val allowIpv6Leak: Boolean = false,
+    // Symmetric escape hatch for an IPv6-only full tunnel. Secure default blocks IPv4.
+    val allowIpv4Leak: Boolean = false,
     // Allow direct access to the local/LAN network while on a full tunnel: carve the
     // RFC1918 private ranges OUT of the tunnel so Wi-Fi/LAN devices (printers, NAS,
     // Chromecast, the router UI) stay reachable without disconnecting the VPN. Off by
@@ -279,6 +283,9 @@ data class VpnConfig(
         require(dnsMode in setOf("off", "tunnel", "system")) {
             "dns mode must be off, tunnel or system — got '$dnsMode'"
         }
+        require(ipv6 in setOf("auto", "required", "off")) {
+            "ipv6 policy must be auto, required or off — got '$ipv6'"
+        }
 
         // Credentials must leave the AUTH message inside one datagram on UDP.
         //
@@ -342,6 +349,12 @@ data class VpnConfig(
         for ((k, v) in carriedKeys) scalar(k, v)
 
         require(serverAddress.isNotEmpty()) { "'server' has empty host" }
+        require('[' !in serverAddress && ']' !in serverAddress) {
+            "'server' stores a bare host; brackets belong only around an IPv6 endpoint in INI"
+        }
+        require(':' !in serverAddress || isIpLiteral(serverAddress)) {
+            "'server' contains an invalid IPv6 address '$serverAddress'"
+        }
         require(port in 1..65535) { "'server' port out of range: $port" }
         require(protocol == "tcp" || protocol == "udp") { "'proto' must be tcp or udp, got '$protocol'" }
         require(connectionTimeoutSecs in 1..300) { "'timeout' must be 1..300, got $connectionTimeoutSecs" }
@@ -406,6 +419,9 @@ data class VpnConfig(
         // 0 = auto. Matches the Rust client, which rejects anything outside MTU_MIN..MTU_MAX.
         // Same predicate the import paths use, so emit and import can never disagree. (C6)
         require(mtuInRange(mtu)) { "'mtu' must be 0 (auto) or $MTU_MIN..$MTU_MAX, got $mtu" }
+        require(ipv6 != "required" || mtu == 0 || mtu >= 1280) {
+            "'ipv6 = required' needs an explicit 'mtu' of at least 1280 (or 0 for auto), got $mtu"
+        }
         require(paddingMin >= 0 && paddingMax >= paddingMin && paddingMax <= PADDING_CEILING) {
             "padding range invalid: $paddingMin..$paddingMax (expected 0..$PADDING_CEILING)"
         }
@@ -471,7 +487,7 @@ data class VpnConfig(
         // A label carrying a newline would forge INI lines just like a scalar would.
         if (!label.isNullOrBlank()) append("# ").append(label.replace(Regex("[\\r\\n\\u0000]"), " ")).append('\n')
         append("[qeli]\n")
-        append("server = ").append(serverAddress).append(':').append(port).append('\n')
+        append("server = ").append(formatEndpoint(serverAddress, port)).append('\n')
         append("proto = ").append(protocol).append('\n')
         append("user = ").append(username).append('\n')
         append("pass = ").append(password).append('\n')
@@ -496,9 +512,11 @@ data class VpnConfig(
         // explicit split-tunnel so the choice survives a save round-trip (the editor
         // re-serializes to INI). Mirrors the Rust client's `gateway` key.
         append("gateway = ").append(isFullTunnel).append('\n')
+        if (ipv6 != "auto") append("ipv6 = ").append(ipv6).append('\n')
         if (killSwitch) append("kill_switch = true\n")
         if (routeLocalNetworks) append("route_local = true\n")
         if (allowIpv6Leak) append("allow_ipv6_leak = true\n")
+        if (allowIpv4Leak) append("allow_ipv4_leak = true\n")
         if (allowLan) append("allow_lan = true\n")  // LAN bypass (exclude RFC1918 from tunnel)
         if (includeRoutes.isNotEmpty()) append("include = ").append(includeRoutes.joinToString(", ")).append('\n')
         if (excludeRoutes.isNotEmpty()) append("exclude = ").append(excludeRoutes.joinToString(", ")).append('\n')
@@ -568,7 +586,7 @@ data class VpnConfig(
     fun toTransportProbeIni(): String = buildString {
         validate()
         append("[qeli]\n")
-        append("server = ").append(serverAddress).append(':').append(port).append('\n')
+        append("server = ").append(formatEndpoint(serverAddress, port)).append('\n')
         append("proto = ").append(protocol).append('\n')
         append("mode = ").append(wireMode).append('\n')
         if (!sni.isNullOrBlank()) append("sni = ").append(sni).append('\n')
@@ -701,12 +719,7 @@ data class VpnConfig(
             val log = ini["logging"]
             val server = q["server"]?.takeIf { it.isNotBlank() }
                 ?: throw IllegalArgumentException("[qeli] missing required key 'server' (host:port)")
-            val ci = server.lastIndexOf(':')
-            require(ci > 0) { "'server' must be host:port, got '$server'" }
-            val host = server.substring(0, ci)
-            require(host.isNotEmpty()) { "'server' has empty host" }
-            val port = server.substring(ci + 1).toIntOrNull()
-                ?: throw IllegalArgumentException("'server' has invalid port: '$server'")
+            val (host, port) = parseEndpoint(server)
             // Accepts the same spellings as the Rust client's `bool_or`. An unrecognised value
             // is RECORDED (see `unparsedBooleanKeys`) and falls back to the caller's default,
             // rather than silently reading as `false`.
@@ -773,6 +786,7 @@ data class VpnConfig(
                 allowUnpinnedTofu = boolAt("allow_unpinned_tofu", false),
                 routingMode = if (fullTunnel) "full-tunnel" else "split-tunnel",
                 addDefaultGateway = fullTunnel,
+                ipv6 = q["ipv6"]?.trim()?.lowercase() ?: "auto",
                 killSwitch = boolAt("kill_switch", false),
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
                 sni = q["sni"]?.takeIf { it.isNotEmpty() },
@@ -787,6 +801,7 @@ data class VpnConfig(
                 quicEnabled = boolAt("quic", false),
                 routeLocalNetworks = boolAt("route_local", false),
                 allowIpv6Leak = boolAt("allow_ipv6_leak", false),
+                allowIpv4Leak = boolAt("allow_ipv4_leak", false),
                 allowLan = boolAt("allow_lan", false),
                 // Explicit per-CIDR routing (comma-separated). exclude carves subnets OUT of
                 // the tunnel (VpnService.excludeRoute, API 33+); include forces subnets IN.
@@ -939,6 +954,44 @@ data class VpnConfig(
             }
         }
 
+        /** Canonical host:port rendering shared by saved INI and native probe configs. */
+        private fun formatEndpoint(host: String, port: Int): String =
+            if (':' in host) "[$host]:$port" else "$host:$port"
+
+        /**
+         * Parse a hostname/IPv4 endpoint or an RFC 3986-style bracketed IPv6 endpoint.
+         * Bare IPv6 is rejected: splitting it at the last colon can silently reinterpret its
+         * final numeric group as the TCP/UDP port.
+         */
+        private fun parseEndpoint(endpoint: String): Pair<String, Int> {
+            val host: String
+            val portText: String
+            if (endpoint.startsWith('[')) {
+                val close = endpoint.indexOf(']')
+                require(close > 1 && close + 1 < endpoint.length && endpoint[close + 1] == ':') {
+                    "IPv6 endpoint must be [address]:port, got '$endpoint'"
+                }
+                host = endpoint.substring(1, close)
+                portText = endpoint.substring(close + 2)
+                require(':' in host && isIpLiteral(host)) {
+                    "'server' contains an invalid IPv6 address '$host'"
+                }
+            } else {
+                val colon = endpoint.lastIndexOf(':')
+                require(colon > 0) { "'server' must be host:port, got '$endpoint'" }
+                host = endpoint.substring(0, colon)
+                require(':' !in host && '[' !in host && ']' !in host) {
+                    "IPv6 endpoint must be bracketed as [address]:port, got '$endpoint'"
+                }
+                portText = endpoint.substring(colon + 1)
+            }
+            require(host.isNotEmpty()) { "'server' has empty host" }
+            val port = portText.toIntOrNull()
+                ?: throw IllegalArgumentException("'server' has invalid port: '$endpoint'")
+            require(port in 1..65535) { "'server' port out of range: $port" }
+            return host to port
+        }
+
         private fun isCidrLiteral(s: String): Boolean {
             val value = s.trim()
             if (value.isEmpty()) return false
@@ -962,11 +1015,12 @@ data class VpnConfig(
             // nothing. It is a modelled field now (see VpnConfig.allowUnpinnedTofu), so it
             // must NOT also be carried or toIni would emit it twice. (Audit 2026-08-04, M-20.)
             "autostart", "dev", "dev_attach", "dev_node", "exit_node", "forward",
-            "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
+            "gateway_nat", "keepalive", "lan_subnet", "lan_subnet_ipv6", "post_down", "post_up", "tcp_nodelay",
             "local", "lport", "metric", "name", "persist_tun", "route_file",
             // Password sources remain headless-only. Buffer values, when present, reach the
             // common carrier implementation even though Android has no editor control for them.
-            "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
+            "password_command", "password_file", "reality_compact", "reality_split",
+            "reality_split_delay", "recv_buffer_size", "send_buffer_size",
         )
 
         /**
@@ -983,11 +1037,11 @@ data class VpnConfig(
          */
         private val KNOWN_INI_KEYS = setOf(
             // Read by this port.
-            "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static",
+            "allow_ipv4_leak", "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static",
             "dns", "dns_servers", "exclude",
             "front", "gateway", "heartbeat", "heartbeat_interval", "kill_switch",
             "heartbeat_jitter", "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
-            "mode", "mtu", "mtu_probe",
+            "ipv6", "mode", "mtu", "mtu_probe",
             "obfs_key", "padding", "padding_max", "padding_min", "pass",
             "proto", "quic", "reality_sid", "reconnect", "reconnect_base_delay",
             "reconnect_max_delay", "reconnect_retries", "route_local", "server",
@@ -1135,26 +1189,7 @@ data class VpnConfig(
             val atIdx = authority.lastIndexOf('@')
             val userinfo = if (atIdx >= 0) authority.substring(0, atIdx) else null
             val hostPort = if (atIdx >= 0) authority.substring(atIdx + 1) else authority
-            val host: String
-            val port: Int
-            if (hostPort.startsWith('[')) {
-                // Bracketed IPv6 literal: [2001:db8::1]:443 — split on ']:' so the
-                // colons inside the address aren't mistaken for the port separator.
-                val rb = hostPort.indexOf(']')
-                require(rb > 0 && rb + 1 < hostPort.length && hostPort[rb + 1] == ':') {
-                    "qeli:// authority malformed IPv6 [host]:port"
-                }
-                host = hostPort.substring(1, rb)
-                port = hostPort.substring(rb + 2).toIntOrNull()
-                    ?: throw IllegalArgumentException("invalid port in qeli:// link")
-            } else {
-                val colonIdx = hostPort.lastIndexOf(':')
-                require(colonIdx > 0) { "qeli:// authority missing :port" }
-                host = hostPort.substring(0, colonIdx)
-                port = hostPort.substring(colonIdx + 1).toIntOrNull()
-                    ?: throw IllegalArgumentException("invalid port in qeli:// link")
-            }
-            require(host.isNotEmpty()) { "empty host in qeli:// link" }
+            val (host, port) = parseEndpoint(hostPort)
             // `toIntOrNull` accepts ANY Int — 0, 99999 and negatives all parsed fine and
             // produced a profile that only failed later with an opaque socket error. Swift
             // and C# already range-checked here; Kotlin and Rust did not. Divergence found

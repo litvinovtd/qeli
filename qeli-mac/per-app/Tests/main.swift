@@ -24,15 +24,17 @@ private func isDrop(_ decision: DestinationDecision) -> Bool {
 }
 
 func makeState(mode: String = "include", apps: [String] = ["com.apple.Safari"],
-               routeLocal: Bool = false, allowIPv6: Bool = false, fullTunnel: Bool = true,
+               routeLocal: Bool = false, tunnelIPv4: Bool = true, tunnelIPv6: Bool = true,
+               allowIPv4: Bool = false, allowIPv6: Bool = false,
                include: [String] = [], exclude: [String] = [], pushed: [String] = [])
     -> RoutingState {
     RoutingState(version: 2, tunnelUp: true,
                  leaseExpiresAtUnixMs: Int64(Date().timeIntervalSince1970 * 1000) + 10_000,
                  interfaceName: "utun7", mode: mode,
                  apps: apps, dnsServers: ["10.8.0.1"], carrierAddress: "203.0.113.7",
-                 carrierPort: 443, carrierProtocol: "tcp", allowIpv6Leak: allowIPv6,
-                 fullTunnel: fullTunnel,
+                 carrierPort: 443, carrierProtocol: "tcp",
+                 tunnelIpv4: tunnelIPv4, tunnelIpv6: tunnelIPv6,
+                 allowIpv4Leak: allowIPv4, allowIpv6Leak: allowIPv6,
                  routeLocalNetworks: routeLocal, includeRoutes: include,
                  excludeRoutes: exclude, pushedRoutes: pushed,
                  alwaysBypassApps: ["ru.qeli.app", "ru.qeli.app.perapp"])
@@ -67,9 +69,19 @@ expect(isBypass(makeState(routeLocal: true, exclude: ["10.1.0.0/16"])
     .destinationDecision("10.1.2.3")), "exclude wins over route_local")
 expect(isBypass(include.destinationDecision("127.0.0.1")), "IPv4 loopback bypasses")
 expect(isBypass(include.destinationDecision("fe80::1")), "IPv6 link-local bypasses")
-expect(isDrop(include.destinationDecision("2001:4860:4860::8888")), "IPv6 fails closed by default")
-expect(isBypass(makeState(allowIPv6: true).destinationDecision("2001:4860:4860::8888")),
+expect(isTunnel(include.destinationDecision("2001:4860:4860::8888")), "public IPv6 tunnels")
+expect(isDrop(makeState(tunnelIPv6: false).destinationDecision("2001:4860:4860::8888")),
+       "inactive IPv6 fails closed by default")
+expect(isBypass(makeState(tunnelIPv6: false, allowIPv6: true)
+    .destinationDecision("2001:4860:4860::8888")),
        "allow_ipv6_leak bypasses public IPv6")
+expect(isDrop(makeState(tunnelIPv4: false).destinationDecision("1.1.1.1")),
+       "inactive IPv4 fails closed by default")
+expect(isBypass(makeState(tunnelIPv4: false, allowIPv4: true).destinationDecision("1.1.1.1")),
+       "allow_ipv4_leak bypasses public IPv4")
+expect(isBypass(makeState().destinationDecision("fd00::1")), "ULA bypasses by default")
+expect(isTunnel(makeState(include: ["fd00::/8"]).destinationDecision("fd00::1")),
+       "explicit IPv6 include tunnels ULA")
 expect(isBypass(makeState(exclude: ["2001:db8:1::/48"])
     .destinationDecision("2001:db8:1::42")), "explicit IPv6 exclude bypasses")
 let split = makeState(fullTunnel: false, include: ["198.51.100.0/24", "2001:db8:20::/48"])

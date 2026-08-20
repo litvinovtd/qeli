@@ -35,7 +35,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Custom entry point: routes the service arg to the Windows Service host, else WPF. -->
     <StartupObject>QeliWin.Program</StartupObject>
-    <Version>0.7.16</Version>
+    <Version>0.7.17</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -96,7 +96,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
-    <!-- Rust whole-client transport core (qeli.dll, ABI 1.10), cross-built for win-x64.
+    <!-- Rust whole-client transport core (qeli.dll, ABI 1.11), cross-built for win-x64.
          It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding and the Wintun
          session/rings; C# retains only interface lifecycle, routes/DNS/trust and UI. -->
     <EmbeddedResource Include="native\qeli.dll">

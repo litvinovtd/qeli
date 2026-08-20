@@ -216,7 +216,7 @@ async fn handle_control(
 async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> usize {
     let (kicked, iroutes) = {
         let mut sessions = profile.sessions.write().await;
-        let ips: Vec<std::net::Ipv4Addr> = sessions
+        let ips: Vec<std::net::IpAddr> = sessions
             .by_ip
             .iter()
             .filter(|(_, s)| s.username == username)
@@ -225,8 +225,7 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         let mut out = Vec::with_capacity(ips.len());
         let mut iroutes: Vec<String> = Vec::new();
         for ip in ips {
-            if let Some(s) = sessions.by_ip.remove(&ip) {
-                sessions.by_token.remove(&s.token);
+            if let Some(s) = sessions.remove(ip) {
                 iroutes.extend(sessions.take_client_routes(ip));
                 out.push(s);
             }

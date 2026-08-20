@@ -1,5 +1,6 @@
 use crate::config::client::ClientRoutingConfig;
-use crate::transport_core::NetworkRoute;
+use crate::transport_core::{NetworkAddressFamily, NetworkPlan, NetworkRoute};
+use std::net::IpAddr;
 
 /// Routes this process actually CREATED on the physical interface, so cleanup removes
 /// only those.
@@ -12,11 +13,464 @@ use crate::transport_core::NetworkRoute;
 /// said. Record on successful creation, delete only what is recorded.
 static CREATED_ROUTES: std::sync::Mutex<Vec<Vec<String>>> = std::sync::Mutex::new(Vec::new());
 
+// The two /1 routes capture the default IPv6 route without replacing ::/0, but they do not
+// beat physical aggregate routes commonly present on hosts (notably 2000::/3 and fc00::/7).
+// Install the same more-specific guards as the Windows and macOS adapters. Connected LAN
+// routes remain more specific by design; route_local/exclude policy decides their treatment.
+const IPV6_CAPTURE_PREFIXES: &[&str] =
+    &["::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7"];
+const FULL_TUNNEL_ROUTE_METRIC: u32 = 1;
+
+fn full_tunnel_prefixes(family: NetworkAddressFamily) -> &'static [&'static str] {
+    match family {
+        NetworkAddressFamily::Ipv4 => &["0.0.0.0/1", "128.0.0.0/1"],
+        NetworkAddressFamily::Ipv6 => IPV6_CAPTURE_PREFIXES,
+    }
+}
+
 fn note_created(args: &[&str]) {
     CREATED_ROUTES
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .push(args.iter().map(|s| s.to_string()).collect());
+}
+
+fn note_created_owned(args: Vec<String>) {
+    if let Ok(mut journal) = CREATED_ROUTES.lock() {
+        journal.push(args);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PhysicalPath {
+    gateway: Option<String>,
+    device: String,
+}
+
+fn family_flag(ipv6: bool) -> Option<&'static str> {
+    ipv6.then_some("-6")
+}
+
+fn physical_path_for(
+    destination: IpAddr,
+    tunnel_if: &str,
+    source: Option<IpAddr>,
+) -> Option<PhysicalPath> {
+    let mut command = std::process::Command::new("ip");
+    if let Some(flag) = family_flag(destination.is_ipv6()) {
+        command.arg(flag);
+    }
+    command.args(["route", "get", &destination.to_string()]);
+    if let Some(source) = source {
+        if source.is_ipv4() != destination.is_ipv4() {
+            return None;
+        }
+        command.args(["from", &source.to_string()]);
+    }
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let fields: Vec<&str> = text.split_whitespace().collect();
+    let gateway = fields
+        .windows(2)
+        .find(|pair| pair[0] == "via")
+        .map(|pair| pair[1].to_string());
+    let device = fields
+        .windows(2)
+        .find(|pair| pair[0] == "dev")
+        .map(|pair| pair[1].to_string())?;
+    (device != tunnel_if).then_some(PhysicalPath { gateway, device })
+}
+
+fn add_tunnel_route(
+    cidr: &str,
+    gateway: &str,
+    ifname: &str,
+    metric: u32,
+    is_tap: bool,
+) -> anyhow::Result<()> {
+    let destination = cidr
+        .split_once('/')
+        .and_then(|(address, _)| address.parse::<IpAddr>().ok())
+        .ok_or_else(|| anyhow::anyhow!("invalid network-plan route '{cidr}'"))?;
+    let gateway_ip = gateway
+        .parse::<IpAddr>()
+        .map_err(|_| anyhow::anyhow!("invalid network-plan gateway '{gateway}'"))?;
+    if destination.is_ipv4() != gateway_ip.is_ipv4() {
+        anyhow::bail!("route {cidr} and gateway {gateway} use different families");
+    }
+    let ipv6 = destination.is_ipv6();
+    let direct_interface_route = !is_tap;
+    // An L3 TUN is point-to-point for BOTH families. NetworkPlan v2 deliberately assigns
+    // host prefixes (/32 and /128), so `via <gateway>` would require ARP/NDP reachability
+    // that does not exist and Linux rejects the IPv4 next hop as invalid. A direct device
+    // route sends the inner packet to qeli without neighbour discovery. TAP is real L2 and
+    // retains the gateway route.
+    let args = tunnel_route_args(ipv6, cidr, gateway, ifname, metric, is_tap);
+    let output = std::process::Command::new("ip").args(&args).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("File exists") {
+        let dev = format!("dev {ifname}");
+        let route_matches = if direct_interface_route {
+            existing_route_satisfies_all(ipv6, cidr, &[&dev])
+        } else {
+            let via = format!("via {gateway}");
+            existing_route_satisfies_all(ipv6, cidr, &[&via, &dev])
+        };
+        if route_matches == Some(true) {
+            return Ok(());
+        }
+    }
+    let route_description = if direct_interface_route {
+        format!("{cidr} dev {ifname}")
+    } else {
+        format!("{cidr} via {gateway} dev {ifname}")
+    };
+    anyhow::bail!(
+        "network-plan route {route_description} was not applied: {}",
+        stderr.trim()
+    )
+}
+
+fn tunnel_route_args(
+    ipv6: bool,
+    cidr: &str,
+    gateway: &str,
+    ifname: &str,
+    metric: u32,
+    is_tap: bool,
+) -> Vec<String> {
+    let mut args = Vec::with_capacity(10);
+    if let Some(flag) = family_flag(ipv6) {
+        args.push(flag.to_string());
+    }
+    args.extend(["route".into(), "add".into(), cidr.into()]);
+    if is_tap {
+        args.extend(["via".into(), gateway.into()]);
+    }
+    args.extend([
+        "dev".into(),
+        ifname.into(),
+        "metric".into(),
+        metric.to_string(),
+    ]);
+    args
+}
+
+fn connected_tunnel_cidr(address: IpAddr, prefix: u8) -> anyhow::Result<String> {
+    match address {
+        IpAddr::V4(address) if prefix <= 32 => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            Ok(format!(
+                "{}/{}",
+                std::net::Ipv4Addr::from(u32::from(address) & mask),
+                prefix
+            ))
+        }
+        IpAddr::V6(address) if prefix <= 128 => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - prefix)
+            };
+            Ok(format!(
+                "{}/{}",
+                std::net::Ipv6Addr::from(u128::from(address) & mask),
+                prefix
+            ))
+        }
+        _ => anyhow::bail!("invalid on-link prefix {prefix} for tunnel address {address}"),
+    }
+}
+
+fn add_blackhole_half(cidr: &str) -> anyhow::Result<()> {
+    let ipv6 = cidr.contains(':');
+    let mut args: Vec<String> = Vec::new();
+    if ipv6 {
+        args.push("-6".into());
+    }
+    args.extend([
+        "route".into(),
+        "add".into(),
+        "blackhole".into(),
+        cidr.into(),
+    ]);
+    let output = std::process::Command::new("ip").args(&args).output()?;
+    if output.status.success() {
+        let mut undo = args;
+        let action = if ipv6 { 2 } else { 1 };
+        undo[action] = "del".into();
+        note_created_owned(undo);
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("File exists")
+        && existing_route_satisfies(ipv6, cidr, "blackhole") == Some(true)
+    {
+        return Ok(());
+    }
+    anyhow::bail!("could not install blackhole {cidr}: {}", stderr.trim())
+}
+
+fn pin_carrier_route(carrier: IpAddr, path: &PhysicalPath) -> anyhow::Result<()> {
+    let ipv6 = carrier.is_ipv6();
+    let destination = carrier.to_string();
+    let mut args: Vec<String> = Vec::new();
+    if ipv6 {
+        args.push("-6".into());
+    }
+    args.extend(["route".into(), "add".into(), destination.clone()]);
+    if let Some(gateway) = &path.gateway {
+        // Keep the route on the exact interface returned by `ip route get`. The same
+        // gateway address can legitimately exist on two links of a multi-homed host.
+        args.extend([
+            "via".into(),
+            gateway.clone(),
+            "dev".into(),
+            path.device.clone(),
+        ]);
+    } else {
+        args.extend([
+            "dev".into(),
+            path.device.clone(),
+            "scope".into(),
+            "link".into(),
+        ]);
+    }
+
+    let output = std::process::Command::new("ip").args(&args).output()?;
+    if output.status.success() {
+        let mut undo = Vec::new();
+        if ipv6 {
+            undo.push("-6".into());
+        }
+        undo.extend(["route".into(), "del".into(), destination]);
+        note_created_owned(undo);
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("File exists") {
+        let dev = format!("dev {}", path.device);
+        let via = path
+            .gateway
+            .as_ref()
+            .map(|gateway| format!("via {gateway}"));
+        let mut expected = vec![dev.as_str()];
+        if let Some(via) = via.as_deref() {
+            expected.push(via);
+        }
+        if existing_route_satisfies_all(ipv6, &carrier.to_string(), &expected) == Some(true) {
+            // It belongs to another owner but is already the exact safe physical path.
+            return Ok(());
+        }
+        anyhow::bail!(
+            "full tunnel found a conflicting existing carrier route for {carrier}; expected {}{}",
+            path.device,
+            path.gateway
+                .as_deref()
+                .map(|gateway| format!(" via {gateway}"))
+                .unwrap_or_default()
+        );
+    }
+    anyhow::bail!(
+        "full tunnel could not pin carrier {carrier}: {}",
+        stderr.trim()
+    )
+}
+
+/// Apply the already validated, generation-scoped dual-family network plan on Linux.
+/// Every requested family is handled symmetrically; an inactive family is blocked only for
+/// full-tunnel mode and only when its explicit leak escape hatch is disabled.
+pub fn setup_network_plan_routes(
+    config: &ClientRoutingConfig,
+    plan: &NetworkPlan,
+    ifname: &str,
+    carrier_addresses: &[IpAddr],
+    carrier_local_address: Option<IpAddr>,
+    is_tap: bool,
+) -> anyhow::Result<()> {
+    if carrier_addresses.is_empty() {
+        anyhow::bail!("network plan has no resolved carrier address to preserve");
+    }
+    let mut seen_carriers = std::collections::HashSet::new();
+    let carrier_paths: Vec<(IpAddr, Option<PhysicalPath>)> = carrier_addresses
+        .iter()
+        .copied()
+        .filter(|address| seen_carriers.insert(*address))
+        .map(|address| {
+            (
+                address,
+                physical_path_for(address, ifname, carrier_local_address),
+            )
+        })
+        .collect();
+
+    let exclude_paths: Vec<(String, IpAddr, Option<PhysicalPath>)> = config
+        .exclude
+        .iter()
+        .filter_map(|cidr| {
+            let address = cidr
+                .split_once('/')
+                .map(|(address, _)| address)
+                .unwrap_or(cidr)
+                .parse::<IpAddr>()
+                .ok()?;
+            Some((
+                cidr.clone(),
+                address,
+                physical_path_for(address, ifname, None),
+            ))
+        })
+        .collect();
+
+    // NetworkPlan v2 assigns host prefixes to an L3 TUN to prevent ARP/NDP. Install the
+    // negotiated pool prefix explicitly so the server gateway, tunnel DNS and peer/client
+    // addresses remain reachable in split-tunnel mode. Android already did this in its
+    // Builder; without the equivalent Linux route only full-tunnel defaults happened to
+    // cover the pool.
+    for assigned in &plan.addresses {
+        if assigned.on_link_prefix_len >= assigned.prefix_len {
+            continue;
+        }
+        let address = assigned.address.parse::<IpAddr>().map_err(|_| {
+            anyhow::anyhow!("invalid network-plan tunnel address '{}'", assigned.address)
+        })?;
+        let cidr = connected_tunnel_cidr(address, assigned.on_link_prefix_len)?;
+        let gateway = assigned.gateway.as_deref().unwrap_or(&assigned.address);
+        add_tunnel_route(&cidr, gateway, ifname, 0, is_tap)?;
+    }
+
+    if plan.full_tunnel {
+        for (carrier, path) in &carrier_paths {
+            let path = path.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("full tunnel cannot determine a physical path to carrier {carrier}")
+            })?;
+            pin_carrier_route(*carrier, path)?;
+        }
+
+        let mut has_ipv4 = false;
+        let mut has_ipv6 = false;
+        for address in &plan.addresses {
+            match address.family {
+                NetworkAddressFamily::Ipv4 => has_ipv4 = true,
+                NetworkAddressFamily::Ipv6 => has_ipv6 = true,
+            }
+            let gateway = address.gateway.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("full tunnel address '{}' has no gateway", address.address)
+            })?;
+            for &prefix in full_tunnel_prefixes(address.family) {
+                add_tunnel_route(
+                    prefix,
+                    gateway,
+                    ifname,
+                    FULL_TUNNEL_ROUTE_METRIC,
+                    is_tap,
+                )?;
+            }
+        }
+        if !has_ipv4 && !config.allow_ipv4_leak {
+            add_blackhole_half("0.0.0.0/1")?;
+            add_blackhole_half("128.0.0.0/1")?;
+        }
+        if !has_ipv6 && !config.allow_ipv6_leak {
+            for &prefix in IPV6_CAPTURE_PREFIXES {
+                add_blackhole_half(prefix)?;
+            }
+        }
+    }
+
+    for route in &plan.routes {
+        add_tunnel_route(&route.cidr, &route.gateway, ifname, route.metric, is_tap)?;
+    }
+
+    if config.kill_switch && !config.exclude.is_empty() {
+        log::warn!("exclude + kill_switch: excluded networks are fail-closed by the firewall");
+    }
+    for (cidr, address, path) in exclude_paths {
+        let Some(path) = path else {
+            anyhow::bail!("exclude {cidr}: no physical route is known");
+        };
+        let ipv6 = address.is_ipv6();
+        let PhysicalPath { gateway, device } = path;
+        let mut args: Vec<String> = Vec::new();
+        if ipv6 {
+            args.push("-6".into());
+        }
+        args.extend(["route".into(), "add".into(), cidr.clone()]);
+        if let Some(gateway) = &gateway {
+            // Pin the interface as well as the next hop. The same gateway (especially an
+            // IPv6 link-local one) may exist on several uplinks of a multi-homed host.
+            args.extend(["via".into(), gateway.clone(), "dev".into(), device.clone()]);
+        } else {
+            args.extend(["dev".into(), device.clone(), "scope".into(), "link".into()]);
+        }
+        let output = std::process::Command::new("ip").args(&args).output()?;
+        if output.status.success() {
+            let mut undo = Vec::new();
+            if ipv6 {
+                undo.push("-6".into());
+            }
+            undo.extend(["route".into(), "del".into(), cidr]);
+            note_created_owned(undo);
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("File exists") {
+                let dev = format!("dev {device}");
+                let via = gateway.as_ref().map(|value| format!("via {value}"));
+                let mut expected = vec![dev.as_str()];
+                if let Some(via) = via.as_deref() {
+                    expected.push(via);
+                }
+                if existing_route_satisfies_all(ipv6, &cidr, &expected) == Some(true) {
+                    // Exact operator-owned bypass; leave it in place and do not journal it.
+                    continue;
+                }
+                anyhow::bail!(
+                    "exclude {cidr}: a conflicting route already exists; expected {}{}",
+                    device,
+                    gateway
+                        .as_deref()
+                        .map(|value| format!(" via {value}"))
+                        .unwrap_or_else(|| " on-link".to_string())
+                );
+            }
+            anyhow::bail!("exclude route was not applied: {}", stderr.trim());
+        }
+    }
+    if plan.full_tunnel {
+        // `ip route add` success is not the final truth when source-policy rules or several
+        // tables are present. Ask the FIB again after the /1 capture routes exist and require
+        // every carrier to retain the exact physical path resolved before capture.
+        for (carrier, expected) in carrier_paths {
+            let expected = expected.ok_or_else(|| {
+                anyhow::anyhow!("full tunnel has no pre-capture physical path to {carrier}")
+            })?;
+            let actual = physical_path_for(carrier, ifname, carrier_local_address)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "full tunnel carrier {carrier} resolves through {ifname} or has no route after capture"
+                    )
+                })?;
+            if actual != expected {
+                anyhow::bail!(
+                    "full tunnel carrier {carrier} changed physical path after capture: expected {:?}, got {:?}",
+                    expected,
+                    actual
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Did WE install the route this undo-command would remove?
@@ -43,6 +497,8 @@ fn take_created() -> Vec<Vec<String>> {
         })
 }
 
+/// Legacy IPv4 route applicator retained for its fault-injection regression suite.
+/// Production connections use [`setup_network_plan_routes`], which is dual-family.
 pub fn setup_routes(
     config: &ClientRoutingConfig,
     gateway: &str,
@@ -165,14 +621,12 @@ pub fn setup_routes(
             }
         }
 
-        // IPv6. The halves above are IPv4-only, so in full tunnel every IPv6 destination
-        // kept using the physical interface — the mode promises to carry all traffic and
-        // quietly did not. qeli does not tunnel IPv6 yet, so the honest options are to
-        // leak or to block; block, matching the kill-switch's existing fail-closed
-        // contract, and let `allow_ipv6_leak` be the explicit opt-out it already is.
+        // This legacy applicator has only an IPv4 gateway, so it cannot tunnel IPv6.
+        // Block rather than leak, matching the current NetworkPlan path's fail-closed
+        // contract, and let `allow_ipv6_leak` remain the explicit opt-out.
         if !config.allow_ipv6_leak {
             let mut blocked = 0;
-            for half in ["::/1", "8000::/1"] {
+            for &half in IPV6_CAPTURE_PREFIXES {
                 let out = std::process::Command::new("ip")
                     .args(["-6", "route", "add", "blackhole", half])
                     .output();
@@ -210,9 +664,9 @@ pub fn setup_routes(
                     Err(e) => log::warn!("full tunnel: `ip -6 route` unavailable ({}) ", e),
                 }
             }
-            if blocked == 2 {
+            if blocked == IPV6_CAPTURE_PREFIXES.len() {
                 log::info!(
-                    "full tunnel: IPv6 blackholed (qeli tunnels IPv4 only; set \
+                    "legacy IPv4 route plan: IPv6 blackholed (set \
                      allow_ipv6_leak = true to let IPv6 use the physical interface instead)"
                 );
             } else {
@@ -334,45 +788,6 @@ pub fn setup_routes(
                     subnet
                 );
             }
-        }
-    }
-
-    for route in &config.custom_routes {
-        let output = std::process::Command::new("ip")
-            .args([
-                "route",
-                "add",
-                &route.dest,
-                "via",
-                &route.via,
-                "metric",
-                &route.metric.to_string(),
-            ])
-            .output()?;
-
-        if output.status.success() {
-            // Journal the deletion like every OTHER route type. custom_routes were the
-            // only ones NOT recorded via note_created: when `via` is a PHYSICAL gateway
-            // (a legitimate use — steer a subnet independently of the tunnel), the route
-            // resolves onto the physical interface, so cleanup's `ip route flush dev <tun>`
-            // never removes it and neither does the (empty) journal — leaving a stale route
-            // on the host after disconnect that blackholes the subnet if that gateway later
-            // changes. Match on `dest via via` so we delete exactly this route. (M4)
-            note_created(&["route", "del", &route.dest, "via", &route.via]);
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("File exists") {
-                let via = format!("via {}", route.via);
-                if existing_route_satisfies(false, &route.dest, &via) == Some(true) {
-                    continue;
-                }
-            }
-            anyhow::bail!(
-                "custom route {} via {} was not applied: {} — refusing to acknowledge a partial network plan",
-                route.dest,
-                route.via,
-                stderr.trim()
-            );
         }
     }
 
@@ -501,7 +916,23 @@ fn existing_route_satisfies_all(v6: bool, cidr: &str, wants: &[&str]) -> Option<
     if text.trim().is_empty() {
         return None;
     }
-    Some(wants.iter().all(|want| text.contains(want)))
+    Some(route_output_satisfies_all(&text, wants))
+}
+
+/// Require every expected token sequence on one concrete route. Substring matching made
+/// `dev eth0` accept `dev eth01`, and searching the complete multi-line output could combine
+/// a gateway from one route with an interface from another.
+fn route_output_satisfies_all(output: &str, wants: &[&str]) -> bool {
+    output.lines().any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        wants.iter().all(|want| {
+            let expected: Vec<&str> = want.split_whitespace().collect();
+            !expected.is_empty()
+                && fields
+                    .windows(expected.len())
+                    .any(|window| window == expected.as_slice())
+        })
+    })
 }
 
 pub fn apply_pushed_routes(
@@ -559,7 +990,7 @@ pub fn apply_pushed_routes(
         }
         // The SERVER must not get to decide that this client is full-tunnel.
         //
-        // `is_valid_cidr` accepts any prefix length 0..=32, and `apply_pushed_routes` runs
+        // `is_valid_cidr` accepts any legal family prefix, and `apply_pushed_routes` runs
         // unconditionally — before the `routing.route_local_networks` check and on both the
         // TCP and UDP paths — so a split-tunnel client (the default: `gateway = false`)
         // applied whatever the server sent. Pushing `0.0.0.0/1` + `128.0.0.0/1` captures all
@@ -569,17 +1000,32 @@ pub fn apply_pushed_routes(
         // the server, with no bypass /32 for the server address (setup_routes only adds that
         // in full-tunnel mode).
         //
-        // Pushing a /8 or narrower is the legitimate site-to-site case this feature exists
-        // for and stays allowed. A route wide enough to redefine the client's default is a
-        // policy decision that belongs to the user, not to the peer.
+        // IPv4 /8 and IPv6 /3 are the broadest legitimate site-to-site/global aggregates
+        // accepted by the shared planner. A wider route is a policy decision that belongs
+        // to the user, not to the peer.
         // (Audit 2026-08-04.)
-        const MIN_PUSHED_PREFIX: u8 = 8;
+        let route_address = route
+            .cidr
+            .split_once('/')
+            .and_then(|(address, _)| address.parse::<IpAddr>().ok())
+            .expect("CIDR was validated above");
+        let gateway_address = gateway
+            .parse::<IpAddr>()
+            .expect("gateway was validated above");
+        if route_address.is_ipv4() != gateway_address.is_ipv4() {
+            log::warn!(
+                "Ignoring pushed route {} with cross-family gateway {}",
+                route.cidr,
+                gateway
+            );
+            continue;
+        }
         let prefix = route
             .cidr
             .rsplit_once('/')
             .and_then(|(_, p)| p.parse::<u8>().ok())
             .unwrap_or(32);
-        if prefix < MIN_PUSHED_PREFIX {
+        if !crate::transport_core::network::pushed_route_prefix_is_allowed(route_address, prefix) {
             log::warn!(
                 "REFUSING pushed route {}: a /{} covers the whole default route, and a server                  may not turn a split-tunnel client into a full-tunnel one. Set                  'routing.mode = full-tunnel' locally if that is what you want.",
                 route.cidr,
@@ -588,19 +1034,22 @@ pub fn apply_pushed_routes(
             continue;
         }
 
-        let output = std::process::Command::new("ip")
-            .args([
-                "route",
-                "add",
-                &route.cidr,
-                "via",
-                gateway,
-                "dev",
-                ifname,
-                "metric",
-                &metric.to_string(),
-            ])
-            .output();
+        let mut args: Vec<String> = Vec::new();
+        if route_address.is_ipv6() {
+            args.push("-6".into());
+        }
+        args.extend([
+            "route".into(),
+            "add".into(),
+            route.cidr.clone(),
+            "via".into(),
+            gateway.into(),
+            "dev".into(),
+            ifname.into(),
+            "metric".into(),
+            metric.to_string(),
+        ]);
+        let output = std::process::Command::new("ip").args(&args).output();
 
         match output {
             Ok(o) if o.status.success() => {
@@ -726,40 +1175,97 @@ pub fn cleanup_routes(ifname: &str, _server_addr: &str, _exclude: &[String]) -> 
     // ever touch ours.
     match std::process::Command::new("ip")
         .args(["route", "flush", "dev", ifname])
-        .output()
-    {
-        Ok(output) if output.status.success() => {}
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !route_is_already_absent(&stderr) {
-                errors.push(format!("ip route flush dev {ifname}: {}", stderr.trim()));
-            }
-        }
-        Err(error) => errors.push(format!("ip route flush dev {ifname}: {error}")),
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        anyhow::bail!("route cleanup failed: {}", errors.join("; "))
-    }
-}
-
-fn route_is_already_absent(stderr: &str) -> bool {
-    let stderr = stderr.to_ascii_lowercase();
-    [
-        "no such process",
-        "no such device",
-        "cannot find device",
-        "does not exist",
-    ]
-    .iter()
-    .any(|needle| stderr.contains(needle))
+        .output()?;
+    std::process::Command::new("ip")
+        .args(["-6", "route", "flush", "dev", ifname])
+        .output()?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_valid_cidr, is_valid_gateway, planned_pushed_routes};
+    use super::{
+        connected_tunnel_cidr, full_tunnel_prefixes, is_valid_cidr, is_valid_gateway,
+        planned_pushed_routes, route_output_satisfies_all, tunnel_route_args,
+        IPV6_CAPTURE_PREFIXES,
+    };
+    use std::net::IpAddr;
+
+    #[test]
+    fn network_plan_tun_routes_are_direct_for_both_families() {
+        assert_eq!(
+            tunnel_route_args(false, "0.0.0.0/1", "10.9.0.1", "qeli0", 100, false),
+            ["route", "add", "0.0.0.0/1", "dev", "qeli0", "metric", "100"]
+        );
+        assert_eq!(
+            tunnel_route_args(true, "2001:db8::/32", "fd71:e1::1", "qeli0", 7, false),
+            [
+                "-6",
+                "route",
+                "add",
+                "2001:db8::/32",
+                "dev",
+                "qeli0",
+                "metric",
+                "7"
+            ]
+        );
+        assert_eq!(
+            tunnel_route_args(false, "10.20.0.0/16", "10.9.0.1", "tap0", 9, true),
+            [
+                "route",
+                "add",
+                "10.20.0.0/16",
+                "via",
+                "10.9.0.1",
+                "dev",
+                "tap0",
+                "metric",
+                "9"
+            ]
+        );
+    }
+
+    #[test]
+    fn ipv6_capture_routes_override_global_and_ula_physical_aggregates() {
+        assert_eq!(
+            full_tunnel_prefixes(super::NetworkAddressFamily::Ipv6),
+            IPV6_CAPTURE_PREFIXES
+        );
+        assert_eq!(
+            IPV6_CAPTURE_PREFIXES,
+            &["::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7"]
+        );
+    }
+
+    #[test]
+    fn connected_tunnel_prefix_is_canonical_for_ipv4_and_ipv6() {
+        assert_eq!(
+            connected_tunnel_cidr("10.9.0.27".parse::<IpAddr>().unwrap(), 24).unwrap(),
+            "10.9.0.0/24"
+        );
+        assert_eq!(
+            connected_tunnel_cidr("fd71:e1:20::beef".parse::<IpAddr>().unwrap(), 64).unwrap(),
+            "fd71:e1:20::/64"
+        );
+        assert!(connected_tunnel_cidr("10.9.0.27".parse().unwrap(), 64).is_err());
+    }
+
+    #[test]
+    fn existing_route_match_is_token_exact_and_stays_on_one_route() {
+        assert!(route_output_satisfies_all(
+            "192.0.2.10 via 10.0.0.1 dev eth0 metric 5\n",
+            &["via 10.0.0.1", "dev eth0"]
+        ));
+        assert!(!route_output_satisfies_all(
+            "192.0.2.10 via 10.0.0.1 dev eth01 metric 5\n",
+            &["via 10.0.0.1", "dev eth0"]
+        ));
+        assert!(!route_output_satisfies_all(
+            "192.0.2.10 via 10.0.0.1 dev eth1\n192.0.2.10 via 10.0.0.2 dev eth0\n",
+            &["via 10.0.0.1", "dev eth0"]
+        ));
+    }
 
     #[test]
     fn pushed_route_plan_preserves_gateway_and_metric_after_policy_filtering() {
@@ -942,26 +1448,6 @@ mod fault_injection {
             err.to_string().contains("192.0.2.0/24"),
             "an include route that did not install must refuse, got: {err}"
         );
-    }
-
-    #[test]
-    fn a_failed_custom_route_rejects_the_network_plan() {
-        let cfg = ClientRoutingConfig {
-            custom_routes: vec![crate::config::client::CustomRoute {
-                dest: "203.0.113.0/24".to_string(),
-                via: "10.0.0.9".to_string(),
-                metric: 17,
-            }],
-            ..Default::default()
-        };
-        let _shim = Shim::new(
-            "custom",
-            &["route add 203.0.113.0/24"],
-            "RTNETLINK answers: network unreachable",
-        );
-        let err = setup_routes(&cfg, "10.0.0.1", "qtest", "1.2.3.4").unwrap_err();
-        assert!(err.to_string().contains("203.0.113.0/24"));
-        assert!(err.to_string().contains("partial network plan"));
     }
 
     #[test]

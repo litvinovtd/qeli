@@ -57,6 +57,7 @@
 | Документ | О чём |
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | План развития |
+| [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md) | Полная поддержка IPv6: архитектура, этапы и release gates |
 | [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | План рефакторинга: устранение дублей кода |
 | [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | Общее транспортное Rust-ядро для всех клиентов: предложение, замеры, план |
 | [DESIGN-remaining.md](DESIGN-remaining.md) | Стадии разработки REALITY: статус и остаток |

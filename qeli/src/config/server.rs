@@ -111,8 +111,8 @@ impl ProfileConfig {
     /// the schema. Keep the skeleton in sync with the struct's sub-tables.
     pub fn baseline() -> Self {
         const SKELETON: &str = r#"{
-            "bind":{},"tun":{},"pool":{},
-            "routing":{"nat":{}},
+            "bind":{},"tun":{},"pool":{"ipv6":{}},
+            "routing":{"nat":{},"ipv6":{}},
             "dns":{},"dhcp":{},
             "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
                 "tls":{"reality_proxy":{}},
@@ -145,12 +145,54 @@ pub struct BindConfig {
     pub listen: Vec<String>,
 }
 
+/// Address families carried inside a profile's tunnel.
+///
+/// This is deliberately distinct from `bind.address`: an IPv6 outer carrier may carry an
+/// IPv4-only tunnel, and an IPv4 carrier may carry a dual-stack or IPv6-only tunnel.
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum IpMode {
+    #[default]
+    Ipv4,
+    Dual,
+    Ipv6,
+}
+
+impl std::fmt::Display for IpMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Ipv4 => "ipv4",
+            Self::Dual => "dual",
+            Self::Ipv6 => "ipv6",
+        })
+    }
+}
+
+impl std::str::FromStr for IpMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "ipv4" => Ok(Self::Ipv4),
+            "dual" => Ok(Self::Dual),
+            "ipv6" => Ok(Self::Ipv6),
+            _ => Err(format!("expected one of ipv4, dual, ipv6; got '{value}'")),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct TunConfig {
+    /// Inner address-family mode. Missing in old configs means IPv4 exactly as before.
+    #[serde(default)]
+    pub ip_mode: IpMode,
     #[serde(default = "default_tun_name")]
     pub name: String,
     #[serde(default = "default_tun_addr")]
     pub address: String,
+    /// Server-side IPv6 tunnel address. Required by `dual` and `ipv6`, absent in `ipv4`.
+    #[serde(default)]
+    pub ipv6_address: Option<String>,
     #[serde(default = "default_mtu")]
     pub mtu: i32,
     #[serde(default = "default_tx_queue")]
@@ -266,6 +308,221 @@ pub struct PoolSubnet {
     pub prefix: u8,
     pub netmask: std::net::Ipv4Addr,
     pub broadcast: std::net::Ipv4Addr,
+}
+
+/// Canonical IPv6 allocation prefix derived from `pool.ipv6.cidr`.
+///
+/// Unlike IPv4 there is no broadcast address. The all-zero host value is nevertheless kept
+/// out of allocation because it is the subnet-router anycast address for ordinary prefixes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ipv6PoolSubnet {
+    pub network: std::net::Ipv6Addr,
+    pub prefix: u8,
+}
+
+impl Ipv6PoolSubnet {
+    pub fn contains(self, address: std::net::Ipv6Addr) -> bool {
+        let mask = ipv6_prefix_mask(self.prefix);
+        (u128::from(address) & mask) == u128::from(self.network)
+    }
+
+    pub fn contains_assignable(self, address: std::net::Ipv6Addr) -> bool {
+        self.contains(address) && address != self.network
+    }
+}
+
+fn ipv6_prefix_mask(prefix: u8) -> u128 {
+    if prefix == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix)
+    }
+}
+
+/// Reject IPv6 address classes that cannot represent a tunnel host or next hop.
+pub fn validate_tunnel_ipv6_address(
+    field: &str,
+    address: std::net::Ipv6Addr,
+) -> Result<(), String> {
+    let first = address.segments()[0];
+    let link_local = first & 0xffc0 == 0xfe80;
+    if address.is_unspecified() {
+        return Err(format!(
+            "{field} must not be the unspecified IPv6 address ::"
+        ));
+    }
+    if address.is_loopback() {
+        return Err(format!("{field} must not be the IPv6 loopback address ::1"));
+    }
+    if address.is_multicast() {
+        return Err(format!("{field} must not be an IPv6 multicast address"));
+    }
+    if link_local {
+        return Err(format!(
+            "{field} must not be link-local — tunnel addresses need profile-wide scope"
+        ));
+    }
+    if address.to_ipv4_mapped().is_some() {
+        return Err(format!(
+            "{field} must not be an IPv4-mapped IPv6 address; configure the real family"
+        ));
+    }
+    Ok(())
+}
+
+pub fn ipv6_pool_subnet(cidr: &str) -> Result<Ipv6PoolSubnet, String> {
+    use std::net::Ipv6Addr;
+
+    let Some((address, prefix)) = cidr.trim().split_once('/') else {
+        return Err(format!(
+            "invalid pool.ipv6.cidr '{cidr}': expected IPv6 CIDR (e.g. fd71:e1:1234:1::/64)"
+        ));
+    };
+    if prefix.contains('/') {
+        return Err(format!(
+            "invalid pool.ipv6.cidr '{cidr}': expected exactly one '/' separator"
+        ));
+    }
+    let address = address
+        .trim()
+        .parse::<Ipv6Addr>()
+        .map_err(|e| format!("invalid pool.ipv6.cidr '{cidr}': invalid IPv6 address: {e}"))?;
+    let prefix = prefix
+        .trim()
+        .parse::<u8>()
+        .map_err(|e| format!("invalid pool.ipv6.cidr '{cidr}': invalid prefix: {e}"))?;
+    // /127 and /128 do not have enough distinct addresses for subnet-router anycast,
+    // the server address and at least one client address. /0 is not a meaningful private
+    // allocation pool and would also normalize to the unspecified address.
+    if !(1..=126).contains(&prefix) {
+        return Err(format!(
+            "invalid pool.ipv6.cidr '{cidr}': prefix must be between 1 and 126"
+        ));
+    }
+    let network = Ipv6Addr::from(u128::from(address) & ipv6_prefix_mask(prefix));
+    validate_tunnel_ipv6_address("pool.ipv6.cidr network", network)?;
+    Ok(Ipv6PoolSubnet { network, prefix })
+}
+
+/// Validate all IPv6 addressing fields of one profile without allocating or enumerating its
+/// prefix. This is shared by check-config, panel saves and the worker startup gate.
+pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolSubnet>, String> {
+    use std::collections::{HashMap, HashSet};
+    use std::net::Ipv6Addr;
+
+    let carries_ipv6 = profile.tun.ip_mode != IpMode::Ipv4;
+    let has_any_ipv6_addressing = profile
+        .tun
+        .ipv6_address
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || !profile.pool.ipv6.cidr.trim().is_empty()
+        || !profile.pool.ipv6.exclude.is_empty()
+        || !profile.pool.ipv6.static_reservations.is_empty();
+
+    if !carries_ipv6 && profile.routing.ipv6.mode != Ipv6RoutingMode::Off {
+        return Err(format!(
+            "routing.ipv6.mode = {} requires tun.ip_mode = dual or ipv6",
+            profile.routing.ipv6.mode
+        ));
+    }
+
+    if !carries_ipv6 && !has_any_ipv6_addressing {
+        return Ok(None);
+    }
+
+    let address_text = profile
+        .tun
+        .ipv6_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "tun.ipv6_address is required when IPv6 addressing is configured".to_string()
+        })?;
+    let address = address_text
+        .parse::<Ipv6Addr>()
+        .map_err(|error| format!("invalid tun.ipv6_address '{address_text}': {error}"))?;
+    validate_tunnel_ipv6_address("tun.ipv6_address", address)?;
+
+    if profile.pool.ipv6.cidr.trim().is_empty() {
+        return Err("pool.ipv6.cidr is required when IPv6 addressing is configured".to_string());
+    }
+    let subnet = ipv6_pool_subnet(&profile.pool.ipv6.cidr)?;
+    if !subnet.contains_assignable(address) {
+        return Err(format!(
+            "tun.ipv6_address {address} is not an assignable host inside pool.ipv6.cidr {} \
+             (network {} is reserved as subnet-router anycast)",
+            profile.pool.ipv6.cidr, subnet.network
+        ));
+    }
+
+    let mut excluded = HashSet::new();
+    for raw in &profile.pool.ipv6.exclude {
+        let value = raw.trim();
+        let ip = value.parse::<Ipv6Addr>().map_err(|error| {
+            format!("pool.ipv6.exclude entry '{value}' is not a bare IPv6 address: {error}")
+        })?;
+        validate_tunnel_ipv6_address("pool.ipv6.exclude", ip)?;
+        if !subnet.contains_assignable(ip) {
+            return Err(format!(
+                "pool.ipv6.exclude address {ip} is outside pool.ipv6.cidr {}",
+                profile.pool.ipv6.cidr
+            ));
+        }
+        if ip == address {
+            return Err(format!(
+                "pool.ipv6.exclude contains tun.ipv6_address {address}"
+            ));
+        }
+        if !excluded.insert(ip) {
+            return Err(format!("pool.ipv6.exclude contains duplicate address {ip}"));
+        }
+    }
+
+    let mut reservations: HashMap<Ipv6Addr, &str> = HashMap::new();
+    for (username, raw) in &profile.pool.ipv6.static_reservations {
+        if username.trim().is_empty() {
+            return Err("pool.ipv6.reservation has an empty username".to_string());
+        }
+        let value = raw.trim();
+        let ip = value.parse::<Ipv6Addr>().map_err(|error| {
+            format!(
+                "pool.ipv6.reservation.{username} = '{value}' is not a bare IPv6 address: {error}"
+            )
+        })?;
+        validate_tunnel_ipv6_address(&format!("pool.ipv6.reservation.{username}"), ip)?;
+        if !subnet.contains_assignable(ip) {
+            return Err(format!(
+                "pool.ipv6.reservation.{username} = {ip} is outside pool.ipv6.cidr {}",
+                profile.pool.ipv6.cidr
+            ));
+        }
+        if ip == address || excluded.contains(&ip) {
+            return Err(format!(
+                "pool.ipv6.reservation.{username} = {ip} collides with the server address or pool.ipv6.exclude"
+            ));
+        }
+        if let Some(other) = reservations.insert(ip, username) {
+            return Err(format!(
+                "pool.ipv6 reservations for '{other}' and '{username}' both use {ip}"
+            ));
+        }
+    }
+
+    if carries_ipv6 && profile.tun.mtu < 1280 {
+        return Err(format!(
+            "tun.mtu {} is below the IPv6 minimum 1280 for tun.ip_mode = {}",
+            profile.tun.mtu, profile.tun.ip_mode
+        ));
+    }
+    if profile.tun.ip_mode == IpMode::Ipv6 && profile.dhcp.enabled {
+        return Err(
+            "dhcp.enabled is DHCPv4 and cannot be enabled in an IPv6-only profile".to_string(),
+        );
+    }
+
+    Ok(Some(subnet))
 }
 
 impl PoolSubnet {
@@ -419,6 +676,88 @@ pub fn dhcp_pool_bounds(
 /// three ranges drifted apart in the first place. Callers pass `x as i64`.
 pub fn mtu_in_range(mtu: i64) -> bool {
     (MTU_MIN as i64..=MTU_MAX as i64).contains(&mtu)
+}
+
+#[cfg(test)]
+mod ipv6_config_tests {
+    use super::*;
+
+    fn dual_profile() -> ProfileConfig {
+        let mut profile = ProfileConfig::baseline();
+        profile.tun.ip_mode = IpMode::Dual;
+        profile.tun.ipv6_address = Some("fd71:e1:1234:1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1:1234:1::/64".into();
+        profile
+    }
+
+    #[test]
+    fn legacy_profile_defaults_to_ipv4_without_ipv6_fields() {
+        let profile = ProfileConfig::baseline();
+        assert_eq!(profile.tun.ip_mode, IpMode::Ipv4);
+        assert!(profile.tun.ipv6_address.is_none());
+        assert!(profile.pool.ipv6.cidr.is_empty());
+        assert_eq!(validate_ipv6_profile(&profile).unwrap(), None);
+    }
+
+    #[test]
+    fn ipv6_pool_is_normalized_without_enumerating_it() {
+        let subnet = ipv6_pool_subnet("fd71:e1:1234:1::abcd/64").unwrap();
+        assert_eq!(
+            subnet.network,
+            "fd71:e1:1234:1::".parse::<std::net::Ipv6Addr>().unwrap()
+        );
+        assert_eq!(subnet.prefix, 64);
+        assert!(subnet.contains("fd71:e1:1234:1::ffff".parse().unwrap()));
+        assert!(!subnet.contains("fd71:e1:1234:2::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn dual_profile_validates_addresses_reservations_and_mtu() {
+        let mut profile = dual_profile();
+        profile.pool.ipv6.exclude.push("fd71:e1:1234:1::10".into());
+        profile
+            .pool
+            .ipv6
+            .static_reservations
+            .insert("alice".into(), "fd71:e1:1234:1::50".into());
+        let subnet = validate_ipv6_profile(&profile).unwrap().unwrap();
+        assert_eq!(subnet.prefix, 64);
+
+        profile.tun.mtu = 1279;
+        assert!(validate_ipv6_profile(&profile)
+            .unwrap_err()
+            .contains("minimum 1280"));
+    }
+
+    #[test]
+    fn ipv6_profile_rejects_ambiguous_or_conflicting_values() {
+        let mut profile = dual_profile();
+        profile.pool.ipv6.exclude.push("fd71:e1:1234:1::1".into());
+        assert!(validate_ipv6_profile(&profile)
+            .unwrap_err()
+            .contains("tun.ipv6_address"));
+
+        profile.pool.ipv6.exclude.clear();
+        profile.tun.ipv6_address = Some("fe80::1".into());
+        assert!(validate_ipv6_profile(&profile)
+            .unwrap_err()
+            .contains("link-local"));
+
+        profile.tun.ipv6_address = Some("fd71:e1:1234:1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1:1234:1::/127".into();
+        assert!(validate_ipv6_profile(&profile)
+            .unwrap_err()
+            .contains("between 1 and 126"));
+    }
+
+    #[test]
+    fn ipv4_mode_cannot_activate_ipv6_routing() {
+        let mut profile = ProfileConfig::baseline();
+        profile.routing.ipv6.mode = Ipv6RoutingMode::Nat66;
+        assert!(validate_ipv6_profile(&profile)
+            .unwrap_err()
+            .contains("requires tun.ip_mode"));
+    }
 }
 
 #[cfg(test)]
@@ -614,6 +953,19 @@ pub struct PoolConfig {
     pub exclude: Vec<String>,
     #[serde(default)]
     pub static_reservations: HashMap<String, String>,
+    #[serde(default)]
+    pub ipv6: Ipv6PoolConfig,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct Ipv6PoolConfig {
+    /// IPv6 client allocation prefix. Empty is valid only while `tun.ip_mode = ipv4`.
+    #[serde(default)]
+    pub cidr: String,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    #[serde(default)]
+    pub static_reservations: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -646,6 +998,8 @@ pub struct RoutingConfig {
     pub post_down: String,
     #[serde(default)]
     pub nat: NatConfig,
+    #[serde(default)]
+    pub ipv6: Ipv6RoutingConfig,
     #[serde(default, alias = "push_routes")]
     pub advertised_routes: Vec<PushedRoute>,
 }
@@ -658,12 +1012,57 @@ pub struct NatConfig {
     pub interface: String,
 }
 
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Ipv6RoutingMode {
+    #[default]
+    Off,
+    Route,
+    Nat66,
+}
+
+impl std::fmt::Display for Ipv6RoutingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Off => "off",
+            Self::Route => "route",
+            Self::Nat66 => "nat66",
+        })
+    }
+}
+
+impl std::str::FromStr for Ipv6RoutingMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" => Ok(Self::Off),
+            "route" => Ok(Self::Route),
+            "nat66" => Ok(Self::Nat66),
+            _ => Err(format!("expected one of off, route, nat66; got '{value}'")),
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct Ipv6RoutingConfig {
+    #[serde(default)]
+    pub mode: Ipv6RoutingMode,
+    /// Empty means auto-detect the IPv6 uplink when the selected mode needs one.
+    #[serde(default)]
+    pub interface: String,
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct DnsConfig {
     #[serde(default = "default_false")]
     pub enabled: bool,
     #[serde(default = "default_dns_listen")]
     pub listen: String,
+    /// Optional IPv6 listener pushed to IPv6-capable clients. Required for an enabled DNS
+    /// proxy in an IPv6-only profile.
+    #[serde(default)]
+    pub listen_ipv6: Option<String>,
     #[serde(default = "default_dns_port")]
     pub port: u16,
     #[serde(default = "default_upstream")]

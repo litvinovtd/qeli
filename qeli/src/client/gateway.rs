@@ -15,10 +15,11 @@
 //! (the `iptables-nft` wrapper lies via exit codes — same lesson as the
 //! kill-switch and `server/nat.rs`), and are idempotent.
 //!
-//! LIFECYCLE: [`engage`] runs once before the connect loop and stays up across
-//! reconnects (the rules are by interface name, so a recreated `tun` keeps them);
-//! [`disengage`] removes them on a clean stop. A crash leaves them in place
-//! (fail-safe) — clear manually with the commands logged on engage.
+//! LIFECYCLE: the active IPv4/IPv6 halves are installed after the authenticated
+//! NetworkPlan creates the TUN and are re-verified on reconnect (the rules are by
+//! interface name, so a recreated `tun` can reuse them). [`disengage`] removes them on
+//! a clean stop. A crash leaves them in place (fail-safe) — clear manually with the
+//! commands logged on engage.
 
 use super::killswitch::{ipt, ipt_path, present, present_checked, valid_ifname};
 
@@ -26,9 +27,8 @@ use super::killswitch::{ipt, ipt_path, present, present_checked, valid_ifname};
 const TAG: &str = "qeli-gw-nat";
 
 /// Best-effort write to a `/proc/sys` knob. Returns whether the write succeeded
-/// (a missing/read-only path in a restricted container yields `false`). Not fatal
-/// on its own, but the caller warns for a knob that actually matters (ip_forward),
-/// so a silently-unforwarded LAN doesn't look like a working gateway.
+/// (a missing/read-only path in a restricted container yields `false`). Callers verify
+/// load-bearing forwarding knobs and fail closed when their effective value is wrong.
 fn write_sysctl_raw(path: &str, val: &str) -> bool {
     std::fs::write(path, val).is_ok()
 }
@@ -70,6 +70,10 @@ pub fn should_engage(routing: &crate::config::client::ClientRoutingConfig) -> bo
     routing.gateway_nat || routing.forward
 }
 
+pub fn ipv6_available() -> bool {
+    ipt_path("ip6tables").is_some()
+}
+
 // ── exit-node (this client is an internet EXIT for other tunnel clients) ──────
 //
 // The MIRROR of `gateway_nat`. gateway_nat masquerades a LAN *behind* this client OUT
@@ -82,7 +86,8 @@ pub fn should_engage(routing: &crate::config::client::ClientRoutingConfig) -> bo
 // is only the last hop's forward+NAT.
 //
 // Scoping is by PACKET MARK, not by source subnet: the pool CIDR is not known until
-// after auth, but exit rules install before the connect loop (like gateway_nat). We mark
+// after auth, but exit rules install as soon as the authenticated NetworkPlan creates the
+// TUN. We mark
 // packets forwarded tun->wan in mangle/FORWARD and MASQUERADE only those in
 // nat/POSTROUTING — so locally-generated traffic (OUTPUT->POSTROUTING, never marked) is
 // left alone, and no pool knowledge is needed. The nfmark persists FORWARD->POSTROUTING
@@ -90,9 +95,17 @@ pub fn should_engage(routing: &crate::config::client::ClientRoutingConfig) -> bo
 const EXIT_TAG: &str = "qeli-exit-node";
 const EXIT_MARK: &str = "0x51/0x51";
 
-/// WAN interface used at [`engage_exit`], so [`disengage_exit`] removes exactly the rule
-/// it added even if the default route changed meanwhile (a re-detect could differ).
-static EXIT_WAN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// Every WAN used across reconnects. A physical-path change can select a new interface
+/// while tagged rules on the previous one remain; remembering only the latest leaked them.
+static EXIT_WANS_V4: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static EXIT_WANS_V6: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn remember_exit_wan(store: &std::sync::Mutex<Vec<String>>, wan: &str) {
+    let mut wans = store.lock().unwrap_or_else(|error| error.into_inner());
+    if !wans.iter().any(|existing| existing == wan) {
+        wans.push(wan.to_string());
+    }
+}
 
 /// Extract the token following `dev` in an `ip route` line.
 fn dev_token(s: &str) -> Option<String> {
@@ -139,6 +152,103 @@ fn detect_wan() -> Option<String> {
     }
     // "1.1.1.1 via 10.0.0.1 dev eth0 src ..." — the token after "dev".
     dev_token(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// IPv6 counterpart of [`detect_wan`]. The WAN may differ by family, so reusing the
+/// IPv4 interface silently breaks multi-uplink and IPv6-over-a-different-provider hosts.
+fn detect_wan_ipv6() -> Option<String> {
+    if let Ok(out) = std::process::Command::new("ip")
+        .args(["-6", "route", "show", "default"])
+        .output()
+    {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if let Some(device) = text.lines().find_map(dev_token) {
+                return Some(device);
+            }
+        }
+    }
+    let out = std::process::Command::new("ip")
+        .args(["-6", "route", "get", "2606:4700:4700::1111"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    dev_token(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn policy_output_accepts_forward(output: &str) -> bool {
+    let mut lines = output.lines().filter(|line| !line.trim().is_empty());
+    lines.next().is_some_and(|line| {
+        line.split_whitespace().collect::<Vec<_>>().as_slice() == ["-P", "FORWARD", "ACCEPT"]
+    }) && lines.next().is_none()
+}
+
+/// A missing explicit qeli accept is safe only when the built-in FORWARD chain is empty and
+/// accepts unmatched packets. An earlier explicit DROP/jump makes default ACCEPT insufficient.
+/// Previously every router path merely warned and returned
+/// success even under `-P FORWARD DROP`, so the authenticated NetworkPlan was ACKed while
+/// all forwarded traffic was deterministically black-holed.
+fn forward_policy_accepts(path: &str) -> bool {
+    ipt(path, &["-t", "filter", "-S", "FORWARD"])
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| {
+            policy_output_accepts_forward(&String::from_utf8_lossy(&output.stdout))
+        })
+}
+
+fn forward_insert_position(kill_switch_hooked: bool) -> &'static str {
+    if kill_switch_hooked {
+        "2"
+    } else {
+        "1"
+    }
+}
+
+fn policy_output_has_first_forward_jump(output: &str, target: &str) -> bool {
+    output
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>())
+        .find(|fields| fields.starts_with(&["-A", "FORWARD"]))
+        .is_some_and(|fields| fields.as_slice() == ["-A", "FORWARD", "-j", target])
+}
+
+fn kill_switch_hook_is_first(path: &str, chain: &str) -> bool {
+    ipt(path, &["-t", "filter", "-S", "FORWARD"])
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| {
+            policy_output_has_first_forward_jump(&String::from_utf8_lossy(&output.stdout), chain)
+        })
+}
+
+/// Install one managed rule and verify it. Narrow filter/FORWARD permits must precede host
+/// DROP rules, but an active qeli kill-switch jump remains first so reconnect traffic still
+/// fails closed. NAT and mangle rules retain append semantics.
+fn ensure_rule(path: &str, tun_if: &str, table: &str, chain: &str, rule: &[&str]) -> bool {
+    let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
+    check.extend_from_slice(rule);
+    if !present(path, &check) {
+        let insert = table == "filter" && chain == "FORWARD";
+        let mut add: Vec<&str> = vec!["-t", table, if insert { "-I" } else { "-A" }, chain];
+        let kill_switch_chain = format!("QELI_KS_{tun_if}");
+        if insert {
+            let hooked = present(path, &["-C", "FORWARD", "-j", kill_switch_chain.as_str()]);
+            if hooked && !kill_switch_hook_is_first(path, &kill_switch_chain) {
+                log::error!(
+                    "qeli kill-switch jump {kill_switch_chain} is not the first FORWARD rule; \
+                     refusing to insert a router permit ahead of it"
+                );
+                return false;
+            }
+            add.push(forward_insert_position(hooked));
+        }
+        add.extend_from_slice(rule);
+        let _ = ipt(path, &add);
+    }
+    present(path, &check)
 }
 
 fn exit_mark_rule<'a>(tun_if: &'a str, wan_if: &'a str) -> Vec<&'a str> {
@@ -237,12 +347,11 @@ fn exit_mss(tun_if: &str) -> Vec<&str> {
 /// stay while the tun is recreated), and is removed on a clean stop by [`disengage_exit`].
 /// Relax `rp_filter` on the tunnel interface, once it EXISTS.
 ///
-/// `engage` / `engage_exit` run before the connect loop, i.e. before `setup_tunnel` has
-/// created the TUN — so their per-interface write to
+/// Historically `engage` / `engage_exit` ran before the connect loop, i.e. before
+/// `setup_tunnel` created the TUN — so their per-interface write to
 /// `/proc/sys/net/ipv4/conf/<tun>/rp_filter` hit a path that did not exist yet,
 /// `remember_prior` bailed on the read, the write failed and `set_sysctl` returned false
-/// into a discarded result. The knob was therefore NEVER applied, and neither function is
-/// replayed (they are documented as staying up across reconnects).
+/// into a discarded result. The knob was therefore never applied.
 ///
 /// That matters because the kernel evaluates reverse-path filtering as
 /// `max(conf/all, conf/<incoming-iface>)`: setting `conf/all` to 0 does not help while
@@ -286,25 +395,31 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     // ip_forward is load-bearing (same as gateway_nat); rp_filter relaxed for the
     // asymmetric tun<->wan path. Each snapshots its prior value (remember_prior) so
     // disengage restores it — these are HOST-wide knobs, not ours to leave changed.
-    if !set_sysctl("/proc/sys/net/ipv4/ip_forward", "1") {
+    let forwarding_path = "/proc/sys/net/ipv4/ip_forward";
+    let forwarding_enabled = matches!(
+        std::fs::read_to_string(forwarding_path),
+        Ok(value) if value.trim() == "1"
+    ) || (set_sysctl(forwarding_path, "1")
+        && matches!(
+            std::fs::read_to_string(forwarding_path),
+            Ok(value) if value.trim() == "1"
+        ));
+    if !forwarding_enabled {
         anyhow::bail!(
-            "exit-node: cannot enable net.ipv4.ip_forward; refusing to report an exit node \
-             that cannot forward traffic (enable it on the host first)"
+            "exit-node: could not enable net.ipv4.ip_forward; refusing to advertise a black-holed IPv4 exit"
         );
     }
     set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
     set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0");
     set_sysctl(&format!("/proc/sys/net/ipv4/conf/{wan}/rp_filter"), "0");
 
+    // Record the target before the first stateful rule is attempted. An iptables failure can
+    // leave the MARK rule installed while the later MASQUERADE verification fails; teardown
+    // must still know which WAN that partial rule names, including after a roaming event.
+    remember_exit_wan(&EXIT_WANS_V4, &wan);
+
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
-        let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
-        c.extend_from_slice(rule);
-        if !present(&path, &c) {
-            let mut a: Vec<&str> = vec!["-t", table, "-A", chain];
-            a.extend_from_slice(rule);
-            let _ = ipt(&path, &a);
-        }
-        present(&path, &c)
+        ensure_rule(&path, tun_if, table, chain, rule)
     };
 
     // MARK + MASQUERADE are both essential — without either, tunnel traffic reaches the
@@ -315,17 +430,28 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     if !ensure("nat", "POSTROUTING", &exit_masq_rule(&wan)) {
         anyhow::bail!("exit-node: could not install MASQUERADE out {wan} (nat POSTROUTING)");
     }
-    // FORWARD accepts are best-effort — when the FORWARD policy is already ACCEPT they are
-    // redundant, and on iptables-nft hosts the legacy filter chain can be incompatible.
+    // FORWARD accepts are conditional — only an empty chain with policy ACCEPT makes them
+    // redundant; on iptables-nft hosts the legacy filter chain can be incompatible.
     let fwd_ok = ensure("filter", "FORWARD", &exit_fwd_out(tun_if, &wan))
         & ensure("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
-    ensure("mangle", "FORWARD", &exit_mss(tun_if));
+    let mss_ok = ensure("mangle", "FORWARD", &exit_mss(tun_if));
 
     if !fwd_ok {
+        if !forward_policy_accepts(&path) {
+            anyhow::bail!(
+                "exit-node: FORWARD accept rules are absent and the chain is not empty/ACCEPT"
+            );
+        }
         log::warn!(
             "exit-node: FORWARD accept rules not installed (legacy/nft filter conflict?) — \
-             relying on the FORWARD policy being ACCEPT. If forwarding fails, permit \
+             relying on an empty FORWARD chain with policy ACCEPT. If you tighten it, permit \
              {tun_if}<->{wan} yourself."
+        );
+    }
+    if !mss_ok {
+        log::warn!(
+            "exit-node: TCP MSS clamp could not be verified; correct Path-MTU Discovery is \
+             required for forwarded TCP through {tun_if}"
         );
     }
     log::warn!(
@@ -338,59 +464,132 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn remove_rule(path: &str, table: &str, chain: &str, rule: &[&str]) -> anyhow::Result<()> {
-    let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
-    check.extend_from_slice(rule);
-    for _ in 0..8 {
-        if !present_checked(path, &check)? {
-            return Ok(());
-        }
-        let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
-        delete.extend_from_slice(rule);
-        ipt(path, &delete).map_err(|error| {
-            anyhow::anyhow!(
-                "cannot run {} {} while removing qeli firewall state: {}",
-                path,
-                delete.join(" "),
-                error
-            )
-        })?;
+/// Add the IPv6 half of an exit node after authentication negotiated an IPv6 address.
+/// This is deliberately separate from [`engage_exit`]: IPv4 and IPv6 may use different
+/// WAN interfaces, and an `ipv6 = auto` client must not require `ip6tables` when the
+/// server ultimately assigns IPv4 only.
+pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("exit-node IPv6: invalid TUN interface name {tun_if:?}");
     }
-    if present_checked(path, &check)? {
+    let wan = detect_wan_ipv6().ok_or_else(|| {
+        anyhow::anyhow!(
+            "exit-node IPv6: no IPv6 default route found — cannot determine the IPv6 WAN"
+        )
+    })?;
+    if !valid_ifname(&wan) {
+        anyhow::bail!("exit-node IPv6: detected WAN interface name {wan:?} is invalid");
+    }
+    let path = ipt_path("ip6tables").ok_or_else(|| {
+        anyhow::anyhow!(
+            "exit-node IPv6 requires `ip6tables`; refusing a negotiated IPv6 plan that would black-hole forwarded traffic"
+        )
+    })?;
+
+    // Enabling IPv6 forwarding normally disables acceptance of Router Advertisements.
+    // Preserve the physical WAN's RA-derived default by selecting router+host mode before
+    // the host-wide switch, exactly as the IPv6 gateway path does.
+    set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+    let forwarding_path = "/proc/sys/net/ipv6/conf/all/forwarding";
+    let forwarding_enabled = matches!(
+        std::fs::read_to_string(forwarding_path),
+        Ok(value) if value.trim() == "1"
+    ) || (set_sysctl(forwarding_path, "1")
+        && matches!(
+            std::fs::read_to_string(forwarding_path),
+            Ok(value) if value.trim() == "1"
+        ));
+    if !forwarding_enabled {
         anyhow::bail!(
-            "{} rule remains after 8 deletion attempts: {}",
-            table,
-            rule.join(" ")
+            "exit-node IPv6: could not enable net.ipv6.conf.all.forwarding; refusing a black-holed IPv6 exit"
         );
     }
+    // Forwarding can invalidate an RA-learned default unless accept_ra=2 actually took
+    // effect. Re-resolve after the sysctl transition and program the interface the kernel
+    // will really use, rather than claiming success with a stale pre-transition choice.
+    let wan = detect_wan_ipv6().ok_or_else(|| {
+        anyhow::anyhow!(
+            "exit-node IPv6: the IPv6 default route disappeared after enabling forwarding (check accept_ra=2)"
+        )
+    })?;
+    if !valid_ifname(&wan) {
+        anyhow::bail!("exit-node IPv6: post-forwarding WAN name {wan:?} is invalid");
+    }
+    set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+
+    // See the IPv4 path above: remember the WAN before a partially successful rule batch
+    // can return an error, otherwise a subsequent path change makes that batch unreachable
+    // to clean teardown.
+    remember_exit_wan(&EXIT_WANS_V6, &wan);
+
+    let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
+        ensure_rule(&path, tun_if, table, chain, rule)
+    };
+
+    if !ensure("mangle", "FORWARD", &exit_mark_rule(tun_if, &wan)) {
+        anyhow::bail!("exit-node IPv6: could not install the tun->WAN MARK rule");
+    }
+    if !ensure("nat", "POSTROUTING", &exit_masq_rule(&wan)) {
+        anyhow::bail!("exit-node IPv6: could not install NAT66 MASQUERADE out {wan}");
+    }
+    let forward_ok = ensure("filter", "FORWARD", &exit_fwd_out(tun_if, &wan))
+        & ensure("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
+    let mss_ok = ensure("mangle", "FORWARD", &exit_mss(tun_if));
+    if !forward_ok {
+        if !forward_policy_accepts(&path) {
+            anyhow::bail!(
+                "exit-node IPv6: FORWARD rules are absent and the chain is not empty/ACCEPT"
+            );
+        }
+        log::warn!(
+            "exit-node IPv6: FORWARD rules could not be verified; relying on an empty FORWARD chain with policy ACCEPT for {tun_if}<->{wan}"
+        );
+    }
+    if !mss_ok {
+        log::warn!(
+            "exit-node IPv6: TCP MSS clamp could not be installed; ICMPv6 Packet Too Big must work along the complete path"
+        );
+    }
+    log::warn!(
+        "Exit-node IPv6 engaged: NAT66 tunnel traffic out {wan} (+forward, forwarding=1). \
+         The server-side exit user also needs client_subnet = ::/0."
+    );
     Ok(())
 }
 
-/// Remove every `qeli-exit-node` rule. A missing rule is an idempotent success;
-/// failures are returned so the caller cannot report a clean host restoration.
-pub fn disengage_exit(tun_if: &str) -> anyhow::Result<()> {
-    let mut errors = Vec::new();
-    let wan = EXIT_WAN
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-        .or_else(detect_wan);
-    let Some(path) = ipt_path("iptables") else {
-        if let Err(error) = restore_sysctls() {
-            errors.push(error.to_string());
+/// Remove every `qeli-exit-node` rule. Best-effort; a missing rule is not an error.
+fn remove_exit_rules(tun_if: &str) {
+    let remove_family = |binary: &str, wans: Vec<String>| {
+        let Some(path) = ipt_path(binary) else {
+            return;
+        };
+        if wans.is_empty() {
+            log::warn!(
+                "exit-node: {binary} WAN interface unknown at teardown — leftover rules tagged `{EXIT_TAG}` may remain"
+            );
+            return;
         }
-        anyhow::bail!(
-            "exit-node cleanup: `iptables` is unavailable; rules tagged `{EXIT_TAG}` may remain{}",
-            if errors.is_empty() {
-                String::new()
-            } else {
-                format!("; {}", errors.join("; "))
+        let drop_rule = |table: &str, chain: &str, rule: &[&str]| {
+            let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
+            check.extend_from_slice(rule);
+            for _ in 0..8 {
+                if present(&path, &check) {
+                    let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
+                    delete.extend_from_slice(rule);
+                    let _ = ipt(&path, &delete);
+                } else {
+                    break;
+                }
             }
-        );
-    };
-    let Some(wan) = wan else {
-        if let Err(error) = restore_sysctls() {
-            errors.push(error.to_string());
+        };
+        for wan in wans {
+            drop_rule("mangle", "FORWARD", &exit_mark_rule(tun_if, &wan));
+            drop_rule("nat", "POSTROUTING", &exit_masq_rule(&wan));
+            drop_rule("filter", "FORWARD", &exit_fwd_out(tun_if, &wan));
+            drop_rule("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
+            // WAN-independent; the first pass drains every tagged copy.
+            drop_rule("mangle", "FORWARD", &exit_mss(tun_if));
+            log::info!("Exit-node {binary} rules disengaged (WAN {wan})");
         }
         anyhow::bail!(
             "exit-node: WAN interface unknown at teardown — rules tagged `{EXIT_TAG}` may remain{}",
@@ -401,28 +600,30 @@ pub fn disengage_exit(tun_if: &str) -> anyhow::Result<()> {
             }
         );
     };
-    for result in [
-        remove_rule(&path, "mangle", "FORWARD", &exit_mark_rule(tun_if, &wan)),
-        remove_rule(&path, "nat", "POSTROUTING", &exit_masq_rule(&wan)),
-        remove_rule(&path, "filter", "FORWARD", &exit_fwd_out(tun_if, &wan)),
-        remove_rule(&path, "filter", "FORWARD", &exit_fwd_in(tun_if, &wan)),
-        remove_rule(&path, "mangle", "FORWARD", &exit_mss(tun_if)),
-    ] {
-        if let Err(error) = result {
-            errors.push(error.to_string());
-        }
+
+    let mut wans_v4 = std::mem::take(
+        &mut *EXIT_WANS_V4
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()),
+    );
+    let mut wans_v6 = std::mem::take(
+        &mut *EXIT_WANS_V6
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()),
+    );
+    if wans_v4.is_empty() {
+        wans_v4.extend(detect_wan());
     }
-    if let Err(error) = restore_sysctls() {
-        errors.push(error.to_string());
+    if wans_v6.is_empty() {
+        wans_v6.extend(detect_wan_ipv6());
     }
-    if !errors.is_empty() {
-        anyhow::bail!("exit-node cleanup failed: {}", errors.join("; "))
-    }
-    *EXIT_WAN
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-    log::info!("Exit-node disengaged (WAN {wan})");
-    Ok(())
+    remove_family("iptables", wans_v4);
+    remove_family("ip6tables", wans_v6);
+}
+
+pub fn disengage_exit(tun_if: &str) {
+    remove_exit_rules(tun_if);
+    restore_sysctls(tun_if);
 }
 
 /// The MASQUERADE rule body (optionally restricted to a source subnet), tagged.
@@ -524,12 +725,20 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     })?;
 
     // Forwarding + relaxed reverse-path filter (the LAN↔tun path is asymmetric).
-    // ip_forward is load-bearing: without it the LAN is silently un-forwarded even
-    // though the iptables rules land, so setup must fail instead of reporting success.
-    if !set_sysctl("/proc/sys/net/ipv4/ip_forward", "1") {
+    // Verify the effective value: accepting a firewall plan while forwarding remains off
+    // advertises a working router but deterministically black-holes every LAN packet.
+    let forwarding_path = "/proc/sys/net/ipv4/ip_forward";
+    let forwarding_enabled = matches!(
+        std::fs::read_to_string(forwarding_path),
+        Ok(value) if value.trim() == "1"
+    ) || (set_sysctl(forwarding_path, "1")
+        && matches!(
+            std::fs::read_to_string(forwarding_path),
+            Ok(value) if value.trim() == "1"
+        ));
+    if !forwarding_enabled {
         anyhow::bail!(
-            "gateway-nat: cannot enable net.ipv4.ip_forward; refusing to report a gateway \
-             that cannot forward traffic (enable it on the host first)"
+            "gateway-nat: could not enable net.ipv4.ip_forward; refusing a router plan that would black-hole LAN traffic"
         );
     }
     // rp_filter stays best-effort (relaxing it only avoids drops on the asymmetric path).
@@ -540,16 +749,8 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     // VPN stops, and a relaxed rp_filter keeps an anti-spoofing check disabled — neither
     // is ours to change permanently.)
 
-    // Append a rule iff absent, then confirm it actually landed.
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
-        let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
-        c.extend_from_slice(rule);
-        if !present(&path, &c) {
-            let mut a: Vec<&str> = vec!["-t", table, "-A", chain];
-            a.extend_from_slice(rule);
-            let _ = ipt(&path, &a); // exit code unreliable — verify below
-        }
-        present(&path, &c)
+        ensure_rule(&path, tun_if, table, chain, rule)
     };
 
     // MASQUERADE only in NAT mode (essential there — the LAN can't reach the internet
@@ -557,9 +758,9 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     if masquerade && !ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet)) {
         anyhow::bail!("gateway-nat: could not install MASQUERADE on {tun_if}");
     }
-    // FORWARD accept is best-effort: on `iptables-nft` hosts the legacy `filter` FORWARD
-    // chain can be incompatible (same as `server/nat.rs`); when the FORWARD policy is
-    // already ACCEPT, forwarding works regardless. Inbound is ESTABLISHED-only under NAT
+    // FORWARD accept is conditional: on `iptables-nft` hosts the legacy `filter` FORWARD
+    // chain can be incompatible (same as `server/nat.rs`); only an empty chain whose policy
+    // is ACCEPT makes the rules redundant. Inbound is ESTABLISHED-only under NAT
     // (return traffic) but UNRESTRICTED for routing (the far side may initiate to the LAN).
     let fwd_ok = ensure("filter", "FORWARD", &fwd_out(tun_if))
         & if masquerade {
@@ -567,13 +768,24 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
         } else {
             ensure("filter", "FORWARD", &fwd_in_open(tun_if))
         };
-    ensure("mangle", "FORWARD", &mss(tun_if));
+    let mss_ok = ensure("mangle", "FORWARD", &mss(tun_if));
 
     if !fwd_ok {
+        if !forward_policy_accepts(&path) {
+            anyhow::bail!(
+                "gateway: FORWARD accept rules are absent and the chain is not empty/ACCEPT"
+            );
+        }
         log::warn!(
             "gateway: FORWARD accept rules not installed (legacy/nft filter conflict?) — \
-             relying on the FORWARD policy being ACCEPT. If forwarding fails, permit \
+             relying on an empty FORWARD chain with policy ACCEPT. If you tighten it, permit \
              {tun_if}<->LAN yourself."
+        );
+    }
+    if !mss_ok {
+        log::warn!(
+            "gateway: TCP MSS clamp could not be verified; correct Path-MTU Discovery is \
+             required for forwarded TCP through {tun_if}"
         );
     }
     if masquerade {
@@ -598,34 +810,178 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     Ok(())
 }
 
-/// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. A missing rule is an
-/// idempotent success; failures are returned so clean shutdown remains truthful.
-pub fn disengage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
-    let mut errors = Vec::new();
-    if let Some(path) = ipt_path("iptables") {
-        for result in [
-            remove_rule(&path, "nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet)),
-            remove_rule(&path, "filter", "FORWARD", &fwd_out(tun_if)),
-            remove_rule(&path, "filter", "FORWARD", &fwd_in(tun_if)),
-            remove_rule(&path, "filter", "FORWARD", &fwd_in_open(tun_if)),
-            remove_rule(&path, "mangle", "FORWARD", &mss(tun_if)),
-        ] {
-            if let Err(error) = result {
-                errors.push(error.to_string());
-            }
+/// Add the IPv6 half of gateway forwarding after authentication has returned an IPv6
+/// NetworkPlan. Delaying this half until the plan is known lets an `ipv6 = auto` client
+/// keep working with an IPv4-only server without requiring ip6tables, while a negotiated
+/// dual/IPv6 plan still fails closed if the router cannot actually forward that family.
+pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> anyhow::Result<()> {
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("gateway IPv6: invalid TUN interface name {tun_if:?}");
+    }
+    let path = ipt_path("ip6tables").ok_or_else(|| {
+        anyhow::anyhow!(
+            "gateway IPv6 requires `ip6tables`; refusing a negotiated IPv6 plan that would not forward LAN traffic"
+        )
+    })?;
+
+    // Linux stops accepting Router Advertisements when forwarding is enabled unless
+    // accept_ra=2. Preserve native outer IPv6 on the default-route interface before
+    // flipping the host-wide forwarding bit, and restore both values on clean teardown.
+    let ipv6_wan_before = detect_wan_ipv6().filter(|interface| valid_ifname(interface));
+    if let Some(wan) = &ipv6_wan_before {
+        set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+    }
+    let forwarding_path = "/proc/sys/net/ipv6/conf/all/forwarding";
+    let forwarding_enabled = matches!(
+        std::fs::read_to_string(forwarding_path),
+        Ok(value) if value.trim() == "1"
+    ) || (set_sysctl(forwarding_path, "1")
+        && matches!(
+            std::fs::read_to_string(forwarding_path),
+            Ok(value) if value.trim() == "1"
+        ));
+    if !forwarding_enabled {
+        anyhow::bail!(
+            "gateway IPv6 could not enable net.ipv6.conf.all.forwarding; LAN IPv6 would be black-holed"
+        );
+    }
+    // If the host had native IPv6 before the transition, it must still have a default
+    // afterwards. Otherwise this router may advertise a working dual-stack tunnel while
+    // its own outer IPv6 carrier (or any locally routed IPv6) has just been removed by the
+    // kernel's forwarding/RA interaction. A static/no-IPv6 host legitimately has no default,
+    // so only enforce this invariant when one existed before the write.
+    if ipv6_wan_before.is_some() {
+        let ipv6_wan_after = detect_wan_ipv6().ok_or_else(|| {
+            anyhow::anyhow!(
+                "gateway IPv6: the IPv6 default route disappeared after enabling forwarding (check accept_ra=2)"
+            )
+        })?;
+        if !valid_ifname(&ipv6_wan_after) {
+            anyhow::bail!("gateway IPv6: post-forwarding WAN name {ipv6_wan_after:?} is invalid");
         }
-    } else {
-        errors
-            .push("gateway cleanup: `iptables` is unavailable; qeli rules may remain".to_string());
+        // Policy routing or a simultaneous roaming event may have selected a different
+        // interface. Preserve RA acceptance on the path the kernel actually retained.
+        set_sysctl(
+            &format!("/proc/sys/net/ipv6/conf/{ipv6_wan_after}/accept_ra"),
+            "2",
+        );
     }
-    if let Err(error) = restore_sysctls() {
-        errors.push(error.to_string());
+
+    let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
+        ensure_rule(&path, tun_if, table, chain, rule)
+    };
+
+    if masquerade && !ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet_ipv6)) {
+        anyhow::bail!("gateway IPv6 could not install MASQUERADE on {tun_if}");
     }
-    if !errors.is_empty() {
-        anyhow::bail!("gateway cleanup failed: {}", errors.join("; "))
+    let forward_ok = ensure("filter", "FORWARD", &fwd_out(tun_if))
+        & if masquerade {
+            ensure("filter", "FORWARD", &fwd_in(tun_if))
+        } else {
+            ensure("filter", "FORWARD", &fwd_in_open(tun_if))
+        };
+    let mss_ok = ensure("mangle", "FORWARD", &mss(tun_if));
+    if !forward_ok {
+        if !forward_policy_accepts(&path) {
+            anyhow::bail!(
+                "gateway IPv6: FORWARD rules are absent and the chain is not empty/ACCEPT"
+            );
+        }
+        log::warn!(
+            "gateway IPv6: FORWARD rules could not be verified; relying on an empty FORWARD chain with policy ACCEPT for {tun_if}<->LAN"
+        );
+    }
+    if !mss_ok {
+        log::warn!(
+            "gateway IPv6: TCP MSS clamp could not be installed; correct ICMPv6 Packet Too Big handling is now required along the complete path"
+        );
+    }
+    log::warn!(
+        "Gateway IPv6 engaged on {tun_if} ({}{}, forwarding=1).",
+        if masquerade { "NAT66" } else { "routed" },
+        if lan_subnet_ipv6.is_empty() {
+            String::new()
+        } else {
+            format!(", source {lan_subnet_ipv6}")
+        }
+    );
+    Ok(())
+}
+
+/// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. Best-effort; a
+/// missing rule is not an error. Called only on a clean stop.
+fn remove_gateway_rules(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) {
+    // Tear the families down independently. An IPv6-only router may legitimately have
+    // ip6tables without the IPv4 binary; the old early return leaked all NAT66/FORWARD
+    // rules in that setup.
+    if let Some(path) = ipt_path("iptables") {
+        let drop = |table: &str, chain: &str, rule: &[&str]| {
+            let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
+            c.extend_from_slice(rule);
+            for _ in 0..8 {
+                if present(&path, &c) {
+                    let mut d: Vec<&str> = vec!["-t", table, "-D", chain];
+                    d.extend_from_slice(rule);
+                    let _ = ipt(&path, &d);
+                } else {
+                    break;
+                }
+            }
+        };
+        drop("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet));
+        drop("filter", "FORWARD", &fwd_out(tun_if));
+        drop("filter", "FORWARD", &fwd_in(tun_if));
+        drop("filter", "FORWARD", &fwd_in_open(tun_if));
+        drop("mangle", "FORWARD", &mss(tun_if));
+    }
+    if let Some(ipv6_path) = ipt_path("ip6tables") {
+        let drop_ipv6 = |table: &str, chain: &str, rule: &[&str]| {
+            let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
+            check.extend_from_slice(rule);
+            for _ in 0..8 {
+                if present(&ipv6_path, &check) {
+                    let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
+                    delete.extend_from_slice(rule);
+                    let _ = ipt(&ipv6_path, &delete);
+                } else {
+                    break;
+                }
+            }
+        };
+        drop_ipv6("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet_ipv6));
+        drop_ipv6("filter", "FORWARD", &fwd_out(tun_if));
+        drop_ipv6("filter", "FORWARD", &fwd_in(tun_if));
+        drop_ipv6("filter", "FORWARD", &fwd_in_open(tun_if));
+        drop_ipv6("mangle", "FORWARD", &mss(tun_if));
     }
     log::info!("Gateway-NAT disengaged on {tun_if}");
     Ok(())
+}
+
+pub fn disengage(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) {
+    remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
+    restore_sysctls(tun_if);
+}
+
+/// Tear down a complete client router plan atomically. Firewall permits/NAT are removed
+/// for every enabled feature before host-wide forwarding, rp_filter and accept_ra values
+/// are restored. This is used for both a clean process stop and a rejected NetworkPlan.
+pub fn disengage_plan(
+    tun_if: &str,
+    lan_subnet: &str,
+    lan_subnet_ipv6: &str,
+    gateway_enabled: bool,
+    exit_enabled: bool,
+) {
+    if gateway_enabled {
+        remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
+    }
+    if exit_enabled {
+        remove_exit_rules(tun_if);
+    }
+    if gateway_enabled || exit_enabled {
+        restore_sysctls(tun_if);
+    }
 }
 
 /// Host sysctl values as they were before `engage` touched them, so `disengage` can put
@@ -660,5 +1016,45 @@ fn restore_sysctls() -> anyhow::Result<()> {
         // Keep the failed entries so another in-process cleanup attempt can retry them.
         *g = Some(failed);
         anyhow::bail!("could not restore host sysctl value(s): {detail}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        forward_insert_position, policy_output_accepts_forward,
+        policy_output_has_first_forward_jump,
+    };
+
+    #[test]
+    fn forward_permit_stays_behind_the_qeli_kill_switch_only() {
+        assert_eq!(forward_insert_position(false), "1");
+        assert_eq!(forward_insert_position(true), "2");
+    }
+
+    #[test]
+    fn kill_switch_jump_must_really_be_the_first_forward_rule() {
+        assert!(policy_output_has_first_forward_jump(
+            "-P FORWARD DROP\n-A FORWARD -j QELI_KS_tun0\n-A FORWARD -j DROP\n",
+            "QELI_KS_tun0",
+        ));
+        assert!(!policy_output_has_first_forward_jump(
+            "-P FORWARD DROP\n-A FORWARD -j HOST_POLICY\n-A FORWARD -j QELI_KS_tun0\n",
+            "QELI_KS_tun0",
+        ));
+    }
+
+    #[test]
+    fn forward_policy_parser_requires_the_exact_builtin_accept_policy() {
+        assert!(policy_output_accepts_forward("-P FORWARD ACCEPT\n"));
+        assert!(!policy_output_accepts_forward(
+            "-P FORWARD DROP\n-A FORWARD -j ACCEPT\n"
+        ));
+        assert!(!policy_output_accepts_forward(
+            "-N FORWARDING\n-P FORWARDING ACCEPT\n"
+        ));
+        assert!(!policy_output_accepts_forward(
+            "-P FORWARD ACCEPT\n-A FORWARD -j DROP\n"
+        ));
     }
 }

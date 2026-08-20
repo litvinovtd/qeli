@@ -7,7 +7,9 @@ use crate::protocol::{
     read_record, read_record_into, read_tls_record, FakeTlsHandshake, Framing, Obfuscator,
     PacketCodec,
 };
-use crate::server::{lock_or_recover, ProfileRuntime, ServerState, ServerTunPacket, TunIngress};
+use crate::server::{
+    lock_or_recover, ExitAccess, ProfileRuntime, ServerState, ServerTunPacket, TunIngress,
+};
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use rand::prelude::*;
 use std::net::SocketAddr;
@@ -191,6 +193,24 @@ pub fn downlink_mtu_for(reported: u32, profile_mtu: i32) -> Option<u16> {
     u16::try_from(reported).ok()
 }
 
+/// Apply the address-family floor to a client-reported downlink MTU.
+///
+/// The control frame is shared by IPv4 and IPv6, so its parser deliberately accepts the IPv4
+/// minimum of 576.  That value must never become an IPv6 next-hop MTU: IPv6 links are required
+/// to expose at least 1280 bytes, and advertising anything smaller in Packet Too Big creates an
+/// invalid PMTU state.  Keep the original IPv4 policy while making the packet family explicit at
+/// the only point where it is known.
+pub fn downlink_mtu_for_packet(
+    reported: u32,
+    profile_mtu: i32,
+    version: crate::protocol::ip::IpVersion,
+) -> Option<u16> {
+    downlink_mtu_for(reported, profile_mtu).map(|mtu| match version {
+        crate::protocol::ip::IpVersion::V4 => mtu,
+        crate::protocol::ip::IpVersion::V6 => mtu.max(1280),
+    })
+}
+
 /// Store a client-reported tunnel MTU, logging only when it actually changes.
 ///
 /// A client sends its report once per session, but a reconnect or a re-probe can repeat it,
@@ -240,7 +260,11 @@ pub struct SessionShared {
     /// superseded by this, so multiple devices of one login coexist while the same
     /// device cleanly replaces its own old session on reconnect.
     pub device_key: String,
-    pub client_ip: std::net::Ipv4Addr,
+    /// Stable primary address used as the unique session-map key (IPv4 for dual stack,
+    /// otherwise the only assigned family).
+    pub client_ip: std::net::IpAddr,
+    pub client_ipv4: Option<std::net::Ipv4Addr>,
+    pub client_ipv6: Option<std::net::Ipv6Addr>,
     /// Source address of the PRIMARY (auth) connection — shown in list-clients.
     pub peer: SocketAddr,
     pub token: [u8; JOIN_TOKEN_LEN],
@@ -271,6 +295,10 @@ pub struct SessionShared {
     /// subnets). Without it an authenticated client could forge any source and
     /// walk past `client_to_client = false`.
     pub src_guard: crate::server::acl::SrcGuard,
+    /// Per-family permission to use a registered client `/0` exit. Derived from this
+    /// session's effective pushed routes, so the documented per-user `route = .../0`
+    /// actually acts as authorization rather than a cosmetic config line.
+    pub(crate) exit_access: ExitAccess,
     /// Tunnel MTU the client reported after probing its path, or 0 when it never told us
     /// (every pre-#13 client, and any client with probing off).
     ///
@@ -310,14 +338,25 @@ pub struct SessionShared {
 }
 
 impl SessionShared {
+    pub fn assigned_addresses(&self) -> impl Iterator<Item = std::net::IpAddr> + '_ {
+        self.client_ipv4
+            .map(std::net::IpAddr::V4)
+            .into_iter()
+            .chain(self.client_ipv6.map(std::net::IpAddr::V6))
+    }
+
     /// The MTU the downlink to this client must respect: the profile's `tun.mtu` narrowed
     /// by whatever the client reported, if anything.
     ///
     /// Returns `None` when there is nothing to enforce — no report, or a report that is not
     /// narrower than the profile — so the hot path can skip the check entirely and behave
     /// bit-for-bit as it did before #13.
-    pub fn downlink_mtu(&self, profile_mtu: i32) -> Option<u16> {
-        downlink_mtu_for(self.path_mtu.load(Ordering::Relaxed), profile_mtu)
+    pub fn downlink_mtu(
+        &self,
+        profile_mtu: i32,
+        version: crate::protocol::ip::IpVersion,
+    ) -> Option<u16> {
+        downlink_mtu_for_packet(self.path_mtu.load(Ordering::Relaxed), profile_mtu, version)
     }
 
     /// Record a client's reported tunnel MTU (see [`note_path_mtu`]).
@@ -421,6 +460,8 @@ enum FirstMessage {
         password: String,
         /// Stable per-device id (None = old client without one).
         device_id: Option<[u8; DEVICE_ID_LEN]>,
+        /// Present only when this server advertised the authenticated extension.
+        capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
     },
     Join {
         token: [u8; JOIN_TOKEN_LEN],
@@ -473,6 +514,7 @@ where
             username,
             password,
             device_id,
+            capabilities,
         } => {
             log::info!(
                 "AUTH attempt from {} on profile '{}': user={}",
@@ -493,6 +535,14 @@ where
                 &transcript_hash,
             )
             .await?;
+
+            // Negotiate the family set before touching either pool. IPv6-only incapable
+            // clients fail here; dual profiles downgrade old/off clients to legacy IPv4.
+            let negotiated_ip_mode = crate::protocol::capabilities::negotiated_profile_ip_mode(
+                pcfg.tun.ip_mode,
+                capabilities,
+            )
+            .map_err(|error| anyhow::anyhow!("profile '{}': {error}", pcfg.name))?;
 
             // Identify the device: same login + same device-id supersedes its own
             // old session (clean reconnect on IP change); different devices of one
@@ -517,9 +567,12 @@ where
             // LIVE users db (so a panel edit + SIGHUP applies at once); the holder is evicted
             // below and the address is stolen, so a reconnect from a new source IP keeps the
             // same tunnel IP. None = normal dynamic allocation.
-            let fixed_ip = {
+            let (fixed_ip, fixed_ipv6) = {
                 let db = server_state.users_db.read().await;
-                resolve_static_ip(&db, pcfg, &username)
+                (
+                    resolve_static_ip(&db, pcfg, &username),
+                    resolve_static_ipv6(&db, pcfg, &username),
+                )
             };
             // #13 iroute: subnets/addresses behind THIS client (its extra address or LAN),
             // from the LIVE users db so a panel edit + SIGHUP applies. Registered in the
@@ -540,15 +593,14 @@ where
             let mut cap_evicted = Vec::new();
             {
                 let mut sessions = profile.sessions.write().await;
-                let stale: Vec<std::net::Ipv4Addr> = sessions
+                let stale: Vec<std::net::IpAddr> = sessions
                     .by_ip
                     .iter()
                     .filter(|(_, s)| s.device_key == dkey)
                     .map(|(ip, _)| *ip)
                     .collect();
                 for ip in stale {
-                    if let Some(old) = sessions.by_ip.remove(&ip) {
-                        sessions.by_token.remove(&old.token);
+                    if let Some(old) = sessions.remove(ip) {
                         old.kick_all();
                         // Strip the old session's inbound iroutes from the map — a dead
                         // ClientRoute would otherwise win route_lookup or stack a duplicate
@@ -566,16 +618,40 @@ where
                 // address — a different device of theirs, or a dynamic user who grabbed it
                 // while the owner was offline — so we can steal it below. (Our own prior
                 // session was already dropped by the supersede loop above.)
-                if let Some(ip) = fixed_ip {
-                    if let Some(old) = sessions.by_ip.remove(&ip) {
-                        sessions.by_token.remove(&old.token);
+                let fixed_addresses = fixed_ip
+                    .filter(|_| {
+                        matches!(
+                            negotiated_ip_mode,
+                            crate::config::server::IpMode::Ipv4
+                                | crate::config::server::IpMode::Dual
+                        )
+                    })
+                    .map(std::net::IpAddr::V4)
+                    .into_iter()
+                    .chain(
+                        fixed_ipv6
+                            .filter(|_| {
+                                matches!(
+                                    negotiated_ip_mode,
+                                    crate::config::server::IpMode::Ipv6
+                                        | crate::config::server::IpMode::Dual
+                                )
+                            })
+                            .map(std::net::IpAddr::V6),
+                    )
+                    .collect::<Vec<_>>();
+                for address in fixed_addresses {
+                    let holder_primary = sessions
+                        .get_by_address(address)
+                        .map(|holder| holder.client_ip);
+                    if let Some(old) = holder_primary.and_then(|primary| sessions.remove(primary)) {
                         old.kick_all();
                         // Strip the evicted holder's iroutes (map only — see the supersede
                         // note above; the admitted session re-programs the kernel).
-                        let _ = sessions.take_client_routes(ip);
+                        let _ = sessions.take_client_routes(old.client_ip);
                         log::info!(
                             "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
-                            ip, username, old.device_key, profile.name
+                            address, username, old.device_key, profile.name
                         );
                         cap_evicted.push(old);
                     }
@@ -584,7 +660,7 @@ where
                 // OTHER devices of this user; evict the oldest until the new one fits.
                 if max_sessions > 0 {
                     loop {
-                        let mut user_sessions: Vec<(std::net::Ipv4Addr, Instant)> = sessions
+                        let mut user_sessions: Vec<(std::net::IpAddr, Instant)> = sessions
                             .by_ip
                             .iter()
                             .filter(|(_, s)| s.username == username)
@@ -595,9 +671,8 @@ where
                         }
                         user_sessions.sort_by_key(|(_, t)| *t); // oldest first
                         let oldest_ip = user_sessions[0].0;
-                        match sessions.by_ip.remove(&oldest_ip) {
+                        match sessions.remove(oldest_ip) {
                             Some(old) => {
-                                sessions.by_token.remove(&old.token);
                                 old.kick_all();
                                 // Strip the evicted device's iroutes (map only).
                                 let _ = sessions.take_client_routes(oldest_ip);
@@ -648,7 +723,7 @@ where
             }
 
             let session_id = rand::random::<u64>();
-            let client_ip = {
+            let assigned = {
                 // ONE pool lock for "give back what we evicted, then take ours". Splitting
                 // the two — as this used to — leaves the freed address on the pool's `freed`
                 // stack across an await, and `allocate` pops that stack first. See the
@@ -657,7 +732,9 @@ where
                 for s in &cap_evicted {
                     pool.release(&s.device_key);
                 }
-                let ip = match fixed_ip {
+                pool.retain_mode_leases(&dkey, negotiated_ip_mode);
+                if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+                    let ip = match fixed_ip {
                     // Fixed address for this user; if it's out of the pool / excluded,
                     // allocate_fixed returns None and we fall back to a dynamic address.
                     Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
@@ -669,20 +746,43 @@ where
                     }),
                     None => pool.allocate(&dkey),
                 };
-                ip.ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "no IP available for {} on profile '{}'",
-                        username,
-                        profile.name
-                    )
-                })?
+                    let ipv4 = ip.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no IP available for {} on profile '{}'",
+                            username,
+                            profile.name
+                        )
+                    })?;
+                    crate::server::pool::AssignedAddresses {
+                        ipv4: Some(ipv4),
+                        ipv6: None,
+                    }
+                } else {
+                    pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "cannot allocate {} address set for '{}' on profile '{}': {}",
+                                negotiated_ip_mode,
+                                username,
+                                profile.name,
+                                error
+                            )
+                        })?
+                }
             };
+            let client_ip = assigned
+                .ipv4
+                .map(std::net::IpAddr::V4)
+                .or_else(|| assigned.ipv6.map(std::net::IpAddr::V6))
+                .expect("negotiated address mode assigns at least one family");
             let mut token = [0u8; JOIN_TOKEN_LEN];
             rand::rng().fill_bytes(&mut token[..]);
 
-            let (routes_json, initial_bandwidth_mbps, dst_acl, src_subnets) = {
+            let (routes_json, exit_access, initial_bandwidth_mbps, dst_acl, src_subnets) = {
                 let users_db = server_state.users_db.read().await;
-                let routes = build_routes_json_for_user(pcfg, &users_db, &username);
+                let raw_routes = build_routes_json_for_user(pcfg, &users_db, &username, assigned);
+                let exit_access = exit_access_from_routes_json(&raw_routes);
+                let routes = routes_without_exit_defaults(&raw_routes);
                 let u = users_db.find_user(&username);
                 let bw = u
                     .map(|u| u.effective_bandwidth_limit(&users_db.groups))
@@ -695,9 +795,16 @@ where
                     &username,
                 );
                 let subnets = u.map(|u| u.client_subnets.clone()).unwrap_or_default();
-                (routes, bw, acl, subnets)
+                (routes, exit_access, bw, acl, subnets)
             };
-            let src_guard = crate::server::acl::SrcGuard::new(client_ip, &src_subnets, &username);
+            let assigned_sources: Vec<std::net::IpAddr> = assigned
+                .ipv4
+                .map(std::net::IpAddr::V4)
+                .into_iter()
+                .chain(assigned.ipv6.map(std::net::IpAddr::V6))
+                .collect();
+            let src_guard =
+                crate::server::acl::SrcGuard::new_dual(&assigned_sources, &src_subnets, &username);
             if !dst_acl.is_unrestricted() {
                 log::info!(
                     "User '{}' is restricted to {} destination network(s) (allowed_networks)",
@@ -724,6 +831,8 @@ where
                 username: username.clone(),
                 device_key: dkey.clone(),
                 client_ip,
+                client_ipv4: assigned.ipv4,
+                client_ipv6: assigned.ipv6,
                 peer: addr,
                 token,
                 max_streams,
@@ -737,6 +846,7 @@ where
                 rates: DirectionalRateBuckets::new(),
                 dst_acl,
                 src_guard,
+                exit_access,
                 // 0 = the client has not reported a path MTU. Every pre-#13 client stays
                 // here, and the downlink check stays switched off for them.
                 path_mtu: Arc::new(AtomicU32::new(0)),
@@ -760,20 +870,20 @@ where
                         profile.name
                     ));
                 }
-                sessions.by_ip.insert(client_ip, session.clone());
-                sessions.by_token.insert(token, client_ip);
+                sessions.insert(session.clone());
                 // #13 iroute: register the subnets behind this client for INBOUND routing.
-                // Refuse a default route or one covering the server's own tunnel IP (would
-                // hijack the pool), and skip a subnet already claimed by a DIFFERENT client
-                // (first-registered wins). Admin-configured here (per-user client_subnets),
-                // so this is a footgun guard, not an untrusted-input gate.
-                let server_tun: Option<std::net::Ipv4Addr> = pcfg.tun.address.parse().ok();
+                // Defaults are internal-only exit next hops; non-default routes covering the
+                // server's own tunnel IP are refused, and a subnet already claimed by a
+                // DIFFERENT client is skipped (first-registered wins). Admin-configured here
+                // (per-user client_subnets), so this is a footgun guard, not an
+                // untrusted-input gate.
+                let server_tun = configured_tun_addresses(pcfg);
                 programmed_client_routes.extend(register_client_subnets(
                     &mut sessions,
                     &client_subnets,
                     client_ip,
                     &session,
-                    server_tun,
+                    &server_tun,
                     &username,
                     &profile.name,
                 ));
@@ -800,12 +910,13 @@ where
             // default). Roll the whole thing back before propagating the error.
             // (Audit 2026-07-27, B5.)
             let send_result = async {
-                let msg = build_auth_ok(
-                    &client_ip.to_string(),
+                let msg = build_auth_ok_for_addresses(
+                    assigned,
                     pcfg,
                     &routes_json,
                     &token,
                     max_streams,
+                    capabilities,
                 );
                 let auth_response = server_tx_codec.encrypt_packet(msg.as_bytes(), &[])?;
                 stream.write_all(&auth_response).await?;
@@ -815,8 +926,7 @@ where
             if let Err(e) = send_result {
                 let orphan_routes = {
                     let mut sessions = profile.sessions.write().await;
-                    sessions.by_ip.remove(&client_ip);
-                    sessions.by_token.remove(&token);
+                    sessions.remove(client_ip);
                     sessions.take_client_routes(client_ip)
                 };
                 for cidr in &orphan_routes {
@@ -1003,7 +1113,9 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
     }
     let mut proof = [0u8; 32];
     proof.copy_from_slice(&plaintext[..32]);
-    let (device_id, creds) = split_device_id(&plaintext[32..]);
+    let (device_id, auth_bytes) = split_device_id(&plaintext[32..]);
+    let (capabilities, creds) =
+        crate::protocol::capabilities::split_client_capabilities(auth_bytes)?;
     let auth_str = String::from_utf8(creds.to_vec())?;
     let (user, pass) = auth_str
         .split_once(':')
@@ -1013,6 +1125,7 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
         username: user.to_string(),
         password: pass.to_string(),
         device_id,
+        capabilities,
     })
 }
 
@@ -1103,6 +1216,7 @@ async fn run_stream<R, W>(
     {
         let mut server_rx = server_rx;
         let tun_tx = tun_tx.clone();
+        let profile_r = profile.clone();
         let bytes_recv = session.bytes_recv.clone();
         let session_r = session.clone();
         let last_act = last_act.clone();
@@ -1208,8 +1322,12 @@ async fn run_stream<R, W>(
                                         stream_id,
                                     );
                                     if tun_tx
-                                        .sender
-                                        .send(ServerTunPacket::Pooled(plaintext))
+                                        .send_client_packet(
+                                            &profile_r,
+                                            session_r.session_id,
+                                            session_r.exit_access,
+                                            ServerTunPacket::Pooled(plaintext),
+                                        )
                                         .await
                                         .is_err()
                                     {
@@ -1455,8 +1573,7 @@ async fn run_stream<R, W>(
         let mut sessions = profile.sessions.write().await;
         if sessions.by_ip.get(&session.client_ip).map(|s| s.session_id) == Some(session.session_id)
         {
-            sessions.by_ip.remove(&session.client_ip);
-            sessions.by_token.remove(&session.token);
+            sessions.remove(session.client_ip);
             // #13 iroute: drop this client's inbound routes; delete their kernel routes
             // after the lock is released.
             let iroutes: Vec<String> = sessions
@@ -1484,6 +1601,52 @@ async fn run_stream<R, W>(
             crate::server::notify::fire_disconnect(&session.username, &profile.name, addr);
         }
     }
+}
+
+/// Interpret effective pushed `/0` routes as permissions to use an internal exit node.
+/// The route JSON is already the exact per-user-or-profile set sent in AuthOK, so personal
+/// route override semantics and negotiated-family filtering stay identical in both places.
+pub(crate) fn exit_access_from_routes_json(routes_json: &str) -> ExitAccess {
+    let Ok(routes) = serde_json::from_str::<Vec<serde_json::Value>>(routes_json) else {
+        return ExitAccess::default();
+    };
+    let mut access = ExitAccess::default();
+    for route in routes {
+        let Some(cidr) = route.get("cidr").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some((address, prefix)) = cidr.trim().split_once('/') else {
+            continue;
+        };
+        if prefix.trim() != "0" {
+            continue;
+        }
+        match address.trim().parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(_)) => access.ipv4 = true,
+            Ok(std::net::IpAddr::V6(_)) => access.ipv6 = true,
+            Err(_) => {}
+        }
+    }
+    access
+}
+
+/// Remove server-internal exit authorization markers from AuthOK. Qeli deliberately does
+/// not let a server force a client into full tunnel with a pushed `/0`; the consumer opts in
+/// locally with `gateway = true`. More-specific advertised routes are unchanged.
+pub(crate) fn routes_without_exit_defaults(routes_json: &str) -> String {
+    let Ok(mut routes) = serde_json::from_str::<Vec<serde_json::Value>>(routes_json) else {
+        return "[]".to_string();
+    };
+    routes.retain(|route| {
+        let Some(cidr) = route.get("cidr").and_then(serde_json::Value::as_str) else {
+            return true;
+        };
+        let Some((address, prefix)) = cidr.trim().split_once('/') else {
+            return true;
+        };
+        !(prefix.trim() == "0" && address.trim().parse::<std::net::IpAddr>().is_ok())
+    });
+    serde_json::Value::Array(routes).to_string()
 }
 
 async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
@@ -1667,7 +1830,7 @@ pub fn build_server_auth_msg(
     transcript_hash: &[u8; 32],
     hide_identity: bool,
 ) -> Vec<u8> {
-    if hide_identity {
+    let mut message = if hide_identity {
         crate::crypto::build_server_proof_only(
             static_kp,
             client_pub,
@@ -1677,7 +1840,12 @@ pub fn build_server_auth_msg(
         .to_vec()
     } else {
         build_server_auth_message(static_kp, client_pub, ephemeral_shared, transcript_hash)
-    }
+    };
+    crate::protocol::capabilities::append_server_capabilities(
+        &mut message,
+        crate::protocol::capabilities::implemented_server_capabilities(),
+    );
+    message
 }
 
 /// A cached, valid Argon2id PHC hash of a throwaway password. Verifying a
@@ -1947,8 +2115,9 @@ pub fn build_routes_json_pub(
     pcfg: &crate::config::server::ProfileConfig,
     users_db: &crate::config::users::UsersDb,
     username: &str,
+    assigned: crate::server::pool::AssignedAddresses,
 ) -> String {
-    build_routes_json_for_user(pcfg, users_db, username)
+    build_routes_json_for_user(pcfg, users_db, username, assigned)
 }
 
 /// Resolve a user's FIXED tunnel address for this profile (variant-b static IP): the
@@ -1986,6 +2155,33 @@ pub fn resolve_static_ip(
     }
 }
 
+/// Resolve a user's fixed IPv6 tunnel address from the live user database, falling back
+/// to the profile-level IPv6 reservation. Pool membership and exclusions are enforced by
+/// the allocator under the same lock as the IPv4 side of a dual allocation.
+pub fn resolve_static_ipv6(
+    users_db: &crate::config::users::UsersDb,
+    pcfg: &crate::config::server::ProfileConfig,
+    username: &str,
+) -> Option<std::net::Ipv6Addr> {
+    let configured = users_db
+        .find_user(username)
+        .and_then(|user| user.static_ipv6.clone())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| pcfg.pool.ipv6.static_reservations.get(username).cloned())?;
+    match configured.trim().parse::<std::net::Ipv6Addr>() {
+        Ok(address) => Some(address),
+        Err(_) => {
+            log::warn!(
+                "static IPv6 {:?} for user '{}' on profile '{}' is invalid; using a dynamic address",
+                configured,
+                crate::util::log_sanitize(username),
+                profile_name_of(pcfg)
+            );
+            None
+        }
+    }
+}
+
 /// Profile name for a log line (the config carries it; kept tiny so `resolve_static_ip`
 /// stays a pure lookup).
 fn profile_name_of(pcfg: &crate::config::server::ProfileConfig) -> &str {
@@ -2006,7 +2202,34 @@ pub fn build_auth_ok(
     routes_json: &str,
     token: &[u8; JOIN_TOKEN_LEN],
     max_streams: u32,
+    client_capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
 ) -> String {
+    let ipv4 = client_ip.parse::<std::net::Ipv4Addr>().ok();
+    build_auth_ok_for_addresses(
+        crate::server::pool::AssignedAddresses { ipv4, ipv6: None },
+        pcfg,
+        routes_json,
+        token,
+        max_streams,
+        client_capabilities,
+    )
+}
+
+pub fn build_auth_ok_for_addresses(
+    assigned: crate::server::pool::AssignedAddresses,
+    pcfg: &crate::config::server::ProfileConfig,
+    routes_json: &str,
+    token: &[u8; JOIN_TOKEN_LEN],
+    max_streams: u32,
+    client_capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
+) -> String {
+    let primary_address = assigned
+        .ipv4
+        .map(std::net::IpAddr::V4)
+        .or_else(|| assigned.ipv6.map(std::net::IpAddr::V6));
+    let client_ip = primary_address
+        .map(|address| address.to_string())
+        .unwrap_or_default();
     let obf = crate::config::PushedObf {
         padding: pcfg.obfuscation.padding.clone(),
         heartbeat: pcfg.obfuscation.heartbeat.clone(),
@@ -2020,14 +2243,37 @@ pub fn build_auth_ok(
     // AdGuard / NextDNS box) directly. Otherwise push the proxy's listen IP only when
     // the proxy runs (its default 10.9.0.1 resolves nowhere — pushing it would black-
     // hole client name resolution). Empty => the client keeps its own resolvers. The
-    // client strict-IP-validates the pushed value before applying platform DNS.
-    let pushed_dns = if let Some(ip) = pcfg.dns.push_servers.first() {
-        ip.as_str()
-    } else if pcfg.dns.enabled {
-        pcfg.dns.listen.as_str()
-    } else {
-        ""
+    // client strict-IP-validates the pushed value before touching resolv.conf.
+    let family_is_active = |address: std::net::IpAddr| {
+        (address.is_ipv4() && assigned.ipv4.is_some())
+            || (address.is_ipv6() && assigned.ipv6.is_some())
     };
+    let mut pushed_dns_servers: Vec<&str> = if !pcfg.dns.push_servers.is_empty() {
+        pcfg.dns
+            .push_servers
+            .iter()
+            .filter_map(|value| {
+                value
+                    .parse::<std::net::IpAddr>()
+                    .ok()
+                    .filter(|address| family_is_active(*address))
+                    .map(|_| value.as_str())
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if pushed_dns_servers.is_empty() && pcfg.dns.enabled {
+        if assigned.ipv4.is_some() {
+            pushed_dns_servers.push(pcfg.dns.listen.as_str());
+        }
+        if assigned.ipv6.is_some() {
+            if let Some(address) = pcfg.dns.listen_ipv6.as_deref() {
+                pushed_dns_servers.push(address);
+            }
+        }
+    }
+    let pushed_dns = pushed_dns_servers.first().copied().unwrap_or("");
     // Push the VPN subnet prefix length so the client sets the correct on-link
     // prefix instead of assuming /24. Derived from the canonical pool CIDR parser;
     // falls back to 24 if it cannot be parsed (a non-/24 pool would otherwise break
@@ -2036,10 +2282,23 @@ pub fn build_auth_ok(
     let prefix: u8 = crate::config::server::pool_subnet(&pcfg.pool.cidr)
         .map(|subnet| subnet.prefix)
         .unwrap_or(24);
-    let body = serde_json::json!({
+    let ipv6_prefix = crate::config::server::ipv6_pool_subnet(&pcfg.pool.ipv6.cidr)
+        .map(|subnet| subnet.prefix)
+        .unwrap_or(64);
+    let legacy_prefix = if assigned.ipv4.is_some() {
+        prefix
+    } else {
+        ipv6_prefix
+    };
+    let legacy_gateway = if assigned.ipv4.is_some() {
+        pcfg.tun.address.as_str()
+    } else {
+        pcfg.tun.ipv6_address.as_deref().unwrap_or("")
+    };
+    let mut body = serde_json::json!({
         "client_ip": client_ip,
-        "server_ip": pcfg.tun.address,
-        "prefix": prefix,
+        "server_ip": legacy_gateway,
+        "prefix": legacy_prefix,
         // Push the server profile's TUN MTU. A client with mtu=0 (auto — the
         // default) adopts this value; a client that set its own mtu keeps it.
         // Additive: older clients ignore the field and use their own default.
@@ -2063,12 +2322,65 @@ pub fn build_auth_ok(
         // opens exactly max_streams. Only meaningful when bonding is active.
         "multipath_adaptive": max_streams > 1 && pcfg.obfuscation.multipath.adaptive,
     });
+    let plan_v2 = client_capabilities.is_some_and(|capabilities| {
+        capabilities.core_bits & crate::protocol::capabilities::client_capability::NETWORK_PLAN_V2
+            != 0
+    });
+    if plan_v2 {
+        // An L3 TUN is point-to-point: assigning the pool prefix (especially an IPv6 /64)
+        // would make the client kernel treat every peer as on-link and start ARP/NDP on an
+        // interface that carries IP packets, not Ethernet frames.  Keep the pool prefix in
+        // `on_link_prefix_len` for ACL/routing calculations, but assign a host prefix to the
+        // TUN. TAP is a real L2 segment, so it deliberately receives the pool prefix. The
+        // current shared client core normalizes this projection once more against its own
+        // local device type because TUN/TAP need not match across the L3 qeli wire; keeping
+        // this server-side projection preserves compatibility with older v2 clients.
+        let is_tap = pcfg.tun.device_type.eq_ignore_ascii_case("tap");
+        let ipv4_address_prefix = if is_tap { prefix } else { 32 };
+        let ipv6_address_prefix = if is_tap { ipv6_prefix } else { 128 };
+        let mut addresses = Vec::with_capacity(2);
+        if let Some(address) = assigned.ipv4 {
+            addresses.push(serde_json::json!({
+                "family": "ipv4",
+                "address": address,
+                "prefix_len": ipv4_address_prefix,
+                "on_link_prefix_len": prefix,
+                "gateway": pcfg.tun.address,
+            }));
+        }
+        if let Some(address) = assigned.ipv6 {
+            addresses.push(serde_json::json!({
+                "family": "ipv6",
+                "address": address,
+                "prefix_len": ipv6_address_prefix,
+                "on_link_prefix_len": ipv6_prefix,
+                "gateway": pcfg.tun.ipv6_address,
+            }));
+        }
+        let family_mode = match (assigned.ipv4.is_some(), assigned.ipv6.is_some()) {
+            (true, false) => "ipv4",
+            (true, true) => "dual",
+            (false, true) => "ipv6",
+            (false, false) => "ipv4",
+        };
+        let dns_servers: Vec<serde_json::Value> = pushed_dns_servers
+            .iter()
+            .map(|address| serde_json::json!({"address": address, "port": 53}))
+            .collect();
+        if let Some(object) = body.as_object_mut() {
+            object.insert("family_mode".into(), serde_json::json!(family_mode));
+            object.insert("addresses".into(), serde_json::json!(addresses));
+            object.insert("dns_servers".into(), serde_json::json!(dns_servers));
+        }
+    }
     format!("OK:{}", serde_json::to_string(&body).unwrap_or_default())
 }
 
 #[cfg(test)]
 mod auth_ok_prefix_tests {
-    use super::{build_auth_ok, JOIN_TOKEN_LEN};
+    use super::{
+        build_auth_ok, build_auth_ok_for_addresses, build_routes_json_for_user, JOIN_TOKEN_LEN,
+    };
 
     #[test]
     fn pool_cidr_prefix_is_pushed_without_a_24_fallback() {
@@ -2076,7 +2388,7 @@ mod auth_ok_prefix_tests {
         profile.pool.cidr = "10.20.0.0/16".into();
         profile.tun.address = "10.20.0.1".into();
 
-        let message = build_auth_ok("10.20.0.2", &profile, "[]", &[0; JOIN_TOKEN_LEN], 1);
+        let message = build_auth_ok("10.20.0.2", &profile, "[]", &[0; JOIN_TOKEN_LEN], 1, None);
         let body: serde_json::Value = serde_json::from_str(
             message
                 .strip_prefix("OK:")
@@ -2086,6 +2398,130 @@ mod auth_ok_prefix_tests {
 
         assert_eq!(body["prefix"], 16);
         assert_eq!(body["server_ip"], "10.20.0.1");
+    }
+
+    #[test]
+    fn network_plan_v2_is_additive_and_keeps_legacy_projection() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.pool.cidr = "10.30.0.0/20".into();
+        profile.tun.address = "10.30.0.1".into();
+        let capabilities = crate::protocol::capabilities::ClientCapabilities {
+            core_bits: crate::protocol::capabilities::client_capability::NETWORK_PLAN_V2,
+            ..Default::default()
+        };
+        let message = build_auth_ok(
+            "10.30.0.2",
+            &profile,
+            "[]",
+            &[0; JOIN_TOKEN_LEN],
+            1,
+            Some(capabilities),
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(message.strip_prefix("OK:").unwrap()).unwrap();
+        assert_eq!(body["client_ip"], "10.30.0.2");
+        assert_eq!(body["family_mode"], "ipv4");
+        assert_eq!(body["addresses"][0]["prefix_len"], 32);
+        assert_eq!(body["addresses"][0]["on_link_prefix_len"], 20);
+        assert_eq!(body["addresses"][0]["gateway"], "10.30.0.1");
+    }
+
+    #[test]
+    fn ipv6_tun_uses_host_prefix_without_losing_pool_prefix() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.tun.device_type = "tun".into();
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        let capabilities = crate::protocol::capabilities::ClientCapabilities {
+            core_bits: crate::protocol::capabilities::client_capability::NETWORK_PLAN_V2,
+            ..Default::default()
+        };
+        let message = build_auth_ok_for_addresses(
+            crate::server::pool::AssignedAddresses {
+                ipv4: None,
+                ipv6: Some("fd71:e1::2".parse().unwrap()),
+            },
+            &profile,
+            "[]",
+            &[0; JOIN_TOKEN_LEN],
+            1,
+            Some(capabilities),
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(message.strip_prefix("OK:").unwrap()).unwrap();
+        assert_eq!(body["addresses"][0]["prefix_len"], 128);
+        assert_eq!(body["addresses"][0]["on_link_prefix_len"], 64);
+        assert_eq!(body["addresses"][0]["gateway"], "fd71:e1::1");
+    }
+
+    #[test]
+    fn tap_keeps_pool_prefix_for_layer_two_neighbor_discovery() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.tun.device_type = "tap".into();
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        let capabilities = crate::protocol::capabilities::ClientCapabilities {
+            core_bits: crate::protocol::capabilities::client_capability::NETWORK_PLAN_V2,
+            ..Default::default()
+        };
+        let message = build_auth_ok_for_addresses(
+            crate::server::pool::AssignedAddresses {
+                ipv4: None,
+                ipv6: Some("fd71:e1::2".parse().unwrap()),
+            },
+            &profile,
+            "[]",
+            &[0; JOIN_TOKEN_LEN],
+            1,
+            Some(capabilities),
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(message.strip_prefix("OK:").unwrap()).unwrap();
+        assert_eq!(body["addresses"][0]["prefix_len"], 64);
+        assert_eq!(body["addresses"][0]["on_link_prefix_len"], 64);
+    }
+
+    #[test]
+    fn route_defaults_and_filtering_follow_the_assigned_families() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.routing.advertised_routes = vec![
+            crate::config::server::PushedRoute {
+                cidr: "10.20.0.0/16".into(),
+                ..Default::default()
+            },
+            crate::config::server::PushedRoute {
+                cidr: "2001:db8:20::/64".into(),
+                ..Default::default()
+            },
+        ];
+        let users = crate::config::users::UsersDb::default();
+
+        let ipv4 = build_routes_json_for_user(
+            &profile,
+            &users,
+            "alice",
+            crate::server::pool::AssignedAddresses {
+                ipv4: Some("10.9.0.2".parse().unwrap()),
+                ipv6: None,
+            },
+        );
+        let ipv4: serde_json::Value = serde_json::from_str(&ipv4).unwrap();
+        assert_eq!(ipv4.as_array().unwrap().len(), 1);
+        assert_eq!(ipv4[0]["gateway"], "10.9.0.1");
+
+        let ipv6 = build_routes_json_for_user(
+            &profile,
+            &users,
+            "alice",
+            crate::server::pool::AssignedAddresses {
+                ipv4: None,
+                ipv6: Some("fd71:e1::2".parse().unwrap()),
+            },
+        );
+        let ipv6: serde_json::Value = serde_json::from_str(&ipv6).unwrap();
+        assert_eq!(ipv6.as_array().unwrap().len(), 1);
+        assert_eq!(ipv6[0]["gateway"], "fd71:e1::1");
     }
 }
 
@@ -2113,8 +2549,10 @@ pub(crate) fn spawn_client_route_teardown(
 }
 
 /// Register a client's inbound iroute subnets (#13) into the sessions map under the write
-/// lock, returning the CIDRs whose kernel `ip route` must be programmed after the lock
-/// drops. Refuses a default route or one covering the server's tunnel IP, and skips a
+/// lock, returning the non-default CIDRs whose kernel `ip route` must be programmed after
+/// the lock drops. A default route is kept only in qeli's internal longest-prefix table
+/// (exit-node); installing it in the host table would capture the server's own WAN. Refuses
+/// a non-default route covering the server's tunnel IP, and skips a
 /// subnet already claimed by a DIFFERENT client (first-registered wins). Admin-configured
 /// (per-user `client_subnets`) — a footgun guard, not an untrusted-input gate. Shared by
 /// the TCP (handler) and UDP (udp_handler) auth paths so both transports route to a
@@ -2122,14 +2560,25 @@ pub(crate) fn spawn_client_route_teardown(
 pub(crate) fn register_client_subnets(
     sessions: &mut crate::server::SessionMap,
     client_subnets: &[String],
-    client_ip: std::net::Ipv4Addr,
+    client_ip: std::net::IpAddr,
     session: &std::sync::Arc<SessionShared>,
-    server_tun: Option<std::net::Ipv4Addr>,
+    server_tun_addresses: &[std::net::IpAddr],
     username: &str,
     profile_name: &str,
 ) -> Vec<String> {
     let mut programmed = Vec::new();
     for cidr in client_subnets {
+        if !client_subnet_family_active(
+            cidr,
+            session.client_ipv4.is_some(),
+            session.client_ipv6.is_some(),
+        ) {
+            log::warn!(
+                "iroute: skipping client_subnet '{cidr}' for user '{}' because its address family was not negotiated for this session",
+                crate::util::log_sanitize(username)
+            );
+            continue;
+        }
         let r = match crate::server::ClientRoute::parse(cidr, client_ip, session.clone()) {
             Some(r) => r,
             None => {
@@ -2139,21 +2588,33 @@ pub(crate) fn register_client_subnets(
                 continue;
             }
         };
-        if r.prefix() == 0 || server_tun.map(|t| r.contains(t)).unwrap_or(false) {
+        let is_default = r.prefix() == 0;
+        if !is_default
+            && server_tun_addresses
+                .iter()
+                .any(|address| r.contains(*address))
+        {
             log::warn!(
-                "iroute: refusing client_subnet '{cidr}' (user '{username}') — it would capture the default route or the tunnel gateway"
+                "iroute: refusing client_subnet '{cidr}' (user '{username}') — it would capture the tunnel gateway"
             );
             continue;
         }
-        if sessions
+        if let Some(existing) = sessions
             .client_routes
             .iter()
-            .any(|e| e.cidr == r.cidr && e.client_ip != client_ip)
+            .find(|existing| existing.same_network(&r))
         {
-            log::warn!(
-                "iroute: '{cidr}' (user '{}') is already claimed by another client — skipping",
-                crate::util::log_sanitize(username)
-            );
+            if existing.client_ip != client_ip {
+                log::warn!(
+                    "iroute: '{cidr}' (user '{}') is already claimed by another client — skipping",
+                    crate::util::log_sanitize(username)
+                );
+            } else {
+                log::debug!(
+                    "iroute: duplicate client_subnet '{cidr}' for user '{}' — keeping one canonical route",
+                    crate::util::log_sanitize(username)
+                );
+            }
             continue;
         }
         // Sanitize the username on the way to the log like every other user-derived value —
@@ -2163,35 +2624,189 @@ pub(crate) fn register_client_subnets(
             "iroute: {cidr} -> client {} ({client_ip}) on profile '{profile_name}'",
             crate::util::log_sanitize(username)
         );
-        programmed.push(r.cidr.clone());
+        // `/0` is an internal session-to-session next hop. Never turn it into the Linux
+        // host default route: the qeli server's own listener/WAN packets would be captured
+        // by its TUN and the profile would disconnect itself. Non-default iroutes still need
+        // a kernel route so traffic originating outside another qeli client reaches the TUN.
+        if !is_default {
+            programmed.push(r.cidr.clone());
+        }
         sessions.client_routes.push(r);
     }
     programmed
 }
 
+fn client_subnet_family_active(cidr: &str, has_ipv4: bool, has_ipv6: bool) -> bool {
+    let address = cidr
+        .trim()
+        .split_once('/')
+        .map_or(cidr.trim(), |(address, _)| address.trim());
+    match address.parse::<std::net::IpAddr>() {
+        Ok(address) if address.is_ipv4() => has_ipv4,
+        Ok(_) => has_ipv6,
+        // Leave malformed diagnostics to ClientRoute::parse below.
+        Err(_) => true,
+    }
+}
+
+pub(crate) fn configured_tun_addresses(
+    profile: &crate::config::server::ProfileConfig,
+) -> Vec<std::net::IpAddr> {
+    let mut addresses = Vec::with_capacity(2);
+    if profile.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+        if let Ok(address) = profile.tun.address.parse::<std::net::Ipv4Addr>() {
+            addresses.push(std::net::IpAddr::V4(address));
+        }
+    }
+    if profile.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+        if let Some(address) = profile
+            .tun
+            .ipv6_address
+            .as_deref()
+            .and_then(|address| address.parse::<std::net::Ipv6Addr>().ok())
+        {
+            addresses.push(std::net::IpAddr::V6(address));
+        }
+    }
+    addresses
+}
+
 pub(crate) async fn program_client_subnet_route(add: bool, cidr: &str, tun: &str) {
+    // Defence in depth: exit-node defaults live only in SessionMap. Even if a future caller
+    // accidentally includes one in its programmed/teardown list, never add *or delete* the
+    // Linux host default route here.
+    if client_subnet_is_default(cidr) {
+        log::debug!("iroute: keeping internal default '{cidr}' out of the host route table");
+        return;
+    }
     let action = if add { "replace" } else { "del" };
+    let args = client_subnet_route_args(action, cidr, tun);
+    let command = format!("ip {}", args.join(" "));
     match tokio::process::Command::new("ip")
-        .args(["route", action, cidr, "dev", tun])
+        .args(&args)
         .output()
         .await
     {
-        Ok(o) if o.status.success() => {
-            log::info!("iroute: ip route {} {} dev {}", action, cidr, tun)
-        }
+        Ok(o) if o.status.success() => log::info!("iroute: {command}"),
         Ok(o) => log::warn!(
-            "iroute: `ip route {} {} dev {}` failed: {}",
-            action,
-            cidr,
-            tun,
+            "iroute: `{}` failed: {}",
+            command,
             String::from_utf8_lossy(&o.stderr).trim()
         ),
-        Err(e) => log::warn!(
-            "iroute: could not run `ip route {} {}`: {}",
-            action,
-            cidr,
-            e
-        ),
+        Err(e) => log::warn!("iroute: could not run `{command}`: {e}"),
+    }
+}
+
+fn client_subnet_is_default(cidr: &str) -> bool {
+    let Some((address, prefix)) = cidr.trim().split_once('/') else {
+        return false;
+    };
+    prefix.trim() == "0" && address.trim().parse::<std::net::IpAddr>().is_ok()
+}
+
+fn client_subnet_route_args(action: &str, cidr: &str, tun: &str) -> Vec<String> {
+    let ipv6 = cidr
+        .trim()
+        .split_once('/')
+        .map(|(address, _)| address.trim())
+        .and_then(|address| address.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|address| address.is_ipv6());
+    let mut args = Vec::with_capacity(if ipv6 { 6 } else { 5 });
+    if ipv6 {
+        args.push("-6".to_string());
+    }
+    args.extend(
+        ["route", action, cidr, "dev", tun]
+            .into_iter()
+            .map(str::to_string),
+    );
+    args
+}
+
+#[cfg(test)]
+mod iroute_family_tests {
+    use super::{
+        client_subnet_family_active, client_subnet_is_default, client_subnet_route_args,
+        configured_tun_addresses, exit_access_from_routes_json, routes_without_exit_defaults,
+    };
+
+    #[test]
+    fn routed_subnets_are_limited_to_the_negotiated_families() {
+        assert!(client_subnet_family_active("10.20.0.0/16", true, false));
+        assert!(!client_subnet_family_active(
+            "2001:db8:20::/64",
+            true,
+            false
+        ));
+        assert!(client_subnet_family_active("2001:db8:20::/64", false, true));
+        assert!(!client_subnet_family_active("10.20.0.0/16", false, true));
+    }
+
+    #[test]
+    fn ipv6_kernel_iroutes_select_the_ipv6_route_table() {
+        assert_eq!(
+            client_subnet_route_args("replace", "2001:db8:20::/64", "qeli0"),
+            ["-6", "route", "replace", "2001:db8:20::/64", "dev", "qeli0"]
+        );
+        assert_eq!(
+            client_subnet_route_args("del", "10.20.0.0/16", "qeli0"),
+            ["route", "del", "10.20.0.0/16", "dev", "qeli0"]
+        );
+    }
+
+    #[test]
+    fn exit_defaults_never_reach_kernel_route_commands() {
+        assert!(client_subnet_is_default("0.0.0.0/0"));
+        assert!(client_subnet_is_default("::/0"));
+        assert!(!client_subnet_is_default("0.0.0.0/1"));
+        assert!(!client_subnet_is_default("not-an-ip/0"));
+    }
+
+    #[test]
+    fn effective_default_routes_authorize_only_their_own_family() {
+        let access = exit_access_from_routes_json(
+            r#"[
+                {"cidr":"0.0.0.0/0"},
+                {"cidr":"2001:db8:20::/64"}
+            ]"#,
+        );
+        assert!(access.ipv4);
+        assert!(!access.ipv6);
+
+        let both =
+            exit_access_from_routes_json(r#"[{"cidr":"203.0.113.7/0"},{"cidr":"2001:db8::7/0"}]"#);
+        assert!(both.ipv4 && both.ipv6);
+        assert_eq!(
+            exit_access_from_routes_json("not-json"),
+            crate::server::ExitAccess::default()
+        );
+
+        let client_routes = routes_without_exit_defaults(
+            r#"[
+                {"cidr":"0.0.0.0/0"},
+                {"cidr":"::/0"},
+                {"cidr":"10.20.0.0/16","metric":42}
+            ]"#,
+        );
+        let client_routes: serde_json::Value = serde_json::from_str(&client_routes).unwrap();
+        assert_eq!(client_routes.as_array().unwrap().len(), 1);
+        assert_eq!(client_routes[0]["cidr"], "10.20.0.0/16");
+    }
+
+    #[test]
+    fn inactive_profile_address_fields_are_not_treated_as_live_gateways() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        assert_eq!(
+            configured_tun_addresses(&profile),
+            vec!["10.9.0.1".parse::<std::net::IpAddr>().unwrap()]
+        );
+
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv6;
+        assert_eq!(
+            configured_tun_addresses(&profile),
+            vec!["fd71:e1::1".parse::<std::net::IpAddr>().unwrap()]
+        );
     }
 }
 
@@ -2199,13 +2814,12 @@ fn build_routes_json_for_user(
     pcfg: &crate::config::server::ProfileConfig,
     users_db: &crate::config::users::UsersDb,
     username: &str,
+    assigned: crate::server::pool::AssignedAddresses,
 ) -> String {
     let user_routes = users_db
         .find_user(username)
         .filter(|u| !u.routes.is_empty())
         .map(|u| u.routes.as_slice());
-
-    let gw_default = &pcfg.tun.address;
 
     // Build the JSON via serde_json so any value (cidr/gateway from config) is
     // properly escaped — a stray quote can't break the array (C-3). cidr/gateway
@@ -2214,12 +2828,8 @@ fn build_routes_json_for_user(
     if let Some(routes) = user_routes {
         let arr: Vec<serde_json::Value> = routes
             .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "cidr": r.cidr,
-                    "gateway": r.gateway.as_deref().unwrap_or(gw_default),
-                    "metric": r.metric.unwrap_or(100),
-                })
+            .filter_map(|r| {
+                active_route_json(pcfg, assigned, &r.cidr, r.gateway.as_deref(), r.metric)
             })
             .collect();
         serde_json::Value::Array(arr).to_string()
@@ -2228,16 +2838,53 @@ fn build_routes_json_for_user(
             .routing
             .advertised_routes
             .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "cidr": r.cidr,
-                    "gateway": r.gateway.as_deref().unwrap_or(gw_default),
-                    "metric": r.metric.unwrap_or(100),
-                })
+            .filter_map(|r| {
+                active_route_json(pcfg, assigned, &r.cidr, r.gateway.as_deref(), r.metric)
             })
             .collect();
         serde_json::Value::Array(arr).to_string()
     }
+}
+
+fn active_route_json(
+    pcfg: &crate::config::server::ProfileConfig,
+    assigned: crate::server::pool::AssignedAddresses,
+    cidr: &str,
+    configured_gateway: Option<&str>,
+    metric: Option<u32>,
+) -> Option<serde_json::Value> {
+    let route_address = cidr
+        .split_once('/')
+        .and_then(|(address, _)| address.parse::<std::net::IpAddr>().ok())?;
+    let family_is_active = if route_address.is_ipv4() {
+        assigned.ipv4.is_some()
+    } else {
+        assigned.ipv6.is_some()
+    };
+    if !family_is_active {
+        return None;
+    }
+    let default_gateway = if route_address.is_ipv4() {
+        Some(pcfg.tun.address.as_str())
+    } else {
+        pcfg.tun.ipv6_address.as_deref()
+    }?;
+    let gateway = configured_gateway.unwrap_or(default_gateway);
+    let gateway_address = gateway.parse::<std::net::IpAddr>().ok()?;
+    if route_address.is_ipv4() != gateway_address.is_ipv4() {
+        log::warn!(
+            "Profile '{}': route '{}' and gateway '{}' use different address families; route not pushed",
+            pcfg.name,
+            cidr,
+            gateway
+        );
+        return None;
+    }
+    Some(serde_json::json!({
+        "cidr": cidr,
+        "gateway": gateway,
+        "metric": metric.unwrap_or(100),
+    }))
 }
 
 #[cfg(test)]
@@ -2360,7 +3007,8 @@ mod server_wire_pool_tests {
 
 #[cfg(test)]
 mod downlink_mtu_tests {
-    use super::downlink_mtu_for;
+    use super::{downlink_mtu_for, downlink_mtu_for_packet};
+    use crate::protocol::ip::IpVersion;
 
     /// The whole point of returning `None`: a client that never reported must leave the
     /// forwarder's behaviour bit-for-bit as it was before #13.
@@ -2399,5 +3047,22 @@ mod downlink_mtu_tests {
         assert_eq!(downlink_mtu_for(70_000, 0), None);
         // 65_536 truncates to 0 in 16 bits — exactly the value that would look like "unset".
         assert_eq!(downlink_mtu_for(65_536, 0), None);
+    }
+
+    #[test]
+    fn ipv6_never_inherits_the_ipv4_report_floor() {
+        assert_eq!(downlink_mtu_for_packet(576, 1500, IpVersion::V4), Some(576));
+        assert_eq!(
+            downlink_mtu_for_packet(576, 1500, IpVersion::V6),
+            Some(1280)
+        );
+        assert_eq!(
+            downlink_mtu_for_packet(1279, 1500, IpVersion::V6),
+            Some(1280)
+        );
+        assert_eq!(
+            downlink_mtu_for_packet(1280, 1500, IpVersion::V6),
+            Some(1280)
+        );
     }
 }

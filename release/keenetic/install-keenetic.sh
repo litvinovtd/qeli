@@ -14,9 +14,14 @@ case "$ARCH" in
 esac
 [ -f "$PKGDIR/$BINSRC" ] || { echo "нет $BINSRC рядом со скриптом"; exit 1; }
 
-# 2. Зависимости: ip-full (busybox ip без tuntap/route get), iptables (NAT для шлюза)
+# 2. Зависимости: ip-full (busybox ip без tuntap/route get), iptables/ip6tables
+# (dual-stack NAT для режима роутера). В некоторых фидах ip6tables входит в iptables,
+# в других идёт отдельным пакетом — вторая команда поэтому диагностическая.
 opkg update
 opkg install ip-full iptables || true
+if ! command -v ip6tables >/dev/null 2>&1; then
+  opkg install ip6tables || echo "ВНИМАНИЕ: ip6tables не установлен — ipv6=auto откатится к IPv4, ipv6=required не запустится"
+fi
 
 # 3. Проверка /dev/net/tun
 [ -e /dev/net/tun ] || echo "ВНИМАНИЕ: нет /dev/net/tun — включи компонент VPN в KeeneticOS"
@@ -32,6 +37,6 @@ install -m755 "$PKGDIR/S99qeli" /opt/etc/init.d/S99qeli
 
 echo
 echo "Готово. Дальше:"
-echo "  1) vi /opt/etc/qeli/client.conf   # server/user/pass/key/mode + gateway/dns"
+echo "  1) vi /opt/etc/qeli/client.conf   # server/user/pass/key/mode + ipv6/gateway/dns"
 echo "  2) /opt/etc/init.d/S99qeli start"
 echo "  3) tail -f /opt/var/log/qeli-client.log   # ищи 'Auth OK'"

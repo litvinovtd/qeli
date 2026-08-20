@@ -23,7 +23,9 @@ use crate::transport::tcp::{set_tcp_buffers, set_tcp_keepalive};
 use crate::transport::TransportProtocol;
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use crate::tun::iface::TunInterface;
+use crate::tun::mac_from_ip;
 use crate::tun::prepend_ethernet_header;
+use crate::tun::server_tap_control_reply;
 use crate::tun::strip_ethernet_header;
 use crate::tun::DeviceType;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -33,6 +35,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex, RwLock};
+
+const TAP_GATEWAY_MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 
 /// Re-export: the implementation moved to `crate::util` so the CLIENT can use it too.
 ///
@@ -76,6 +80,24 @@ pub(crate) enum ServerTunPacket {
     Fragment(Vec<u8>),
 }
 
+/// Internal exit-node defaults granted to one source session by its effective pushed
+/// routes. Without this per-family authorization any authenticated client could manually
+/// direct a default into qeli and consume an exit assigned to somebody else.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ExitAccess {
+    pub(crate) ipv4: bool,
+    pub(crate) ipv6: bool,
+}
+
+impl ExitAccess {
+    fn allows(self, destination: std::net::IpAddr) -> bool {
+        match destination {
+            std::net::IpAddr::V4(_) => self.ipv4,
+            std::net::IpAddr::V6(_) => self.ipv6,
+        }
+    }
+}
+
 impl std::ops::Deref for ServerTunPacket {
     type Target = [u8];
 
@@ -90,7 +112,58 @@ impl std::ops::Deref for ServerTunPacket {
 #[derive(Clone)]
 pub(crate) struct TunIngress {
     pub(crate) sender: mpsc::Sender<ServerTunPacket>,
+    /// Direct client-to-client path into the same downlink forwarder that normally drains
+    /// this TUN queue.  A default `client_subnet` (the exit-node case) must never be
+    /// installed as the Linux host's default route: doing so would recursively capture the
+    /// server's own WAN/control traffic.  Authenticated inner packets can instead enter the
+    /// regular lookup/MTU/encryption pipeline here without touching the host routing table.
+    pub(crate) forwarder: mpsc::Sender<ServerTunPacket>,
     pub(crate) pool: BufferPool,
+}
+
+impl TunIngress {
+    /// Deliver one already-authenticated client packet either to another qeli session or
+    /// to the host TUN.  Direct delivery is used only when client-to-client routing is
+    /// enabled and the longest-prefix destination belongs to a *different* session.
+    /// Skipping self-delivery is essential for an exit client: its own internet-bound
+    /// packet also matches its `0.0.0.0/0`/`::/0` iroute and must reach the physical WAN,
+    /// not bounce back into the same tunnel.
+    pub(crate) async fn send_client_packet(
+        &self,
+        profile: &ProfileRuntime,
+        source_session_id: u64,
+        exit_access: ExitAccess,
+        packet: ServerTunPacket,
+    ) -> Result<(), mpsc::error::SendError<ServerTunPacket>> {
+        let use_direct_path = if profile.config.routing.client_to_client {
+            match crate::protocol::ip::parse_ip_packet(&packet) {
+                Ok(meta) => {
+                    let sessions = profile.sessions.read().await;
+                    let destination = sessions
+                        .get_by_address(meta.destination)
+                        .map(|session| (session, false))
+                        .or_else(|| {
+                            sessions
+                                .route_match(meta.destination)
+                                .map(|route| (&route.session, route.prefix == 0))
+                        });
+                    destination.is_some_and(|(destination, is_default)| {
+                        destination.session_id != source_session_id
+                            && !destination.is_revoked()
+                            && (!is_default || exit_access.allows(meta.destination))
+                    })
+                }
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+        if use_direct_path {
+            self.forwarder.send(packet).await
+        } else {
+            self.sender.send(packet).await
+        }
+    }
 }
 
 pub struct RateLimiter {
@@ -220,9 +293,13 @@ impl ReplayGuard {
 pub struct SessionMap {
     /// Tunnel IP → session. With multipath a session aggregates several bonded
     /// connections (streams) behind this one IP.
-    pub by_ip: HashMap<std::net::Ipv4Addr, Arc<SessionShared>>,
+    /// Primary tunnel address -> session. A dual-stack session is present exactly once
+    /// here, so limits and control-plane enumeration never double-count it.
+    pub by_ip: HashMap<std::net::IpAddr, Arc<SessionShared>>,
+    /// Every assigned tunnel address -> session. Dual-stack sessions have two entries.
+    pub by_address: HashMap<std::net::IpAddr, Arc<SessionShared>>,
     /// Join token → tunnel IP, for attaching secondary bonded streams.
-    pub by_token: HashMap<[u8; crate::server::handler::JOIN_TOKEN_LEN], std::net::Ipv4Addr>,
+    pub by_token: HashMap<[u8; crate::server::handler::JOIN_TOKEN_LEN], std::net::IpAddr>,
     /// Subnets/addresses behind clients (OpenVPN `iroute`): inbound traffic whose
     /// destination is NOT a pool IP is longest-prefix-matched here, so the server can
     /// route to a client's extra address / LAN, not only its assigned tunnel IP.
@@ -234,20 +311,20 @@ pub struct SessionMap {
 /// One inbound route to a client's session (see [`SessionMap::client_routes`]).
 pub struct ClientRoute {
     /// Network address, host bits already zeroed (matches [`route_masked`]).
-    net: u32,
-    /// Prefix length 0..=32 (a bare address is stored as /32).
+    net: RouteNetwork,
+    /// Prefix length 0..=32 for IPv4 or 0..=128 for IPv6.
     prefix: u8,
-    /// Original CIDR text — for the kernel `ip route` add/del and log lines.
+    /// Canonical network CIDR — for the kernel `ip route` add/del and log lines.
     pub cidr: String,
     /// The owning session's pool IP, so all its routes drop together on disconnect.
-    pub client_ip: std::net::Ipv4Addr,
+    pub client_ip: std::net::IpAddr,
     /// The session this subnet is routed into.
     pub session: Arc<SessionShared>,
 }
 
 /// Mask `ip` to `prefix` bits (host bits zeroed). `prefix == 0` → 0 (avoids the
 /// shift-by-32 UB `!0u32 << 32`).
-fn route_masked(ip: u32, prefix: u8) -> u32 {
+fn route_masked_v4(ip: u32, prefix: u8) -> u32 {
     if prefix == 0 {
         0
     } else {
@@ -255,73 +332,257 @@ fn route_masked(ip: u32, prefix: u8) -> u32 {
     }
 }
 
+fn route_masked_v6(ip: u128, prefix: u8) -> u128 {
+    if prefix == 0 {
+        0
+    } else {
+        ip & (!0u128 << (128 - prefix))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteNetwork {
+    V4(u32),
+    V6(u128),
+}
+
 impl ClientRoute {
     /// Parse `"10.20.0.0/24"` or a bare `"192.168.5.7"` (= /32) into a route for
-    /// `session`. Returns `None` on a malformed CIDR / prefix > 32.
+    /// `session`. Returns `None` on a malformed CIDR or an out-of-family prefix.
     pub fn parse(
         cidr: &str,
-        client_ip: std::net::Ipv4Addr,
+        client_ip: std::net::IpAddr,
         session: Arc<SessionShared>,
     ) -> Option<ClientRoute> {
         let s = cidr.trim();
-        let (addr, prefix) = match s.split_once('/') {
-            Some((a, p)) => (a.trim(), p.trim().parse::<u8>().ok()?),
-            None => (s, 32u8),
+        let (addr, explicit_prefix) = match s.split_once('/') {
+            Some((a, p)) => (a.trim(), Some(p.trim().parse::<u8>().ok()?)),
+            None => (s, None),
         };
-        if prefix > 32 {
-            return None;
-        }
-        let ip: std::net::Ipv4Addr = addr.parse().ok()?;
+        let ip: std::net::IpAddr = addr.parse().ok()?;
+        let prefix = explicit_prefix.unwrap_or(if ip.is_ipv4() { 32 } else { 128 });
+        let (net, canonical_cidr) = match ip {
+            std::net::IpAddr::V4(ip) if prefix <= 32 => {
+                let network = route_masked_v4(u32::from(ip), prefix);
+                (
+                    RouteNetwork::V4(network),
+                    format!("{}/{}", std::net::Ipv4Addr::from(network), prefix),
+                )
+            }
+            std::net::IpAddr::V6(ip) if prefix <= 128 => {
+                let network = route_masked_v6(u128::from(ip), prefix);
+                (
+                    RouteNetwork::V6(network),
+                    format!("{}/{}", std::net::Ipv6Addr::from(network), prefix),
+                )
+            }
+            _ => return None,
+        };
         Some(ClientRoute {
-            net: route_masked(u32::from(ip), prefix),
+            net,
             prefix,
-            cidr: s.to_string(),
+            // Kernel route commands require a canonical network prefix on several iproute2
+            // versions. Keeping host bits here also let two spellings of one subnet evade
+            // the first-owner conflict check.
+            cidr: canonical_cidr,
             client_ip,
             session,
         })
     }
 
-    /// Prefix length (0..=32); 0 is a default route (rejected at registration).
+    /// Prefix length (0..=32 for IPv4, 0..=128 for IPv6); zero is an internal-only
+    /// exit-node default and is never installed into the host routing table.
     pub fn prefix(&self) -> u8 {
         self.prefix
     }
 
     /// True if `ip` falls inside this route's network.
-    pub fn contains(&self, ip: std::net::Ipv4Addr) -> bool {
-        route_masked(u32::from(ip), self.prefix) == self.net
+    pub fn contains(&self, ip: std::net::IpAddr) -> bool {
+        match (self.net, ip) {
+            (RouteNetwork::V4(net), std::net::IpAddr::V4(ip)) => {
+                route_masked_v4(u32::from(ip), self.prefix) == net
+            }
+            (RouteNetwork::V6(net), std::net::IpAddr::V6(ip)) => {
+                route_masked_v6(u128::from(ip), self.prefix) == net
+            }
+            _ => false,
+        }
+    }
+
+    pub fn same_network(&self, other: &Self) -> bool {
+        self.net == other.net && self.prefix == other.prefix
     }
 }
 
 impl SessionMap {
-    /// Longest-prefix-match `dest` against the registered client routes. Linear scan
-    /// (the route set is a handful per profile). Returns the owning session.
-    pub fn route_lookup(&self, dest: std::net::Ipv4Addr) -> Option<&Arc<SessionShared>> {
-        let d = u32::from(dest);
-        self.client_routes
-            .iter()
-            .filter(|r| route_masked(d, r.prefix) == r.net)
-            .max_by_key(|r| r.prefix)
-            .map(|r| &r.session)
+    /// Insert one logical session and all of its family aliases.
+    pub fn insert(&mut self, session: Arc<SessionShared>) -> Option<Arc<SessionShared>> {
+        let primary = session.client_ip;
+        let previous = self.remove(primary);
+        self.by_ip.insert(primary, session.clone());
+        for address in session.assigned_addresses() {
+            self.by_address.insert(address, session.clone());
+        }
+        self.by_token.insert(session.token, primary);
+        previous
     }
 
-    /// Remove and return the CIDRs of a client's inbound iroutes (#13) when its
+    /// Remove one logical session and every address alias that still belongs to it.
+    pub fn remove(&mut self, primary: std::net::IpAddr) -> Option<Arc<SessionShared>> {
+        let session = self.by_ip.remove(&primary)?;
+        self.by_token.remove(&session.token);
+        for address in session.assigned_addresses() {
+            if self
+                .by_address
+                .get(&address)
+                .is_some_and(|current| current.session_id == session.session_id)
+            {
+                self.by_address.remove(&address);
+            }
+        }
+        Some(session)
+    }
+
+    pub fn get_by_address(&self, address: std::net::IpAddr) -> Option<&Arc<SessionShared>> {
+        self.by_address.get(&address)
+    }
+
+    /// Longest-prefix-match `dest` against the registered client routes. Linear scan
+    /// (the route set is a handful per profile). Returns the owning session.
+    pub fn route_lookup(&self, dest: std::net::IpAddr) -> Option<&Arc<SessionShared>> {
+        self.route_match(dest).map(|route| &route.session)
+    }
+
+    /// Longest-prefix match including route metadata. The direct ingress path uses the
+    /// prefix to distinguish an ordinary client LAN from an authorization-gated `/0` exit.
+    fn route_match(&self, dest: std::net::IpAddr) -> Option<&ClientRoute> {
+        self.client_routes
+            .iter()
+            .filter(|route| route.contains(dest))
+            .max_by_key(|r| r.prefix)
+    }
+
+    /// Resolve which client genuinely owns a packet SOURCE for isolation checks.
+    ///
+    /// A default iroute denotes an internet *next hop* (exit node), not ownership of every
+    /// address on the internet.  Treating `/0` as source ownership makes an ordinary reply
+    /// from (say) 8.8.8.8 look client-originated and `client_to_client = false` drops it.
+    /// Non-default site-to-site iroutes remain source ownership and are still isolated.
+    pub fn source_route_lookup(&self, source: std::net::IpAddr) -> Option<&Arc<SessionShared>> {
+        self.client_routes
+            .iter()
+            .filter(|route| route.prefix > 0 && route.contains(source))
+            .max_by_key(|route| route.prefix)
+            .map(|route| &route.session)
+    }
+
+    /// Remove and return the CIDRs of a client's kernel-programmed inbound iroutes (#13)
+    /// when its
     /// session leaves `by_ip`. EVERY eviction path must call this — then tear down the
     /// kernel routes after the lock is released (see
     /// [`handler::spawn_client_route_teardown`]) — so a dead `ClientRoute` (holding an
     /// `Arc` to a kicked session) never lingers: otherwise it wins `route_lookup` and
     /// blackholes the subnet, and a same-IP reconnect stacks a duplicate each time.
     /// Empty when the client had no iroutes.
-    pub fn take_client_routes(&mut self, client_ip: std::net::Ipv4Addr) -> Vec<String> {
+    pub fn take_client_routes(&mut self, client_ip: std::net::IpAddr) -> Vec<String> {
         let cidrs: Vec<String> = self
             .client_routes
             .iter()
-            .filter(|r| r.client_ip == client_ip)
+            // `/0` exists only in qeli's internal exit-node lookup. Returning it to the
+            // generic teardown would execute `ip route del default` and remove the host's
+            // physical WAN route precisely when an exit client disconnected.
+            .filter(|r| r.client_ip == client_ip && r.prefix > 0)
             .map(|r| r.cidr.clone())
             .collect();
-        if !cidrs.is_empty() {
-            self.client_routes.retain(|r| r.client_ip != client_ip);
-        }
+        self.client_routes.retain(|r| r.client_ip != client_ip);
         cidrs
+    }
+}
+
+#[cfg(test)]
+mod client_route_tests {
+    use super::{ClientRoute, SessionMap};
+    use crate::server::handler::{DirectionalRateBuckets, SessionShared, JOIN_TOKEN_LEN};
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
+    use std::sync::{Arc, Mutex};
+
+    fn session(id: u64, address: std::net::IpAddr) -> Arc<SessionShared> {
+        let (client_ipv4, client_ipv6) = match address {
+            std::net::IpAddr::V4(address) => (Some(address), None),
+            std::net::IpAddr::V6(address) => (None, Some(address)),
+        };
+        Arc::new(SessionShared {
+            session_id: id,
+            username: format!("test-{id}"),
+            device_key: format!("device-{id}"),
+            client_ip: address,
+            client_ipv4,
+            client_ipv6,
+            peer: "127.0.0.1:1".parse().unwrap(),
+            token: [0; JOIN_TOKEN_LEN],
+            max_streams: 1,
+            wire_pool: crate::transport_core::buffer_pool::BufferPool::new(1, 256).unwrap(),
+            streams: Mutex::new(Vec::new()),
+            connected_at: std::time::Instant::now(),
+            bytes_sent: Arc::new(AtomicU64::new(0)),
+            bytes_recv: Arc::new(AtomicU64::new(0)),
+            dropped: Arc::new(AtomicU64::new(0)),
+            bandwidth_limit_mbps: Arc::new(AtomicU32::new(0)),
+            rates: DirectionalRateBuckets::new(),
+            dst_acl: crate::server::acl::DstAcl::compile(&[], "test"),
+            src_guard: crate::server::acl::SrcGuard::new_dual(&[address], &[], "test"),
+            exit_access: super::ExitAccess::default(),
+            path_mtu: Arc::new(AtomicU32::new(0)),
+            revoked: Arc::new(AtomicBool::new(false)),
+            client_info: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    fn empty_map() -> SessionMap {
+        SessionMap {
+            by_ip: HashMap::new(),
+            by_address: HashMap::new(),
+            by_token: HashMap::new(),
+            client_routes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn exit_default_is_a_destination_next_hop_not_global_source_ownership() {
+        let exit = session(1, "10.9.0.2".parse().unwrap());
+        let mut sessions = empty_map();
+        sessions
+            .client_routes
+            .push(ClientRoute::parse("0.0.0.0/0", exit.client_ip, exit.clone()).unwrap());
+
+        assert_eq!(
+            sessions
+                .route_lookup("8.8.8.8".parse().unwrap())
+                .map(|session| session.session_id),
+            Some(1)
+        );
+        assert!(sessions
+            .source_route_lookup("8.8.8.8".parse().unwrap())
+            .is_none());
+    }
+
+    #[test]
+    fn default_teardown_never_returns_a_host_route_command() {
+        let exit = session(1, "fd71:e1::2".parse().unwrap());
+        let mut sessions = empty_map();
+        sessions
+            .client_routes
+            .push(ClientRoute::parse("::/0", exit.client_ip, exit.clone()).unwrap());
+        sessions
+            .client_routes
+            .push(ClientRoute::parse("2001:db8:50::9/64", exit.client_ip, exit.clone()).unwrap());
+
+        assert_eq!(
+            sessions.take_client_routes(exit.client_ip),
+            vec!["2001:db8:50::/64"]
+        );
+        assert!(sessions.client_routes.is_empty());
     }
 }
 
@@ -662,6 +923,9 @@ pub struct ServerState {
     /// earlier edit. Handlers also compare a content revision while holding this lock.
     pub config_write_lock: Mutex<()>,
     pub profiles: Arc<RwLock<HashMap<String, Arc<ProfileRuntime>>>>,
+    /// Actual per-generation values exported to lifecycle hooks. In particular WAN names are
+    /// the interfaces selected by auto-detection, not the placeholder text from the config.
+    profile_hook_env: Arc<Mutex<HashMap<String, ProfileHookEnv>>>,
     pub failed_auth: Arc<Mutex<FailedAuthTracker>>,
     /// Supervisor → worker control channel. `Some` only in the supervisor.
     pub worker_tx: Option<tokio::sync::mpsc::Sender<WorkerCmd>>,
@@ -682,6 +946,80 @@ pub struct ServerState {
     pub live_web: Arc<RwLock<crate::config::server::WebConfig>>,
     /// One memory-aware cap shared by every UDP profile/listener/SO_REUSEPORT worker.
     pub(crate) udp_buffer_budget: crate::transport_core::udp_buffer::AggregateUdpBudgetPlan,
+}
+
+#[derive(Debug, Clone)]
+struct ProfileHookEnv {
+    profile: String,
+    tun: String,
+    pool: String,
+    pool_ipv4: String,
+    pool_ipv6: String,
+    wan: String,
+    wan_ipv4: String,
+    wan_ipv6: String,
+    bind_port: String,
+}
+
+impl ProfileHookEnv {
+    fn new(pcfg: &ProfileConfig, wan_ipv4: String, wan_ipv6: String) -> Self {
+        use crate::config::server::IpMode;
+        let pool_ipv4 = if pcfg.tun.ip_mode == IpMode::Ipv6 {
+            String::new()
+        } else {
+            pcfg.pool.cidr.clone()
+        };
+        let pool_ipv6 = if pcfg.tun.ip_mode == IpMode::Ipv4 {
+            String::new()
+        } else {
+            pcfg.pool.ipv6.cidr.clone()
+        };
+        let (pool, wan) = match pcfg.tun.ip_mode {
+            IpMode::Ipv6 => (pool_ipv6.clone(), wan_ipv6.clone()),
+            IpMode::Ipv4 | IpMode::Dual => (pool_ipv4.clone(), wan_ipv4.clone()),
+        };
+        Self {
+            profile: pcfg.name.clone(),
+            tun: pcfg.tun.name.clone(),
+            pool,
+            pool_ipv4,
+            pool_ipv6,
+            wan,
+            wan_ipv4,
+            wan_ipv6,
+            bind_port: pcfg.bind.port.to_string(),
+        }
+    }
+
+    fn fallback(pcfg: &ProfileConfig) -> Self {
+        use crate::config::server::{IpMode, Ipv6RoutingMode};
+        let wan_ipv4 = if pcfg.tun.ip_mode != IpMode::Ipv6 && pcfg.routing.nat.enabled {
+            nat::resolve_wan_ipv4(&pcfg.routing.nat.interface).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let wan_ipv6 =
+            if pcfg.tun.ip_mode != IpMode::Ipv4 && pcfg.routing.ipv6.mode != Ipv6RoutingMode::Off {
+                nat::resolve_wan_ipv6(&pcfg.routing.ipv6.interface).unwrap_or_default()
+            } else {
+                String::new()
+            };
+        Self::new(pcfg, wan_ipv4, wan_ipv6)
+    }
+
+    fn variables(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("QELI_PROFILE", self.profile.clone()),
+            ("QELI_TUN", self.tun.clone()),
+            ("QELI_POOL", self.pool.clone()),
+            ("QELI_POOL_IPV4", self.pool_ipv4.clone()),
+            ("QELI_POOL_IPV6", self.pool_ipv6.clone()),
+            ("QELI_WAN", self.wan.clone()),
+            ("QELI_WAN_IPV4", self.wan_ipv4.clone()),
+            ("QELI_WAN_IPV6", self.wan_ipv6.clone()),
+            ("QELI_BIND_PORT", self.bind_port.clone()),
+        ]
+    }
 }
 
 impl ServerState {
@@ -879,6 +1217,27 @@ fn is_wildcard_bind_host(host: &str) -> bool {
     matches!(host, "" | "*" | "0.0.0.0" | "::")
 }
 
+/// Whether two configured bind hosts may claim the same kernel socket address. IPv4 and
+/// IPv6 are separate listener spaces because every numeric IPv6 socket is created V6ONLY;
+/// consequently `0.0.0.0:443` + `[::]:443` is the canonical dual-stack pair, not a clash.
+/// Hostnames remain conservative/opaque because check-config intentionally does no DNS.
+fn bind_hosts_overlap(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let left_ip = left.parse::<std::net::IpAddr>().ok();
+    let right_ip = right.parse::<std::net::IpAddr>().ok();
+    if let (Some(left_ip), Some(right_ip)) = (left_ip, right_ip) {
+        if left_ip.is_ipv4() != right_ip.is_ipv4() {
+            return false;
+        }
+        return is_wildcard_bind_host(left) || is_wildcard_bind_host(right);
+    }
+    // `*`/empty are legacy family-agnostic wildcards. A hostname is only known to
+    // overlap the same spelling or such a wildcard; DNS is deliberately not consulted.
+    is_wildcard_bind_host(left) || is_wildcard_bind_host(right)
+}
+
 /// The `addr:port` the profile's DHCP server binds to.
 ///
 /// `dhcp.listen` defaults to EMPTY, meaning "the profile's tun address" — it used to default
@@ -910,6 +1269,30 @@ fn split_listen_spec(spec: &str) -> Option<(String, u16)> {
 
 /// Longest interface name the kernel will accept, from `IFNAMSIZ` (16) minus the NUL.
 const MAX_IFNAME_LEN: usize = 15;
+
+fn validate_configured_interface(profile: &str, key: &str, value: &str) -> anyhow::Result<()> {
+    let name = value.trim();
+    // Empty and the historical `eth0` default both mean auto-detect in server/nat.rs.
+    if name.is_empty() || name == "eth0" {
+        return Ok(());
+    }
+    if name.len() > MAX_IFNAME_LEN
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+        || name.contains(char::is_whitespace)
+    {
+        anyhow::bail!(
+            "profile '{}': {} = '{}' is not a valid Linux interface name",
+            profile,
+            key,
+            value
+        );
+    }
+    Ok(())
+}
 
 pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     if !config.web.public_host.trim().is_empty() {
@@ -1031,6 +1414,26 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name,
                 tun_name
             );
+        }
+        if p.tun.ip_mode == crate::config::server::IpMode::Ipv6 && p.routing.nat.enabled {
+            anyhow::bail!(
+                "profile '{}': routing.nat.enabled controls IPv4 NAT44 and cannot be enabled when tun.ip_mode = ipv6; use routing.ipv6.mode = route or nat66",
+                p.name
+            );
+        }
+        if p.routing.nat.enabled {
+            validate_configured_interface(
+                &p.name,
+                "routing.nat.interface",
+                &p.routing.nat.interface,
+            )?;
+        }
+        if p.routing.ipv6.mode != crate::config::server::Ipv6RoutingMode::Off {
+            validate_configured_interface(
+                &p.name,
+                "routing.ipv6.interface",
+                &p.routing.ipv6.interface,
+            )?;
         }
 
         // `perf.tun.read_buffer_size` is the exact size of the buffer each queue reads a TUN
@@ -1181,15 +1584,30 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // failed inside a detached task and was logged once, so the profile came up serving
         // clients that never got a lease. (Audit 2026-08-01, §4.)
         if p.dns.enabled {
-            let dns_host = normalize_bind_host(&p.dns.listen);
-            // Both transports: the resolver now serves TCP as well (RFC 7766).
-            for t in ["udp", "tcp"] {
-                profile_endpoints.push((
-                    dns_host.clone(),
-                    p.dns.port,
-                    t.to_string(),
-                    format!("dns {}:{}", p.dns.listen, p.dns.port),
-                ));
+            if p.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+                let dns_host = normalize_bind_host(&p.dns.listen);
+                // Both transports: the resolver now serves TCP as well (RFC 7766).
+                for t in ["udp", "tcp"] {
+                    profile_endpoints.push((
+                        dns_host.clone(),
+                        p.dns.port,
+                        t.to_string(),
+                        format!("dns {}:{}", p.dns.listen, p.dns.port),
+                    ));
+                }
+            }
+            if p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+                if let Some(listen_ipv6) = p.dns.listen_ipv6.as_deref() {
+                    let dns_host = normalize_bind_host(listen_ipv6);
+                    for transport in ["udp", "tcp"] {
+                        profile_endpoints.push((
+                            dns_host.clone(),
+                            p.dns.port,
+                            transport.to_string(),
+                            format!("dns [{}]:{}", listen_ipv6.trim(), p.dns.port),
+                        ));
+                    }
+                }
             }
         }
         if p.dhcp.enabled {
@@ -1208,11 +1626,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
             if let Some(other) = endpoints.iter().find(|e| {
                 // A wildcard covers every address on the box, so `0.0.0.0:443` collides with
                 // `1.2.3.4:443` just as surely as with another `0.0.0.0:443`.
-                e.port == port
-                    && e.transport == transport
-                    && (e.host == host
-                        || is_wildcard_bind_host(&e.host)
-                        || is_wildcard_bind_host(&host))
+                e.port == port && e.transport == transport && bind_hosts_overlap(&e.host, &host)
             }) {
                 anyhow::bail!(
                     "'{}' ({}) and '{}' ({}) both bind port {}/{} on overlapping addresses — \
@@ -1671,34 +2085,68 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // the address with "any valid prefix is expected". The panel's save path calls
         // this function too, so an admin could persist a config that bricked the server.
         //
-        let tunnel_subnet = crate::config::server::pool_subnet(&p.pool.cidr)
-            .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
-        let tunnel_address = p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
-            anyhow::anyhow!(
-                "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
-                 (e.g. 10.9.0.1)",
-                p.name,
-                p.tun.address,
-                e
-            )
-        })?;
-        if !tunnel_subnet.contains_usable_host(tunnel_address) {
-            anyhow::bail!(
-                "profile '{}': tun.address {} is not a usable host inside pool.cidr {} \
-                 (network {}, broadcast {}). The TUN prefix and all client prefixes are \
-                 derived from pool.cidr; choose an address between them.",
-                p.name,
-                tunnel_address,
-                p.pool.cidr,
-                tunnel_subnet.network,
-                tunnel_subnet.broadcast
-            );
+        let ipv6_subnet = crate::config::server::validate_ipv6_profile(p)
+            .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
+        let tunnel_ipv6_address = p
+            .tun
+            .ipv6_address
+            .as_deref()
+            .and_then(|value| value.trim().parse::<std::net::Ipv6Addr>().ok());
+
+        for route in &p.routing.advertised_routes {
+            let route_address = route
+                .cidr
+                .split_once('/')
+                .and_then(|(address, _)| address.parse::<std::net::IpAddr>().ok());
+            if let Some(route_address) = route_address {
+                if route_address.is_ipv6() && p.tun.ip_mode == crate::config::server::IpMode::Ipv4 {
+                    anyhow::bail!(
+                        "profile '{}': route {} is IPv6 but tun.ip_mode = ipv4",
+                        p.name,
+                        route.cidr
+                    );
+                }
+                if route_address.is_ipv4() && p.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+                    anyhow::bail!(
+                        "profile '{}': route {} is IPv4 but tun.ip_mode = ipv6",
+                        p.name,
+                        route.cidr
+                    );
+                }
+            }
         }
-        // Validate through the exact allocator used by the worker. Passing the actual
-        // server address is essential: tun.address may be any usable host, not just .1.
-        pool::IpPool::new_with_tun(&p.pool, tunnel_address).map_err(|e| {
-            anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
-        })?;
+
+        let tunnel_address = if p.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+            let tunnel_subnet = crate::config::server::pool_subnet(&p.pool.cidr)
+                .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
+            let tunnel_address = p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
+                anyhow::anyhow!(
+                    "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
+                     (e.g. 10.9.0.1)",
+                    p.name,
+                    p.tun.address,
+                    e
+                )
+            })?;
+            if !tunnel_subnet.contains_usable_host(tunnel_address) {
+                anyhow::bail!(
+                    "profile '{}': tun.address {} is not a usable host inside pool.cidr {} \
+                     (network {}, broadcast {}). The TUN prefix and all client prefixes are \
+                     derived from pool.cidr; choose an address between them.",
+                    p.name,
+                    tunnel_address,
+                    p.pool.cidr,
+                    tunnel_subnet.network,
+                    tunnel_subnet.broadcast
+                );
+            }
+            pool::IpPool::new_with_tun(&p.pool, tunnel_address).map_err(|e| {
+                anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
+            })?;
+            Some(tunnel_address)
+        } else {
+            None
+        };
         // tun.mtu is handed straight to `ip link set … mtu N` at profile start
         // (`create_multiqueue` / `set_up`); the kernel then rejects anything outside
         // the TUN device's [68, 65535] range with "mtu less/greater than device
@@ -1730,8 +2178,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // dhcp.pool_start/end". Mirror that parse (defaults included) and the
         // end >= start rule here so the two paths can't drift.
         if p.dhcp.enabled {
-            crate::config::server::dhcp_pool_bounds(&p.dhcp, &p.pool.cidr, tunnel_address)
-                .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
+            crate::config::server::dhcp_pool_bounds(
+                &p.dhcp,
+                &p.pool.cidr,
+                tunnel_address.expect("DHCPv4 is rejected for IPv6-only profiles"),
+            )
+            .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
             // A zero lease is not "no expiry", it is a lease that has already expired: the
             // client is told to renew at half of zero, so it renews continuously and the
             // server's own sweep reclaims the address on its next pass. Nothing about that is
@@ -1765,22 +2217,6 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if p.dns.enabled {
             let mut usable = 0usize;
             for up in &p.dns.upstream {
-                // IPv6 parses as a valid IpAddr and so passed this check, but the resolver
-                // binds an IPv4 socket and builds its target with `format!("{}:53", ip)` —
-                // which produces `2001:db8::1:53`, fails to parse as a SocketAddr, and is
-                // skipped in silence. An IPv6-only `dns.upstream` therefore validated cleanly
-                // and then answered nothing. Say so at load instead of at query time.
-                // (Audit 2026-07-31, §6.)
-                if let Ok(ip) = up.trim().parse::<std::net::IpAddr>() {
-                    if ip.is_ipv6() {
-                        log::warn!(
-                            "profile '{}': dns.upstream '{}' is IPv6 — the in-tunnel resolver                              speaks IPv4 only, so this entry will be skipped. Use an IPv4                              resolver (IPv6 upstreams are tracked for 0.8.0).",
-                            p.name,
-                            up
-                        );
-                        continue;
-                    }
-                }
                 if let Ok(ip) = up.trim().parse::<std::net::IpAddr>() {
                     if ip.is_unspecified() || ip.is_multicast() {
                         log::warn!(
@@ -1826,10 +2262,11 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     p.name
                 );
             }
-            // `dns.listen` is handed to clients as their resolver AND bound locally, so an
-            // address that is neither routable-to-the-client nor bindable here fails in one of
-            // two confusing ways instead of one clear one.
-            match p.dns.listen.trim().parse::<std::net::IpAddr>() {
+            // On IPv4/dual profiles `dns.listen` is handed to clients as their resolver AND
+            // bound locally. IPv6-only profiles deliberately ignore this legacy/default IPv4
+            // field and use `dns.listen_ipv6` below.
+            if p.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+                match p.dns.listen.trim().parse::<std::net::IpAddr>() {
                 Ok(ip) if ip.is_unspecified() || ip.is_multicast() => anyhow::bail!(
                     "profile '{}': dns.listen = {} is not an address a client can query — use                      the profile's tun address",
                     p.name,
@@ -1850,73 +2287,139 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     p.dns.listen,
                     p.tun.address
                 ),
-                // The proxy binds IPv4 and builds every upstream target with `format!("{}:53")`,
-                // which produces `2001:db8::1:53` for a v6 literal and fails to parse — the same
-                // trap already documented for `dns.upstream`. The TUN is IPv4-only besides.
+                // The primary field remains IPv4. IPv6 has its own explicit listen key, so a
+                // literal here is ambiguous in dual mode and ignored in IPv6-only mode.
                 Ok(ip) if ip.is_ipv6() => anyhow::bail!(
-                    "profile '{}': dns.listen = {} is IPv6 — the in-tunnel resolver and the TUN \
-                     are IPv4-only (IPv6 is tracked for 0.8.0). Use the profile's tun address \
-                     ({}).",
+                    "profile '{}': dns.listen = {} is IPv6 — put the IPv6 resolver address in \
+                     dns.listen_ipv6; keep dns.listen equal to the IPv4 tun.address ({})",
                     p.name,
                     p.dns.listen,
                     p.tun.address
                 ),
-                Ok(_) => {}
+                Ok(std::net::IpAddr::V4(address)) => {
+                    if tunnel_address.is_some_and(|tunnel_address| address != tunnel_address) {
+                        anyhow::bail!(
+                            "profile '{}': dns.listen {} must equal tun.address {} — it is the only IPv4 address configured on the server TUN",
+                            p.name,
+                            address,
+                            tunnel_address.expect("IPv4 DNS comparison has an IPv4 tunnel")
+                        );
+                    }
+                }
+                Ok(std::net::IpAddr::V6(_)) => unreachable!(),
                 Err(_) => anyhow::bail!(
                     "profile '{}': dns.listen = '{}' is not an IP address",
                     p.name,
                     p.dns.listen
                 ),
+                }
             }
             // A non-default dns.port is only usable because the tunnel bridges 53 to it with
             // an iptables REDIRECT — clients cannot address any other port. Without iptables
             // there is nothing to bridge with, and every client would be handed a resolver it
             // cannot reach. Say so at load instead of at the first DNS lookup.
             // (Audit 2026-07-31.)
-            if p.dns.port != 53 && !nat::available() {
-                anyhow::bail!(
-                    "profile '{}': dns.port = {} needs iptables, because clients can only ever                      use port 53 and the tunnel bridges 53 -> {} for them. iptables is not                      installed here. Set dns.port = 53, or install iptables.",
-                    p.name,
-                    p.dns.port,
-                    p.dns.port
-                );
+            if p.dns.port != 53 {
+                if p.tun.ip_mode != crate::config::server::IpMode::Ipv6 && !nat::available() {
+                    anyhow::bail!(
+                        "profile '{}': dns.port = {} needs iptables for the IPv4 53 -> {} redirect. Set dns.port = 53, or install iptables.",
+                        p.name,
+                        p.dns.port,
+                        p.dns.port
+                    );
+                }
+                if p.tun.ip_mode != crate::config::server::IpMode::Ipv4
+                    && nat::ip6tables_path().is_none()
+                {
+                    anyhow::bail!(
+                        "profile '{}': dns.port = {} needs ip6tables for the IPv6 53 -> {} redirect. Set dns.port = 53, or install ip6tables.",
+                        p.name,
+                        p.dns.port,
+                        p.dns.port
+                    );
+                }
             }
             if p.dns.upstream.is_empty() {
                 anyhow::bail!(
-                    "profile '{}': dns.enabled = true but dns.upstream is empty — the DNS proxy                      would abandon every query while clients are pushed to use it. Set at least                      one IPv4 upstream, or dns.enabled = false.",
+                    "profile '{}': dns.enabled = true but dns.upstream is empty — the DNS proxy                      would abandon every query while clients are pushed to use it. Set at least                      one IP upstream, or dns.enabled = false.",
                     p.name
                 );
             }
             if usable == 0 && !p.dns.upstream.is_empty() {
                 anyhow::bail!(
-                    "profile '{}': none of the {} dns.upstream entries is a USABLE IPv4 address \
-                     (invalid, or IPv6 — which this resolver cannot reach) — the DNS proxy \
+                    "profile '{}': none of the {} dns.upstream entries is a usable IP address \
+                     (all are invalid, unspecified or multicast) — the DNS proxy \
                      would answer nothing while clients are pushed to use it",
                     p.name,
                     p.dns.upstream.len()
                 );
             }
         }
+        if let Some(raw) = p.dns.listen_ipv6.as_deref() {
+            let value = raw.trim();
+            let address = value.parse::<std::net::Ipv6Addr>().map_err(|error| {
+                anyhow::anyhow!(
+                    "profile '{}': dns.listen_ipv6 = '{}' is not a bare IPv6 address: {}",
+                    p.name,
+                    value,
+                    error
+                )
+            })?;
+            crate::config::server::validate_tunnel_ipv6_address("dns.listen_ipv6", address)
+                .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
+            if let Some(subnet) = ipv6_subnet {
+                if !subnet.contains_assignable(address) {
+                    anyhow::bail!(
+                        "profile '{}': dns.listen_ipv6 {} is outside pool.ipv6.cidr {}",
+                        p.name,
+                        address,
+                        p.pool.ipv6.cidr
+                    );
+                }
+            }
+            if p.dns.enabled && tunnel_ipv6_address != Some(address) {
+                anyhow::bail!(
+                    "profile '{}': dns.listen_ipv6 {} must equal tun.ipv6_address — it is the only IPv6 address configured on the server TUN",
+                    p.name,
+                    address
+                );
+            }
+        } else if p.dns.enabled && p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+            anyhow::bail!(
+                "profile '{}': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6",
+                p.name
+            );
+        }
         // The FIRST push_servers entry is what clients are told to use as their resolver, so
         // a typo there silently deprives every client of DNS (the client strict-validates the
         // pushed value and then has nothing left to use). Validate all of them: a later entry
         // being wrong is a latent trap for the day the first one is removed.
         for ps in &p.dns.push_servers {
-            if matches!(
-                ps.trim().parse::<std::net::IpAddr>(),
-                Ok(std::net::IpAddr::V6(_))
-            ) {
+            let ip = ps.trim().parse::<std::net::IpAddr>().map_err(|_| {
+                anyhow::anyhow!(
+                    "profile '{}': dns.push_servers entry '{}' is not a valid IP address — it is handed to clients as their resolver",
+                    p.name,
+                    ps
+                )
+            })?;
+            if ip.is_unspecified() || ip.is_multicast() || ip.is_loopback() {
                 anyhow::bail!(
-                    "profile '{}': dns.push_servers entry '{}' is IPv6, but qeli {} clients carry only IPv4 inner packets",
+                    "profile '{}': dns.push_servers entry '{}' is not a resolver address reachable by tunnel clients",
                     p.name,
                     ps,
                     env!("CARGO_PKG_VERSION")
                 );
             }
-            if ps.trim().parse::<std::net::IpAddr>().is_err() {
+            if ip.is_ipv6() && p.tun.ip_mode == crate::config::server::IpMode::Ipv4 {
                 anyhow::bail!(
-                    "profile '{}': dns.push_servers entry '{}' is not a valid IP address — \
-                     it is handed to clients as their resolver",
+                    "profile '{}': IPv6 dns.push_servers entry '{}' requires tun.ip_mode = dual or ipv6",
+                    p.name,
+                    ps
+                );
+            }
+            if ip.is_ipv4() && p.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+                anyhow::bail!(
+                    "profile '{}': IPv4 dns.push_servers entry '{}' is unreachable in an IPv6-only tunnel",
                     p.name,
                     ps
                 );
@@ -2248,6 +2751,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         config_path: Mutex::new(Some(cfg_path.to_string())),
         config_write_lock: Mutex::new(()),
         profiles: Arc::new(RwLock::new(HashMap::new())),
+        profile_hook_env: Arc::new(Mutex::new(HashMap::new())),
         failed_auth,
         worker_tx: None,
         client_manager: Arc::new(client_manager::ClientManager::new()),
@@ -2478,7 +2982,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
         let now = usage::now_unix();
 
         let mut live: HashSet<u64> = HashSet::new();
-        let mut to_kick: Vec<(String, std::net::Ipv4Addr, u64)> = Vec::new();
+        let mut to_kick: Vec<(String, std::net::IpAddr, u64)> = Vec::new();
         {
             let profiles = state.profiles.read().await;
             for (pname, profile) in profiles.iter() {
@@ -2543,8 +3047,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
                     .map(|s| s.session_id == session_id)
                     .unwrap_or(false);
                 if still_same {
-                    if let Some(s) = sessions.by_ip.remove(&ip) {
-                        sessions.by_token.remove(&s.token);
+                    if let Some(s) = sessions.remove(ip) {
                         let iroutes = sessions.take_client_routes(ip);
                         drop(sessions);
                         // Actually DISCONNECT the flagged session — signal its stream tasks
@@ -2627,6 +3130,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         config_path: Mutex::new(Some(cfg_path.to_string())),
         config_write_lock: Mutex::new(()),
         profiles: Arc::new(RwLock::new(HashMap::new())),
+        profile_hook_env: Arc::new(Mutex::new(HashMap::new())),
         failed_auth,
         worker_tx: Some(worker_tx),
         client_manager: Arc::new(client_manager::ClientManager::new()),
@@ -3460,6 +3964,9 @@ async fn run_post_down(
     let Some(pcfg) = state.config.profiles.iter().find(|p| p.name == profile) else {
         return;
     };
+    // Take the generation snapshot even when no post_down command is configured, so a later
+    // restart can never inherit the previous generation's auto-detected WAN.
+    let hook_env = state.profile_hook_env.lock().await.remove(profile);
     if pcfg.routing.post_down.is_empty() {
         return;
     }
@@ -3478,23 +3985,36 @@ async fn run_post_down(
     if !trusted {
         return;
     }
+    let hook_env = hook_env.unwrap_or_else(|| ProfileHookEnv::fallback(pcfg));
     crate::hooks::run(
         &format!("post_down:{profile}"),
         &pcfg.routing.post_down,
-        &[
-            ("QELI_PROFILE", pcfg.name.clone()),
-            ("QELI_TUN", pcfg.tun.name.clone()),
-            ("QELI_POOL", pcfg.pool.cidr.clone()),
-        ],
+        &hook_env.variables(),
     )
     .await;
 }
 
-async fn run_profile(
-    state: Arc<ServerState>,
-    pcfg: ProfileConfig,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+async fn bind_tcp_listener(address: &str) -> std::io::Result<TcpListener> {
+    let Ok(socket_address) = address.parse::<std::net::SocketAddr>() else {
+        // Hostname binds retain Tokio's resolver behavior. The V6ONLY guarantee matters
+        // for the wildcard numeric listener (`[::]`), which always takes this branch.
+        return TcpListener::bind(address).await;
+    };
+    if socket_address.is_ipv4() {
+        return TcpListener::bind(socket_address).await;
+    }
+
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_only_v6(true)?;
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&socket_address.into())?;
+    socket.listen(1024)?;
+    TcpListener::from_std(socket.into())
+}
+
+async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Result<()> {
     let name = pcfg.name.clone();
     log::info!(
         "Starting profile '{}' ({}://{}:{})",
@@ -3585,9 +4105,39 @@ async fn run_profile_generation(
         .unwrap_or_else(|| pcfg.tun.name.clone());
     // The device exists from here on, so record it before the first fallible call below.
     teardown.ifname = Some(ifname.clone());
-    let profile_subnet = crate::config::server::pool_subnet(&pcfg.pool.cidr)
-        .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
-    TunInterface::set_address(&ifname, &pcfg.tun.address, profile_subnet.prefix)?;
+    if dev_type == DeviceType::Tap {
+        TunInterface::set_mac(&ifname, TAP_GATEWAY_MAC)?;
+    }
+    let profile_subnet = if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+        Some(
+            crate::config::server::pool_subnet(&pcfg.pool.cidr)
+                .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?,
+        )
+    } else {
+        None
+    };
+    let ipv6_subnet = crate::config::server::validate_ipv6_profile(&pcfg)
+        .map_err(|error| anyhow::anyhow!("profile '{}': {}", name, error))?;
+    if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
+        TunInterface::set_address(
+            &ifname,
+            &pcfg.tun.address,
+            profile_subnet
+                .expect("IPv4/dual profile has a validated IPv4 subnet")
+                .prefix,
+        )?;
+    }
+    if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+        let address = pcfg
+            .tun
+            .ipv6_address
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("profile '{}': missing tun.ipv6_address", name))?;
+        let prefix = ipv6_subnet
+            .ok_or_else(|| anyhow::anyhow!("profile '{}': missing pool.ipv6.cidr", name))?
+            .prefix;
+        TunInterface::set_address(&ifname, address, prefix)?;
+    }
     TunInterface::set_up(&ifname, pcfg.tun.mtu)?;
     TunInterface::set_queue_len(&ifname, pcfg.tun.tx_queue_len)?;
     log::info!(
@@ -3600,15 +4150,26 @@ async fn run_profile_generation(
         },
         ifname,
         queues.len(),
-        pcfg.tun.address,
-        profile_subnet.prefix
+        if pcfg.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+            pcfg.tun.ipv6_address.as_deref().unwrap_or("<missing>")
+        } else {
+            &pcfg.tun.address
+        },
+        if pcfg.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+            ipv6_subnet.map(|subnet| subnet.prefix).unwrap_or(0)
+        } else {
+            profile_subnet
+                .expect("IPv4/dual profile has a validated IPv4 subnet")
+                .prefix
+        }
     );
 
     // Host NAT (iptables) for full-tunnel egress. Always clear any rules we left
     // behind first (covers an unclean exit, or routing.nat toggled off then a
     // restart), then (re)install if this profile requests masquerading.
     nat::cleanup(&pcfg.name);
-    if pcfg.routing.nat.enabled {
+    let mut wan_ipv4 = String::new();
+    if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6 && pcfg.routing.nat.enabled {
         match nat::setup(
             &pcfg.name,
             &pcfg.routing.nat.interface,
@@ -3616,12 +4177,15 @@ async fn run_profile_generation(
             &ifname,
             pcfg.tun.mtu,
         ) {
-            Ok(wan) => log::info!(
-                "Profile '{}': NAT masquerade active via iptables ({} -> {})",
-                name,
-                pcfg.pool.cidr,
-                wan
-            ),
+            Ok(wan) => {
+                log::info!(
+                    "Profile '{}': NAT masquerade active via iptables ({} -> {})",
+                    name,
+                    pcfg.pool.cidr,
+                    wan
+                );
+                wan_ipv4 = wan;
+            }
             // Explicitly enabled and not applied is a REFUSAL, not a log line. Clients connect
             // happily and then find that full-tunnel traffic never reaches the internet, which
             // reads as a broken VPN rather than a missing iptables rule. The operator asked for
@@ -3632,7 +4196,9 @@ async fn run_profile_generation(
                 name
             ),
         }
-    } else if pcfg.routing.forward_private {
+    } else if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6
+        && pcfg.routing.forward_private
+    {
         // No NAT, but pure L3 routing requested: enable forwarding (ip_forward + FORWARD
         // ACCEPT) WITHOUT masquerading, so transit traffic between the tunnel and the
         // server's networks keeps its real source IPs (site-to-site). NAT above already
@@ -3643,6 +4209,33 @@ async fn run_profile_generation(
         nat::enable_routing(&pcfg.name, &ifname, pcfg.tun.mtu)
             .map_err(|e| anyhow::anyhow!("profile '{}': {e}", pcfg.name))?;
     }
+    let mut wan_ipv6 = String::new();
+    if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+        if let Some(wan) = nat::setup_ipv6(
+            &pcfg.name,
+            pcfg.routing.ipv6.mode,
+            &pcfg.routing.ipv6.interface,
+            &pcfg.pool.ipv6.cidr,
+            &ifname,
+            pcfg.tun.mtu,
+        )? {
+            log::info!(
+                "Profile '{}': IPv6 {} active ({} -> {})",
+                name,
+                pcfg.routing.ipv6.mode,
+                pcfg.pool.ipv6.cidr,
+                wan
+            );
+            wan_ipv6 = wan;
+        }
+    }
+
+    let hook_env = ProfileHookEnv::new(&pcfg, wan_ipv4, wan_ipv6);
+    state
+        .profile_hook_env
+        .lock()
+        .await
+        .insert(name.clone(), hook_env.clone());
 
     // post_up hook: after this profile's TUN + NAT are up. Honoured ONLY from a
     // trusted config file (the panel/API never writes it — RCE guard).
@@ -3653,13 +4246,7 @@ async fn run_profile_generation(
                 crate::hooks::run(
                     &format!("post_up:{name}"),
                     &pcfg.routing.post_up,
-                    &[
-                        ("QELI_PROFILE", name.clone()),
-                        ("QELI_TUN", ifname.clone()),
-                        ("QELI_POOL", pcfg.pool.cidr.clone()),
-                        ("QELI_WAN", pcfg.routing.nat.interface.clone()),
-                        ("QELI_BIND_PORT", pcfg.bind.port.to_string()),
-                    ],
+                    &hook_env.variables(),
                 )
                 .await;
             }
@@ -3747,13 +4334,43 @@ async fn run_profile_generation(
         in_txs.push(tx);
         in_rxs.push(rx);
     }
+    // Filled one-for-one with `in_txs` below. Listeners use the matching sender to bypass
+    // the Linux routing table for session-to-session traffic (notably exit-node defaults)
+    // while retaining the exact same downlink MTU, fragmentation and encryption path.
+    let mut direct_out_txs: Vec<mpsc::Sender<ServerTunPacket>> =
+        Vec::with_capacity(reader_fds.len());
 
-    let tun_address: std::net::Ipv4Addr = pcfg
-        .tun
-        .address
-        .parse()
-        .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.address: {}", name, e))?;
-    let pool = pool::IpPool::new_with_tun(&pcfg.pool, tun_address)?;
+    let tun_ipv6 = if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+        Some(
+            pcfg.tun
+                .ipv6_address
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("profile '{}': missing tun.ipv6_address", name))?
+                .parse::<std::net::Ipv6Addr>()
+                .map_err(|error| {
+                    anyhow::anyhow!("profile '{}': invalid tun.ipv6_address: {}", name, error)
+                })?,
+        )
+    } else {
+        None
+    };
+    let pool = if pcfg.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+        pool::IpPool::new_ipv6_only(
+            &pcfg.pool.ipv6,
+            tun_ipv6.expect("IPv6-only profile has a validated IPv6 TUN address"),
+        )?
+    } else {
+        let tun_address: std::net::Ipv4Addr = pcfg
+            .tun
+            .address
+            .parse()
+            .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.address: {}", name, e))?;
+        let mut pool = pool::IpPool::new_with_tun(&pcfg.pool, tun_address)?;
+        if let Some(tun_ipv6) = tun_ipv6 {
+            pool.enable_ipv6(&pcfg.pool.ipv6, tun_ipv6)?;
+        }
+        pool
+    };
 
     // Per-profile server identity (its own static key, bound to this interface).
     let static_keypair = Arc::new(load_or_generate_profile_key(&pcfg)?);
@@ -3904,6 +4521,7 @@ async fn run_profile_generation(
         pool: Arc::new(Mutex::new(pool)),
         sessions: Arc::new(RwLock::new(SessionMap {
             by_ip: HashMap::new(),
+            by_address: HashMap::new(),
             by_token: HashMap::new(),
             client_routes: Vec::new(),
         })),
@@ -3931,11 +4549,27 @@ async fn run_profile_generation(
     teardown.registered_profile = Some(profile.clone());
 
     let is_tap = dev_type == DeviceType::Tap;
-    let gateway_mac: [u8; 6] = if is_tap {
-        [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
-    } else {
-        [0u8; 6]
-    };
+    let gateway_mac: [u8; 6] = if is_tap { TAP_GATEWAY_MAC } else { [0u8; 6] };
+    let tap_server_ipv4 = is_tap
+        .then(|| {
+            profile
+                .config
+                .tun
+                .address
+                .parse::<std::net::Ipv4Addr>()
+                .ok()
+        })
+        .flatten();
+    let tap_server_ipv6 = is_tap
+        .then(|| {
+            profile
+                .config
+                .tun
+                .ipv6_address
+                .as_deref()
+                .and_then(|address| address.parse::<std::net::Ipv6Addr>().ok())
+        })
+        .flatten();
 
     // Per-queue data-plane pump. Each queue gets: a blocking reader (TUN -> forwarder),
     // an async forwarder (lookup + ENCRYPT + send to client — encrypt now runs N-way in
@@ -3969,6 +4603,7 @@ async fn run_profile_generation(
     {
         // Outbound: TUN[qi] -> forwarder -> client writer.
         let (out_tx, mut out_rx) = mpsc::channel::<ServerTunPacket>(4096);
+        direct_out_txs.push(out_tx.clone());
         {
             let name_r = name.clone();
             let is_tap_reader = is_tap;
@@ -4103,6 +4738,18 @@ async fn run_profile_generation(
                         // (see the PERFORMANCE-CRITICAL block above before changing either).
                         debug_assert_eq!(packet.len(), n as usize);
                         if is_tap_reader {
+                            if let Some(reply) =
+                                server_tap_control_reply(&packet, tap_server_ipv4, tap_server_ipv6)
+                            {
+                                let _ = unsafe {
+                                    libc::write(
+                                        reader_fd,
+                                        reply.as_ptr() as *const libc::c_void,
+                                        reply.len(),
+                                    )
+                                };
+                                continue;
+                            }
                             let Some(ip_offset) = strip_ethernet_header(&packet)
                                 .map(|ip| packet.len().saturating_sub(ip.len()))
                             else {
@@ -4152,23 +4799,28 @@ async fn run_profile_generation(
                 .address
                 .parse::<std::net::Ipv4Addr>()
                 .ok();
-            tasks.spawn(async move {
+            let icmpv6_router_ip = fwd_profile
+                .config
+                .tun
+                .ipv6_address
+                .as_deref()
+                .and_then(|address| address.parse::<std::net::Ipv6Addr>().ok());
+            tokio::spawn(async move {
                 // The forwarder serializes packets, so one task-owned buffer serves all
                 // server→client padding without a Vec allocation per record.
                 let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
                 while let Some(packet) = out_rx.recv().await {
-                    if packet.len() < 20 || (packet[0] >> 4) != 4 {
-                        continue;
-                    }
-                    let dest_ip =
-                        std::net::Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
+                    let meta = match crate::protocol::ip::parse_ip_packet(&packet) {
+                        Ok(meta) => meta,
+                        Err(_) => continue,
+                    };
+                    let dest_ip = meta.destination;
                     let sessions = fwd_profile.sessions.read().await;
                     // Exact pool-IP match first; then longest-prefix-match the client
                     // routes (iroute) so a packet to a client's extra address / LAN behind
                     // it is delivered into that client's tunnel, not dropped (#13).
                     if let Some(session) = sessions
-                        .by_ip
-                        .get(&dest_ip)
+                        .get_by_address(dest_ip)
                         .or_else(|| sessions.route_lookup(dest_ip))
                     {
                         // Client isolation: unless routing.client_to_client is enabled,
@@ -4177,9 +4829,7 @@ async fn run_profile_generation(
                         // unaffected. This flag was previously parsed but never enforced,
                         // so clients could always reach each other regardless.
                         if !fwd_profile.config.routing.client_to_client {
-                            let src_ip = std::net::Ipv4Addr::new(
-                                packet[12], packet[13], packet[14], packet[15],
-                            );
+                            let src_ip = meta.source;
                             // "Is the SOURCE a client?" has to be asked the same way the
                             // DESTINATION was resolved two lines up: pool address OR any
                             // subnet routed to a client (iroute).
@@ -4194,8 +4844,8 @@ async fn run_profile_generation(
                             // it as ordinary internet traffic, and B's reply routed straight
                             // back into A's tunnel via `route_lookup`. A full bidirectional
                             // channel with isolation switched ON. (Audit 2026-08-04.)
-                            if sessions.by_ip.contains_key(&src_ip)
-                                || sessions.route_lookup(src_ip).is_some()
+                            if sessions.get_by_address(src_ip).is_some()
+                                || sessions.source_route_lookup(src_ip).is_some()
                             {
                                 continue;
                             }
@@ -4215,14 +4865,25 @@ async fn run_profile_generation(
                         // Set when an oversized non-DF packet was split instead of dropped;
                         // the send below then emits the pieces in place of the original.
                         let mut fragmented: Option<Vec<ServerTunPacket>> = None;
-                        let session_mtu = session.downlink_mtu(fwd_profile.config.tun.mtu);
+                        let session_mtu =
+                            session.downlink_mtu(fwd_profile.config.tun.mtu, meta.version);
                         if let Some(mtu) = session_mtu {
                             if packet.len() > mtu as usize {
                                 // Only DF packets get the error: without DF the origin is
                                 // entitled to expect fragmentation instead, and answering
                                 // anyway would be a lie about why it was dropped. Those are
                                 // dropped as they already were — no regression, just visible.
-                                if crate::protocol::icmp::has_df(&packet) {
+                                if meta.version == crate::protocol::ip::IpVersion::V6 {
+                                    if let Some(err) = icmpv6_router_ip.and_then(|ip| {
+                                        crate::protocol::icmp::packet_too_big_v6(
+                                            &packet,
+                                            ip,
+                                            u32::from(mtu),
+                                        )
+                                    }) {
+                                        let _ = icmp_tx.try_send(ServerTunPacket::Fragment(err));
+                                    }
+                                } else if crate::protocol::icmp::has_df(&packet) {
                                     if let Some(err) = icmp_router_ip.and_then(|ip| {
                                         crate::protocol::icmp::frag_needed(&packet, ip, mtu)
                                     }) {
@@ -4401,12 +5062,10 @@ async fn run_profile_generation(
                         // derived from the client src-IP for ARP attribution); TUN writes the
                         // raw IP packet as-is.
                         let tap_frame = if is_tap_writer {
-                            let src_ip_mac = if packet.len() >= 16 {
-                                [0x02u8, 0x00, packet[12], packet[13], packet[14], packet[15]]
-                            } else {
-                                [0x02, 0x00, 0x00, 0x00, 0x00, 0x02]
-                            };
-                            Some(prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac))
+                            let src_ip_mac = crate::protocol::ip::parse_ip_packet(&packet)
+                                .map(|meta| mac_from_ip(meta.source))
+                                .unwrap_or([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+                            prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac)
                         } else {
                             None
                         };
@@ -4502,15 +5161,25 @@ async fn run_profile_generation(
 
     // DNS proxy (per-profile)
     if pcfg.dns.enabled {
+        let mut primary_dns_cfg = pcfg.dns.clone();
+        let primary_dns_pool = if pcfg.tun.ip_mode == crate::config::server::IpMode::Ipv6 {
+            primary_dns_cfg.listen =
+                pcfg.dns.listen_ipv6.clone().ok_or_else(|| {
+                    anyhow::anyhow!("profile '{}': missing dns.listen_ipv6", name)
+                })?;
+            pcfg.pool.ipv6.cidr.as_str()
+        } else {
+            pcfg.pool.cidr.as_str()
+        };
         // A resolver bound to the profile TUN address is local server traffic: packets hit
         // filter/INPUT, not FORWARD. Install a narrowly scoped permit before advertising the
         // resolver so hosts with INPUT DROP cannot create a connected-but-DNS-dead tunnel.
         nat::enable_dns_input(
             &name,
             &ifname,
-            &pcfg.pool.cidr,
-            &pcfg.dns.listen,
-            pcfg.dns.port,
+            primary_dns_pool,
+            &primary_dns_cfg.listen,
+            primary_dns_cfg.port,
         )
         .map_err(|error| anyhow::anyhow!("profile '{}': {error}", name))?;
 
@@ -4523,7 +5192,12 @@ async fn run_profile_generation(
         // redirect exists to prevent. Validation already demands iptables for a non-default
         // port, so a failure here means the rule was genuinely refused; fail the profile
         // rather than serve DNS that cannot work. (Audit 2026-08-01, §2.)
-        if !nat::enable_dns_redirect(&name, &ifname, &pcfg.dns.listen, pcfg.dns.port) {
+        if !nat::enable_dns_redirect(
+            &name,
+            &ifname,
+            &primary_dns_cfg.listen,
+            primary_dns_cfg.port,
+        ) {
             anyhow::bail!(
                 "profile '{}': dns.port = {} but the 53 -> {} redirect could not be installed,                  so every client would be pushed a resolver it cannot reach. Fix iptables, or                  set dns.port = 53.",
                 name,
@@ -4533,9 +5207,9 @@ async fn run_profile_generation(
         }
 
         let dns_state = state.clone();
-        let dns_cfg = pcfg.dns.clone();
+        let dns_cfg = primary_dns_cfg.clone();
         let name_dns = name.clone();
-        let dns_listen = crate::util::join_host_port(&pcfg.dns.listen, pcfg.dns.port);
+        let dns_listen = crate::util::join_host_port(&primary_dns_cfg.listen, primary_dns_cfg.port);
         // BIND FIRST, before the profile is allowed to advertise this resolver. The bind used
         // to live inside the detached task below, so a taken port surfaced as a log line while
         // the tunnel came up and pushed clients an address nothing was listening on — the
@@ -4543,7 +5217,7 @@ async fn run_profile_generation(
         // too. Failing the profile here is the difference between "DNS is misconfigured, and it
         // says so" and "the internet is broken for every client, silently".
         // (Audit 2026-08-01, §4.)
-        let dns_socket = match dns::bind_dns_proxy(&pcfg.dns).await {
+        let dns_socket = match dns::bind_dns_proxy(&primary_dns_cfg).await {
             Ok(s) => s,
             Err(e) => anyhow::bail!(
                 "profile '{}': {e}. Clients of this profile would be pushed {} as their                  resolver and get NO name resolution. Free the port (`ss -lunp | grep ':53 '`)                  or set a different dns.port — the tunnel bridges 53 to it automatically.",
@@ -4555,7 +5229,7 @@ async fn run_profile_generation(
         // to serve TCP, and it is where a client goes after a truncated UDP answer — so a
         // missing listener is not a degraded mode, it is a resolver that cannot answer anything
         // large. (Audit 2026-08-01, §10.)
-        let dns_tcp = match dns::bind_dns_proxy_tcp(&pcfg.dns).await {
+        let dns_tcp = match dns::bind_dns_proxy_tcp(&primary_dns_cfg).await {
             Ok(l) => l,
             Err(e) => anyhow::bail!(
                 "profile '{}': {e}. Clients that receive a truncated answer retry over TCP \
@@ -4571,7 +5245,7 @@ async fn run_profile_generation(
         let dns_cache: dns::DnsCache = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let dns_pref = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         {
-            let cfg_tcp = pcfg.dns.clone();
+            let cfg_tcp = primary_dns_cfg.clone();
             let cache_tcp = dns_cache.clone();
             let pref_tcp = dns_pref.clone();
             let dns_tasks = tasks.clone();
@@ -4591,6 +5265,56 @@ async fn run_profile_generation(
             .await
             .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
         });
+        if pcfg.tun.ip_mode == crate::config::server::IpMode::Dual {
+            let listen_ipv6 =
+                pcfg.dns.listen_ipv6.clone().ok_or_else(|| {
+                    anyhow::anyhow!("profile '{}': missing dns.listen_ipv6", name)
+                })?;
+            nat::enable_dns_input(
+                &name,
+                &ifname,
+                &pcfg.pool.ipv6.cidr,
+                &listen_ipv6,
+                pcfg.dns.port,
+            )?;
+            if !nat::enable_dns_redirect(&name, &ifname, &listen_ipv6, pcfg.dns.port) {
+                anyhow::bail!(
+                    "profile '{}': IPv6 DNS redirect on {} could not be installed",
+                    name,
+                    listen_ipv6
+                );
+            }
+            let mut ipv6_dns_cfg = pcfg.dns.clone();
+            ipv6_dns_cfg.listen = listen_ipv6.clone();
+            let udp = dns::bind_dns_proxy(&ipv6_dns_cfg).await?;
+            let tcp = dns::bind_dns_proxy_tcp(&ipv6_dns_cfg).await?;
+            let cache: dns::DnsCache = Arc::new(RwLock::new(std::collections::HashMap::new()));
+            let preference = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            {
+                let cfg = ipv6_dns_cfg.clone();
+                let cache = cache.clone();
+                let preference = preference.clone();
+                let profile_name = name.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = dns::run_dns_proxy_tcp(cfg, tcp, cache, preference).await {
+                        log::error!(
+                            "Profile '{profile_name}': IPv6 DNS proxy (tcp) stopped: {error}"
+                        );
+                    }
+                });
+            }
+            let dns_state = state.clone();
+            let profile_name = name.clone();
+            tokio::spawn(async move {
+                if let Err(error) =
+                    dns::run_dns_proxy(dns_state, ipv6_dns_cfg, udp, cache, preference).await
+                {
+                    log::error!(
+                        "Profile '{profile_name}': IPv6 DNS proxy on {listen_ipv6} stopped: {error}"
+                    );
+                }
+            });
+        }
     }
 
     // DHCP server (per-profile)
@@ -4605,7 +5329,9 @@ async fn run_profile_generation(
         let (pool_start, pool_end) =
             crate::config::server::dhcp_pool_bounds(&pcfg.dhcp, &pcfg.pool.cidr, server_ip)
                 .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
-        let subnet_mask = profile_subnet.netmask;
+        let subnet_mask = profile_subnet
+            .expect("DHCPv4 is rejected for IPv6-only profiles")
+            .netmask;
         let dhcp_dns: Vec<std::net::Ipv4Addr> = if pcfg.dns.enabled {
             vec![server_ip]
         } else {
@@ -4721,6 +5447,7 @@ async fn run_profile_generation(
         let decoy_gate = decoy_gate.clone();
         let decoy_refused = decoy_refused.clone();
         let in_txs = in_txs.clone();
+        let direct_out_txs = direct_out_txs.clone();
         let tun_write_pool = tun_write_pool.clone();
         let pcfg = pcfg.clone();
         let name = name.clone();
@@ -4728,7 +5455,7 @@ async fn run_profile_generation(
         listener_set.spawn(async move {
             match transport {
                 TransportProtocol::Tcp => {
-                    let listener = TcpListener::bind(&bind_addr).await?;
+                    let listener = bind_tcp_listener(&bind_addr).await?;
                     log::info!("Profile '{}' listening on {} (TCP)", name, bind_addr);
                     loop {
                         let (stream, addr) = match listener.accept().await {
@@ -4792,8 +5519,10 @@ async fn run_profile_generation(
                             use std::hash::{Hash, Hasher};
                             let mut h = std::collections::hash_map::DefaultHasher::new();
                             addr.hash(&mut h);
+                            let queue = (h.finish() as usize) % in_txs.len();
                             TunIngress {
-                                sender: in_txs[(h.finish() as usize) % in_txs.len()].clone(),
+                                sender: in_txs[queue].clone(),
+                                forwarder: direct_out_txs[queue].clone(),
                                 pool: tun_write_pool.clone(),
                             }
                         };
@@ -4924,6 +5653,7 @@ async fn run_profile_generation(
                         let udp_profile = profile.clone();
                         let tun_tx_udp = TunIngress {
                             sender: in_txs[wid % in_txs.len()].clone(),
+                            forwarder: direct_out_txs[wid % direct_out_txs.len()].clone(),
                             pool: tun_write_pool.clone(),
                         };
                         let worker_tasks = profile_tasks.clone();
@@ -5098,6 +5828,31 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn lifecycle_hook_env_exports_both_families_and_legacy_primary() {
+        let mut profile = ProfileConfig::baseline();
+        profile.name = "dual".into();
+        profile.tun.name = "vpn42".into();
+        profile.tun.ip_mode = crate::config::server::IpMode::Dual;
+        profile.pool.cidr = "10.42.0.0/24".into();
+        profile.pool.ipv6.cidr = "fd42::/64".into();
+        profile.bind.port = 8443;
+        let env = ProfileHookEnv::new(&profile, "wan4".into(), "wan6".into());
+        assert_eq!(env.pool, "10.42.0.0/24");
+        assert_eq!(env.pool_ipv4, "10.42.0.0/24");
+        assert_eq!(env.pool_ipv6, "fd42::/64");
+        assert_eq!(env.wan, "wan4");
+        assert_eq!(env.wan_ipv4, "wan4");
+        assert_eq!(env.wan_ipv6, "wan6");
+        assert_eq!(env.bind_port, "8443");
+
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv6;
+        let env = ProfileHookEnv::new(&profile, String::new(), "wan6".into());
+        assert_eq!(env.pool, "fd42::/64");
+        assert_eq!(env.wan, "wan6");
+        assert!(env.pool_ipv4.is_empty());
     }
 
     #[test]
@@ -5276,6 +6031,14 @@ pool.cidr = 10.1.0.0/24
             &(profile("a", "10.0.0.1", "4443", 0, &[]) + &profile("b", "10.0.0.2", "4443", 1, &[]))
         ))
         .expect("different concrete addresses on one port must validate");
+        validate_profiles(&cfg(&profile(
+            "dual-outer",
+            "0.0.0.0",
+            "4443",
+            2,
+            &["[::]:4443"],
+        )))
+        .expect("separate IPv4 + V6ONLY IPv6 wildcards on one port must validate");
 
         for (label, text) in [
             (
@@ -5359,6 +6122,31 @@ pool.cidr = 10.1.0.0/24
                 "dns.enabled = true\ndns.listen = 10.1.0.1\n",
             ))))
         .expect("distinct ports and resolver addresses must validate");
+
+        // IPv6-only binds only dns.listen_ipv6. Its legacy/default dns.listen value is an
+        // inactive shadow and must neither be parsed nor reserve an imaginary IPv4 socket.
+        validate_profiles(&cfg(&(profile(
+            "v6a",
+            "6443",
+            2,
+            "tun.ip_mode = ipv6\n\
+                 tun.ipv6_address = fd71:e1:2::1\n\
+                 pool.ipv6.cidr = fd71:e1:2::/64\n\
+                 dns.enabled = true\n\
+                 dns.listen = not-an-ipv4-address\n\
+                 dns.listen_ipv6 = fd71:e1:2::1\n",
+        ) + &profile(
+            "v6b",
+            "7443",
+            3,
+            "tun.ip_mode = ipv6\n\
+                 tun.ipv6_address = fd71:e1:3::1\n\
+                 pool.ipv6.cidr = fd71:e1:3::/64\n\
+                 dns.enabled = true\n\
+                 dns.listen = not-an-ipv4-address\n\
+                 dns.listen_ipv6 = fd71:e1:3::1\n",
+        ))))
+        .expect("IPv6-only resolvers must ignore the inactive IPv4 listen field");
 
         for (label, text) in [
             (
@@ -5791,6 +6579,32 @@ pool.cidr = 10.1.0.0/24
         let mut cfg = cfg_with("obfs", "tcp");
         cfg.profiles[0].obfuscation.obfs_key = "shared-secret".into();
         assert!(validate_profiles(&cfg).is_ok());
+    }
+
+    #[test]
+    fn ipv6_only_profile_ignores_inactive_ipv4_shadow_fields() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv6;
+        profile.tun.address = "not-an-ipv4-address".into();
+        profile.pool.cidr = "not-an-ipv4-cidr".into();
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        profile.routing.nat.enabled = false;
+        profile.routing.forward_private = false;
+        validate_profiles(&cfg).expect("inactive IPv4 fields must not block IPv6-only");
+    }
+
+    #[test]
+    fn ipv6_only_profile_rejects_ipv4_nat44_switch() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv6;
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        profile.routing.nat.enabled = true;
+        let error = validate_profiles(&cfg).unwrap_err();
+        assert!(error.to_string().contains("NAT44"), "wrong reason: {error}");
     }
 
     #[test]

@@ -61,6 +61,49 @@ final class VPNConfigTests: XCTestCase {
         XCTAssertThrowsError(try VPNConfig(parsing: "[qeli]\nserver = host:443\nmode = unknown"))
     }
 
+    func testRequiredIPv6RejectsExplicitMTUBelow1280() throws {
+        var required = VPNConfig(serverAddress: "vpn.example.com", port: 443)
+        required.ipv6Policy = "required"
+        required.mtu = 1200
+        XCTAssertThrowsError(try required.validate())
+
+        var automatic = required
+        automatic.ipv6Policy = "auto"
+        XCTAssertNoThrow(try automatic.validate())
+    }
+
+    func testIPv6INIEndpointIsBracketedAndRoundTrips() throws {
+        let config = VPNConfig(serverAddress: "2001:db8::7", port: 8443)
+        let ini = try config.toINI()
+        XCTAssertTrue(ini.contains("server = [2001:db8::7]:8443"))
+        let back = try VPNConfig(parsing: ini)
+        XCTAssertEqual(back.serverAddress, "2001:db8::7")
+        XCTAssertEqual(back.port, 8443)
+    }
+
+    func testUDPProbeEndpointOverridePreservesServerIdentity() throws {
+        var config = VPNConfig(serverAddress: "vpn.example.com", port: 8443)
+        config.protocolName = "udp"
+        config.serverPublicKeyHex = String(repeating: "ab", count: 32)
+        config.sni = "cover.example.com"
+        config.serverAddress = "fd71:e100::1"
+
+        let reparsed = try VPNConfig(parsing: config.toTransportCoreINI())
+        XCTAssertEqual(reparsed.serverAddress, "fd71:e100::1")
+        XCTAssertEqual(reparsed.port, 8443)
+        XCTAssertEqual(reparsed.serverPublicKeyHex, config.serverPublicKeyHex)
+        XCTAssertEqual(reparsed.sni, "cover.example.com")
+        XCTAssertTrue(reparsed.isUDP)
+    }
+
+    func testRejectsBareOrMalformedIPv6Endpoint() {
+        for endpoint in ["2001:db8::443", "[2001:db8:::1]:443", "[vpn.example.com]:443"] {
+            XCTAssertThrowsError(try VPNConfig(parsing: "[qeli]\nserver = \(endpoint)"))
+        }
+        XCTAssertThrowsError(
+            try VPNConfig(parsing: "qeli://u:p@2001:db8::443?proto=tcp&mode=fake-tls"))
+    }
+
     func testRejectsQeliLinkNewlineInjection() {
         let malicious = "qeli://alice:p%0Aserver%20%3D%20evil.example:443@vpn.example.com:443?proto=tcp&mode=plain"
         XCTAssertThrowsError(try VPNConfig(parsing: malicious))

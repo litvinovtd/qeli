@@ -156,51 +156,43 @@ impl Obfuscator {
         fragments
     }
 
-    /// Round the packet up to the next configured size, never past `max_len`.
+    /// Number of AEAD padding bytes needed to round a payload up to the next configured
+    /// size, never past `max_len`.
     ///
-    /// `max_len` is the tunnel MTU. Without it normalization could grow a packet BEYOND the
-    /// MTU the path-MTU probe just certified: the caller's cap applies to the padding only
-    /// (`mtu - data.len()`), so once the normalized data was already over the MTU the cap
-    /// saturated to zero and the oversized packet went out anyway — with DF armed after a
-    /// successful probe, straight into an EMSGSIZE drop. A round size larger than the tunnel
-    /// can carry is simply not usable, so skip it and try the next one.
-    /// (Audit 2026-07-29, #19.)
-    pub fn normalize_packet_length(
-        &mut self,
-        data: &[u8],
+    /// Normalization MUST NOT append bytes to an already formed IP datagram: doing so makes
+    /// the IPv4 total-length / IPv6 payload-length field disagree with the record returned by
+    /// decryption. The bytes therefore travel in PacketCodec's authenticated padding region
+    /// and are stripped before the inner packet reaches TUN or any packet parser.
+    pub fn normalization_padding_len(
+        data_len: usize,
         round_sizes: &[u16],
         max_len: usize,
-    ) -> Vec<u8> {
-        let mut out = Vec::new();
-        self.normalize_packet_length_into(data, round_sizes, max_len, &mut out);
-        out
+    ) -> usize {
+        for &size in round_sizes {
+            let size = size as usize;
+            if size > max_len {
+                continue;
+            }
+            if data_len <= size {
+                return size - data_len;
+            }
+        }
+        0
     }
 
-    /// Caller-owned variant of [`Self::normalize_packet_length`].
-    pub fn normalize_packet_length_into(
+    /// Append random normalization bytes to an existing AEAD padding buffer.
+    pub fn append_normalization_padding_into(
         &mut self,
-        data: &[u8],
+        data_len: usize,
         round_sizes: &[u16],
         max_len: usize,
         out: &mut Vec<u8>,
     ) {
-        let current_len = data.len();
-        let mut normalized_len = current_len;
-        for &size in round_sizes {
-            let size = size as usize;
-            if size > max_len {
-                continue; // would not fit the tunnel — normalizing to it defeats the probe
-            }
-            if current_len <= size {
-                normalized_len = size;
-                break;
-            }
-        }
-        out.clear();
-        out.extend_from_slice(data);
-        if normalized_len > current_len {
-            out.resize(normalized_len, 0);
-            self.rng.fill_bytes(&mut out[current_len..]);
+        let count = Self::normalization_padding_len(data_len, round_sizes, max_len);
+        if count != 0 {
+            let start = out.len();
+            out.resize(start + count, 0);
+            self.rng.fill_bytes(&mut out[start..]);
         }
     }
 
@@ -329,26 +321,24 @@ mod tests {
 
     #[test]
     fn test_normalize_packet_length_rounds_up() {
-        let mut obf = Obfuscator::new();
         let sizes = vec![64u16, 128, 256, 512, 1024];
-
-        let data = vec![0xAAu8; 50];
-        let padded = obf.normalize_packet_length(&data, &sizes, usize::MAX);
-        assert_eq!(padded.len(), 64);
-
-        let data = vec![0xAAu8; 70];
-        let padded = obf.normalize_packet_length(&data, &sizes, usize::MAX);
-        assert_eq!(padded.len(), 128);
+        assert_eq!(
+            Obfuscator::normalization_padding_len(50, &sizes, usize::MAX),
+            14
+        );
+        assert_eq!(
+            Obfuscator::normalization_padding_len(70, &sizes, usize::MAX),
+            58
+        );
     }
 
     #[test]
     fn test_normalize_packet_length_no_round_needed() {
-        let mut obf = Obfuscator::new();
         let sizes = vec![64u16, 128, 256];
-
-        let data = vec![0xABu8; 256];
-        let padded = obf.normalize_packet_length(&data, &sizes, usize::MAX);
-        assert_eq!(padded.len(), 256);
+        assert_eq!(
+            Obfuscator::normalization_padding_len(256, &sizes, usize::MAX),
+            0
+        );
     }
 
     /// Normalization must never round a packet past what the tunnel can carry. The pad cap
@@ -356,48 +346,41 @@ mod tests {
     /// with DF armed after a successful path-MTU probe — was dropped with EMSGSIZE.
     #[test]
     fn normalize_never_exceeds_the_tunnel_mtu() {
-        let mut obf = Obfuscator::new();
-        let data = vec![0u8; 1200];
         let sizes = [1500u16];
-        // A 1500 round size cannot fit a 1280 tunnel: leave the packet alone.
-        assert_eq!(obf.normalize_packet_length(&data, &sizes, 1280).len(), 1200);
-        // With room for it, the rounding still happens.
-        assert_eq!(obf.normalize_packet_length(&data, &sizes, 1500).len(), 1500);
-        // A usable smaller rung is still picked when a larger one does not fit.
+        assert_eq!(Obfuscator::normalization_padding_len(1200, &sizes, 1280), 0);
+        assert_eq!(
+            Obfuscator::normalization_padding_len(1200, &sizes, 1500),
+            300
+        );
         let mixed = [1500u16, 1280];
-        assert_eq!(obf.normalize_packet_length(&data, &mixed, 1280).len(), 1280);
+        assert_eq!(
+            Obfuscator::normalization_padding_len(1200, &mixed, 1280),
+            80
+        );
     }
 
     #[test]
     fn test_normalize_packet_length_larger_than_max() {
-        let mut obf = Obfuscator::new();
         let sizes = vec![64u16, 128];
-
-        let data = vec![0xABu8; 200];
-        let padded = obf.normalize_packet_length(&data, &sizes, usize::MAX);
-        // If larger than all round sizes, return as-is
-        assert_eq!(padded.len(), 200);
+        assert_eq!(
+            Obfuscator::normalization_padding_len(200, &sizes, usize::MAX),
+            0
+        );
     }
 
     #[test]
-    fn caller_owned_normalization_reuses_storage_and_preserves_prefix() {
+    fn normalization_is_stripped_as_aead_padding_and_never_mutates_ip_data() {
         let mut obf = Obfuscator::new();
         let sizes = [64u16, 128, 256];
-        let mut normalized = Vec::with_capacity(256);
-        let allocation = normalized.as_ptr();
-
         let data = vec![0xAB; 70];
-        obf.normalize_packet_length_into(&data, &sizes, usize::MAX, &mut normalized);
-        assert_eq!(normalized.len(), 128);
-        assert_eq!(&normalized[..data.len()], data);
-        assert_eq!(normalized.as_ptr(), allocation);
+        let mut padding = vec![1, 2, 3];
+        obf.append_normalization_padding_into(data.len(), &sizes, usize::MAX, &mut padding);
+        assert_eq!(data.len() + padding.len(), 131);
 
-        let larger = vec![0xCD; 300];
-        normalized.clear();
-        normalized.reserve_exact(larger.len());
-        let grown_allocation = normalized.as_ptr();
-        obf.normalize_packet_length_into(&larger, &sizes, usize::MAX, &mut normalized);
-        assert_eq!(normalized, larger);
-        assert_eq!(normalized.as_ptr(), grown_allocation);
+        let key = [7u8; 32];
+        let mut tx = crate::protocol::packet::PacketCodec::new_raw(key);
+        let mut rx = crate::protocol::packet::PacketCodec::new_raw(key);
+        let encrypted = tx.encrypt_packet(&data, &padding).unwrap();
+        assert_eq!(rx.decrypt_packet(&encrypted).unwrap(), data);
     }
 }

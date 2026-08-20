@@ -60,6 +60,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "data_frag"
+path = "fuzz_targets/data_frag.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "quic"
 path = "fuzz_targets/quic.rs"
 test = false

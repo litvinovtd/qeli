@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity() {
     // Invalidates reachability probes launched against a VPN generation being torn down.
     private var reachEpoch = 0L
     private var clientIp = ""
+    private var clientGateway = ""
     private var logLineCount = 0
     // Mirror of PREF_LOG_TIME_FORMAT, cached because appendLog reads it per line.
     // Refreshed in onCreate and whenever Settings is saved.
@@ -240,7 +241,10 @@ sni = www.microsoft.com
                         intent.getLongExtra(VpnServiceImpl.EXTRA_DOWN_TOTAL, VpnServiceImpl.liveBytesDown)
                     )
                 } else {
-                    if (status == VpnServiceImpl.STATUS_CONNECTED) clientIp = intent.getStringExtra(VpnServiceImpl.EXTRA_IP) ?: ""
+                    if (status == VpnServiceImpl.STATUS_CONNECTED) {
+                        clientIp = intent.getStringExtra(VpnServiceImpl.EXTRA_IP) ?: ""
+                        clientGateway = intent.getStringExtra(VpnServiceImpl.EXTRA_GATEWAY) ?: ""
+                    }
                     updateUi(status, error)
                 }
             }
@@ -447,7 +451,11 @@ sni = www.microsoft.com
      *  Activity is recreated by a theme switch or rotation). */
     private fun restoreServiceState() {
         when (VpnServiceImpl.liveStatus) {
-            VpnServiceImpl.STATUS_CONNECTED -> { clientIp = VpnServiceImpl.liveIp; setConnectedState() }
+            VpnServiceImpl.STATUS_CONNECTED -> {
+                clientIp = VpnServiceImpl.liveIp
+                clientGateway = VpnServiceImpl.liveGateway
+                setConnectedState()
+            }
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
             VpnServiceImpl.STATUS_DISCONNECTING -> setDisconnectingState()
             VpnServiceImpl.STATUS_WAITING_TRUSTED -> setTrustedWaitingState()
@@ -1783,13 +1791,11 @@ sni = www.microsoft.com
         launchReachabilityProbe(manual) {
             // While connected, probe the in-tunnel gateway for a clean tunnel RTT
             // (probing the public IP loops back through the server and ~doubles it).
-            val ms = withReachabilityProbeSlot {
-                if (isConnected && clientIp.isNotEmpty()) {
-                    val gw = gatewayOf(clientIp)
-                    if (cfg.isUdp) udpPing(cfg, gw) else tcpPing(gw, cfg.port)
-                } else {
-                    probe(p)
-                }
+            val ms = if (isConnected && clientGateway.isNotEmpty()) {
+                if (cfg.isUdp) udpPing(cfg, clientGateway)
+                else tcpPing(clientGateway, cfg.port)
+            } else {
+                probe(p)
             }
             if (epoch == reachEpoch && !isDisconnecting
                 && profiles.getOrNull(idx) === p) {
@@ -1861,14 +1867,6 @@ sni = www.microsoft.com
     private suspend fun probe(p: Profile): Long {
         val cfg = try { VpnConfig.parse(p.text) } catch (_: Exception) { return -1L }
         return if (cfg.isUdp) udpPing(cfg, cfg.serverAddress) else tcpPing(cfg.serverAddress, cfg.port)
-    }
-
-    /** The server's in-tunnel gateway (`x.y.z.1` of the assigned tunnel IP). The
-     *  profile listens on 0.0.0.0:port, so it is reachable here through the tunnel
-     *  — probing it gives a clean one-way tunnel RTT. */
-    private fun gatewayOf(ip: String): String {
-        val o = ip.split(".")
-        return if (o.size == 4) "${o[0]}.${o[1]}.${o[2]}.1" else ip
     }
 
     /** Native UDP first-flight diagnostic. Rust uses the same hybrid PQ ClientHello,
@@ -2013,6 +2011,7 @@ sni = www.microsoft.com
         if (!isDisconnecting) reachEpoch++
         isConnected = false; isConnecting = false; isDisconnecting = true; isTrustedPaused = false
         clientIp = ""
+        clientGateway = ""
         binding.btnPing.isEnabled = false
         binding.btnCheckAll.isEnabled = false
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
@@ -2027,7 +2026,8 @@ sni = www.microsoft.com
     }
 
     private fun setDisconnectedState() {
-        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false
+        clientIp = ""; clientGateway = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_disconnected)
@@ -2077,7 +2077,8 @@ sni = www.microsoft.com
     }
 
     private fun setErrorState(error: String?) {
-        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false
+        clientIp = ""; clientGateway = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_error)

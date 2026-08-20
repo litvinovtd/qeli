@@ -10,6 +10,8 @@ LOG=/opt/var/log/qeli-client.log
 TUN=vpn0            # имя tun (должно совпадать с dev= в конфиге; дефолт vpn0)
 LAN_IF=br0          # LAN-бридж роутера (проверь `ip a` — бывает br0/bridge0)
 GATEWAY=yes         # yes = ставить NAT/forward для заворота всего LAN (full-tunnel)
+SYSCTL_STATE=/opt/var/run/qeli-forwarding.state
+PLAN_STATE=/opt/var/run/qeli.network-plan
 
 # Персистентное состояние клиента на /opt (на роутере /var = tmpfs, теряется при ребуте).
 #  * device-id: иначе сервер каждый раз видит «новое устройство» и тратит слот сессии.
@@ -18,24 +20,145 @@ GATEWAY=yes         # yes = ставить NAT/forward для заворота �
 #    в конфиге задан реальный пиннингованный `key`.
 export QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id
 export QELI_KNOWN_HOSTS=/opt/etc/qeli/known_hosts
+# Published atomically only after qeli has authenticated and committed the host plan.
+export QELI_TUNIP_FILE="$PLAN_STATE"
 export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+config_value() {
+  awk -F= -v wanted="$1" '
+    /^[[:space:]]*\[/ { section=$0; gsub(/[[:space:]]/, "", section); next }
+    section == "[qeli]" {
+      key=$1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (key == wanted) {
+        $1=""; sub(/^=/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit
+      }
+    }
+  ' "$CONF" 2>/dev/null
+}
+
+core_manages_gateway() {
+  case "$(config_value gateway_nat):$(config_value forward)" in
+    true:*|yes:*|1:*|*:true|*:yes|*:1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+legacy_ipv4_enabled() { grep -q '^ipv4=' "$PLAN_STATE" 2>/dev/null; }
+legacy_ipv6_enabled() { grep -q '^ipv6=' "$PLAN_STATE" 2>/dev/null; }
+
+legacy_gateway_preflight() {
+  [ "$GATEWAY" = yes ] || return 0
+  core_manages_gateway && return 0
+  return 0
+}
+
+ipv6_wan_if() {
+  ip -6 route show default 2>/dev/null | awk '
+    { for (i=1; i<NF; i++) if ($i == "dev") { print $(i+1); exit } }
+  '
+}
+
+save_forwarding_state() {
+  [ -f "$SYSCTL_STATE" ] && return 0
+  wan6="$(ipv6_wan_if)"
+  case "$wan6" in *[!A-Za-z0-9_.:-]*) wan6="" ;; esac
+  {
+    echo "ipv4=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
+    echo "ipv6=$(cat /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null)"
+    echo "wan6=$wan6"
+    [ -z "$wan6" ] || echo "accept_ra6=$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra" 2>/dev/null)"
+  } > "$SYSCTL_STATE"
+}
+
+restore_forwarding_state() {
+  [ -f "$SYSCTL_STATE" ] || return 0
+  old4="$(sed -n 's/^ipv4=//p' "$SYSCTL_STATE" | head -n1)"
+  old6="$(sed -n 's/^ipv6=//p' "$SYSCTL_STATE" | head -n1)"
+  wan6="$(sed -n 's/^wan6=//p' "$SYSCTL_STATE" | head -n1)"
+  oldra6="$(sed -n 's/^accept_ra6=//p' "$SYSCTL_STATE" | head -n1)"
+  touched6="$(sed -n 's/^ipv6_touched=//p' "$SYSCTL_STATE" | head -n1)"
+  [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != 1 ] || \
+    [ -z "$old4" ] || echo "$old4" > /proc/sys/net/ipv4/ip_forward
+  [ "$(cat /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null)" != 1 ] || \
+    [ -z "$old6" ] || echo "$old6" > /proc/sys/net/ipv6/conf/all/forwarding
+  if [ "$touched6" = 1 ] && [ -n "$wan6" ] && [ -n "$oldra6" ] && \
+     [ "$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra" 2>/dev/null)" = 2 ]; then
+    echo "$oldra6" > "/proc/sys/net/ipv6/conf/$wan6/accept_ra"
+  fi
+  rm -f "$SYSCTL_STATE"
+}
 
 nat_up() {
   [ "$GATEWAY" = yes ] || return 0
-  echo 1 > /proc/sys/net/ipv4/ip_forward
-  iptables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
-    iptables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE
-  iptables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT
-  iptables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+  # Современный qeli сам управляет обеими семьями, lifecycle sysctl и capability gate.
+  # Внешние правила остаются только как совместимость со старыми client.conf.
+  core_manages_gateway && return 0
+  if ! legacy_ipv4_enabled && ! legacy_ipv6_enabled; then
+    echo "qeli-client: в $PLAN_STATE нет согласованных IPv4/IPv6 адресов"
+    return 1
+  fi
+  save_forwarding_state || return 1
+  if legacy_ipv4_enabled; then
+    command -v iptables >/dev/null 2>&1 || {
+      echo "qeli-client: согласованный IPv4 legacy gateway требует iptables"; return 1;
+    }
+    echo 1 > /proc/sys/net/ipv4/ip_forward || return 1
+    iptables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
+      iptables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE || return 1
+    iptables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
+      iptables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
+    iptables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+      iptables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
+    iptables -t mangle -C FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+      iptables -t mangle -A FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
+  fi
+  if legacy_ipv6_enabled; then
+    command -v ip6tables >/dev/null 2>&1 || {
+      echo "qeli-client: согласованный IPv6 legacy gateway требует ip6tables"; return 1;
+    }
+    wan6="$(sed -n 's/^wan6=//p' "$SYSCTL_STATE" | head -n1)"
+    if [ -n "$wan6" ] && [ -e "/proc/sys/net/ipv6/conf/$wan6/accept_ra" ]; then
+      # Linux otherwise stops accepting upstream RAs when forwarding becomes 1.
+      echo 2 > "/proc/sys/net/ipv6/conf/$wan6/accept_ra" || return 1
+    fi
+    echo "ipv6_touched=1" >> "$SYSCTL_STATE"
+    echo 1 > /proc/sys/net/ipv6/conf/all/forwarding || return 1
+    ip6tables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
+      ip6tables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE || return 1
+    ip6tables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
+      ip6tables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
+    ip6tables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+      ip6tables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
+    ip6tables -t mangle -C FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+      ip6tables -t mangle -A FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
+  fi
+}
+
+wait_for_network_plan() {
+  i=0
+  while [ $i -lt 60 ]; do
+    [ -s "$PLAN_STATE" ] && return 0
+    is_running || return 1
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
 }
 
 nat_down() {
   [ "$GATEWAY" = yes ] || return 0
+  # Удаляем и старые внешние правила даже после миграции на gateway_nat=true.
   iptables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
   iptables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
   iptables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+  iptables -t mangle -D FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+  if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
+    ip6tables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
+    ip6tables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+    ip6tables -t mangle -D FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+  fi
+  restore_forwarding_state
 }
 
 is_running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
@@ -46,11 +169,26 @@ start() {
     echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; exit 1
   fi
   mkdir -p /opt/var/run /opt/var/log /opt/etc/qeli
+  legacy_gateway_preflight || exit 1
+  # Recover only qeli's stale compatibility state from an unclean previous stop.
+  [ -f "$SYSCTL_STATE" ] && nat_down
+  rm -f "$PLAN_STATE"
   echo "qeli-client: старт"
   "$BIN" --config "$CONF" >> "$LOG" 2>&1 &
   echo $! > "$PIDFILE"
-  sleep 1
-  nat_up
+  if [ "$GATEWAY" = yes ] && ! core_manages_gateway && ! wait_for_network_plan; then
+    echo "qeli-client: за 60с не получен подтверждённый NetworkPlan"
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE" "$PLAN_STATE"
+    exit 1
+  fi
+  if ! nat_up; then
+    echo "qeli-client: не удалось применить legacy gateway firewall"
+    nat_down
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE" "$PLAN_STATE"
+    exit 1
+  fi
 }
 
 stop() {
@@ -60,6 +198,7 @@ stop() {
     kill "$(cat "$PIDFILE")" 2>/dev/null
     rm -f "$PIDFILE"
   fi
+  rm -f "$PLAN_STATE"
   ip link del "$TUN" 2>/dev/null   # подчистить tun, если остался
 }
 

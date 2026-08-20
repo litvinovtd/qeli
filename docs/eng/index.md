@@ -57,6 +57,7 @@ operator need first, then internal and historical material.
 | Document | What it covers |
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | Roadmap |
+| [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md) | Full IPv6 support: architecture, stages, and release gates |
 | [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | Refactoring plan: eliminating code duplication |
 | [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | A shared transport core in Rust for every client: proposal, measurements, plan |
 | [DESIGN-remaining.md](DESIGN-remaining.md) | REALITY development stages: status and remainder |

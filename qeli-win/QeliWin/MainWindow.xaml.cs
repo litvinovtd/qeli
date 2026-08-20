@@ -558,6 +558,8 @@ public partial class MainWindow : Window
     private void RenderStatus(VpnStatus status, string? extra)
     {
         _status = status;
+        if (status is VpnStatus.Connected or VpnStatus.Connecting)
+            _profileReachabilityGeneration.Clear();
         _lastExtra = extra;
         _tray?.Update(status, extra);
         // Connecting counts as locked too: the tunnel is already bound to a profile and
@@ -870,6 +872,8 @@ public partial class MainWindow : Window
     private DateTime _lastReachAll = DateTime.MinValue;
     private bool _reachPending;
     private DispatcherTimer? _probeTimer;
+    private long _nextReachabilityGeneration;
+    private readonly Dictionary<VpnConfig, long> _profileReachabilityGeneration = new();
 
     /// <summary>(Re)configure the auto-poll timer from settings. Auto off → no timer
     /// (reachability is then updated only by the manual "check" button / dot click).</summary>
@@ -932,6 +936,12 @@ public partial class MainWindow : Window
     {
         // Auto-poll off: leave the dot as-is (default Unknown / last manual result), don't wipe it.
         if (!manual && !AppSettings.Current.ProbeReachability) return;
+        // A manual dot click must obey the same active-tunnel guard as the all-profile sweep.
+        // Probing while connected measures the endpoint through a different routing state and
+        // can overwrite a valid pre-connect result with a misleading one.
+        if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
+        var generation = ++_nextReachabilityGeneration;
+        _profileReachabilityGeneration[p] = generation;
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {
@@ -954,6 +964,12 @@ public partial class MainWindow : Window
             }
             Dispatcher.Invoke(() =>
             {
+                if (_status is VpnStatus.Connected or VpnStatus.Connecting
+                    || !_profileReachabilityGeneration.TryGetValue(p, out var current)
+                    || current != generation)
+                    return;
+                _profileReachabilityGeneration.Remove(p);
+                if (!_profiles.Contains(p)) return;
                 p.LatencyMs = ok ? ms : null;
                 p.Reachability = ok ? ProfileReachability.Reachable : ProfileReachability.Unreachable;
             });

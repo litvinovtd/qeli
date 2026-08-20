@@ -148,9 +148,80 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     session_id: [u8; 32],
     sni: &str,
 ) -> io::Result<EstablishedTls> {
+    client_handshake_inner(stream, ephemeral, session_id, sni, false, "", 0).await
+}
+
+/// REALITY-TLS handshake with a single-segment, X25519-only ClientHello.
+/// Intended for paths whose DPI drops the tail of the browser-sized hybrid
+/// ClientHello before the server can read the REALITY discriminator.
+pub async fn client_handshake_compact<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    ephemeral: Keypair,
+    session_id: [u8; 32],
+    sni: &str,
+) -> io::Result<EstablishedTls> {
+    client_handshake_inner(stream, ephemeral, session_id, sni, true, "", 0).await
+}
+
+/// REALITY-TLS handshake with optional ClientHello write splitting. The bytes
+/// on the TCP stream remain a standards-compliant ClientHello; only the segment
+/// boundary and inter-segment timing change.
+pub async fn client_handshake_evasive<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    ephemeral: Keypair,
+    session_id: [u8; 32],
+    sni: &str,
+    compact: bool,
+    split_mode: &str,
+    split_delay_ms: u64,
+) -> io::Result<EstablishedTls> {
+    client_handshake_inner(
+        stream,
+        ephemeral,
+        session_id,
+        sni,
+        compact,
+        split_mode,
+        split_delay_ms,
+    )
+    .await
+}
+
+async fn client_handshake_inner<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    ephemeral: Keypair,
+    session_id: [u8; 32],
+    sni: &str,
+    compact: bool,
+    split_mode: &str,
+    split_delay_ms: u64,
+) -> io::Result<EstablishedTls> {
     // 1. ClientHello.
-    let (ch, mlkem_dk) = build_client_hello(ephemeral.public(), sni, &session_id);
-    stream.write_all(&ch).await?;
+    let (ch, mlkem_dk) = if compact {
+        super::clienthello::build_client_hello_compact(ephemeral.public(), sni, &session_id)
+    } else {
+        build_client_hello(ephemeral.public(), sni, &session_id)
+    };
+    let split_at = match split_mode {
+        "sni" => ch
+            .windows(sni.len())
+            .position(|w| w == sni.as_bytes())
+            .map(|p| p + (sni.len() / 2).max(1)),
+        "record" => Some(5),
+        "first" => Some(1),
+        _ => None,
+    }
+    .filter(|p| *p > 0 && *p < ch.len());
+    if let Some(pos) = split_at {
+        stream.write_all(&ch[..pos]).await?;
+        stream.flush().await?;
+        if split_delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(split_delay_ms)).await;
+        }
+        stream.write_all(&ch[pos..]).await?;
+    } else {
+        stream.write_all(&ch).await?;
+    }
     let mut transcript: Vec<u8> = ch[5..].to_vec();
 
     // 2. ServerHello (skipping any ChangeCipherSpec).

@@ -8,8 +8,8 @@ pub mod killswitch;
 pub mod route;
 
 use crate::crypto::{
-    derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
-    handshake_transcript_hash, Keypair,
+    derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
+    derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
 use crate::protocol::{
     generate_connection_id, pick_random_sni, read_record, read_record_into, read_tls_record,
@@ -64,13 +64,60 @@ use crate::transport_core::{NetworkPlan, RuntimeCounters};
 /// burst; the server simply stores the latest value, and the copies all carry the same one, so the duplicates are a no-op.
 /// TCP needs none of this — it retransmits for us.
 const MTU_REPORT_RESENDS: u8 = 3;
+/// PacketCodec framing/nonce/counter/tag/padding-trailer plus probe safety margin. This is
+/// used only to translate the existing inner-MTU-shaped probe into the independently tracked
+/// UDP payload budget that the probe actually certified.
+const UDP_RECORD_PROBE_OVERHEAD: usize = 48;
 
-/// The current tunnel address plan is IPv4-only. Android's TUN can still surface IPv6
-/// packets while the OS is withdrawing routes or probing connectivity; sending them to
-/// the server only produces source-guard drops and can starve useful traffic in a burst.
+/// Accept only packets belonging to the address families negotiated atomically in the
+/// authenticated NetworkPlan. Packets from a disabled family must not leak into a profile
+/// merely because the host TUN briefly retains an old route during reconfiguration.
 #[inline]
-fn is_supported_inner_packet(packet: &[u8]) -> bool {
-    packet.len() >= 20 && (packet[0] >> 4) == 4
+fn is_supported_inner_packet(
+    packet: &[u8],
+    family_mode: crate::transport_core::NetworkFamilyMode,
+) -> bool {
+    let Ok(meta) = crate::protocol::ip::parse_ip_packet(packet) else {
+        return false;
+    };
+    matches!(
+        (family_mode, meta.version),
+        (
+            crate::transport_core::NetworkFamilyMode::Ipv4,
+            crate::protocol::ip::IpVersion::V4
+        ) | (
+            crate::transport_core::NetworkFamilyMode::Ipv6,
+            crate::protocol::ip::IpVersion::V6
+        ) | (crate::transport_core::NetworkFamilyMode::Dual, _)
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn tap_gateway_facts(
+    addresses: &[crate::transport_core::NetworkAddress],
+) -> (Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>, u8) {
+    let mut ipv4 = None;
+    let mut ipv6 = None;
+    let mut ipv6_prefix_len = 0;
+    for address in addresses {
+        match address.family {
+            crate::transport_core::NetworkAddressFamily::Ipv4 if ipv4.is_none() => {
+                ipv4 = address
+                    .gateway
+                    .as_deref()
+                    .and_then(|value| value.parse().ok());
+            }
+            crate::transport_core::NetworkAddressFamily::Ipv6 if ipv6.is_none() => {
+                ipv6 = address
+                    .gateway
+                    .as_deref()
+                    .and_then(|value| value.parse().ok());
+                ipv6_prefix_len = address.on_link_prefix_len;
+            }
+            _ => {}
+        }
+    }
+    (ipv4, ipv6, ipv6_prefix_len)
 }
 
 /// The address the data-plane socket is ACTUALLY connected to.
@@ -87,10 +134,116 @@ fn is_supported_inner_packet(packet: &[u8]) -> bool {
 static CONNECTED_PEER: std::sync::Mutex<Option<std::net::IpAddr>> = std::sync::Mutex::new(None);
 
 #[cfg(target_os = "linux")]
+#[derive(Default)]
+struct CarrierCandidateState {
+    addresses: Vec<std::net::IpAddr>,
+    /// Once the host routes are committed, bonded streams must stay within this set.
+    /// Re-resolving to an unpinned address after full-tunnel capture would route the
+    /// encrypted carrier into qeli itself.
+    pinned: bool,
+    /// Rotate the first candidate between top-level reconnect generations. UDP
+    /// `connect()` alone cannot prove reachability, so an address that black-holes the
+    /// authenticated first flight must not be selected forever just because DNS order
+    /// is stable.
+    rotation: usize,
+}
+
+#[cfg(target_os = "linux")]
+static CARRIER_CANDIDATES: std::sync::Mutex<CarrierCandidateState> =
+    std::sync::Mutex::new(CarrierCandidateState {
+        addresses: Vec::new(),
+        pinned: false,
+        rotation: 0,
+    });
+
+#[cfg(target_os = "linux")]
 fn note_connected_peer(ip: std::net::IpAddr) {
     if let Ok(mut g) = CONNECTED_PEER.lock() {
         *g = Some(ip);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn reset_carrier_candidates(rotation: usize) {
+    if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
+        state.addresses.clear();
+        state.pinned = false;
+        state.rotation = rotation;
+    }
+    if let Ok(mut peer) = CONNECTED_PEER.lock() {
+        *peer = None;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rotate_carrier_candidates<T>(candidates: &mut [T]) {
+    if candidates.is_empty() {
+        return;
+    }
+    let rotation = CARRIER_CANDIDATES
+        .lock()
+        .map(|state| state.rotation)
+        .unwrap_or(0)
+        % candidates.len();
+    candidates.rotate_left(rotation);
+}
+
+#[cfg(target_os = "linux")]
+fn note_carrier_candidates(candidates: impl IntoIterator<Item = std::net::IpAddr>) {
+    if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
+        if state.pinned {
+            return;
+        }
+        state.addresses.clear();
+        for address in candidates {
+            if !state.addresses.contains(&address) {
+                state.addresses.push(address);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn carrier_pin_targets(config: &crate::config::client::ClientConfig) -> Vec<std::net::IpAddr> {
+    let mut addresses = CARRIER_CANDIDATES
+        .lock()
+        .map(|state| state.addresses.clone())
+        .unwrap_or_default();
+    if let Ok(peer) = CONNECTED_PEER.lock() {
+        if let Some(peer) = *peer {
+            if !addresses.contains(&peer) {
+                addresses.push(peer);
+            }
+        }
+    }
+    if addresses.is_empty() {
+        if let Ok(literal) = config.server.address.parse::<std::net::IpAddr>() {
+            addresses.push(literal);
+        }
+    }
+    addresses
+}
+
+#[cfg(target_os = "linux")]
+fn mark_carrier_candidates_pinned(addresses: &[std::net::IpAddr]) {
+    if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
+        state.addresses = addresses.to_vec();
+        state.pinned = true;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pinned_carrier_socket_addresses(port: u16) -> Option<Vec<std::net::SocketAddr>> {
+    CARRIER_CANDIDATES.lock().ok().and_then(|state| {
+        state.pinned.then(|| {
+            state
+                .addresses
+                .iter()
+                .copied()
+                .map(|address| std::net::SocketAddr::new(address, port))
+                .collect()
+        })
+    })
 }
 
 /// The peer address to pin, as a literal; falls back to the configured address when the
@@ -109,9 +262,14 @@ use crate::transport::tcp::set_tcp_keepalive;
 #[cfg(target_os = "linux")]
 use crate::tun::iface::TunInterface;
 #[cfg(target_os = "linux")]
-use crate::tun::{generate_mac, is_tap_mode, tap_interface_name};
+use crate::tun::{is_tap_mode, mac_from_ip, tap_interface_name};
 use rand::prelude::*;
-#[cfg(target_os = "linux")]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios"
+))]
 use std::os::fd::AsRawFd;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use std::os::fd::OwnedFd;
@@ -122,14 +280,15 @@ use portable_atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-#[cfg(target_os = "linux")]
-use tokio::net::TcpStream;
 use tokio::net::UdpSocket;
+#[cfg(target_os = "linux")]
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 
 pub(crate) type IdentityFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 pub(crate) type IdentityVerifier = Arc<dyn Fn([u8; 32]) -> IdentityFuture + Send + Sync + 'static>;
+pub(crate) type PendingLifecycleHook = (String, Vec<(String, String)>);
 
 #[cfg(target_os = "linux")]
 fn cleanup_routing_features(
@@ -169,6 +328,7 @@ fn cleanup_routing_features(
 /// ownership of the already-created TUN descriptors.
 pub(crate) trait ClientPlatform {
     fn next_generation(&mut self) -> u64;
+    fn platform_capabilities(&self) -> u64;
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]>;
     fn identity_verifier(&self, config: &crate::config::client::ClientConfig) -> IdentityVerifier;
     fn prepare_tunnel(
@@ -180,6 +340,27 @@ pub(crate) trait ClientPlatform {
     fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
+    /// Consume the client `post_up` hook after the first successfully applied NetworkPlan.
+    /// Non-Linux adapters and later reconnect generations have no pending hook.
+    fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
+        None
+    }
+}
+
+async fn run_pending_post_up(core: &mut dyn ClientPlatform) {
+    let Some((command, environment)) = core.take_post_up() else {
+        return;
+    };
+    #[cfg(target_os = "linux")]
+    {
+        let hook_environment = environment
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.clone()))
+            .collect::<Vec<_>>();
+        crate::hooks::run("post_up", &command, &hook_environment).await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (command, environment);
 }
 
 /// In-process Linux adapter for the same lifecycle contract exported over the C ABI.
@@ -192,6 +373,7 @@ struct LinuxCoreAdapter {
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     diagnostics: ClientStatusReporter,
+    post_up: Option<PendingLifecycleHook>,
 }
 
 /// Sanitized state exported by a Linux client process for the server panel. This is a
@@ -384,10 +566,26 @@ impl ClientStatusReporter {
 #[cfg(target_os = "linux")]
 impl LinuxCoreAdapter {
     fn new(config_text: &str) -> anyhow::Result<(Self, crate::config::client::ClientConfig)> {
+        let preview = crate::config::parse_client_config_strict(config_text)?;
+        let mut platform_capabilities = platform_capability::SYSTEM_PLAN
+            | platform_capability::IPV6_TUN
+            | platform_capability::IPV6_ROUTES
+            | platform_capability::IPV6_DNS;
+        if killswitch::ipv6_available() {
+            platform_capabilities |= platform_capability::IPV6_KILL_SWITCH;
+        }
+        if gateway::should_engage(&preview.routing) && !gateway::ipv6_available() {
+            // A router client must not accept an IPv6 lease it cannot forward for its LAN.
+            // `auto` will negotiate IPv4; `required` will fail with the missing platform
+            // capability before any address or route is touched.
+            platform_capabilities &= !(platform_capability::IPV6_TUN
+                | platform_capability::IPV6_ROUTES
+                | platform_capability::IPV6_DNS);
+        }
         let mut core = ClientCore::new(
             config_text,
             CoreOptions {
-                platform_capabilities: platform_capability::SYSTEM_PLAN,
+                platform_capabilities,
                 ..CoreOptions::default()
             },
         )?;
@@ -403,6 +601,7 @@ impl LinuxCoreAdapter {
                 cancel: Arc::new(AtomicBool::new(false)),
                 counters,
                 diagnostics,
+                post_up: None,
             },
             config,
         ))
@@ -432,6 +631,19 @@ impl LinuxCoreAdapter {
         let generation = self.next_plan_generation;
         self.next_plan_generation = self.next_plan_generation.saturating_add(1);
         generation
+    }
+
+    fn arm_post_up(&mut self, command: String, environment: &[(&str, String)]) {
+        if command.trim().is_empty() {
+            return;
+        }
+        self.post_up = Some((
+            command,
+            environment
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), value.clone()))
+                .collect(),
+        ));
     }
 
     fn apply_network_plan<T>(
@@ -510,6 +722,10 @@ impl ClientPlatform for LinuxCoreAdapter {
         LinuxCoreAdapter::next_generation(self)
     }
 
+    fn platform_capabilities(&self) -> u64 {
+        self.core.platform_capabilities()
+    }
+
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]> {
         Ok(device_id())
     }
@@ -544,6 +760,10 @@ impl ClientPlatform for LinuxCoreAdapter {
 
     fn counters(&self) -> Arc<RuntimeCounters> {
         self.counters.clone()
+    }
+
+    fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
+        self.post_up.take()
     }
 }
 
@@ -673,6 +893,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     let exit_on = config.routing.exit_node;
     let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
     let lan_subnet = config.routing.lan_subnet.clone();
+    let lan_subnet_ipv6 = config.routing.lan_subnet_ipv6.clone();
+    // Config validation already rejects exit_node + every full-tunnel spelling. Its own
+    // internet must remain on the physical WAN so forwarded traffic has an egress path.
+
     // post_up/post_down are honoured ONLY from a trusted (not group/world-writable)
     // config file: a hook runs as us (root). SECURITY: the panel/API never writes
     // these fields, so a panel compromise can't become RCE — see hooks.rs.
@@ -699,12 +923,21 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         ("QELI_SERVER_PORT", config.server.port.to_string()),
         ("QELI_LAN_SUBNET", lan_subnet.clone()),
     ];
+    // Unlike `post_down`, `post_up` is tied to a successfully created tunnel. Keep the
+    // already-vetted command in the platform adapter and consume it after the first
+    // authenticated NetworkPlan has installed the TUN and its active-family firewall.
+    core_adapter.arm_post_up(post_up.clone(), &hook_env);
 
     // Graceful shutdown: on SIGINT/SIGTERM restore DNS (and clear the kill-switch)
     // before exiting, so a `systemctl stop` or Ctrl-C never strands the system on
     // the tunnel resolver or behind a closed firewall. Last line of defence on top
     // of the per-connection restore in the data-plane loops below.
-    let (sig_tun, sig_lan, sig_post_down) = (tun_if.clone(), lan_subnet.clone(), post_down.clone());
+    let (sig_tun, sig_lan, sig_lan_ipv6, sig_post_down) = (
+        tun_if.clone(),
+        lan_subnet.clone(),
+        lan_subnet_ipv6.clone(),
+        post_down.clone(),
+    );
     // The hook environment has to reach THIS path too.
     //
     // post_down is invoked from three places; the two orderly exits passed `&hook_env`, and
@@ -742,14 +975,12 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         );
         // Name our own interface so a sibling client's resolvectl config is not
         // reverted along with ours. (Audit 2026-07-27, R7.)
-        let mut cleanup_failed = false;
-        if let Err(error) = dns::restore_dns_for(&sig_tun) {
-            cleanup_failed = true;
-            log::error!("shutdown DNS cleanup failed: {error}");
-        }
-        if let Err(error) = cleanup_routing_features(ks_on, gw_on, exit_on, &sig_tun, &sig_lan) {
-            cleanup_failed = true;
-            log::error!("shutdown firewall cleanup failed: {error}");
+        dns::restore_dns_for(&sig_tun);
+        // Remove router permits before lifting the fail-closed chain. The reverse order
+        // leaves a shutdown window where forwarded traffic is allowed without protection.
+        gateway::disengage_plan(&sig_tun, &sig_lan, &sig_lan_ipv6, gw_on, exit_on);
+        if ks_on {
+            killswitch::disengage(&sig_tun);
         }
         // Routes and the device: `TunGuard::drop` handles these on every normal exit, but
         // `process::exit` below skips destructors entirely, so a Ctrl-C used to leave the
@@ -775,61 +1006,23 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             &config.server.address,
             config.server.port,
             &tun_if,
+            config.routing.allow_ipv4_leak,
             config.routing.allow_ipv6_leak,
             gw_on,
         )?;
     }
-    // Gateway/router NAT: program ip_forward + MASQUERADE out the tun so a LAN
-    // behind this client reaches the internet through the tunnel. Idempotent;
-    // stays up across reconnects (rules are by interface name), removed on stop.
-    if gw_on {
-        // masquerade only for gateway_nat (internet egress); `forward` alone = pure L3
-        // routing, no NAT (#13).
-        if let Err(error) = gateway::engage(&tun_if, &lan_subnet, config.routing.gateway_nat) {
-            // `engage` may already have changed sysctls or installed an earlier
-            // rule before a later verification failed. Roll back its partial work
-            // and everything successfully installed before it.
-            let cleanup = cleanup_routing_features(ks_on, true, false, &tun_if, &lan_subnet);
-            return match cleanup {
-                Ok(()) => Err(error),
-                Err(cleanup) => Err(anyhow::anyhow!(
-                    "{error}; rollback after gateway setup failure also failed: {cleanup}"
-                )),
-            };
-        }
-    }
-    // Exit-node: forward + MASQUERADE tunnel traffic out the physical WAN, so other tunnel
-    // clients reach the internet under this host's IP. Like the gateway NAT it installs by
-    // interface name before the first connect, stays up across reconnects, and is removed on
-    // a clean stop. Refuse to run if requested but not installable (no iptables / no WAN).
-    if exit_on {
-        if let Err(error) = gateway::engage_exit(&tun_if) {
-            let cleanup = cleanup_routing_features(ks_on, gw_on, true, &tun_if, &lan_subnet);
-            return match cleanup {
-                Ok(()) => Err(error),
-                Err(cleanup) => Err(anyhow::anyhow!(
-                    "{error}; rollback after exit-node setup failure also failed: {cleanup}"
-                )),
-            };
-        }
-    }
-    // Run post_up after the firewall is in place.
-    crate::hooks::run("post_up", &post_up, &hook_env).await;
+    // Gateway and exit-node firewalling are installed by `setup_tunnel` only after the
+    // authenticated NetworkPlan identifies the active families. This keeps an IPv6-only
+    // router independent from IPv4 iptables/sysctls (and vice versa). `post_up` is consumed
+    // immediately afterwards by the data-plane setup, once on the first successful plan.
 
     let mut retry_count = 0u64;
 
     loop {
-        if let Err(error) = core_adapter.begin_connection(retry_count > 0) {
-            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
-            let error = match cleanup {
-                Ok(()) => error,
-                Err(cleanup) => anyhow::anyhow!("{error}; teardown also failed: {cleanup}"),
-            };
-            core_adapter.diagnostics.terminal(Some(&error));
-            core_adapter.diagnostics.publish(&core_adapter.counters);
-            return Err(error);
-        }
+        core_adapter.begin_connection(retry_count > 0)?;
+        // A reconnect generation gets a fresh DNS candidate set. Bonded streams inside
+        // that generation are restricted to the set pinned by its authenticated plan.
+        reset_carrier_candidates(usize::try_from(retry_count).unwrap_or(usize::MAX));
         let started = std::time::Instant::now();
         let result = if config.server.protocol == "udp" {
             connect_and_run_udp(&config, &password, &mut core_adapter).await
@@ -860,7 +1053,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         if !config.server.reconnect.enabled {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
-            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
+            gateway::disengage_plan(&tun_if, &lan_subnet, &lan_subnet_ipv6, gw_on, exit_on);
+            if ks_on {
+                killswitch::disengage(&tun_if);
+            }
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let result = match (result, cleanup) {
                 (Ok(()), Ok(())) => Ok(()),
@@ -877,7 +1073,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
-            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
+            gateway::disengage_plan(&tun_if, &lan_subnet, &lan_subnet_ipv6, gw_on, exit_on);
+            if ks_on {
+                killswitch::disengage(&tun_if);
+            }
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let error = match cleanup {
                 Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
@@ -939,7 +1138,7 @@ pub(crate) type StreamConnector<S> = std::sync::Arc<
         + Sync,
 >;
 
-/// Divide the remaining dial deadline across every untried A record. A dead first address
+/// Divide the remaining dial deadline across every untried A/AAAA record. A dead first address
 /// can consume only its fair share; addresses that fail quickly donate their unused time to
 /// the remaining candidates. No fixed per-address timeout is baked into the transport.
 #[cfg(any(target_os = "linux", test))]
@@ -951,35 +1150,85 @@ fn per_candidate_connect_budget(remaining: Duration, candidates_left: usize) -> 
     }
 }
 
+/// `lport` can identify the primary carrier to a firewall, but two simultaneous TCP
+/// connections to the same server cannot share the same local/remote four-tuple. Bonded
+/// members therefore keep the requested local address (egress choice) while taking an
+/// ephemeral port, matching the shared desktop carrier contract.
+#[cfg(any(target_os = "linux", test))]
+fn tcp_carrier_bind_address(
+    local_ip: Option<std::net::IpAddr>,
+    local_port: u16,
+    primary: bool,
+    remote: std::net::SocketAddr,
+) -> Option<std::net::SocketAddr> {
+    if local_ip.is_none() && (!primary || local_port == 0) {
+        return None;
+    }
+    let address = local_ip.unwrap_or_else(|| {
+        if remote.is_ipv4() {
+            std::net::Ipv4Addr::UNSPECIFIED.into()
+        } else {
+            std::net::Ipv6Addr::UNSPECIFIED.into()
+        }
+    });
+    Some(std::net::SocketAddr::new(
+        address,
+        if primary { local_port } else { 0 },
+    ))
+}
+
 #[cfg(target_os = "linux")]
 async fn connect_tcp_candidates(
-    host: &str,
-    port: u16,
+    config: &crate::config::client::ClientConfig,
     total: Duration,
     label: &str,
+    primary: bool,
 ) -> anyhow::Result<TcpStream> {
+    let host = config.server.address.as_str();
+    let port = config.server.port;
+    let local_ip = config
+        .server
+        .local_address
+        .as_deref()
+        .map(str::parse::<std::net::IpAddr>)
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
     let deadline = tokio::time::Instant::now() + total;
-    let resolved = match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
-        Ok(result) => result.map_err(|error| {
-            anyhow::anyhow!("{label} DNS lookup for {host}:{port} failed: {error}")
-        })?,
-        Err(_) => {
-            return Err(anyhow::anyhow!(
-                "{label} DNS lookup for {host}:{port} timed out after {}s",
-                total.as_secs()
-            ));
-        }
+    let pinned = pinned_carrier_socket_addresses(port);
+    let using_pinned_generation = pinned.is_some();
+    let mut candidates: Vec<std::net::SocketAddr> = if let Some(pinned) = pinned {
+        // The host routes were computed from this exact set before full-tunnel
+        // capture. Do not perform a later DNS lookup for a bonded stream: a newly
+        // published A/AAAA record has no safe physical route in this generation.
+        pinned
+    } else {
+        let resolved =
+            match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
+                Ok(result) => result.map_err(|error| {
+                    anyhow::anyhow!("{label} DNS lookup for {host}:{port} failed: {error}")
+                })?,
+                Err(_) => {
+                    return Err(anyhow::anyhow!(
+                        "{label} DNS lookup for {host}:{port} timed out after {}s",
+                        total.as_secs()
+                    ));
+                }
+            };
+        let mut seen = std::collections::HashSet::new();
+        resolved.filter(|address| seen.insert(*address)).collect()
     };
-    let mut seen = std::collections::HashSet::new();
-    let candidates: Vec<std::net::SocketAddr> = resolved
-        .filter(|address| address.is_ipv4())
-        .filter(|address| seen.insert(*address))
-        .collect();
+    if let Some(local) = local_ip {
+        candidates.retain(|address| local.is_ipv4() == address.is_ipv4());
+    }
     if candidates.is_empty() {
         return Err(anyhow::anyhow!(
-            "{label} DNS lookup for {host}:{port} returned no IPv4 address"
+            "{label} DNS lookup for {host}:{port} returned no address compatible with the configured local carrier"
         ));
     }
+    if !using_pinned_generation {
+        rotate_carrier_candidates(&mut candidates);
+    }
+    note_carrier_candidates(candidates.iter().map(|address| address.ip()));
 
     let mut failures = Vec::with_capacity(candidates.len());
     for (index, address) in candidates.iter().copied().enumerate() {
@@ -988,7 +1237,27 @@ async fn connect_tcp_candidates(
             break;
         }
         let slice = per_candidate_connect_budget(remaining, candidates.len() - index);
-        match tokio::time::timeout(slice, TcpStream::connect(address)).await {
+        let socket = if address.is_ipv4() {
+            TcpSocket::new_v4()
+        } else {
+            TcpSocket::new_v6()
+        };
+        let socket = match socket {
+            Ok(socket) => socket,
+            Err(error) => {
+                failures.push(format!("{address}: socket creation failed: {error}"));
+                continue;
+            }
+        };
+        if let Some(bind) =
+            tcp_carrier_bind_address(local_ip, config.server.local_port, primary, address)
+        {
+            if let Err(error) = socket.bind(bind) {
+                failures.push(format!("{address}: bind {bind} failed: {error}"));
+                continue;
+            }
+        }
+        match tokio::time::timeout(slice, socket.connect(address)).await {
             Ok(Ok(stream)) => {
                 note_connected_peer(address.ip());
                 if index > 0 {
@@ -1004,7 +1273,7 @@ async fn connect_tcp_candidates(
         }
     }
     Err(anyhow::anyhow!(
-        "{label} could not connect to any IPv4 address for {host}:{port} within {}s ({})",
+        "{label} could not connect to any IPv4 or IPv6 address for {host}:{port} within {}s ({})",
         total.as_secs(),
         failures.join("; ")
     ))
@@ -1016,17 +1285,12 @@ async fn connect_tcp_candidates(
 #[cfg(target_os = "linux")]
 async fn connect_reality(
     config: &crate::config::client::ClientConfig,
+    primary: bool,
 ) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let mut stream = connect_tcp_candidates(
-        &config.server.address,
-        config.server.port,
-        to,
-        "reality-tls TCP",
-    )
-    .await?;
+    let mut stream = connect_tcp_candidates(config, to, "reality-tls TCP", primary).await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
@@ -1065,17 +1329,48 @@ async fn connect_reality(
             ))
         }
     };
-    let est = match tokio::time::timeout(
-        to,
-        crate::protocol::realtls::client::client_handshake(
-            &mut stream,
-            eph,
-            session_id,
-            &server_name,
-        ),
-    )
-    .await
-    {
+    let handshake = async {
+        if !config.obfuscation.reality_split.is_empty()
+            && config.obfuscation.reality_split != "none"
+        {
+            log::info!(
+                "REALITY-TLS ClientHello split={} delay={}ms compact={}",
+                config.obfuscation.reality_split,
+                config.obfuscation.reality_split_delay_ms,
+                config.obfuscation.reality_compact
+            );
+            crate::protocol::realtls::client::client_handshake_evasive(
+                &mut stream,
+                eph,
+                session_id,
+                &server_name,
+                config.obfuscation.reality_compact,
+                &config.obfuscation.reality_split,
+                config.obfuscation.reality_split_delay_ms,
+            )
+            .await
+        } else if config.obfuscation.reality_compact {
+            log::info!(
+                "REALITY-TLS compact ClientHello enabled (X25519-only, single-segment target)"
+            );
+            crate::protocol::realtls::client::client_handshake_compact(
+                &mut stream,
+                eph,
+                session_id,
+                &server_name,
+            )
+            .await
+        } else {
+            crate::protocol::realtls::client::client_handshake(
+                &mut stream,
+                eph,
+                session_id,
+                &server_name,
+            )
+            .await
+        }
+    };
+    let est = match tokio::time::timeout(to, handshake).await {
         Ok(r) => r?,
         Err(_) => {
             return Err(anyhow::anyhow!(
@@ -1094,6 +1389,7 @@ async fn connect_reality(
 #[cfg(target_os = "linux")]
 async fn connect_obfs(
     config: &crate::config::client::ClientConfig,
+    primary: bool,
 ) -> anyhow::Result<crate::protocol::obfs::ObfsStream<TcpStream>> {
     // Bound connect + the obfs nonce-exchange handshake (reads) by
     // connection_timeout_secs: a server that accepts TCP then stalls the obfs handshake
@@ -1101,9 +1397,7 @@ async fn connect_obfs(
     // reconnect would fire. Covers both the primary and each bonded stream.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     match tokio::time::timeout(to, async {
-        let stream =
-            connect_tcp_candidates(&config.server.address, config.server.port, to, "obfs TCP")
-                .await?;
+        let stream = connect_tcp_candidates(config, to, "obfs TCP", primary).await?;
         stream.set_nodelay(config.performance.tcp_nodelay)?;
         set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
         let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
@@ -1146,13 +1440,13 @@ async fn connect_obfs(
 #[cfg(target_os = "linux")]
 async fn connect_bare_tcp(
     config: &crate::config::client::ClientConfig,
+    primary: bool,
 ) -> anyhow::Result<TcpStream> {
     // Bound the connect by connection_timeout_secs rather than the (much longer, ~75s)
     // OS SYN timeout, so a never-accepting server fails over to a reconnect promptly. No
     // handshake reads here — the qeli handshake (bounded in run_tcp_tunnel) does those.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let stream =
-        connect_tcp_candidates(&config.server.address, config.server.port, to, "TCP").await?;
+    let stream = connect_tcp_candidates(config, to, "TCP", primary).await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     Ok(stream)
@@ -1179,35 +1473,35 @@ async fn connect_and_run_tcp(
             ));
         }
         log::info!("Wire mode: obfs (ChaCha20 stream obfuscation)");
-        let first = connect_obfs(config).await?;
+        let first = connect_obfs(config, true).await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane to open bonded streams (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
         let connector: StreamConnector<_> = std::sync::Arc::new(move || {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_obfs(&cfg).await })
+            Box::pin(async move { connect_obfs(&cfg, false).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
-        let first = connect_reality(config).await?;
+        let first = connect_reality(config, true).await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
         let connector: StreamConnector<_> = std::sync::Arc::new(move || {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_reality(&cfg).await })
+            Box::pin(async move { connect_reality(&cfg, false).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     } else {
         // fake-tls / plain: bare TCP transport; the qeli handshake applies the
         // fake-TLS mimicry or the raw framing. Both support stream bonding.
         log::info!("Wire mode: {} (TCP)", config.obfuscation.mode);
-        let first = connect_bare_tcp(config).await?;
+        let first = connect_bare_tcp(config, true).await?;
         let cfg = std::sync::Arc::new(config.clone());
         let connector: StreamConnector<_> = std::sync::Arc::new(move || {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_bare_tcp(&cfg).await })
+            Box::pin(async move { connect_bare_tcp(&cfg, false).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     }
@@ -1218,6 +1512,10 @@ async fn connect_and_run_tcp(
 #[derive(Clone)]
 struct StreamPump {
     framing: Framing,
+    /// Authenticated address-family contract for both TUN directions.  Uplink validation alone
+    /// is insufficient: a stale or incompatible peer must not inject an opposite-family packet
+    /// into a platform adapter whose routes deliberately keep that family outside the tunnel.
+    family_mode: crate::transport_core::NetworkFamilyMode,
     heartbeat_enabled: bool,
     heartbeat_interval: Duration,
     idle_timeout: Duration,
@@ -1314,6 +1612,7 @@ where
         let dead_tx = dead_tx.clone();
         let last_rx = last_rx.clone();
         let framing = cfg.framing;
+        let family_mode = cfg.family_mode;
         let stream_dead = stream_dead.clone();
         let live = live.clone();
         let total_rx = total_rx.clone();
@@ -1343,9 +1642,13 @@ where
             // drains the FIFO — the reader's backpressure send can therefore
             // always make progress (no deadlock).
             let __h = tokio::spawn(async move {
+                let mut unsupported_downlink_drops = 0u64;
                 while let Some(mut record) = rec_rx.recv().await {
                     match inner_rx_codec.decrypt_packet_in_place(record.as_vec_mut()) {
-                        Ok(()) if !record.is_empty() => {
+                        Ok(())
+                            if !record.is_empty()
+                                && is_supported_inner_packet(record.as_ref(), family_mode) =>
+                        {
                             inner_total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                             inner_runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
                             inner_runtime
@@ -1358,7 +1661,17 @@ where
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
-                        Ok(()) => {}
+                        Ok(()) if record.is_empty() => {}
+                        Ok(()) => {
+                            unsupported_downlink_drops =
+                                unsupported_downlink_drops.saturating_add(1);
+                            if unsupported_downlink_drops.is_power_of_two() {
+                                log::debug!(
+                                    "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
+                                    unsupported_downlink_drops
+                                );
+                            }
+                        }
                         Err(e) => log::debug!("Decrypt error: {}", e),
                     }
                 }
@@ -1374,6 +1687,7 @@ where
 
         // Stage A: socket read (+ outer decrypt/framing for reality-tls) → sink.
         let __h = tokio::spawn(async move {
+            let mut unsupported_downlink_drops = 0u64;
             loop {
                 let mut record = match record_pool.acquire().await {
                     Some(record) => record,
@@ -1385,7 +1699,13 @@ where
                         match &mut sink {
                             RxSink::Inline { rx, tun } => {
                                 match rx.decrypt_packet_in_place(record.as_vec_mut()) {
-                                    Ok(()) if !record.is_empty() => {
+                                    Ok(())
+                                        if !record.is_empty()
+                                            && is_supported_inner_packet(
+                                                record.as_ref(),
+                                                family_mode,
+                                            ) =>
+                                    {
                                         total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                                         runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
                                         runtime
@@ -1405,7 +1725,17 @@ where
                                             }
                                         }
                                     }
-                                    Ok(()) => {}
+                                    Ok(()) if record.is_empty() => {}
+                                    Ok(()) => {
+                                        unsupported_downlink_drops =
+                                            unsupported_downlink_drops.saturating_add(1);
+                                        if unsupported_downlink_drops.is_power_of_two() {
+                                            log::debug!(
+                                                "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
+                                                unsupported_downlink_drops
+                                            );
+                                        }
+                                    }
                                     Err(e) => log::debug!("Decrypt error: {}", e),
                                 }
                             }
@@ -1495,7 +1825,6 @@ where
                 + crate::protocol::packet::MAX_RECORD_SIZE;
             let mut wire_record = Vec::with_capacity(wire_capacity);
             let mut cover_record = Vec::with_capacity(wire_capacity);
-            let mut normalized_packet = Vec::with_capacity(1400);
             let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
             loop {
                 tokio::select! {
@@ -1508,29 +1837,37 @@ where
                         // each use connection-owned storage for the lifetime of this writer.
                         let encrypted_data_len = {
                             let mut obf = Obfuscator::new();
-                            let normalized = if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
-                                // Same ceiling this block already uses for the pad cap
-                                // below. A stream has no datagram to overflow, so this
-                                // bounds the record rather than the path.
-                                obf.normalize_packet_length_into(
-                                    pt.as_ref(),
+                            let data = pt.as_ref();
+                            let normalization_padding = if cfg.norm_enabled
+                                && !cfg.norm_sizes.is_empty()
+                            {
+                                Obfuscator::normalization_padding_len(
+                                    data.len(),
                                     &cfg.norm_sizes,
                                     1400,
-                                    &mut normalized_packet,
-                                );
-                                Some(normalized_packet.as_slice())
+                                )
                             } else {
-                                None
+                                0
                             };
-                            let data = normalized.unwrap_or_else(|| pt.as_ref());
                             let pad_cap = {
-                                let b = data.len().saturating_add(60);
+                                let b = data
+                                    .len()
+                                    .saturating_add(normalization_padding)
+                                    .saturating_add(60);
                                 (cfg.padding_max as usize).min(1400usize.saturating_sub(b)) as u16
                             };
                             obf.generate_padding_opts_into(
                                 cfg.padding_enabled, cfg.padding_min, pad_cap,
                                 cfg.padding_randomize, cfg.padding_prob, &mut padding,
                             );
+                            if normalization_padding != 0 {
+                                obf.append_normalization_padding_into(
+                                    data.len(),
+                                    &cfg.norm_sizes,
+                                    1400,
+                                    &mut padding,
+                                );
+                            }
                             tx.encrypt_packet_into(data, &padding, &mut wire_record)
                                 .ok()
                                 .map(|()| data.len())
@@ -1701,6 +2038,7 @@ where
     // wraps ONLY the handshake phase; once it returns, the data plane runs untimed.
     let hs_to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let client_device_id = core.device_id()?;
+    let platform_capabilities = core.platform_capabilities();
     let identity_verifier = core.identity_verifier(config);
     let (client_rx, client_tx, ok) = match tokio::time::timeout(
         hs_to,
@@ -1709,6 +2047,7 @@ where
             config,
             password,
             &client_device_id,
+            platform_capabilities,
             identity_verifier.clone(),
         ),
     )
@@ -1724,12 +2063,15 @@ where
         }
     };
     let AuthOk {
+        family_mode,
+        addresses,
         client_ip: client_ip_str,
         server_ip,
         prefix,
         mtu: pushed_mtu,
         dns_ip,
         dns_port,
+        dns_servers,
         routes_json,
         pushed_obf,
         session_token,
@@ -1764,11 +2106,14 @@ where
     let tun_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
     let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
+        family_mode,
+        addresses: &addresses,
         client_ip: &client_ip_str,
         prefix,
         tunnel_gateway: &server_ip,
         dns_ip: &dns_ip,
         dns_port: &dns_port,
+        dns_servers: &dns_servers,
         routes_json: &routes_json,
         mtu: tun_mtu,
         fallback_dns_servers: &fallback_dns_servers,
@@ -1789,7 +2134,14 @@ where
     for line in &plan.connection_log {
         log::info!("{line}");
     }
+    let negotiated_family_mode = plan.family_mode;
+    #[cfg(target_os = "linux")]
+    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+        tap_gateway_facts(&plan.addresses);
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) = (None, None, 0);
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
+    run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tunnel.reader_fd;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -1805,7 +2157,7 @@ where
     #[cfg(target_os = "linux")]
     let tunnel_tun = tunnel.tun;
     #[cfg(target_os = "linux")]
-    let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
+    let tap_mac = tunnel.tap_mac;
     #[cfg(not(target_os = "linux"))]
     let tap_mac = [0u8; 6];
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -1865,6 +2217,9 @@ where
                 TunFraming::Tap(TapHeaders {
                     client_mac: tap_mac,
                     gateway_mac,
+                    gateway_ipv4: tap_gateway_ipv4,
+                    gateway_ipv6: tap_gateway_ipv6,
+                    ipv6_prefix_len: tap_ipv6_prefix_len,
                 })
             } else {
                 TunFraming::Raw
@@ -1937,6 +2292,7 @@ where
 
     let pump = StreamPump {
         framing,
+        family_mode: negotiated_family_mode,
         heartbeat_enabled,
         heartbeat_interval,
         idle_timeout,
@@ -2288,11 +2644,11 @@ where
                     log::warn!("TCP: TUN reader stopped — reconnecting");
                     break;
                 };
-                if !is_supported_inner_packet(ip_packet.as_ref()) {
+                if !is_supported_inner_packet(ip_packet.as_ref(), negotiated_family_mode) {
                     unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
                     if unsupported_inner_drops.is_power_of_two() {
                         log::debug!(
-                            "TCP client dropped unsupported non-IPv4 inner packet (total {})",
+                            "TCP client dropped invalid or non-negotiated-family inner packet (total {})",
                             unsupported_inner_drops
                         );
                     }
@@ -2433,6 +2789,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     config: &crate::config::client::ClientConfig,
     password: &str,
     client_device_id: &[u8; crate::protocol::DEVICE_ID_LEN],
+    platform_capabilities: u64,
     identity_verifier: IdentityVerifier,
 ) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)> {
     authenticate_tcp(
@@ -2440,6 +2797,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         config,
         password,
         client_device_id,
+        platform_capabilities,
         move |received| identity_verifier(received),
     )
     .await
@@ -2643,6 +3001,8 @@ pub(crate) struct TunnelSetup {
     if_name: String,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
+    #[cfg(target_os = "linux")]
+    tap_mac: [u8; 6],
     #[cfg(target_os = "windows")]
     windows_tun: WindowsTunSetup,
     #[cfg(target_os = "ios")]
@@ -2911,17 +3271,26 @@ fn reclaim_stale_tun(if_name: &str) -> anyhow::Result<()> {
     )
 }
 
-/// Set `IP_MTU_DISCOVER` on the raw UDP fd (Linux). `PROBE` sets DF and ignores the
+/// Set the family-matched `IP*_MTU_DISCOVER` option. `PROBE` sets DF and ignores the
 /// kernel's cached PMTU (so we can probe freely); `DO` keeps DF for the data plane;
 /// `DONT` allows fragmentation (the behaviour we restore if probing can't complete).
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn set_pmtudisc(fd: std::os::unix::io::RawFd, mode: libc::c_int) -> bool {
+fn set_pmtudisc(socket: &crate::protocol::obfs::ObfsUdp, mode: libc::c_int) -> bool {
+    // Linux uapi: IPV6_MTU_DISCOVER has the same modes as IP_MTU_DISCOVER. libc does not
+    // expose the IPv6 constant on every Android architecture supported by qeli, so keep the
+    // stable uapi value local instead of making those targets fail to compile.
+    const IPV6_MTU_DISCOVER: libc::c_int = 23;
+    let (level, option) = if socket.peer_is_ipv6() {
+        (libc::IPPROTO_IPV6, IPV6_MTU_DISCOVER)
+    } else {
+        (libc::IPPROTO_IP, libc::IP_MTU_DISCOVER)
+    };
     let v: libc::c_int = mode;
     let rc = unsafe {
         libc::setsockopt(
-            fd,
-            libc::IPPROTO_IP,
-            libc::IP_MTU_DISCOVER,
+            socket.as_raw_fd(),
+            level,
+            option,
             &v as *const libc::c_int as *const libc::c_void,
             std::mem::size_of::<libc::c_int>() as libc::socklen_t,
         )
@@ -2931,13 +3300,13 @@ fn set_pmtudisc(fd: std::os::unix::io::RawFd, mode: libc::c_int) -> bool {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
-    set_pmtudisc(socket.as_raw_fd(), libc::IP_PMTUDISC_PROBE)
+    set_pmtudisc(socket, libc::IP_PMTUDISC_PROBE)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
     let _ = set_pmtudisc(
-        socket.as_raw_fd(),
+        socket,
         if success {
             libc::IP_PMTUDISC_DO
         } else {
@@ -2949,14 +3318,20 @@ fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
 /// Darwin exposes a boolean DF control rather than Linux's three-state PMTU policy. Probes
 /// still get the property we need: an oversized datagram fails locally instead of fragmenting.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn set_dont_fragment(fd: std::os::unix::io::RawFd, enabled: bool) -> bool {
+fn set_dont_fragment(socket: &crate::protocol::obfs::ObfsUdp, enabled: bool) -> bool {
     const IP_DONTFRAG: libc::c_int = 28;
+    const IPV6_DONTFRAG: libc::c_int = 62;
+    let (level, option) = if socket.peer_is_ipv6() {
+        (libc::IPPROTO_IPV6, IPV6_DONTFRAG)
+    } else {
+        (libc::IPPROTO_IP, IP_DONTFRAG)
+    };
     let value: libc::c_int = i32::from(enabled);
     let rc = unsafe {
         libc::setsockopt(
-            fd,
-            libc::IPPROTO_IP,
-            IP_DONTFRAG,
+            socket.as_raw_fd(),
+            level,
+            option,
             &value as *const libc::c_int as *const libc::c_void,
             std::mem::size_of::<libc::c_int>() as libc::socklen_t,
         )
@@ -2966,18 +3341,19 @@ fn set_dont_fragment(fd: std::os::unix::io::RawFd, enabled: bool) -> bool {
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
-    set_dont_fragment(socket.as_raw_fd(), true)
+    set_dont_fragment(socket, true)
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
-    let _ = set_dont_fragment(socket.as_raw_fd(), success);
+    let _ = set_dont_fragment(socket, success);
 }
 
-/// Winsock's IP_DONTFRAGMENT option (14) is a BOOL on an IPv4 UDP socket. Keeping this tiny
-/// declaration local avoids adding a Windows-only dependency to router/server builds.
+/// Winsock uses option 14 for both `IP_DONTFRAGMENT` and `IPV6_DONTFRAG`; the protocol level
+/// must still match the connected peer family. Keeping this tiny declaration local avoids
+/// adding a Windows-only dependency to router/server builds.
 #[cfg(target_os = "windows")]
-fn set_dont_fragment(socket: std::os::windows::io::RawSocket, enabled: bool) -> bool {
+fn set_dont_fragment(socket: &crate::protocol::obfs::ObfsUdp, enabled: bool) -> bool {
     #[link(name = "ws2_32")]
     extern "system" {
         fn setsockopt(
@@ -2989,13 +3365,19 @@ fn set_dont_fragment(socket: std::os::windows::io::RawSocket, enabled: bool) -> 
         ) -> i32;
     }
     const IPPROTO_IP: i32 = 0;
-    const IP_DONTFRAGMENT: i32 = 14;
+    const IPPROTO_IPV6: i32 = 41;
+    const DONT_FRAGMENT: i32 = 14;
+    let level = if socket.peer_is_ipv6() {
+        IPPROTO_IPV6
+    } else {
+        IPPROTO_IP
+    };
     let value: i32 = i32::from(enabled);
     unsafe {
         setsockopt(
-            socket as usize,
-            IPPROTO_IP,
-            IP_DONTFRAGMENT,
+            socket.as_raw_socket() as usize,
+            level,
+            DONT_FRAGMENT,
             &value as *const i32 as *const i8,
             std::mem::size_of::<i32>() as i32,
         ) == 0
@@ -3004,12 +3386,12 @@ fn set_dont_fragment(socket: std::os::windows::io::RawSocket, enabled: bool) -> 
 
 #[cfg(target_os = "windows")]
 fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
-    set_dont_fragment(socket.as_raw_socket(), true)
+    set_dont_fragment(socket, true)
 }
 
 #[cfg(target_os = "windows")]
 fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
-    let _ = set_dont_fragment(socket.as_raw_socket(), success);
+    let _ = set_dont_fragment(socket, success);
 }
 
 /// Active path-MTU discovery on a UDP transport (Linux). Sends DF-marked probe
@@ -3031,12 +3413,10 @@ async fn probe_udp_mtu(
     connection_id: &[u8; 4],
     quic_pn: &mut u32,
     ceiling: i32,
+    keep_df_after_success: bool,
 ) -> Option<i32> {
-    use crate::protocol::udp_frag::{is_mtu_probe_ack, mtu_probe_datagram, parse_mtu_probe};
+    use crate::protocol::udp_frag::{mtu_probe_datagram, parse_mtu_probe_ack};
     use std::time::Duration;
-    // qeli UDP record overhead (nonce+counter+tag+padlen+framing) + a small margin, so
-    // a probe that fits certifies a real full-MTU data packet also fits.
-    const REC_OVERHEAD: usize = 48;
     if !begin_mtu_probe(socket) {
         return None;
     }
@@ -3050,7 +3430,7 @@ async fn probe_udp_mtu(
     // MTU (typically 1400) with fragmentation re-enabled: the exact outcome probing exists
     // to avoid. Derive the floor from the overhead actually in play instead of hard-coding
     // a number that silently means something else. (Audit 2026-07-29, #12.)
-    let outer_overhead = REC_OVERHEAD
+    let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
         + socket.seal_overhead()
         + if quic_enabled {
             crate::protocol::quic::QUIC_SHORT_HEADER_MIN
@@ -3076,8 +3456,8 @@ async fn probe_udp_mtu(
         ($m:expr) => {{
             let m: i32 = $m;
             probe_id = probe_id.wrapping_add(1);
-            let probe_size = (m as usize + REC_OVERHEAD) as u16;
-            match mtu_probe_datagram(probe_id, m as usize + REC_OVERHEAD) {
+            let probe_size = (m as usize + UDP_RECORD_PROBE_OVERHEAD) as u16;
+            match mtu_probe_datagram(probe_id, m as usize + UDP_RECORD_PROBE_OVERHEAD) {
                 None => false,
                 Some(probe) => {
                     let pkt = if quic_enabled {
@@ -3107,9 +3487,7 @@ async fn probe_udp_mtu(
                                 } else {
                                     buf[..n].to_vec()
                                 };
-                                if is_mtu_probe_ack(&payload)
-                                    && parse_mtu_probe(&payload) == Some((probe_id, probe_size))
-                                {
+                                if parse_mtu_probe_ack(&payload) == Some((probe_id, probe_size)) {
                                     ok = true;
                                     break;
                                 }
@@ -3163,10 +3541,34 @@ async fn probe_udp_mtu(
         }
         found = Some(lo);
     }
-    // Keep DF for the data plane on success (packets ≤ the discovered MTU never
-    // fragment); restore fragmentation-allowed on a miss so behaviour is unchanged.
-    finish_mtu_probe(socket, found.is_some());
+    // DATA_FRAG_V1 keeps every outer datagram inside the certified budget, so retaining DF
+    // prevents accidental IP fragmentation. A legacy peer cannot split an encrypted record:
+    // restore fragmentation even after a successful probe or an IPv6-minimum inner packet
+    // (1280 bytes plus framing) can still exceed the outer path and fail with EMSGSIZE.
+    finish_mtu_probe(socket, found.is_some() && keep_df_after_success);
     found
+}
+
+/// Select the inner MTU after a successful UDP path probe.
+///
+/// With DATA_FRAG_V1 the inner interface and the outer datagram budget are independent. For a
+/// legacy peer they are not: lowering an IPv4 TUN to the certified record size avoids oversized
+/// sends. IPv6 interfaces may not advertise less than 1280, so dual/IPv6 sessions retain that
+/// floor and rely on the fragmentation-enabled outer socket for the remaining compatibility gap.
+fn udp_inner_mtu_after_probe(
+    base_mtu: i32,
+    probed_mtu: i32,
+    data_frag_enabled: bool,
+    family_mode: crate::transport_core::NetworkFamilyMode,
+) -> i32 {
+    if data_frag_enabled {
+        return base_mtu;
+    }
+    match family_mode {
+        crate::transport_core::NetworkFamilyMode::Ipv4 => probed_mtu,
+        crate::transport_core::NetworkFamilyMode::Ipv6
+        | crate::transport_core::NetworkFamilyMode::Dual => probed_mtu.max(1280).min(base_mtu),
+    }
 }
 
 /// Stop refining once the bracket is this narrow. Chasing the last few dozen bytes is not
@@ -3260,7 +3662,8 @@ fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize, peer_is_ipv6: bool) -> 
 
 #[cfg(test)]
 mod mtu_ladder_tests {
-    use super::mtu_probe_ladder;
+    use super::{mtu_probe_ladder, udp_inner_mtu_after_probe};
+    use crate::transport_core::NetworkFamilyMode;
 
     /// The narrowest rung must be reachable over a 1280-byte path once the probe's own
     /// framing is counted; otherwise a path at the IPv6 minimum certifies nothing and the
@@ -3408,6 +3811,30 @@ mod mtu_ladder_tests {
             vec![1400, 1360, 1320, 1280, 1200, 1280 - overhead as i32]
         );
     }
+
+    #[test]
+    fn negotiated_record_fragmentation_keeps_inner_and_outer_mtu_independent() {
+        assert_eq!(
+            udp_inner_mtu_after_probe(1400, 1160, true, NetworkFamilyMode::Dual),
+            1400
+        );
+    }
+
+    #[test]
+    fn legacy_udp_peer_uses_probe_without_breaking_ipv6_minimum_mtu() {
+        assert_eq!(
+            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv4),
+            1160
+        );
+        assert_eq!(
+            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv6),
+            1280
+        );
+        assert_eq!(
+            udp_inner_mtu_after_probe(1400, 1320, false, NetworkFamilyMode::Dual),
+            1320
+        );
+    }
 }
 
 #[cfg(not(any(
@@ -3423,27 +3850,157 @@ async fn probe_udp_mtu(
     _connection_id: &[u8; 4],
     _quic_pn: &mut u32,
     _ceiling: i32,
+    _keep_df_after_success: bool,
 ) -> Option<i32> {
     None // no kernel DF control off Linux → keep the pushed/effective MTU
+}
+
+#[cfg(target_os = "linux")]
+struct NetworkPlanApplyGuard {
+    if_name: String,
+    owns_device: bool,
+    server_addr: String,
+    exclude: Vec<String>,
+    gateway_lan_ipv4: String,
+    gateway_lan_ipv6: String,
+    gateway_enabled: bool,
+    exit_enabled: bool,
+    platform_state_touched: bool,
+    routes_started: bool,
+    dns_started: bool,
+    armed: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl NetworkPlanApplyGuard {
+    fn new(config: &crate::config::client::ClientConfig, if_name: &str, owns_device: bool) -> Self {
+        Self {
+            if_name: if_name.to_string(),
+            owns_device,
+            server_addr: pin_target(config),
+            exclude: config.routing.exclude.clone(),
+            gateway_lan_ipv4: config.routing.lan_subnet.clone(),
+            gateway_lan_ipv6: config.routing.lan_subnet_ipv6.clone(),
+            gateway_enabled: config.routing.gateway_nat || config.routing.forward,
+            exit_enabled: config.routing.exit_node,
+            platform_state_touched: false,
+            routes_started: false,
+            dns_started: false,
+            armed: true,
+        }
+    }
+
+    fn touch_platform_state(&mut self) {
+        self.platform_state_touched = true;
+    }
+
+    fn start_routes(&mut self) {
+        self.routes_started = true;
+    }
+
+    fn start_dns(&mut self) {
+        self.dns_started = true;
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for NetworkPlanApplyGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        log::warn!(
+            "Linux NetworkPlan failed before commit — rolling back platform state for {}",
+            self.if_name
+        );
+        if self.dns_started {
+            dns::restore_dns_for(&self.if_name);
+        }
+        if self.routes_started && self.owns_device {
+            if let Err(error) =
+                route::cleanup_routes(&self.if_name, &self.server_addr, &self.exclude)
+            {
+                log::warn!("route rollback after NetworkPlan failure also failed: {error}");
+            }
+        }
+        if self.platform_state_touched {
+            // A rejected reconnect generation must not leave old router permits active
+            // while there is no acknowledged TUN plan. Both teardown functions are
+            // idempotent and remove their IPv4 and IPv6 family halves independently.
+            gateway::disengage_plan(
+                &self.if_name,
+                &self.gateway_lan_ipv4,
+                &self.gateway_lan_ipv6,
+                self.gateway_enabled,
+                self.exit_enabled,
+            );
+        }
+        if self.owns_device {
+            if let Err(error) = TunInterface::delete(&self.if_name) {
+                log::warn!("TUN rollback after NetworkPlan failure also failed: {error}");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn publish_network_plan_state(plan: &NetworkPlan) -> anyhow::Result<()> {
+    let Ok(path) = std::env::var("QELI_TUNIP_FILE") else {
+        return Ok(());
+    };
+    if path.is_empty() {
+        return Ok(());
+    }
+    // First line remains compatible with the original attach-mode contract. Named
+    // family lines let interface owners and legacy router wrappers consume the exact
+    // authenticated family set without guessing from `ipv6=auto`.
+    let mut state = format!("{}\n", plan.tunnel_address);
+    for address in &plan.addresses {
+        let family = match address.family {
+            crate::transport_core::NetworkAddressFamily::Ipv4 => "ipv4",
+            crate::transport_core::NetworkAddressFamily::Ipv6 => "ipv6",
+        };
+        state.push_str(&format!(
+            "{family}={}/{}\n",
+            address.address, address.prefix_len
+        ));
+    }
+    state.push_str(&format!("mtu={}\n", plan.mtu));
+    crate::util::write_atomic(&path, state.as_bytes()).map_err(|error| {
+        anyhow::anyhow!(
+            "could not publish authenticated network plan to QELI_TUNIP_FILE '{path}': {error}"
+        )
+    })
 }
 
 #[cfg(target_os = "linux")]
 fn setup_tunnel(
     config: &crate::config::client::ClientConfig,
     plan: &NetworkPlan,
-    network: &HandshakeNetwork<'_>,
+    _network: &HandshakeNetwork<'_>,
 ) -> anyhow::Result<TunnelSetup> {
     let client_ip = plan.tunnel_address.as_str();
-    let netmask = prefix_to_netmask(plan.prefix_len);
-    let server_ip = plan.tunnel_gateway.as_str();
-    let dns_ip = network.dns_ip;
-    let dns_port = network.dns_port;
-    let routes_json = network.routes_json;
     let mtu = i32::from(plan.mtu);
     let is_tap = is_tap_mode(&config.tun.device_type);
     let if_name = tap_interface_name(&config.tun.name, &config.tun.device_type);
     let attach = config.tun.attach_existing;
     let dev_label = if is_tap { "TAP" } else { "TUN" };
+    let planned_tap_mac = if is_tap && !attach {
+        let address = plan
+            .addresses
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("TAP network plan contains no assigned address"))?
+            .address
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| anyhow::anyhow!("TAP network plan contains an invalid address"))?;
+        mac_from_ip(address)
+    } else {
+        [0u8; 6]
+    };
     log::info!("TUN MTU: {}", mtu);
 
     let exists = std::path::Path::new(&format!("/sys/class/net/{}", if_name)).exists();
@@ -3488,34 +4045,85 @@ fn setup_tunnel(
             e
         )
     })?;
+    // The caller cannot construct TunGuard until this function returns. Keep every
+    // platform mutation in one local transaction instead: address/up, gateway and exit
+    // firewall state, descriptor duplication, routes, DNS, and the final TAP MAC read.
+    // The external interface in attach mode is borrowed and is therefore never deleted.
+    let mut plan_guard = NetworkPlanApplyGuard::new(config, &if_name, !attach);
     if attach {
         // The interface owner sets L3 (address + link up) — some managers only route
         // through an interface they configured themselves, so if qeli sets the address
-        // the owner never treats it as connected. We only pump packets, and export the
-        // server-assigned IP via `QELI_TUNIP_FILE` so the owner can apply it.
-        if let Ok(path) = std::env::var("QELI_TUNIP_FILE") {
-            if !path.is_empty() {
-                if let Err(e) = crate::util::write_atomic(&path, client_ip.as_bytes()) {
-                    log::warn!("could not write tun IP to {}: {}", path, e);
-                }
-            }
-        }
+        // the owner never treats it as connected. We only pump packets; the committed
+        // authenticated plan is exported at the end of this transaction.
         log::info!(
             "Attached {}; L3 (address {}) left to its owner",
             if_name,
             client_ip
         );
     } else {
-        TunInterface::set_address(&if_name, client_ip, plan.prefix_len)?;
+        if is_tap {
+            TunInterface::set_mac(&if_name, planned_tap_mac)?;
+        }
+        for address in &plan.addresses {
+            TunInterface::set_address(&if_name, &address.address, address.prefix_len)?;
+        }
         TunInterface::set_up(&if_name, mtu)?;
-        log::info!("{} {} is up (IP: {})", dev_label, if_name, client_ip);
+        log::info!(
+            "{} {} is up (addresses: {})",
+            dev_label,
+            if_name,
+            plan.addresses
+                .iter()
+                .map(|address| format!("{}/{}", address.address, address.prefix_len))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
-    // NOW that the interface exists, apply the per-interface sysctl the gateway-NAT /
-    // exit-node paths need. They run before the connect loop, so their own attempt at
-    // this happened while /proc/sys/net/ipv4/conf/<tun>/ did not exist yet and silently
-    // did nothing. (Audit 2026-07-27, R1.)
-    if config.routing.gateway_nat || config.routing.forward || config.routing.exit_node {
+    // Now that the interface exists, apply only the firewall/sysctl families present in
+    // the authenticated plan. An IPv6-only router must not depend on IPv4 iptables or
+    // net.ipv4.ip_forward, and an IPv4-only router must not require ip6tables.
+    let has_ipv4 = plan
+        .addresses
+        .iter()
+        .any(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv4);
+    let has_ipv6 = plan
+        .addresses
+        .iter()
+        .any(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv6);
+    if (config.routing.gateway_nat || config.routing.forward || config.routing.exit_node)
+        && has_ipv4
+    {
+        plan_guard.touch_platform_state();
         crate::client::gateway::apply_tun_rp_filter(&if_name);
+    }
+    if config.routing.gateway_nat || config.routing.forward {
+        if has_ipv4 {
+            plan_guard.touch_platform_state();
+            // `gateway_nat` masquerades; `forward` alone is pure L3 routing (#13).
+            crate::client::gateway::engage(
+                &if_name,
+                &config.routing.lan_subnet,
+                config.routing.gateway_nat,
+            )?;
+        }
+        if has_ipv6 {
+            plan_guard.touch_platform_state();
+            crate::client::gateway::engage_ipv6(
+                &if_name,
+                &config.routing.lan_subnet_ipv6,
+                config.routing.gateway_nat,
+            )?;
+        }
+    }
+    if config.routing.exit_node {
+        if has_ipv4 {
+            plan_guard.touch_platform_state();
+            crate::client::gateway::engage_exit(&if_name)?;
+        }
+        if has_ipv6 {
+            plan_guard.touch_platform_state();
+            crate::client::gateway::engage_exit_ipv6(&if_name)?;
+        }
     }
     tun.set_nonblocking()?;
 
@@ -3558,26 +4166,26 @@ fn setup_tunnel(
 
     // Attach mode: routing belongs to the interface owner — don't install our own.
     if !attach {
-        // Roll back on failure. `setup_routes` journals each route into `CREATED_ROUTES`
-        // as it installs it and can still bail afterwards — on the `include` overlap
-        // check, or on the FIB verification of the two default halves. `TunGuard`, the
-        // only thing that calls `cleanup_routes` on an error path, is constructed by the
-        // CALLER after `setup_tunnel` returns, so a failure here propagated with the
-        // journal full and nothing to drain it: the process exited leaving the server
-        // bypass route and, in full-tunnel, the IPv6 blackholes (`::/1`, `8000::/1`) on
-        // the host. No VPN, and no IPv6 either, fixable only by hand.
-        // (Audit 2026-07-27, B1.)
-        let route_result =
-            route::setup_routes(&config.routing, server_ip, &if_name, &pin_target(config))
-                .and_then(|()| {
-                    route::apply_local_networks(&config.routing, routes_json, &if_name, server_ip)
-                });
-        if let Err(e) = route_result {
-            if let Err(ce) = route::cleanup_routes(&if_name, server_ip, &config.routing.exclude) {
-                log::warn!("route rollback after a failed setup also failed: {ce}");
-            }
-            return Err(e);
-        }
+        plan_guard.start_routes();
+        let carrier_targets = carrier_pin_targets(config);
+        let carrier_local_address = config
+            .server
+            .local_address
+            .as_deref()
+            .map(str::parse::<std::net::IpAddr>)
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
+        route::setup_network_plan_routes(
+            &config.routing,
+            plan,
+            &if_name,
+            &carrier_targets,
+            carrier_local_address,
+            is_tap,
+        )?;
+        // From this point bonded TCP streams must use only addresses for which the
+        // generation just installed a physical bypass.
+        mark_carrier_candidates_pinned(&carrier_targets);
     }
     // On a full-tunnel host with dns=off, all traffic is routed through the tunnel but the
     // system resolver is left untouched — on a normal host (unlike a router with its own
@@ -3595,21 +4203,8 @@ fn setup_tunnel(
     // environment intentionally owns DNS can set `dns = off` and receive an empty DNS plan.
     // Tunnel subnet, so a server-pushed resolver can be checked for reachability through
     // the tunnel instead of being written into the host resolver on trust.
-    let tun_net = match (
-        client_ip.parse::<std::net::Ipv4Addr>(),
-        netmask.parse::<std::net::Ipv4Addr>(),
-    ) {
-        (Ok(a), Ok(m)) => Some((a, m)),
-        _ => None,
-    };
-    let dns_result = dns::setup_dns_for_interface(
-        &config.dns,
-        dns_ip,
-        dns_port,
-        &if_name,
-        tun_net,
-        is_full_tunnel(config),
-    );
+    plan_guard.start_dns();
+    let dns_result = dns::setup_network_plan_dns(&config.dns, &plan.dns_servers, &if_name);
     if plan.dns_servers.is_empty() {
         if let Err(e) = dns_result {
             log::warn!(
@@ -3619,31 +4214,118 @@ fn setup_tunnel(
             );
         }
     } else if let Err(e) = dns_result {
-        let dns_cleanup_error = dns::restore_dns_for(&if_name).err();
-        if !attach {
-            if let Err(ce) = route::cleanup_routes(&if_name, server_ip, &config.routing.exclude) {
-                log::warn!("route rollback after DNS setup failure also failed: {ce}");
-            }
-        }
-        return Err(match dns_cleanup_error {
-            Some(cleanup) => anyhow::anyhow!(
-                "DNS network-plan step failed: {e}; DNS rollback also failed: {cleanup}. Set `dns = off` only when the platform manages DNS itself"
-            ),
-            None => anyhow::anyhow!(
-                "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
-            ),
-        });
+        return Err(anyhow::anyhow!(
+            "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
+        ));
     }
 
     // Past every fallible platform step — move the RAII descriptors to the caller, which
     // immediately hands them to the shared TUN backend. No raw integer ownership escapes.
+    let tap_mac = if !is_tap {
+        [0u8; 6]
+    } else if attach {
+        read_interface_mac(&if_name)?
+    } else {
+        planned_tap_mac
+    };
+    // Publish only after every fallible host-network step succeeded. A router wrapper
+    // must never enable forwarding/NAT based on an authenticated plan that was rolled
+    // back before becoming the active generation.
+    publish_network_plan_state(plan)?;
+    plan_guard.disarm();
     Ok(TunnelSetup {
         tun,
         reader_fd: owned_reader,
         writer_fd: owned_writer,
         if_name,
         is_tap,
+        tap_mac,
     })
+}
+
+#[cfg(target_os = "linux")]
+fn read_interface_mac(ifname: &str) -> anyhow::Result<[u8; 6]> {
+    let text = std::fs::read_to_string(format!("/sys/class/net/{ifname}/address"))?;
+    let bytes = text
+        .trim()
+        .split(':')
+        .map(|part| u8::from_str_radix(part, 16))
+        .collect::<Result<Vec<_>, _>>()?;
+    bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("interface '{ifname}' has an invalid MAC address"))
+}
+
+#[cfg(target_os = "linux")]
+async fn connect_udp_candidates(
+    config: &crate::config::client::ClientConfig,
+    total: Duration,
+) -> anyhow::Result<UdpSocket> {
+    let host = config.server.address.as_str();
+    let port = config.server.port;
+    let resolved = match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
+        Ok(result) => result
+            .map_err(|error| anyhow::anyhow!("UDP DNS lookup for {host}:{port} failed: {error}"))?,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "UDP DNS lookup for {host}:{port} timed out after {}s",
+                total.as_secs()
+            ));
+        }
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut candidates: Vec<std::net::SocketAddr> =
+        resolved.filter(|address| seen.insert(*address)).collect();
+    if candidates.is_empty() {
+        anyhow::bail!("UDP server {host}:{port} resolved to no IPv4 or IPv6 address");
+    }
+
+    let local_ip = config
+        .server
+        .local_address
+        .as_deref()
+        .map(str::parse::<std::net::IpAddr>)
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
+    if let Some(local) = local_ip {
+        candidates.retain(|address| local.is_ipv4() == address.is_ipv4());
+    }
+    if candidates.is_empty() {
+        anyhow::bail!(
+            "UDP server {host}:{port} has no address compatible with the configured local carrier"
+        );
+    }
+    rotate_carrier_candidates(&mut candidates);
+    note_carrier_candidates(candidates.iter().map(|address| address.ip()));
+    let mut failures = Vec::with_capacity(candidates.len());
+    for address in candidates {
+        let bind_ip = local_ip.unwrap_or_else(|| {
+            if address.is_ipv4() {
+                std::net::Ipv4Addr::UNSPECIFIED.into()
+            } else {
+                std::net::Ipv6Addr::UNSPECIFIED.into()
+            }
+        });
+        let bind = std::net::SocketAddr::new(bind_ip, config.server.local_port);
+        let socket = match UdpSocket::bind(bind).await {
+            Ok(socket) => socket,
+            Err(error) => {
+                failures.push(format!("{address}: bind {bind} failed: {error}"));
+                continue;
+            }
+        };
+        match socket.connect(address).await {
+            Ok(()) => {
+                note_connected_peer(address.ip());
+                return Ok(socket);
+            }
+            Err(error) => failures.push(format!("{address}: {error}")),
+        }
+    }
+    anyhow::bail!(
+        "UDP could not connect to any IPv4 or IPv6 address for {host}:{port} ({})",
+        failures.join("; ")
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -3657,7 +4339,7 @@ async fn connect_and_run_udp(
             "plain (raw) wire mode is TCP-only; set server.protocol = tcp"
         ));
     }
-    let addr = format!("{}:{}", config.server.address, config.server.port);
+    let addr = crate::util::join_host_port(&config.server.address, config.server.port);
     log::info!(
         "Connecting to {} (UDP) as user '{}'",
         addr,
@@ -3670,13 +4352,13 @@ async fn connect_and_run_udp(
              (an empty key is publicly derivable → no DPI resistance)"
         ));
     }
-    let raw_socket = UdpSocket::bind("0.0.0.0:0").await?;
+    let raw_socket = connect_udp_candidates(
+        config,
+        Duration::from_secs(config.server.connection_timeout_secs.max(1)),
+    )
+    .await?;
     // The shared UDP path below applies the socket policy before its first handshake packet,
     // so Linux and every native client use one controller and one set of counters.
-    raw_socket.connect(&addr).await?;
-    if let Ok(p) = raw_socket.peer_addr() {
-        note_connected_peer(p.ip());
-    }
     run_udp_tunnel(raw_socket, config, password, core).await
 }
 
@@ -3974,6 +4656,8 @@ pub(crate) async fn run_udp_tunnel(
         Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
         None => derive_keys_hybrid(&shared.0, &mlkem_shared),
     };
+    let rx_data_frag_key = derive_data_frag_key(&server_to_client);
+    let tx_data_frag_key = derive_data_frag_key(&client_to_server);
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
 
@@ -4010,6 +4694,18 @@ pub(crate) async fn run_udp_tunnel(
         client_rx.decrypt_packet(&auth_record)?
     };
 
+    let (_, server_capabilities) =
+        crate::protocol::capabilities::split_server_capabilities(&auth_proof_msg)?;
+    let negotiated_capabilities = crate::protocol::capabilities::negotiate_client_capabilities(
+        config,
+        server_capabilities,
+        core.platform_capabilities(),
+    )?;
+    let data_frag_enabled = server_capabilities.is_some_and(|server| {
+        server.contains(crate::protocol::capabilities::server_capability::UDP_DATA_FRAG_V1)
+    }) && negotiated_capabilities.is_some_and(|client| {
+        client.core_bits & crate::protocol::capabilities::client_capability::UDP_DATA_FRAG_V1 != 0
+    });
     let server_static_pub_bytes = verify_server_identity(
         &auth_proof_msg,
         &client_kp,
@@ -4028,7 +4724,9 @@ pub(crate) async fn run_udp_tunnel(
         &transcript_hash,
         &client_device_id,
         password,
-    );
+        server_capabilities,
+        core.platform_capabilities(),
+    )?;
     // The inner encrypted auth packet is fixed; only the QUIC wrapper's packet number
     // changes per (re)send. Resending identical inner bytes is safe: a duplicate that
     // reaches the server is replay-dropped, while a resend after loss is processed as
@@ -4142,19 +4840,24 @@ pub(crate) async fn run_udp_tunnel(
     };
     let response_str = String::from_utf8(auth_response)?;
 
-    let ok = parse_auth_ok(&response_str)?;
-    let client_ip = ok.client_ip;
-    let server_ip = ok.server_ip;
-    let prefix = ok.prefix;
-    let pushed_mtu = ok.mtu;
-    let dns_ip = ok.dns_ip;
-    let dns_port = ok.dns_port;
-    let routes_json_udp = ok.routes_json;
-    let max_streams_udp = ok.max_streams;
-    let adaptive_udp = ok.adaptive;
+    let AuthOk {
+        family_mode,
+        addresses,
+        client_ip,
+        server_ip,
+        prefix,
+        mtu: pushed_mtu,
+        dns_ip,
+        dns_port,
+        dns_servers,
+        routes_json: routes_json_udp,
+        pushed_obf,
+        session_token: _,
+        max_streams: max_streams_udp,
+        adaptive: adaptive_udp,
+    } = parse_auth_ok(&response_str)?;
 
     let mut eff_obf = config.obfuscation.clone();
-    let pushed_obf = ok.pushed_obf;
     if let Some(po) = pushed_obf.as_ref() {
         eff_obf.padding = po.padding.clone();
         eff_obf.heartbeat = po.heartbeat.clone();
@@ -4172,6 +4875,8 @@ pub(crate) async fn run_udp_tunnel(
     // The socket is idle here (handshake done, data plane not started), so the probe
     // has it to itself. Falls back to the pushed/effective MTU on any miss.
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    let mut uplink_udp_payload_budget =
+        crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
     let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
         match probe_udp_mtu(
             &socket,
@@ -4179,19 +4884,42 @@ pub(crate) async fn run_udp_tunnel(
             &connection_id,
             &mut quic_pn,
             base_mtu,
+            data_frag_enabled,
         )
         .await
         {
             Some(m) => {
+                // The probe sent `m + record-overhead`, then QUIC/obfs wrapped it. Record
+                // the UDP payload size it actually certified separately from inner MTU.
+                uplink_udp_payload_budget = (m.max(0) as usize)
+                    .saturating_add(UDP_RECORD_PROBE_OVERHEAD)
+                    .saturating_add(socket.seal_overhead())
+                    .saturating_add(if quic_enabled {
+                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+                    } else {
+                        0
+                    });
+                // Inner and outer MTU stay independent when DATA_FRAG_V1 was negotiated.
+                // A legacy server cannot reassemble record fragments, so use the certified
+                // inner size for IPv4. IPv6 keeps its mandatory 1280 floor; the probe restored
+                // outer fragmentation in that compatibility mode.
+                let inner_mtu =
+                    udp_inner_mtu_after_probe(base_mtu, m, data_frag_enabled, family_mode);
                 log::info!(
-                    "UDP path-MTU probe: tunnel MTU {} (ceiling {})",
+                    "UDP path probe: inner MTU {}, uplink UDP payload budget {} (probe rung {}, DATA_FRAG_V1={})",
+                    inner_mtu,
+                    uplink_udp_payload_budget,
                     m,
-                    base_mtu
+                    data_frag_enabled
                 );
-                m
+                inner_mtu
             }
             None => {
-                log::info!("UDP path-MTU probe: no result — using MTU {}", base_mtu);
+                log::info!(
+                    "UDP path probe: no result — using inner MTU {} and conservative {}-byte UDP payload budget",
+                    base_mtu,
+                    uplink_udp_payload_budget
+                );
                 base_mtu
             }
         }
@@ -4200,11 +4928,14 @@ pub(crate) async fn run_udp_tunnel(
     };
     let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
+        family_mode,
+        addresses: &addresses,
         client_ip: &client_ip,
         prefix,
         tunnel_gateway: &server_ip,
         dns_ip: &dns_ip,
         dns_port: &dns_port,
+        dns_servers: &dns_servers,
         routes_json: &routes_json_udp,
         mtu: tun_mtu,
         fallback_dns_servers: &fallback_dns_servers,
@@ -4225,7 +4956,14 @@ pub(crate) async fn run_udp_tunnel(
     for line in &plan.connection_log {
         log::info!("{line}");
     }
+    let negotiated_family_mode = plan.family_mode;
+    #[cfg(target_os = "linux")]
+    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+        tap_gateway_facts(&plan.addresses);
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) = (None, None, 0);
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
+    run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tun_setup.reader_fd;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -4241,7 +4979,7 @@ pub(crate) async fn run_udp_tunnel(
     #[cfg(target_os = "linux")]
     let tunnel_tun = tun_setup.tun;
     #[cfg(target_os = "linux")]
-    let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
+    let tap_mac = tun_setup.tap_mac;
     #[cfg(any(target_os = "android", target_os = "macos"))]
     let tap_mac = [0u8; 6];
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -4290,6 +5028,9 @@ pub(crate) async fn run_udp_tunnel(
                 TunFraming::Tap(TapHeaders {
                     client_mac: tap_mac,
                     gateway_mac,
+                    gateway_ipv4: tap_gateway_ipv4,
+                    gateway_ipv6: tap_gateway_ipv6,
+                    ipv6_prefix_len: tap_ipv6_prefix_len,
                 })
             } else {
                 TunFraming::Raw
@@ -4375,9 +5116,20 @@ pub(crate) async fn run_udp_tunnel(
     let mut cover_record = Vec::with_capacity(wire_capacity);
     let mut quic_record =
         Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
-    let mut normalized_packet = Vec::with_capacity(tun_mtu.max(0) as usize);
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut oversize_tun_drops: u64 = 0;
+    let data_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
+        uplink_udp_payload_budget,
+        socket.seal_overhead(),
+        quic_enabled,
+    )?;
+    let max_empty_record_padding = client_tx
+        .max_padding_for_record_budget(0, data_record_budget)
+        .map_err(|error| {
+            anyhow::anyhow!("UDP record budget cannot carry control traffic: {error}")
+        })?;
+    let mut tx_record_id: u64 = rand::random();
+    let mut data_reassembler = crate::protocol::data_frag::DataReassembler::new();
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -4455,12 +5207,12 @@ pub(crate) async fn run_udp_tunnel(
                     log::warn!("UDP: TUN reader stopped — reconnecting");
                     break;
                 };
-                if !is_supported_inner_packet(ip_packet.as_ref()) {
+                if !is_supported_inner_packet(ip_packet.as_ref(), negotiated_family_mode) {
                     unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
                     udp_buffer.note_internal_drop(InternalDrop::Unsupported);
                     if unsupported_inner_drops.is_power_of_two() {
                         log::debug!(
-                            "UDP client dropped unsupported non-IPv4 inner packet (total {})",
+                            "UDP client dropped invalid or non-negotiated-family inner packet (total {})",
                             unsupported_inner_drops
                         );
                     }
@@ -4487,21 +5239,13 @@ pub(crate) async fn run_udp_tunnel(
                 last_tx_inst = last_activity;
                 let encrypted = {
                     let mut obf = Obfuscator::new();
-                    let normalized = if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
-                        // Bounded by the SAME mtu the pad cap below uses: normalization that
-                        // rounds past it re-creates the oversized DF datagram the probe just
-                        // ruled out, and the pad cap cannot undo it (it only trims padding).
-                        obf.normalize_packet_length_into(
-                            ip_packet.as_ref(),
-                            norm_sizes,
-                            mtu,
-                            &mut normalized_packet,
-                        );
-                        Some(normalized_packet.as_slice())
+                    let normalization_padding = if eff_obf.traffic_normalization.enabled
+                        && !norm_sizes.is_empty()
+                    {
+                        Obfuscator::normalization_padding_len(ip_packet.len(), norm_sizes, mtu)
                     } else {
-                        None
+                        0
                     };
-                    let data_with_route = normalized.unwrap_or_else(|| ip_packet.as_ref());
                     // Clamp padding so the whole record (data + padding) stays within the
                     // DISCOVERED/pushed tunnel MTU. The path-MTU probe certifies that a
                     // datagram of `tun_mtu + REC_OVERHEAD(48)` fits, and the real record adds
@@ -4511,8 +5255,9 @@ pub(crate) async fn run_udp_tunnel(
                     // 1400 (ignoring a smaller probed MTU on LTE/CGNAT — full-size padded
                     // uplink packets were then silently dropped with EMSGSIZE under DF) and a
                     // `+60` overhead that under-counted obfs+quic (65) by 5 bytes.
-                    let pad_cap =
-                        (padding_max as usize).min(mtu.saturating_sub(data_with_route.len())) as u16;
+                    let pad_cap = (padding_max as usize).min(
+                        mtu.saturating_sub(ip_packet.len().saturating_add(normalization_padding)),
+                    ) as u16;
                     obf.generate_padding_opts_into(
                         padding_enabled,
                         padding_min,
@@ -4521,8 +5266,16 @@ pub(crate) async fn run_udp_tunnel(
                         padding_prob,
                         &mut padding,
                     );
+                    if normalization_padding != 0 {
+                        obf.append_normalization_padding_into(
+                            ip_packet.len(),
+                            norm_sizes,
+                            mtu,
+                            &mut padding,
+                        );
+                    }
                     client_tx
-                        .encrypt_packet_into(data_with_route, &padding, &mut wire_record)
+                        .encrypt_packet_into(ip_packet.as_ref(), &padding, &mut wire_record)
                         .is_ok()
                 };
                 // Encryption has copied the plaintext into its wire record; return the TUN
@@ -4541,8 +5294,10 @@ pub(crate) async fn run_udp_tunnel(
                             // successful probe, an oversized cover datagram is dropped with
                             // EMSGSIZE (send error swallowed), so the DPI cover silently never
                             // goes out. Mirrors the data path and C#/Kotlin's EncryptCapped.
-                            let csize =
-                                shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
+                            let csize = shaper
+                                .next_size(&mut rand::rng())
+                                .min(tun_mtu.max(0) as usize)
+                                .min(max_empty_record_padding);
                             if shaper.try_spend(csize, std::time::Instant::now()) {
                                 let cover_ready = {
                                     let mut obf = Obfuscator::new();
@@ -4577,21 +5332,61 @@ pub(crate) async fn run_udp_tunnel(
                     } else if !d.is_zero() {
                         tokio::time::sleep(d).await;
                     }
-                    let send_data: &[u8] = if quic_enabled {
-                        quic_pn += 1;
-                        wrap_quic_short_into(
+                    if data_frag_enabled && wire_record.len() > data_record_budget {
+                        let record_id = tx_record_id;
+                        tx_record_id = tx_record_id.wrapping_add(1);
+                        let fragments = match crate::protocol::data_frag::fragment_record(
                             &wire_record,
-                            &connection_id,
-                            quic_pn - 1,
-                            &mut quic_record,
-                        );
-                        &quic_record
+                            &tx_data_frag_key,
+                            record_id,
+                            data_record_budget - crate::protocol::data_frag::HEADER_LEN,
+                        ) {
+                            Ok(fragments) => fragments,
+                            Err(error) => {
+                                log::warn!("UDP data fragmentation failed: {error}");
+                                break;
+                            }
+                        };
+                        let mut send_failed = None;
+                        for fragment in fragments {
+                            let send_data: &[u8] = if quic_enabled {
+                                quic_pn = quic_pn.wrapping_add(1);
+                                wrap_quic_short_into(
+                                    &fragment,
+                                    &connection_id,
+                                    quic_pn - 1,
+                                    &mut quic_record,
+                                );
+                                &quic_record
+                            } else {
+                                &fragment
+                            };
+                            if let Err(error) = socket.send(send_data).await {
+                                send_failed = Some(error);
+                                break;
+                            }
+                        }
+                        if let Some(error) = send_failed {
+                            log::warn!("UDP carrier fragment send failed: {error}");
+                            break;
+                        }
                     } else {
-                        &wire_record
-                    };
-                    if let Err(error) = socket.send(send_data).await {
-                        log::warn!("UDP carrier send failed: {error}");
-                        break;
+                        let send_data: &[u8] = if quic_enabled {
+                            quic_pn = quic_pn.wrapping_add(1);
+                            wrap_quic_short_into(
+                                &wire_record,
+                                &connection_id,
+                                quic_pn - 1,
+                                &mut quic_record,
+                            );
+                            &quic_record
+                        } else {
+                            &wire_record
+                        };
+                        if let Err(error) = socket.send(send_data).await {
+                            log::warn!("UDP carrier send failed: {error}");
+                            break;
+                        }
                     }
                 }
             }
@@ -4602,18 +5397,6 @@ pub(crate) async fn run_udp_tunnel(
                     Err(_) => break,
                 };
                 udp_buffer.note_receive(n);
-                // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
-                // select loop's heartbeat and dead-link timers. Congestion already uses
-                // drop-on-full semantics at the TUN queue, so drop the datagram when every
-                // bounded record allocation is still in flight.
-                let mut record = match tun_write_tx.try_acquire() {
-                    Some(record) => record,
-                    None => {
-                        log::trace!("downlink record pool exhausted — dropping inbound datagram");
-                        udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
-                        continue;
-                    }
-                };
                 let payload = if quic_enabled {
                     match unwrap_quic_payload(&recv_buf[..n]) {
                         Ok(payload) => payload,
@@ -4621,6 +5404,37 @@ pub(crate) async fn run_udp_tunnel(
                     }
                 } else {
                     &recv_buf[..n]
+                };
+                let reassembled;
+                let payload = if crate::protocol::data_frag::is_data_fragment(payload) {
+                    if !data_frag_enabled {
+                        log::debug!("UDP: received DATA_FRAG_V1 without negotiation");
+                        continue;
+                    }
+                    match data_reassembler.push(payload, &rx_data_frag_key) {
+                        Ok(Some(record)) => {
+                            reassembled = record;
+                            reassembled.as_slice()
+                        }
+                        Ok(None) => continue,
+                        Err(error) => {
+                            log::debug!("UDP: rejected data fragment: {error}");
+                            continue;
+                        }
+                    }
+                } else {
+                    payload
+                };
+                // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
+                // select loop's heartbeat and dead-link timers. Fragment MAC/reassembly has
+                // already completed, so unauthenticated fragments cannot consume a pool slot.
+                let mut record = match tun_write_tx.try_acquire() {
+                    Some(record) => record,
+                    None => {
+                        log::trace!("downlink record pool exhausted — dropping inbound datagram");
+                        udp_buffer.note_internal_drop();
+                        continue;
+                    }
                 };
                 // A crafted oversized datagram must not make a pooled Vec grow beyond the
                 // fixed per-slot budget before PacketCodec gets to reject its length field.
@@ -4635,7 +5449,12 @@ pub(crate) async fn run_udp_tunnel(
                         // carrier datagrams suppress reconnect indefinitely.
                         last_activity = tokio::time::Instant::now();
                         last_rx_inst = last_activity;
-                        if !record.is_empty() {
+                        if !record.is_empty()
+                            && is_supported_inner_packet(
+                                record.as_ref(),
+                                negotiated_family_mode,
+                            )
+                        {
                             runtime_counters.rx_packets.fetch_add(1, Ordering::Relaxed);
                             runtime_counters
                                 .rx_bytes
@@ -4652,6 +5471,15 @@ pub(crate) async fn run_udp_tunnel(
                                     udp_buffer.note_internal_drop(InternalDrop::QueueFull);
                                 }
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                            }
+                        } else if !record.is_empty() {
+                            unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+                            udp_buffer.note_internal_drop();
+                            if unsupported_inner_drops.is_power_of_two() {
+                                log::debug!(
+                                    "UDP client dropped invalid or non-negotiated-family inner packet (total {})",
+                                    unsupported_inner_drops
+                                );
                             }
                         }
                     }
@@ -4684,7 +5512,7 @@ pub(crate) async fn run_udp_tunnel(
                     // Cap the (server-pushable) heartbeat size to the probed MTU so a large
                     // data_size_bytes can't make a DF-marked keepalive overflow the path and
                     // get dropped (which would make the server reap the idle client).
-                    let hb_cap = tun_mtu.max(0) as usize;
+                    let hb_cap = (tun_mtu.max(0) as usize).min(max_empty_record_padding);
                     let hb_lo = (hb_config.data_size_bytes as usize).min(hb_cap) as u16;
                     let hb_hi = ((hb_config.data_size_bytes as usize).saturating_add(32))
                         .min(hb_cap) as u16;
@@ -4717,7 +5545,10 @@ pub(crate) async fn run_udp_tunnel(
                 // cover under load too so small cover mixes into the rate-capped stream.
                 if shaper.stealth() || last_tx_inst.elapsed() >= Duration::from_millis(50) {
                     // Cap idle-cover size to the probed MTU (see the stealth-cover branch).
-                    let size = shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
+                    let size = shaper
+                        .next_size(&mut rand::rng())
+                        .min(tun_mtu.max(0) as usize)
+                        .min(max_empty_record_padding);
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover_ready = {
                             let mut obf = Obfuscator::new();
@@ -4846,54 +5677,19 @@ pub(crate) async fn run_udp_tunnel(
     Ok(())
 }
 
-/// Bytes to reserve per pooled downlink buffer: the largest wire record this session can
-/// legitimately receive.
-///
-/// One record carries one inner packet (at most the tunnel MTU), plus the AEAD/counter/pad-len
-/// and record header, plus whatever the peer's obfuscation adds — random padding up to
-/// `padding_max`, and size normalisation, which rounds a record UP to one of its configured
-/// sizes and can therefore exceed the MTU on a small-MTU tunnel.
-///
-/// Deliberately an estimate, not a guarantee: the pool pre-reserves this much but the buffer is
-/// a plain `Vec`, so a larger record simply grows it once. Under-estimating costs one
-/// reallocation; over-estimating costs slots, which is the mistake that made the pool 251
-/// buffers deep while the packets were a tenth of the reserved size.
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "windows"
-))]
-fn downlink_record_budget(tun_mtu: i32, padding_max: u16, norm_sizes: &[u16]) -> usize {
-    let mtu = tun_mtu.max(0) as usize;
-    let normalized = norm_sizes.iter().copied().max().unwrap_or(0) as usize;
-    mtu.max(normalized)
-        .saturating_add(padding_max as usize)
-        .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
-        // nonce + tag + counter + pad-len, i.e. everything encrypt_packet adds around the
-        // plaintext; taken with headroom rather than as an exact sum so a future field does
-        // not silently start costing a reallocation per packet.
-        .saturating_add(128)
-}
-
-/// Convert a CIDR prefix length (e.g. 24) to a dotted IPv4 netmask (e.g.
-/// "255.255.255.0"). Out-of-range values fall back to /24 so a malformed push
-/// can never produce an unusable mask.
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 fn prefix_to_netmask(prefix: u8) -> String {
-    let p = if (1..=32).contains(&prefix) {
+    let prefix = if (1..=32).contains(&prefix) {
         prefix
     } else {
         24
     };
-    let mask: u32 = if p == 32 { u32::MAX } else { !0u32 << (32 - p) };
-    format!(
-        "{}.{}.{}.{}",
-        (mask >> 24) & 0xff,
-        (mask >> 16) & 0xff,
-        (mask >> 8) & 0xff,
-        mask & 0xff
-    )
+    let mask = if prefix == 32 {
+        u32::MAX
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    std::net::Ipv4Addr::from(mask).to_string()
 }
 
 /// Verify the server static public key.
@@ -5109,6 +5905,14 @@ mod lifecycle_adapter_tests {
     fn plan(generation: u64) -> NetworkPlan {
         NetworkPlan {
             generation,
+            family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+            addresses: vec![crate::transport_core::NetworkAddress {
+                family: crate::transport_core::NetworkAddressFamily::Ipv4,
+                address: "10.20.0.2".into(),
+                prefix_len: 24,
+                on_link_prefix_len: 24,
+                gateway: Some("10.20.0.1".into()),
+            }],
             tunnel_address: "10.20.0.2".into(),
             prefix_len: 24,
             mtu: 1400,
@@ -5126,6 +5930,8 @@ mod lifecycle_adapter_tests {
             }],
             full_tunnel: false,
             kill_switch: false,
+            allow_ipv4_leak: false,
+            allow_ipv6_leak: false,
             max_streams: 1,
             adaptive: false,
             data_plane: Default::default(),
@@ -5174,16 +5980,38 @@ mod obf_push_tests {
     use crate::config::PushedObf;
 
     #[test]
-    fn ipv4_only_dataplane_rejects_ipv6_and_truncated_packets() {
+    fn dataplane_accepts_only_negotiated_families_and_strict_packets() {
         let mut ipv4 = [0u8; 20];
         ipv4[0] = 0x45;
-        assert!(is_supported_inner_packet(&ipv4));
+        ipv4[2..4].copy_from_slice(&20u16.to_be_bytes());
+        assert!(is_supported_inner_packet(
+            &ipv4,
+            crate::transport_core::NetworkFamilyMode::Ipv4
+        ));
 
         let mut ipv6 = [0u8; 40];
         ipv6[0] = 0x60;
-        assert!(!is_supported_inner_packet(&ipv6));
-        assert!(!is_supported_inner_packet(&ipv4[..19]));
-        assert!(!is_supported_inner_packet(&[]));
+        ipv6[6] = 59; // No Next Header: a valid empty IPv6 packet.
+        assert!(!is_supported_inner_packet(
+            &ipv6,
+            crate::transport_core::NetworkFamilyMode::Ipv4
+        ));
+        assert!(is_supported_inner_packet(
+            &ipv6,
+            crate::transport_core::NetworkFamilyMode::Dual
+        ));
+        assert!(is_supported_inner_packet(
+            &ipv6,
+            crate::transport_core::NetworkFamilyMode::Ipv6
+        ));
+        assert!(!is_supported_inner_packet(
+            &ipv4[..19],
+            crate::transport_core::NetworkFamilyMode::Dual
+        ));
+        assert!(!is_supported_inner_packet(
+            &[],
+            crate::transport_core::NetworkFamilyMode::Dual
+        ));
     }
 
     #[test]
@@ -5199,6 +6027,25 @@ mod obf_push_tests {
         );
         assert_eq!(per_candidate_connect_budget(total, 1), total);
         assert_eq!(per_candidate_connect_budget(total, 0), total);
+    }
+
+    #[test]
+    fn fixed_lport_is_primary_only_but_secondary_keeps_local_address() {
+        let remote4 = "198.51.100.10:443".parse().unwrap();
+        let remote6 = "[2001:db8::10]:443".parse().unwrap();
+        assert_eq!(
+            tcp_carrier_bind_address(None, 1194, true, remote4),
+            Some("0.0.0.0:1194".parse().unwrap())
+        );
+        assert_eq!(tcp_carrier_bind_address(None, 1194, false, remote4), None);
+        assert_eq!(
+            tcp_carrier_bind_address(Some("192.0.2.50".parse().unwrap()), 1194, false, remote4),
+            Some("192.0.2.50:0".parse().unwrap())
+        );
+        assert_eq!(
+            tcp_carrier_bind_address(None, 1194, true, remote6),
+            Some("[::]:1194".parse().unwrap())
+        );
     }
 
     #[test]
@@ -5363,6 +6210,21 @@ mod obf_push_tests {
         // out-of-range prefix → default /24
         let bad = r#"OK:{"client_ip":"10.9.0.5","prefix":99}"#;
         assert_eq!(parse_auth_ok(bad).unwrap().prefix, 24);
+    }
+
+    #[test]
+    fn parse_auth_ok_rejects_wrapped_v2_prefix_projection() {
+        // Casting 280 to u8 produces 24. NetworkPlan v2 must reject the original
+        // out-of-range number rather than accidentally accepting that wrapped value
+        // when it happens to match the canonical on-link prefix.
+        let bad = r#"OK:{"family_mode":"ipv4","addresses":[{"family":"ipv4","address":"10.9.0.5","prefix_len":32,"on_link_prefix_len":24,"gateway":"10.9.0.1"}],"client_ip":"10.9.0.5","server_ip":"10.9.0.1","prefix":280,"mtu":1400,"dns_servers":[]}"#;
+        assert!(parse_auth_ok(bad).is_err());
+    }
+
+    #[test]
+    fn parse_auth_ok_rejects_unusable_ipv6_gateway() {
+        let bad = r#"OK:{"family_mode":"ipv6","addresses":[{"family":"ipv6","address":"fd71:e1::2","prefix_len":128,"on_link_prefix_len":64,"gateway":"::"}],"client_ip":"fd71:e1::2","server_ip":"::","prefix":64,"mtu":1400,"dns_servers":[]}"#;
+        assert!(parse_auth_ok(bad).is_err());
     }
 }
 

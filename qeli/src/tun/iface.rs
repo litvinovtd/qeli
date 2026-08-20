@@ -128,10 +128,24 @@ impl TunInterface {
     }
 
     pub fn set_address(ifname: &str, address: &str, prefix: u8) -> io::Result<()> {
-        if !(1..=32).contains(&prefix) {
+        let address_family = address.parse::<std::net::IpAddr>().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid IP address '{address}': {error}"),
+            )
+        })?;
+        let max_prefix = if address_family.is_ipv4() { 32 } else { 128 };
+        if prefix == 0 || prefix > max_prefix {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("invalid IPv4 prefix /{prefix}"),
+                format!(
+                    "invalid {} prefix /{prefix}",
+                    if address_family.is_ipv4() {
+                        "IPv4"
+                    } else {
+                        "IPv6"
+                    }
+                ),
             ));
         }
         let output = std::process::Command::new("ip")
@@ -158,6 +172,23 @@ impl TunInterface {
             .args(["link", "set", "dev", ifname, "up", "mtu", &mtu.to_string()])
             .output()?;
 
+        if !output.status.success() {
+            return Err(io::Error::other(
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn set_mac(ifname: &str, mac: [u8; 6]) -> io::Result<()> {
+        let address = mac
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(":");
+        let output = std::process::Command::new("ip")
+            .args(["link", "set", "dev", ifname, "address", &address])
+            .output()?;
         if !output.status.success() {
             return Err(io::Error::other(
                 String::from_utf8_lossy(&output.stderr).to_string(),

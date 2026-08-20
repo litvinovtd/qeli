@@ -164,6 +164,11 @@ impl ServerConfig {
                 cfg.auth.groups.insert(name.clone(), group_from(g));
             }
         }
+        UsersDb {
+            users: cfg.auth.users.clone(),
+            groups: cfg.auth.groups.clone(),
+        }
+        .validate_network_fields()?;
         // [web] / [logging] are populated in the struct-init above (with a serde baseline
         // when absent) — no separate override block needed.
 
@@ -399,8 +404,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
         put_str(&mut s, "listen", l);
     }
     // tun
+    put(&mut s, "tun.ip_mode", p.tun.ip_mode);
     put_str(&mut s, "tun.name", &p.tun.name);
     put_str(&mut s, "tun.address", &p.tun.address);
+    if let Some(address) = &p.tun.ipv6_address {
+        put_str(&mut s, "tun.ipv6_address", address);
+    }
     put(&mut s, "tun.mtu", p.tun.mtu);
     put(&mut s, "tun.tx_queue_len", p.tun.tx_queue_len);
     put_str(&mut s, "tun.device_type", &p.tun.device_type);
@@ -411,6 +420,13 @@ fn profile_to(p: &ProfileConfig) -> Section {
     for (name, ip) in &p.pool.static_reservations {
         put_str(&mut s, &format!("pool.reservation.{}", name), ip);
     }
+    if !p.pool.ipv6.cidr.is_empty() {
+        put_str(&mut s, "pool.ipv6.cidr", &p.pool.ipv6.cidr);
+    }
+    put_list(&mut s, "pool.ipv6.exclude", &p.pool.ipv6.exclude);
+    for (name, ip) in &p.pool.ipv6.static_reservations {
+        put_str(&mut s, &format!("pool.ipv6.reservation.{}", name), ip);
+    }
     // routing
     put(
         &mut s,
@@ -420,6 +436,10 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "routing.forward_private", p.routing.forward_private);
     put(&mut s, "routing.nat.enabled", p.routing.nat.enabled);
     put_str(&mut s, "routing.nat.interface", &p.routing.nat.interface);
+    put(&mut s, "routing.ipv6.mode", p.routing.ipv6.mode);
+    if !p.routing.ipv6.interface.is_empty() {
+        put_str(&mut s, "routing.ipv6.interface", &p.routing.ipv6.interface);
+    }
     if !p.routing.post_up.is_empty() {
         put_str(&mut s, "routing.post_up", &p.routing.post_up);
     }
@@ -451,6 +471,9 @@ fn profile_to(p: &ProfileConfig) -> Section {
     // dns
     put(&mut s, "dns.enabled", p.dns.enabled);
     put_str(&mut s, "dns.listen", &p.dns.listen);
+    if let Some(address) = &p.dns.listen_ipv6 {
+        put_str(&mut s, "dns.listen_ipv6", address);
+    }
     put(&mut s, "dns.port", p.dns.port);
     put_list(&mut s, "dns.upstream", &p.dns.upstream);
     put_str(&mut s, "dns.upstream_protocol", &p.dns.upstream_protocol);
@@ -689,8 +712,13 @@ fn profile_from(s: &Section) -> ProfileConfig {
     // Extra listeners (#12): each `listen` line is one address:port [transport] spec.
     p.bind.listen = s.all("listen").iter().map(|l| l.to_string()).collect();
     // tun
+    p.tun.ip_mode = s.parse_or("tun.ip_mode", base.tun.ip_mode);
     p.tun.name = s.str_or("tun.name", &base.tun.name).to_string();
     p.tun.address = s.str_or("tun.address", &base.tun.address).to_string();
+    p.tun.ipv6_address = s
+        .get("tun.ipv6_address")
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
     if let Some(legacy_netmask) = s.get("tun.netmask") {
         log::warn!(
             "profile '{}': legacy tun.netmask = '{}' is ignored; pool.cidr is the single \
@@ -722,6 +750,27 @@ fn profile_from(s: &Section) -> ProfileConfig {
             .static_reservations
             .insert(name.to_string(), v.to_string());
     }
+    p.pool.ipv6.cidr = s
+        .get("pool.ipv6.cidr")
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+    if s.get("pool.ipv6.exclude").is_some() {
+        p.pool.ipv6.exclude = s.list("pool.ipv6.exclude");
+    }
+    p.pool.ipv6.static_reservations = HashMap::new();
+    for (name, v) in s.entries_with_prefix("pool.ipv6.reservation.") {
+        if name.is_empty() {
+            log::warn!(
+                "config: skipping IPv6 reservation with empty username ('pool.ipv6.reservation. = {v}')"
+            );
+            continue;
+        }
+        p.pool
+            .ipv6
+            .static_reservations
+            .insert(name.to_string(), v.to_string());
+    }
     // routing
     p.routing.client_to_client =
         s.bool_or("routing.client_to_client", base.routing.client_to_client);
@@ -729,6 +778,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.routing.nat.enabled = s.bool_or("routing.nat.enabled", base.routing.nat.enabled);
     p.routing.nat.interface = s
         .str_or("routing.nat.interface", &base.routing.nat.interface)
+        .to_string();
+    p.routing.ipv6.mode = s.parse_or("routing.ipv6.mode", base.routing.ipv6.mode);
+    p.routing.ipv6.interface = s
+        .str_or("routing.ipv6.interface", &base.routing.ipv6.interface)
         .to_string();
     p.routing.post_up = s
         .str_or("routing.post_up", &base.routing.post_up)
@@ -744,6 +797,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
     // dns
     p.dns.enabled = s.bool_or("dns.enabled", base.dns.enabled);
     p.dns.listen = s.str_or("dns.listen", &base.dns.listen).to_string();
+    p.dns.listen_ipv6 = s
+        .get("dns.listen_ipv6")
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
     p.dns.port = s.parse_or("dns.port", base.dns.port);
     if s.get("dns.upstream").is_some() {
         p.dns.upstream = s.list("dns.upstream");
@@ -961,6 +1018,9 @@ mod route_line_tests {
         assert!(parse_route_checked("nonsense").is_none());
         // gateway must be a next-hop IP, never a subnet
         assert!(parse_route_checked("10.20.0.0/16 gateway=172.16.20.0/24").is_none());
+        // Route and next-hop must use the same address family.
+        assert!(parse_route_checked("2001:db8::/64 gateway=10.0.0.1").is_none());
+        assert!(parse_route_checked("10.0.0.0/8 gateway=fd00::1").is_none());
     }
 }
 
@@ -995,6 +1055,22 @@ fn parse_route_checked(line: &str) -> Option<PushedRoute> {
                  (it is the next hop, not a subnet).",
                 line,
                 gw
+            );
+            return None;
+        }
+        let route_family = r
+            .cidr
+            .split_once('/')
+            .and_then(|(address, _)| address.trim().parse::<std::net::IpAddr>().ok());
+        let gateway_family = gw.trim().parse::<std::net::IpAddr>().ok();
+        if !matches!(
+            (route_family, gateway_family),
+            (Some(std::net::IpAddr::V4(_)), Some(std::net::IpAddr::V4(_)))
+                | (Some(std::net::IpAddr::V6(_)), Some(std::net::IpAddr::V6(_)))
+        ) {
+            log::warn!(
+                "config: ignoring route {:?} — route CIDR and gateway use different address families",
+                line
             );
             return None;
         }
@@ -1083,6 +1159,9 @@ fn user_to(u: &UserEntry) -> Section {
     if let Some(ip) = &u.static_ip {
         put_str(&mut s, "static_ip", ip);
     }
+    if let Some(ip) = &u.static_ipv6 {
+        put_str(&mut s, "static_ipv6", ip);
+    }
     put(&mut s, "enabled", u.enabled);
     put_list(&mut s, "allowed_networks", &u.allowed_networks);
     if let Some(g) = &u.group {
@@ -1145,6 +1224,10 @@ fn user_from(s: &Section) -> UserEntry {
             .map(str::to_string),
         static_ip: s
             .get("static_ip")
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
+        static_ipv6: s
+            .get("static_ipv6")
             .filter(|v| !v.is_empty())
             .map(str::to_string),
         enabled: s.bool_or("enabled", true),
@@ -1217,6 +1300,69 @@ fn group_from(s: &Section) -> GroupTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ipv6_flat_ini_round_trips_without_becoming_a_json_config() {
+        let source = r#"
+[profile:v6]
+tun.ip_mode = dual
+tun.address = 10.9.0.1
+tun.ipv6_address = fd71:e1:1234:1::1
+tun.mtu = 1400
+pool.cidr = 10.9.0.0/24
+pool.ipv6.cidr = fd71:e1:1234:1::/64
+pool.ipv6.exclude = fd71:e1:1234:1::10
+pool.ipv6.reservation.alice = fd71:e1:1234:1::50
+routing.ipv6.mode = nat66
+routing.ipv6.interface = eth0
+dns.listen_ipv6 = fd71:e1:1234:1::1
+dns.push_servers = 10.9.0.1, fd71:e1:1234:1::1
+dns.upstream = 1.1.1.1, 2606:4700:4700::1111
+route = 2001:db8:100::/48 gateway=fd71:e1:1234:1::1 metric=10
+
+[user:alice]
+password_hash = x
+static_ip = 10.9.0.50
+static_ipv6 = fd71:e1:1234:1::50
+allowed_networks = 10.0.0.0/8, 2001:db8:200::/48
+client_subnet = 192.168.50.0/24, 2001:db8:300::/56
+route = 2001:db8:400::/48 gateway=fd71:e1:1234:1::1 metric=20
+"#;
+        let original = crate::config::parse_server_config(source).unwrap();
+        let profile = &original.profiles[0];
+        assert_eq!(profile.tun.ip_mode, IpMode::Dual);
+        assert_eq!(
+            profile.tun.ipv6_address.as_deref(),
+            Some("fd71:e1:1234:1::1")
+        );
+        assert_eq!(profile.routing.ipv6.mode, Ipv6RoutingMode::Nat66);
+        assert_eq!(profile.routing.advertised_routes.len(), 1);
+        assert_eq!(
+            original.auth.users[0].static_ipv6.as_deref(),
+            Some("fd71:e1:1234:1::50")
+        );
+
+        let serialized = original.to_ini_string();
+        assert!(serialized.contains("tun.ip_mode = dual"));
+        assert!(serialized.contains("pool.ipv6.cidr = fd71:e1:1234:1::/64"));
+        assert!(serialized.contains("static_ipv6 = fd71:e1:1234:1::50"));
+        let reparsed = crate::config::parse_server_config(&serialized).unwrap();
+        assert_eq!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::to_value(&reparsed).unwrap()
+        );
+    }
+
+    #[test]
+    fn invalid_ipv6_mode_is_reported_instead_of_falling_back_silently() {
+        let (_, findings) = crate::config::parse_server_config_reporting(
+            "[profile:x]\ntun.ip_mode = duall\nrouting.ipv6.mode = nat6\n",
+        )
+        .unwrap();
+        let all = findings.join("\n");
+        assert!(all.contains("tun.ip_mode"), "{all}");
+        assert!(all.contains("routing.ipv6.mode"), "{all}");
+    }
 
     /// An advertised-route `description` must survive parse → serialize → parse. It
     /// used to be DROPPED by the serializer, so any structured save from the panel

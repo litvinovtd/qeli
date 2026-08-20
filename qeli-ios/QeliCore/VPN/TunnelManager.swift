@@ -363,6 +363,7 @@ final class TunnelManager: NSObject, ObservableObject {
 
     private func clearConnectionFields(_ value: inout TunnelSnapshot) {
         value.clientAddress = nil
+        value.tunnelGateway = nil
         value.connectedAt = nil
         value.bytesUploaded = 0
         value.bytesDownloaded = 0
@@ -457,13 +458,15 @@ final class TunnelManager: NSObject, ObservableObject {
         tunnelProtocol.providerBundleIdentifier = AppConstants.tunnelBundleIdentifier
         tunnelProtocol.serverAddress = config.serverAddress
         let strictFullTunnel = config.isFullTunnel
+            && !config.allowIPv4Leak
             && !config.allowIPv6Leak
             && !config.allowLAN
             && !settings.allowLAN
             && config.excludeRoutes.isEmpty
         tunnelProtocol.includeAllNetworks = strictFullTunnel
         tunnelProtocol.enforceRoutes = config.isFullTunnel
-        tunnelProtocol.excludeLocalNetworks = config.allowLAN || settings.allowLAN
+        tunnelProtocol.excludeLocalNetworks = config.isFullTunnel
+            && (config.allowLAN || settings.allowLAN)
         tunnelProtocol.excludeAPNs = false
         tunnelProtocol.excludeCellularServices = false
         // No credentials/profile text in Network Extension preferences. The provider

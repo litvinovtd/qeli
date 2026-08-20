@@ -14,6 +14,18 @@ const SALT_HYBRID: &[u8] = b"qeli-key-derivation-v2-hybrid";
 /// downgrade), exactly like the classic↔hybrid separation.
 const SALT_BOUND: &[u8] = b"qeli-key-derivation-v1-static-bound";
 const SALT_HYBRID_BOUND: &[u8] = b"qeli-key-derivation-v2-hybrid-static-bound";
+const SALT_DATA_FRAG: &[u8] = b"qeli-data-fragment-mac-v1";
+
+/// Derive a dedicated fragment-MAC subkey from one directional AEAD key. Fragment
+/// authentication and record encryption never reuse a key, while both remain bound to the
+/// same session and direction.
+pub fn derive_data_frag_key(aead_key: &[u8; 32]) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(Some(SALT_DATA_FRAG), aead_key);
+    let mut key = [0u8; 32];
+    hk.expand(b"fragment-mac-key", &mut key)
+        .expect("expand data fragment MAC key");
+    key
+}
 
 /// Expand the two directional AEAD keys from an HKDF instance (shared helper).
 fn expand_dir(hk: &Hkdf<Sha256>) -> ([u8; 32], [u8; 32]) {

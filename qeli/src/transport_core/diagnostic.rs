@@ -8,11 +8,7 @@
 use crate::config::client::ClientConfig;
 use crate::protocol::{generate_connection_id, wrap_quic_long};
 use crate::transport_core::session::build_udp_client_hello_flight;
-use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddr};
-#[cfg(feature = "transport-core-ffi")]
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 
@@ -96,7 +92,6 @@ async fn udp_reachability_async(
     if config.server.protocol != "udp" {
         anyhow::bail!("native UDP reachability requires proto = udp");
     }
-    let addresses = resolve_ipv4(host, config.server.port, per_attempt_timeout).await?;
     let flight = build_udp_client_hello_flight(config)?;
     let fragments = Arc::new(flight.fragments);
     let obfs_key = if config.obfuscation.mode == "obfs" {
@@ -107,72 +102,51 @@ async fn udp_reachability_async(
         None
     };
     let quic_enabled = config.obfuscation.quic.enabled;
+    let addresses = resolve_candidates(host, config.server.port, per_attempt_timeout).await?;
     let started = Instant::now();
-    let mut probes = tokio::task::JoinSet::new();
+
     for address in addresses {
-        let fragments = Arc::clone(&fragments);
-        probes.spawn(async move {
-            udp_reachability_candidate(
-                address,
-                fragments,
-                obfs_key,
-                quic_enabled,
-                per_attempt_timeout,
-            )
-            .await
-        });
-    }
-
-    let mut failures = Vec::new();
-    while let Some(result) = probes.join_next().await {
-        match result {
-            Ok(Ok(())) => {
-                probes.abort_all();
-                return Ok(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
-            }
-            Ok(Err(error)) => failures.push(error.to_string()),
-            Err(error) => failures.push(format!("UDP probe task failed: {error}")),
+        let bind_addr = match address.ip() {
+            IpAddr::V4(_) => SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
+            IpAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
+        };
+        let raw_socket = match UdpSocket::bind(bind_addr).await {
+            Ok(socket) => socket,
+            Err(_) => continue,
+        };
+        if raw_socket.connect(address).await.is_err() {
+            continue;
         }
-    }
+        let socket = crate::protocol::obfs::ObfsUdp::new(raw_socket, obfs_key);
+        let connection_id = generate_connection_id();
+        let mut packet_number = 0u32;
+        let mut receive = [0u8; 4096];
 
-    anyhow::bail!(
-        "no UDP server reply from any IPv4 candidate: {}",
-        failures.join("; ")
-    )
-}
-
-async fn udp_reachability_candidate(
-    address: SocketAddr,
-    fragments: Arc<Vec<Vec<u8>>>,
-    obfs_key: Option<[u8; 32]>,
-    quic_enabled: bool,
-    per_attempt_timeout: Duration,
-) -> anyhow::Result<()> {
-    let raw_socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await?;
-    raw_socket.connect(address).await?;
-    let socket = crate::protocol::obfs::ObfsUdp::new(raw_socket, obfs_key);
-    let connection_id = generate_connection_id();
-    let mut packet_number = 0u32;
-    let mut receive = [0u8; 4096];
-
-    for _ in 0..PROBE_ATTEMPTS {
-        for fragment in fragments.iter() {
-            let datagram = if quic_enabled {
-                let current = packet_number;
-                packet_number = packet_number.wrapping_add(1);
-                wrap_quic_long(fragment, &connection_id, current)
-            } else {
-                fragment.clone()
-            };
-            socket.send(&datagram).await?;
-        }
-
-        match tokio::time::timeout(per_attempt_timeout, socket.recv(&mut receive)).await {
-            Ok(Ok(received)) if received > 0 => {
-                return Ok(());
+        for _ in 0..PROBE_ATTEMPTS {
+            let mut send_failed = false;
+            for fragment in &flight.fragments {
+                let datagram = if quic_enabled {
+                    let current = packet_number;
+                    packet_number = packet_number.wrapping_add(1);
+                    wrap_quic_long(fragment, &connection_id, current, 0x00)
+                } else {
+                    fragment.clone()
+                };
+                if socket.send(&datagram).await.is_err() {
+                    send_failed = true;
+                    break;
+                }
             }
-            Ok(Ok(_)) | Err(_) => continue,
-            Ok(Err(error)) => return Err(error.into()),
+            if send_failed {
+                break;
+            }
+            match tokio::time::timeout(per_attempt_timeout, socket.recv(&mut receive)).await {
+                Ok(Ok(received)) if received > 0 => {
+                    return Ok(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+                }
+                Ok(Ok(_)) | Err(_) => continue,
+                Ok(Err(_)) => break,
+            }
         }
     }
 
@@ -182,25 +156,24 @@ async fn udp_reachability_candidate(
     )
 }
 
-async fn resolve_ipv4(host: &str, port: u16, timeout: Duration) -> anyhow::Result<Vec<SocketAddr>> {
+async fn resolve_candidates(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> anyhow::Result<Vec<SocketAddr>> {
     let addresses = tokio::time::timeout(timeout, tokio::net::lookup_host((host, port)))
         .await
         .map_err(|_| anyhow::anyhow!("UDP probe DNS resolution timed out"))??;
-    let addresses = collect_ipv4_candidates(addresses);
-    if addresses.is_empty() {
-        anyhow::bail!("probe host '{host}' has no IPv4 address");
+    let mut candidates = Vec::new();
+    for address in addresses {
+        if !candidates.contains(&address) {
+            candidates.push(address);
+        }
     }
-    Ok(addresses)
-}
-
-fn collect_ipv4_candidates(addresses: impl IntoIterator<Item = SocketAddr>) -> Vec<SocketAddr> {
-    let mut seen = HashSet::new();
-    addresses
-        .into_iter()
-        .filter(|address| address.is_ipv4())
-        .filter(|address| seen.insert(*address))
-        .take(MAX_PROBE_ADDRESSES)
-        .collect()
+    if candidates.is_empty() {
+        anyhow::bail!("probe host '{host}' has no IP address");
+    }
+    Ok(candidates)
 }
 
 #[cfg(test)]
@@ -244,6 +217,28 @@ mod tests {
             udp_reachability_async(&config(port), "127.0.0.1", Duration::from_millis(500))
                 .await
                 .unwrap();
+        assert!(elapsed < 1_000);
+        echo.abort();
+    }
+
+    #[tokio::test]
+    async fn shared_udp_first_flight_supports_ipv6() {
+        let server = match UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await {
+            Ok(server) => server,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrNotAvailable => return,
+            Err(error) => panic!("bind IPv6 loopback: {error}"),
+        };
+        let port = server.local_addr().unwrap().port();
+        let echo = tokio::spawn(async move {
+            let mut buffer = [0u8; 2048];
+            let (received, peer) = server.recv_from(&mut buffer).await.unwrap();
+            assert!(received > crate::protocol::udp_frag::FRAG_HDR_LEN);
+            server.send_to(b"server hello", peer).await.unwrap();
+        });
+
+        let elapsed = udp_reachability_async(&config(port), "::1", Duration::from_millis(500))
+            .await
+            .unwrap();
         assert!(elapsed < 1_000);
         echo.abort();
     }

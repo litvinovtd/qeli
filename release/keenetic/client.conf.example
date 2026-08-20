@@ -29,9 +29,23 @@ sni = www.cloudflare.com
 # obfs_key = общий-секрет
 
 # ── Router / шлюз ────────────────────────────────────────────────────────────
+# auto = принимать dual-stack-план, когда сервер и ip6tables его поддерживают;
+# required = не подключаться без IPv6; off = только IPv4 внутри туннеля.
+ipv6 = auto
+# В full-tunnel отсутствующая семья по умолчанию блокируется. Небезопасные opt-out:
+# allow_ipv4_leak = true
+# allow_ipv6_leak = true
 # gateway=true → full-tunnel: весь трафик в VPN. В паре с NAT в init-скрипте
-# (S99qeli) заворачивает весь LAN роутера через туннель.
+# заворачивает весь LAN роутера через туннель.
 gateway = true
+# Встроенный router-mode qeli настраивает IPv4+IPv6 forwarding, NAT и MSS clamp,
+# проверяет результат и откатывает sysctl при остановке. S99qeli использует свои
+# внешние правила только для совместимости со старыми конфигами без этого ключа.
+gateway_nat = true
+# Необязательное ограничение NAT исходной сетью LAN. Пусто = весь FORWARD-трафик,
+# выходящий через tun; укажи реальные подсети своего Keenetic при необходимости.
+# lan_subnet = 192.168.1.0/24
+# lan_subnet_ipv6 = fd00:1234:5678:1::/64
 # dns=off → НЕ трогать /etc/resolv.conf роутера (им владеет прошивка Keenetic).
 # DNS для LAN-клиентов остаётся на штатном резолвере роутера (ndnsproxy/dnsmasq).
 dns = off

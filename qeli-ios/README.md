@@ -32,11 +32,7 @@ every other client, not because a build of it was released.
 - Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM).
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- Device-local Trusted Wi-Fi rules use an exact SSID `NEOnDemandRuleDisconnect` followed by
-  a catch-all Connect rule. Explicit Disconnect removes the auto-resume intent; the UI uses a
-  neutral “waiting for network policy” state because iOS does not reveal which On Demand rule
-  matched the current network. A copied SSID can spoof this convenience policy.
-- `NEPacketTunnelProvider` target with a small ABI 1.10 platform adapter. Swift applies
+- `NEPacketTunnelProvider` target with a small ABI 1.11 platform adapter. Swift applies
   authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
   packet batches between `NEPacketTunnelFlow` and Rust.
 - The common Rust whole-client core owns each plain/fake-TLS/obfs/REALITY TCP/UDP/QUIC
@@ -54,7 +50,7 @@ every other client, not because a build of it was released.
 - MDM deployment templates, typed managed configuration, enforced profile/On-Demand
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
-The production Packet Tunnel now uses the same ABI 1.10 Rust transport as Linux, Android,
+The production Packet Tunnel now uses the same ABI 1.11 Rust transport as Linux, Android,
 Windows and macOS. Swift applies `NetworkPlan`, persists trust/device identity and copies
 bounded IP batches to/from `NEPacketTunnelFlow`; it no longer implements a wire protocol.
 CI builds the real device/simulator XCFramework, compiles the generated Xcode project for

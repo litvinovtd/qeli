@@ -420,7 +420,7 @@ retries; Android — `[SECURITY]` + stop):**
 | `utun: socket(PF_SYSTEM) failed (errno …) — are you root?` | mac | not root — run via `sudo` or enable the launchd daemon |
 | `utun: connect failed / getsockopt(IFNAME) failed …` | mac | can't open utun |
 | `Failed to establish VPN interface` | Android | `VpnService.Builder.establish()` returned null |
-| `TUN establish with IPv6 failed (<e>); retrying IPv4-only` | Android | the ROM rejected the TUN IPv6 address — auto-fallback to IPv4 (not an error) |
+| `TUN establish with IPv6 failed (<e>); retrying IPv4-only` | Android | the ROM rejected only the synthetic IPv6 leak-block address of an IPv4 plan. A real negotiated IPv6 address never downgrades: that failure is fatal |
 | `WARN: could not determine physical gateway; full-tunnel may loop` | all | no physical gateway found — full-tunnel may loop; check network/routes |
 | `local = <addr>: not pinning the server route — carrier follows the bound interface's routing` | Win/mac | with `local`/`lport` set, the server bypass route isn't pinned (deliberate) |
 | `Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)` | all | full-tunnel is up |
@@ -433,8 +433,7 @@ retries; Android — `[SECURITY]` + stop):**
 | `full tunnel: could not install route 0.0.0.0/1 …` / `… is not in the routing table … after being added` | Linux | **fatal since 0.7.12.** This used to be a `warn` the client carried on from — half of IPv4 left the tunnel while the indicator stayed green. The connection is now refused. Read the `ip` text in the line: usually missing privileges (not root) or a clash with an existing route |
 | `full tunnel: could not pin the server bypass route …` | Linux | fatal: without the bypass the encrypted path to the server would be routed into the tunnel being built |
 | `could not route included subnet <cidr> … refusing to run` | Linux | fatal: a subnet listed in `include` would have left unencrypted |
-| `full tunnel: IPv6 blackholed (…)` | Linux | expected since 0.7.12: qeli tunnels IPv4 only, so IPv6 is blocked. Need IPv6 direct? Set `allow_ipv6_leak = true` |
-| `full tunnel: IPv6 is NOT fully blocked …` | Linux | the blackhole did not install (no `ip -6`?) — IPv6 may bypass the tunnel |
+| `could not install blackhole <half>` | Linux | the negotiated full-tunnel plan lacks that address family and qeli could not enforce its fail-closed block. Fix `ip route`/privileges, use a dual profile, or deliberately set the matching `allow_ipv4_leak`/`allow_ipv6_leak` |
 | `kill-switch: could not install N allow rule(s) in QELI_KS_<if> …` | Linux | **since 0.7.12** the chain refuses to arm when an allow rule did not land (otherwise it would cut the host off from the very tunnel it protects). See the listed rules |
 | `interface '<dev>' already exists …` | Linux | see §6 — our own orphaned interface is reclaimed automatically; a refusal means it is held by **another** process, or is not a tuntap device |
 

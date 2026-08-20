@@ -420,7 +420,7 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 | `utun: socket(PF_SYSTEM) failed (errno …) — are you root?` | mac | нет root — запустить через `sudo` или включить launchd-демон |
 | `utun: connect failed / getsockopt(IFNAME) failed …` | mac | не открыть utun |
 | `Failed to establish VPN interface` | Android | `VpnService.Builder.establish()` вернул null |
-| `TUN establish with IPv6 failed (<e>); retrying IPv4-only` | Android | ROM отверг IPv6-адрес TUN — авто-фолбэк на IPv4 (не ошибка) |
+| `TUN establish with IPv6 failed (<e>); retrying IPv4-only` | Android | ROM отверг только синтетический IPv6-адрес блокировки утечки в IPv4-плане. Реальный согласованный IPv6-адрес никогда не downgrade'ится: такая ошибка фатальна |
 | `WARN: could not determine physical gateway; full-tunnel may loop` | все | не найден физический шлюз — full-tunnel может зациклиться; проверить сеть/маршруты |
 | `local = <addr>: not pinning the server route — carrier follows the bound interface's routing` | Win/mac | при заданном `local`/`lport` серверный bypass-маршрут не ставится (намеренно) |
 | `Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)` | все | full-tunnel поднят |
@@ -433,8 +433,7 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 | `full tunnel: could not install route 0.0.0.0/1 …` / `… is not in the routing table … after being added` | Linux | **с 0.7.12 фатально.** Раньше это писалось в `warn` и клиент продолжал работу — половина IPv4 шла мимо туннеля при зелёном индикаторе. Теперь подключение отклоняется. Смотреть текст `ip` в строке: обычно нет прав (не root) или конфликт с уже существующим маршрутом |
 | `full tunnel: could not pin the server bypass route …` | Linux | фатально: без обхода зашифрованный путь к серверу сам ушёл бы в строящийся туннель |
 | `could not route included subnet <cidr> … refusing to run` | Linux | фатально: заказанная в `include` подсеть ушла бы в открытую |
-| `full tunnel: IPv6 blackholed (…)` | Linux | норма с 0.7.12: qeli туннелирует только IPv4, поэтому IPv6 блокируется. Нужен IPv6 напрямую — `allow_ipv6_leak = true` |
-| `full tunnel: IPv6 is NOT fully blocked …` | Linux | blackhole не встал (нет `ip -6`?) — IPv6 может утекать мимо туннеля |
+| `could not install blackhole <half>` | Linux | в согласованном full-tunnel плане нет этой address family, а qeli не смог поставить fail-closed блокировку. Исправьте `ip route`/права, используйте dual-профиль либо осознанно включите соответствующий `allow_ipv4_leak`/`allow_ipv6_leak` |
 | `kill-switch: could not install N allow rule(s) in QELI_KS_<if> …` | Linux | **с 0.7.12** цепочка не арминается, если не встало разрешающее правило (иначе хост отрезало бы от самого туннеля). Смотреть перечисленные правила |
 | `interface '<dev>' already exists …` | Linux | см. §6 — свой осиротевший интерфейс забирается автоматически; отказ означает, что его держит **другой** процесс или это не tuntap |
 

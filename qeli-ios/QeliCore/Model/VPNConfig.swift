@@ -54,11 +54,11 @@ struct VPNConfig: Codable, Equatable, Sendable {
         // carrying per-app tunnelling or allow-LAN from Android. An unknown-key check is only
         // as good as its list: a missing entry does not degrade to "ignored", it rejects the
         // whole config.
-        "allow_ipv6_leak", "allow_lan", "allow_unpinned_tofu", "apps", "apps_mode",
+        "allow_ipv4_leak", "allow_ipv6_leak", "allow_lan", "allow_unpinned_tofu", "apps", "apps_mode",
         "awg", "bind_static", "dns", "dns_servers", "exclude",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
-        "mode", "mtu", "mtu_probe", "obfs_key", "padding",
+        "ipv6", "mode", "mtu", "mtu_probe", "obfs_key", "padding",
         "padding_max", "padding_min", "pass", "proto", "quic", "reality_sid",
         "reconnect", "reconnect_base_delay", "reconnect_max_delay", "reconnect_retries",
         "route_local", "server", "shaping", "shaping_budget", "shaping_gap_max",
@@ -79,10 +79,11 @@ struct VPNConfig: Codable, Equatable, Sendable {
         // Not edited by the iOS model. Foreign platform/lifecycle fields survive a round trip;
         // transport-owned socket settings are consumed by Rust at the native boundary.
         "autostart", "dev", "dev_attach", "dev_node", "exit_node", "forward",
-        "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
+        "gateway_nat", "keepalive", "lan_subnet", "lan_subnet_ipv6", "post_down", "post_up", "tcp_nodelay",
         "kill_switch", "local", "lport", "metric", "name", "persist_tun", "route_file",
         // Socket settings plus headless-only password sources.
-        "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
+        "password_command", "password_file", "reality_compact", "reality_split",
+        "reality_split_delay", "recv_buffer_size", "send_buffer_size",
     ]
 
     /// Accepted tunnel-MTU range. The ceiling is derived, in Rust, from the record format
@@ -117,11 +118,13 @@ struct VPNConfig: Codable, Equatable, Sendable {
     var mtu = 0
     var mtuProbe = true
     var routingMode = "full-tunnel"
+    var ipv6Policy = "auto"
     var addDefaultGateway = true
     var includeRoutes: [String] = []
     var excludeRoutes: [String] = []
     var routeLocalNetworks = false
     var allowIPv6Leak = false
+    var allowIPv4Leak = false
     var allowLAN = false
     var dnsServers: [String] = []
     /// DNS handling mode, mirroring `dns.mode` in the Rust client: `tunnel` (default — install
@@ -316,7 +319,8 @@ struct VPNConfig: Codable, Equatable, Sendable {
         // already checked below. (Audit 2026-07-31, §3.)
         let enums: [(String, String, [String])] = [
             ("front", obfsFronting, ["websocket", "none"]),
-            ("routing_mode", routingMode, ["split-tunnel", "full-tunnel", "all"])
+            ("routing_mode", routingMode, ["split-tunnel", "full-tunnel", "all"]),
+            ("ipv6", ipv6Policy, ["auto", "required", "off"])
         ]
         for (field, value, allowed) in enums where !allowed.contains(value) {
             throw VPNConfigError.invalid(
@@ -365,6 +369,13 @@ struct VPNConfig: Codable, Equatable, Sendable {
         }
         guard !serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VPNConfigError.invalid("server host is empty")
+        }
+        guard !serverAddress.contains("[") && !serverAddress.contains("]") else {
+            throw VPNConfigError.invalid(
+                "serverAddress stores a bare host; brackets belong only around an IPv6 endpoint")
+        }
+        if serverAddress.contains(":"), !Self.isIPLiteral(serverAddress) {
+            throw VPNConfigError.invalid("server contains an invalid IPv6 address: \(serverAddress)")
         }
         guard (1...65_535).contains(port) else {
             throw VPNConfigError.invalid("server port must be between 1 and 65535")
@@ -436,6 +447,10 @@ struct VPNConfig: Codable, Equatable, Sendable {
         }
         if mtu != 0 && !(Self.mtuMin...Self.mtuMax).contains(mtu) {
             throw VPNConfigError.invalid("mtu must be 0 or between \(Self.mtuMin) and \(Self.mtuMax)")
+        }
+        if ipv6Policy == "required", mtu > 0, mtu < 1280 {
+            throw VPNConfigError.invalid(
+                "ipv6 = required needs an explicit mtu of at least 1280 (or 0 for auto), got \(mtu)")
         }
         guard paddingMin >= 0, paddingMax >= paddingMin else {
             throw VPNConfigError.invalid("padding range is invalid")
@@ -617,11 +632,13 @@ struct VPNConfig: Codable, Equatable, Sendable {
 
         let fullTunnel = boolAt("gateway", default: true)
         config.routingMode = fullTunnel ? "full-tunnel" : "split-tunnel"
+        config.ipv6Policy = qeli["ipv6"]?.lowercased() ?? "auto"
         config.addDefaultGateway = fullTunnel
         config.includeRoutes = list(qeli["include"])
         config.excludeRoutes = list(qeli["exclude"])
         config.routeLocalNetworks = boolAt("route_local", default: false)
         config.allowIPv6Leak = boolAt("allow_ipv6_leak", default: false)
+        config.allowIPv4Leak = boolAt("allow_ipv4_leak", default: false)
         config.allowLAN = boolAt("allow_lan", default: false)
         // `dns` is a resolver LIST here and a MODE in the Rust/router client (`off` / `tunnel`
         // / `system`). Legacy profiles overloaded the key; the mode is now kept independently
@@ -813,10 +830,12 @@ struct VPNConfig: Codable, Equatable, Sendable {
         if mtu != 0 { lines.append("mtu = \(mtu)") }
         if !mtuProbe { lines.append("mtu_probe = false") }
         lines.append("gateway = \(isFullTunnel ? "true" : "false")")
+        if ipv6Policy != "auto" { lines.append("ipv6 = \(ipv6Policy)") }
         if !includeRoutes.isEmpty { lines.append("include = \(includeRoutes.joined(separator: ", "))") }
         if !excludeRoutes.isEmpty { lines.append("exclude = \(excludeRoutes.joined(separator: ", "))") }
         if routeLocalNetworks { lines.append("route_local = true") }
         if allowIPv6Leak { lines.append("allow_ipv6_leak = true") }
+        if allowIPv4Leak { lines.append("allow_ipv4_leak = true") }
         if allowLAN { lines.append("allow_lan = true") }
         // One key, two meanings — mirroring the Rust client. A non-default MODE wins over the
         // server list: `dns = off` must survive a save/load round-trip, or re-saving a profile
@@ -937,18 +956,32 @@ struct VPNConfig: Codable, Equatable, Sendable {
                   let port = Int(endpoint[endpoint.index(close, offsetBy: 2)...]) else {
                 throw VPNConfigError.invalid("IPv6 endpoint must be [host]:port")
             }
-            return (String(endpoint[endpoint.index(after: endpoint.startIndex)..<close]), port)
+            let host = String(endpoint[endpoint.index(after: endpoint.startIndex)..<close])
+            guard host.contains(":"), isIPLiteral(host) else {
+                throw VPNConfigError.invalid("invalid IPv6 endpoint address: \(host)")
+            }
+            guard (1...65_535).contains(port) else {
+                throw VPNConfigError.invalid("server port must be between 1 and 65535")
+            }
+            return (host, port)
         }
         guard let colon = endpoint.lastIndex(of: ":"),
               colon > endpoint.startIndex,
               let port = Int(endpoint[endpoint.index(after: colon)...]) else {
             throw VPNConfigError.invalid("server must be host:port")
         }
-        return (String(endpoint[..<colon]), port)
+        let host = String(endpoint[..<colon])
+        guard !host.contains(":"), !host.contains("["), !host.contains("]") else {
+            throw VPNConfigError.invalid("IPv6 endpoint must be bracketed as [address]:port")
+        }
+        guard (1...65_535).contains(port) else {
+            throw VPNConfigError.invalid("server port must be between 1 and 65535")
+        }
+        return (host, port)
     }
 
     private static func formatEndpoint(host: String, port: Int) -> String {
-        host.contains(":") && !host.hasPrefix("[") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
     }
 
     private static let unreserved: CharacterSet = {

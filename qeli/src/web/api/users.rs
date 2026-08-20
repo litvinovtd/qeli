@@ -64,7 +64,19 @@ pub(crate) fn gen_password(len: usize) -> String {
 /// operator sees the mistake. Blank rows (the panel's empty repeater row) are ignored,
 /// matching the compiler.
 fn validate_allowed_networks(nets: &[String]) -> Result<(), String> {
-    crate::config::users::validate_allowed_networks(nets, "allowed_networks")
+    for n in nets {
+        let s = n.trim();
+        if s.is_empty() {
+            continue;
+        }
+        let ok = crate::util::is_valid_cidr(s) || s.parse::<std::net::IpAddr>().is_ok();
+        if !ok {
+            return Err(format!(
+                "allowed_networks: {s:?} is not a valid IPv4/IPv6 CIDR or address"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Validate a `static_ip` value: must be a bare IPv4 address.
@@ -88,6 +100,19 @@ fn validate_static_ip(ip: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_static_ipv6(ip: &str) -> Result<(), String> {
+    let value = ip.trim();
+    if value.is_empty() {
+        return Ok(());
+    }
+    let address = value.parse::<std::net::Ipv6Addr>().map_err(|_| {
+        format!(
+            "static_ipv6 {value:?} is not a valid bare IPv6 address; leave empty for a dynamic address"
+        )
+    })?;
+    crate::config::server::validate_tunnel_ipv6_address("static_ipv6", address)
+}
+
 /// The other user already holding `ip` as their static address, if any.
 ///
 /// Two users cannot share one static address: `IpPool::allocate_fixed` hands it to
@@ -104,6 +129,13 @@ fn static_ip_owner(
         .iter()
         .find(|u| u.username != except && u.static_ip.as_deref() == Some(ip))
         .map(|u| u.username.clone())
+}
+
+fn static_ipv6_owner(db: &UsersDb, ip: &str, except: &str) -> Option<String> {
+    db.users
+        .iter()
+        .find(|user| user.username != except && user.static_ipv6.as_deref() == Some(ip))
+        .map(|user| user.username.clone())
 }
 
 /// Narrow a JSON-supplied limit to `u32`, REJECTING an out-of-range value instead of
@@ -322,6 +354,17 @@ pub async fn create_user(
             ))));
         }
     }
+    if let Some(ip) = body["static_ipv6"].as_str().filter(|s| !s.is_empty()) {
+        if let Err(error) = validate_static_ipv6(ip) {
+            return Ok(Json(super::err_json(error)));
+        }
+        if let Some(other) = static_ipv6_owner(&users, ip, &username) {
+            return Ok(Json(super::err_json(format!(
+                "static_ipv6 {} is already assigned to user '{}' — two users cannot share one address",
+                ip, other
+            ))));
+        }
+    }
 
     let routes = match routes_from_json(&body["routes"]) {
         Ok(r) => r,
@@ -351,7 +394,16 @@ pub async fn create_user(
         password_hash,
         password_enc,
         enabled: body["enabled"].as_bool().unwrap_or(true),
-        static_ip: body["static_ip"].as_str().map(|s| s.to_string()),
+        static_ip: body["static_ip"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        static_ipv6: body["static_ipv6"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         bandwidth: crate::config::users::BandwidthLimit {
             limit_mbps,
             burst_mbps,
@@ -424,6 +476,9 @@ fn merge_changed_fields(
     if after.static_ip != before.static_ip {
         slot.static_ip = after.static_ip.clone();
     }
+    if after.static_ipv6 != before.static_ipv6 {
+        slot.static_ipv6 = after.static_ipv6.clone();
+    }
     if after.enabled != before.enabled {
         slot.enabled = after.enabled;
     }
@@ -480,13 +535,20 @@ pub async fn update_user(
             ))));
         }
     }
-    // Build the complete candidate on a clone. Validation errors must not mutate
-    // the panel's in-memory database when nothing was written to disk.
-    let existing = users
-        .users
-        .iter()
-        .find(|user| user.username == username)
-        .cloned();
+    if let Some(ip) = body["static_ipv6"].as_str().filter(|s| !s.is_empty()) {
+        if let Err(error) = validate_static_ipv6(ip) {
+            return Ok(Json(super::err_json(error)));
+        }
+        if let Some(other) = static_ipv6_owner(&users, ip, &username) {
+            return Ok(Json(super::err_json(format!(
+                "static_ipv6 {} is already assigned to user '{}' — two users cannot share one address",
+                ip, other
+            ))));
+        }
+    }
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
+    let existing = users.users.iter_mut().find(|u| u.username == username);
 
     match existing {
         Some(before) => {
@@ -519,6 +581,13 @@ pub async fn update_user(
                     None
                 } else {
                     Some(static_ip.to_string())
+                };
+            }
+            if let Some(static_ipv6) = body["static_ipv6"].as_str() {
+                user.static_ipv6 = if static_ipv6.is_empty() {
+                    None
+                } else {
+                    Some(static_ipv6.to_string())
                 };
             }
             if let Some(group) = body["group"].as_str() {

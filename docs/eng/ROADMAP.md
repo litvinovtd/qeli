@@ -456,36 +456,17 @@ first nibble 4/6 → IP packet
 **Do this before roaming:** roaming needs a server-notification mechanism, or it will have
 to be reworked afterwards.
 
-### IPv6 server endpoint (→ 0.8.0)
+### Full IPv6 support (→ 0.8.0)
 
-Deferred deliberately. The current contract is now explicit and fail-fast: the common Rust
-transport and shared desktop validation reject an IPv6 server literal, and the installer rejects
-an IPv6 `PUBLIC_HOST`. Mobile adapters share that Rust core. A hostname must have an A record.
-This is a declared missing feature rather than the former connect-time half-failure.
+**Full plan: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** An IPv6 server
+endpoint is only an outer carrier and is not IPv6 support on its own. The scope includes
+independent outer IPv4/IPv6, inner `ipv4|dual|ipv6`, TUN and TAP, TCP/UDP/QUIC, server
+routing and DNS, MTU/PMTU and UDP data fragmentation, kill switch, every system/per-app
+client, panel, Quick Start, installer, packages, and examples.
 
-What already works: the flat-INI and `qeli://` parsers understand `[2001:db8::1]:443`, and the
-C# client emits a correctly bracketed link ([VpnConfig.cs](../../qeli-shared/QeliShared/Model/VpnConfig.cs)).
-Validation then refuses it — the syntax is understood for a future compatible format, not accepted.
-
-What does not:
-- **Rust serialises the address unbracketed** — `format!("{}:{}", address, port)`
-  ([client.rs](../../qeli/src/config/client.rs)) — so a parsed IPv6 endpoint is written back
-  as `2001:db8::1:443`, which no longer round-trips.
-- **Rust still builds two runtime addresses unbracketed**, while the main TCP resolver takes
-  `(host, port)` safely. These paths must converge on one bracket-aware endpoint helper.
-- **TCP candidate selection explicitly keeps IPv4 only**, so a hostname with only AAAA fails
-  even before socket creation; dual-stack ordering/fallback must be defined.
-- **Rust's UDP data plane binds `0.0.0.0:0`** — IPv4 only, whatever the endpoint says.
-- **Desktop reachability diagnostics keep A records only.** Production Windows/macOS/iOS/
-  Android transport is shared Rust, but platform validation, bypass routes and diagnostics
-  still need synchronized dual-stack behaviour.
-
-Scope: address parsing, serialisation, socket creation and name resolution, across four
-clients — plus a lab with real IPv6, which the current two-VM lab does not have. That last
-point is the practical reason it waits for 0.8.0: without an IPv6 path to test on, the work
-could only be verified by reading it. Note this is about reaching a server OVER IPv6; carrying
-IPv6 INSIDE the tunnel is a separate question (`allow_ipv6_leak`, kill-switch v6 rules) and is
-not covered here. (Audit 2026-07-30, #9.)
+Intermediate stages are development-only. The feature cannot ship or be called complete
+until the entire IPv6-only/dual-stack release matrix passes. User configuration remains
+flat INI; internal wire/FFI messages are not JSON configuration.
 
 ### Roaming — seamless network change (→ 0.8.0)
 
@@ -788,8 +769,9 @@ follows was deliberately deferred.
   decides whether it travels into the later fragments (RFC 791 §3.1) — Router Alert is copied,
   Record Route and timestamps stay on the first fragment alone. Such a packet used to be
   dropped outright, i.e. a black hole on exactly the path where the sender had asked for
-  fragmentation. Still open: IPv6 needs an ICMPv6 Packet Too Big sibling when IPv6 forwarding
-  lands.
+  fragmentation. IPv6 forwarding now has the RFC 4443 sibling too: an oversized packet for a
+  narrower reported client leg produces a bounded ICMPv6 Packet Too Big response carrying that
+  leg's MTU; ICMPv6 errors are never answered with another error.
 - 🔵 **`nonce_seed` under resume/roaming** — see the ⚠️ constraint in "Roaming — seamless
   network change" above: settle it IN THE RESUME DESIGN (re-derive the key per resume, or an
   epoch in the nonce), not afterwards.

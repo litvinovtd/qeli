@@ -305,6 +305,20 @@
         'Пользователи, ссылающиеся на неё, вернутся к собственным значениям.',
       'This creates the profile with new credentials and brings the server up.':
         'Профиль будет создан с новыми учётными данными, сервер — поднят.',
+      'Inner IP mode': 'Режим IP внутри туннеля',
+      'Auto (dual-stack when native IPv6 and its firewall are available)':
+        'Авто (dual-stack при наличии нативного IPv6 и IPv6-файрвола)',
+      'IPv4 only': 'Только IPv4',
+      'IPv4 + IPv6': 'IPv4 + IPv6',
+      'Dual-stack (IPv4 + IPv6)': 'Dual-stack (IPv4 + IPv6)',
+      'IPv6 only': 'Только IPv6',
+      'Auto is resolved once and stored; relaunching an existing profile preserves its current mode.':
+        'Автоматический режим определяется один раз и сохраняется; повторный запуск существующего профиля сохраняет его текущий режим.',
+      'Inner IP mode: ': 'Режим IP внутри туннеля: ',
+      'This profile already exists. Quick Start will keep its credentials, IP mode and manual settings, enable it and restart the server.':
+        'Этот профиль уже существует. Быстрый старт сохранит его учётные данные, IP-режим и ручные настройки, включит его и перезапустит сервер.',
+      'This profile already exists. Quick Start will keep its credentials and manual settings, explicitly switch its inner IP mode, enable it and restart the server.':
+        'Этот профиль уже существует. Быстрый старт сохранит его учётные данные и ручные настройки, явно изменит режим IP внутри туннеля, включит его и перезапустит сервер.',
       'This profile already exists. Quick Start will keep its credentials and manual settings, enable it and restart the server.':
         'Этот профиль уже существует. Быстрый старт сохранит его учётные данные и ручные настройки, включит его и перезапустит сервер.',
       'Every client of this profile must update its pinned server key, and a restart is needed for it to take effect.':
@@ -623,9 +637,11 @@
       'Excluded IPs': 'Исключённые IP',
       'IPs that will never be assigned to clients (e.g. gateway, reserved hosts)': 'IP, которые никогда не выдаются клиентам (напр. шлюз, зарезервированные узлы)',
       '+ Add excluded IP': '+ Добавить исключённый IP',
+      '+ Add excluded IPv6': '+ Добавить исключённый IPv6',
       'Static reservations': 'Статические резервации',
       'Always assign a specific IP to a specific username': 'Всегда выдавать конкретный IP конкретному пользователю',
       '+ Add reservation': '+ Добавить резервацию',
+      '+ Add IPv6 reservation': '+ Добавить IPv6-резервацию',
 
       // ── config: routing ──
       'Client-to-client routing': 'Маршрутизация клиент-клиент',

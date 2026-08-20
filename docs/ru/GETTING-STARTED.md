@@ -12,6 +12,7 @@
 > Справочники, на которые опирается этот гайд:
 > [CONFIG.md](CONFIG.md) — все ключи конфига · [PANEL.md](PANEL.md) — веб-панель ·
 > примеры конфигов: [`server.conf`](../../qeli/config/server.conf) ·
+> [`server-ipv6.conf`](../../qeli/config/server-ipv6.conf) ·
 > [`users.conf`](../../qeli/config/users.conf) · [`client.conf`](../../qeli/config/client.conf).
 
 ## Содержание
@@ -180,7 +181,7 @@ sudo apt-get -f install -y          # доустановить зависимо�
 - создаёт системного пользователя **`qeli`** и каталоги `/etc/qeli`, `/var/log/qeli`,
   `/var/lib/qeli`, затем делает им `chown -R qeli:qeli`;
 - создаёт пустой `/etc/qeli/users.conf` (пример с известным хешем НЕ подкладывается);
-- ставит **примеры** `/etc/qeli/{server,server-multiprofile,users,client,client-reality}.conf.example`
+- ставит **примеры** `/etc/qeli/{server,server-multiprofile,server-ipv6,server-maxobf,users,client,client-reality,client-maxobf}.conf.example`
   (рабочие конфиги вы создаёте сами — шаг 3);
 - ставит systemd-юнит `qeli.service` (`ExecStart=/usr/bin/qeli server --config /etc/qeli/server.conf`)
   и polkit-правило `/etc/polkit-1/rules.d/49-qeli.rules`;

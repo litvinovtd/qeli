@@ -87,9 +87,12 @@ stage:
 	install -m755 "$(BINARY)" $(DEB_DIR)/usr/bin/$(PACKAGE_NAME)
 	install -m644 ../config/server.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server.conf.example
 	install -m644 ../config/server-multiprofile.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-multiprofile.conf.example
+	install -m644 ../config/server-ipv6.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-ipv6.conf.example
+	install -m644 ../config/server-maxobf.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-maxobf.conf.example
 	install -m644 ../config/users.conf  $(DEB_DIR)/etc/$(PACKAGE_NAME)/users.conf.example
 	install -m644 ../config/client.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client.conf.example
 	install -m644 ../config/client-reality.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client-reality.conf.example
+	install -m644 ../config/client-maxobf.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client-maxobf.conf.example
 	install -m644 qeli.service $(DEB_DIR)/lib/systemd/system/qeli.service
 	install -d $(DEB_DIR)/etc/polkit-1/rules.d
 	install -m644 49-qeli.rules $(DEB_DIR)/etc/polkit-1/rules.d/49-qeli.rules
@@ -99,9 +102,12 @@ stage:
 	install -m644 templates $(DEB_DIR)/DEBIAN/templates
 	echo /etc/qeli/server.conf.example >  $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/server-multiprofile.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
+	echo /etc/qeli/server-ipv6.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
+	echo /etc/qeli/server-maxobf.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/users.conf.example  >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/client.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/client-reality.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
+	echo /etc/qeli/client-maxobf.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	install -m644 control $(DEB_DIR)/DEBIAN/control
 	echo "Installed-Size: $$(du -sk --exclude=DEBIAN $(DEB_DIR) | cut -f1)" >> $(DEB_DIR)/DEBIAN/control
 

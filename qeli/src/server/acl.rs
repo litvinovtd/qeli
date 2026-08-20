@@ -13,43 +13,91 @@
 
 use std::collections::HashMap;
 
-/// Best-effort source extraction for source-guard diagnostics. This deliberately
-/// understands IPv6 even though the current data plane rejects it, so logs distinguish
-/// an Android IPv6 probe from a forged IPv4 address or a malformed packet.
+/// Strict source extraction shared with the data plane. Malformed lengths and extension
+/// chains are not described as if they were valid packets.
 pub fn packet_source(pkt: &[u8]) -> Option<std::net::IpAddr> {
-    match pkt.first().map(|byte| byte >> 4) {
-        Some(4) if pkt.len() >= 20 => Some(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
-            pkt[12], pkt[13], pkt[14], pkt[15],
-        ))),
-        Some(6) if pkt.len() >= 40 => {
-            let mut octets = [0u8; 16];
-            octets.copy_from_slice(&pkt[8..24]);
-            Some(std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)))
+    crate::protocol::ip::parse_ip_packet(pkt)
+        .ok()
+        .map(|meta| meta.source)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Network {
+    V4 { network: u32, mask: u32 },
+    V6 { network: u128, mask: u128 },
+}
+
+impl Network {
+    fn parse(raw: &str) -> Option<Self> {
+        let value = raw.trim();
+        let (address, prefix_text) = value
+            .split_once('/')
+            .map_or((value, None), |(address, prefix)| {
+                (address.trim(), Some(prefix.trim()))
+            });
+        match address.parse::<std::net::IpAddr>().ok()? {
+            std::net::IpAddr::V4(address) => {
+                let prefix = prefix_text.map_or(Some(32), |value| value.parse::<u8>().ok())?;
+                if prefix > 32 {
+                    return None;
+                }
+                let mask = if prefix == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - prefix)
+                };
+                Some(Self::V4 {
+                    network: u32::from(address) & mask,
+                    mask,
+                })
+            }
+            std::net::IpAddr::V6(address) => {
+                let prefix = prefix_text.map_or(Some(128), |value| value.parse::<u8>().ok())?;
+                if prefix > 128 {
+                    return None;
+                }
+                let mask = if prefix == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - prefix)
+                };
+                Some(Self::V6 {
+                    network: u128::from(address) & mask,
+                    mask,
+                })
+            }
         }
-        _ => None,
+    }
+
+    fn contains(self, address: std::net::IpAddr) -> bool {
+        match (self, address) {
+            (Self::V4 { network, mask }, std::net::IpAddr::V4(address)) => {
+                u32::from(address) & mask == network
+            }
+            (Self::V6 { network, mask }, std::net::IpAddr::V6(address)) => {
+                u128::from(address) & mask == network
+            }
+            _ => false,
+        }
+    }
+
+    fn family_is_active(self, has_ipv4: bool, has_ipv6: bool) -> bool {
+        match self {
+            Self::V4 { .. } => has_ipv4,
+            Self::V6 { .. } => has_ipv6,
+        }
     }
 }
 
-/// A compiled destination allow-list: `(network, mask)` pairs in host byte order.
+/// A compiled dual-stack destination allow-list.
 ///
 /// An EMPTY list means UNRESTRICTED — that is the documented semantic of an empty
 /// `allowed_networks`, and it also keeps the hot path free for the common case
 /// (see [`DstAcl::is_unrestricted`], which callers use to skip the check entirely).
 #[derive(Debug, Clone)]
 pub struct DstAcl {
-    nets: Vec<(u32, u32)>,
-    /// True only when the source configuration contained no non-blank rules.
-    /// A configured-but-malformed list must not become unrestricted.
-    unrestricted: bool,
-}
-
-impl Default for DstAcl {
-    fn default() -> Self {
-        Self {
-            nets: Vec::new(),
-            unrestricted: true,
-        }
-    }
+    nets: Vec<Network>,
+    restricted: bool,
 }
 
 impl DstAcl {
@@ -57,59 +105,37 @@ impl DstAcl {
     ///
     /// Accepts `10.0.0.0/8` and a bare `10.0.0.5` (treated as `/32`), matching what
     /// the docs and the panel's repeater offer. An unparseable entry is logged and
-    /// SKIPPED rather than silently ignored. If every configured entry is malformed,
-    /// the compiled list is empty but remains restricted (deny-all); only a genuinely
-    /// empty source list means unrestricted. Authoring-time validation should normally
-    /// refuse the bad configuration before this runtime fallback is reached.
+    /// SKIPPED rather than silently ignored — but note the fail-closed consequence:
+    /// if EVERY non-empty entry is malformed the compiled list is empty while `restricted`
+    /// remains true, so every destination is denied.
+    /// Authoring-time validation in the panel is what keeps that from happening; the
+    /// warning here is the operator's second line of defence.
     pub fn compile(cidrs: &[String], who: &str) -> Self {
         let mut nets = Vec::with_capacity(cidrs.len());
-        let mut configured = false;
+        let mut restricted = false;
         for raw in cidrs {
             let s = raw.trim();
             if s.is_empty() {
                 continue;
             }
-            configured = true;
-            let (addr_s, prefix) = match s.split_once('/') {
-                Some((a, p)) => match p.parse::<u8>() {
-                    Ok(n) if n <= 32 => (a.trim(), n),
-                    _ => {
-                        log::warn!(
-                            "allowed_networks for {}: '{}' has an invalid prefix — entry ignored",
-                            who,
-                            s
-                        );
-                        continue;
-                    }
-                },
-                None => (s, 32u8),
-            };
-            let Ok(ip) = addr_s.parse::<std::net::Ipv4Addr>() else {
+            restricted = true;
+            let Some(network) = Network::parse(s) else {
                 log::warn!(
-                    "allowed_networks for {}: '{}' is not a valid IPv4 CIDR/address — entry ignored",
+                    "allowed_networks for {}: '{}' is not a valid IPv4/IPv6 CIDR/address — entry ignored",
                     who,
                     s
                 );
                 continue;
             };
-            // `u32::MAX << 32` is UB-shaped (overflow); /0 is the whole space.
-            let mask = if prefix == 0 {
-                0
-            } else {
-                u32::MAX << (32 - prefix)
-            };
-            nets.push((u32::from(ip) & mask, mask));
+            nets.push(network);
         }
-        DstAcl {
-            nets,
-            unrestricted: !configured,
-        }
+        DstAcl { nets, restricted }
     }
 
     /// True when no restriction applies (empty list = "anywhere"). Callers check
     /// this first so an unrestricted session pays nothing per packet.
     pub fn is_unrestricted(&self) -> bool {
-        self.unrestricted
+        !self.restricted
     }
 
     /// Number of compiled rules (for the log line at session setup). Deliberately not
@@ -119,23 +145,21 @@ impl DstAcl {
         self.nets.len()
     }
 
-    /// May this inner packet be forwarded? Checks the IPv4 DESTINATION address.
+    /// May this inner packet be forwarded? Checks the parsed IPv4 or IPv6 destination.
     ///
-    /// FAIL-CLOSED on anything we cannot evaluate: a truncated header, or a non-IPv4
-    /// packet (the tunnel's pool is IPv4-only, so inner IPv6 is already blackholed
-    /// downstream — dropping it here just makes that explicit instead of forwarding
-    /// traffic an ACL was supposed to gate). Never call this without checking
+    /// FAIL-CLOSED on anything we cannot evaluate, including a malformed/truncated IP
+    /// packet. Never call this without checking
     /// [`DstAcl::is_unrestricted`] first if you care about the fast path.
     pub fn allows_packet(&self, pkt: &[u8]) -> bool {
-        if self.unrestricted {
+        if !self.restricted {
             return true;
         }
-        // IPv4 header: version nibble == 4, dst address at bytes 16..20.
-        if pkt.len() < 20 || (pkt[0] >> 4) != 4 {
+        let Ok(meta) = crate::protocol::ip::parse_ip_packet(pkt) else {
             return false;
-        }
-        let dst = u32::from_be_bytes([pkt[16], pkt[17], pkt[18], pkt[19]]);
-        self.nets.iter().any(|(net, mask)| (dst & mask) == *net)
+        };
+        self.nets
+            .iter()
+            .any(|network| network.contains(meta.destination))
     }
 }
 
@@ -175,9 +199,8 @@ pub fn effective_allowed_networks(
 /// rather than a global check.
 #[derive(Debug, Clone)]
 pub struct SrcGuard {
-    ip: u32,
-    /// `(network, mask)` for each subnet routed behind this client.
-    nets: Vec<(u32, u32)>,
+    assigned: Vec<std::net::IpAddr>,
+    nets: Vec<Network>,
 }
 
 impl SrcGuard {
@@ -185,14 +208,30 @@ impl SrcGuard {
         // Reuse the CIDR parser (and its warnings) from the destination ACL.
         let compiled = DstAcl::compile(subnets, who);
         Self {
-            ip: u32::from(client_ip),
+            assigned: vec![std::net::IpAddr::V4(client_ip)],
+            nets: compiled.nets,
+        }
+    }
+
+    pub fn new_dual(assigned: &[std::net::IpAddr], subnets: &[String], who: &str) -> Self {
+        let mut compiled = DstAcl::compile(subnets, who);
+        let has_ipv4 = assigned.iter().any(std::net::IpAddr::is_ipv4);
+        let has_ipv6 = assigned.iter().any(std::net::IpAddr::is_ipv6);
+        // `client_subnets` extends the addresses a session may claim; it must never extend
+        // the negotiated family mode itself. In particular, an IPv6-only lease plus an IPv4
+        // iroute must not become a covert way to inject IPv4 into the server TUN.
+        compiled
+            .nets
+            .retain(|network| network.family_is_active(has_ipv4, has_ipv6));
+        Self {
+            assigned: assigned.to_vec(),
             nets: compiled.nets,
         }
     }
 
     /// May this packet claim its source address?
     ///
-    /// FAIL-CLOSED: anything that is not a judgeable IPv4 packet is REFUSED, matching
+    /// FAIL-CLOSED: anything that is not a judgeable IPv4/IPv6 packet is REFUSED, matching
     /// `DstAcl::allows_packet`.
     ///
     /// This used to `return true` for a short packet or any non-IPv4 version nibble, on the
@@ -206,17 +245,18 @@ impl SrcGuard {
     /// into whatever the server can reach, and qeli programs iptables only: `ip6tables` is
     /// never touched, so there is no NAT and no filter on that path at all.
     ///
-    /// The tunnel is IPv4-only by design (IPv6 is tracked for 0.8.0). Until it is not,
-    /// refusing what we cannot judge is the correct default. (Audit 2026-08-04.)
+    /// The parser now judges both families; refusing malformed input remains the correct
+    /// default. (Audit 2026-08-04; dual-family update 2026-08-20.)
     pub fn allows_packet(&self, pkt: &[u8]) -> bool {
-        if pkt.len() < 20 || (pkt[0] >> 4) != 4 {
+        let Ok(meta) = crate::protocol::ip::parse_ip_packet(pkt) else {
             return false;
-        }
-        let src = u32::from_be_bytes([pkt[12], pkt[13], pkt[14], pkt[15]]);
-        if src == self.ip {
+        };
+        if self.assigned.contains(&meta.source) {
             return true;
         }
-        self.nets.iter().any(|(net, mask)| (src & mask) == *net)
+        self.nets
+            .iter()
+            .any(|network| network.contains(meta.source))
     }
 }
 
@@ -232,8 +272,19 @@ mod tests {
     fn pkt(dst: [u8; 4]) -> Vec<u8> {
         let mut p = vec![0u8; 20];
         p[0] = 0x45; // version 4, IHL 5
+        p[2..4].copy_from_slice(&20u16.to_be_bytes());
         p[16..20].copy_from_slice(&dst);
         p
+    }
+
+    fn pkt6(source: &str, destination: &str) -> Vec<u8> {
+        let mut packet = vec![0u8; 40];
+        packet[0] = 0x60;
+        packet[6] = 59;
+        packet[8..24].copy_from_slice(&source.parse::<std::net::Ipv6Addr>().unwrap().octets());
+        packet[24..40]
+            .copy_from_slice(&destination.parse::<std::net::Ipv6Addr>().unwrap().octets());
+        packet
     }
 
     #[test]
@@ -269,6 +320,14 @@ mod tests {
     }
 
     #[test]
+    fn ipv6_destination_rules_are_family_strict() {
+        let a = acl(&["2001:db8:100::/48"]);
+        assert!(a.allows_packet(&pkt6("fd42::2", "2001:db8:100::77")));
+        assert!(!a.allows_packet(&pkt6("fd42::2", "2001:db8:101::77")));
+        assert!(!a.allows_packet(&pkt([10, 0, 0, 2])));
+    }
+
+    #[test]
     fn slash_zero_allows_everything() {
         let a = acl(&["0.0.0.0/0"]);
         assert!(!a.is_unrestricted()); // an explicit rule, not "no rule"
@@ -299,6 +358,7 @@ mod tests {
     fn pkt_src(src: [u8; 4]) -> Vec<u8> {
         let mut p = vec![0u8; 20];
         p[0] = 0x45;
+        p[2..4].copy_from_slice(&20u16.to_be_bytes());
         p[12..16].copy_from_slice(&src);
         p
     }
@@ -326,15 +386,43 @@ mod tests {
     }
 
     #[test]
+    fn dual_source_guard_accepts_both_assignments_and_ipv6_iroute() {
+        let guard = SrcGuard::new_dual(
+            &["10.0.0.7".parse().unwrap(), "fd42::7".parse().unwrap()],
+            &["2001:db8:200::/56".to_string()],
+            "router1",
+        );
+        assert!(guard.allows_packet(&pkt_src([10, 0, 0, 7])));
+        assert!(guard.allows_packet(&pkt6("fd42::7", "2606:4700:4700::1111")));
+        assert!(guard.allows_packet(&pkt6("2001:db8:200::33", "2606:4700:4700::1111")));
+        assert!(!guard.allows_packet(&pkt6("2001:db8:201::33", "2606:4700:4700::1111")));
+    }
+
+    #[test]
+    fn single_family_source_guard_cannot_be_extended_by_an_opposite_family_iroute() {
+        let ipv4_only = SrcGuard::new_dual(
+            &["10.0.0.7".parse().unwrap()],
+            &["2001:db8:200::/56".to_string()],
+            "router4",
+        );
+        assert!(!ipv4_only.allows_packet(&pkt6("2001:db8:200::33", "2606:4700:4700::1111")));
+
+        let ipv6_only = SrcGuard::new_dual(
+            &["fd42::7".parse().unwrap()],
+            &["192.168.50.0/24".to_string()],
+            "router6",
+        );
+        assert!(!ipv6_only.allows_packet(&pkt_src([192, 168, 50, 33])));
+    }
+
+    #[test]
     fn src_guard_refuses_what_it_cannot_judge() {
         // FAIL-CLOSED, matching DstAcl. This test used to assert the opposite — that a
         // non-IPv4 or short packet was passed through untouched — on the reasoning that only
         // an IPv4 source can impersonate a pool address. True about impersonation, wrong
-        // about egress: nothing else on the uplink checks the version, so an authenticated
-        // client could put an IPv6 packet with ANY source straight into the TUN, and on a
-        // dual-stack host with forwarding on that is spoofed IPv6 egress with no NAT and no
-        // filter (qeli programs iptables only, never ip6tables). The tunnel is IPv4-only by
-        // design, so refusing what cannot be judged is the correct default.
+        // about egress: the legacy IPv4-only constructor must not silently accept another
+        // family it cannot judge. Dual/IPv6 sessions use `new_dual`, whose family-aware
+        // source guard validates every assigned address and routed subnet.
         // (Audit 2026-08-04.)
         let g = SrcGuard::new("10.0.0.7".parse().unwrap(), &[], "alice");
         let mut v6 = pkt_src([10, 0, 0, 9]);
@@ -358,6 +446,7 @@ mod tests {
 
         let mut ipv6 = [0u8; 40];
         ipv6[0] = 0x60;
+        ipv6[6] = 59;
         ipv6[8..24].copy_from_slice(
             &"2001:db8::7"
                 .parse::<std::net::Ipv6Addr>()

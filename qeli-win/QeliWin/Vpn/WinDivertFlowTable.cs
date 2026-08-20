@@ -14,6 +14,7 @@ internal sealed class WinDivertFlowTable
     private readonly Dictionary<FragKey, FragEntry> _frags = new();
     private readonly Dictionary<FragKey, InboundFragEntry> _inboundFrags = new();
     private readonly Dictionary<Ipv6FragKey, FragEntry> _ipv6Frags = new();
+    private readonly Dictionary<Ipv6FragKey, InboundFragEntry> _inboundIpv6Frags = new();
     // Null means open TCP flows do not expire by wall-clock time. They are removed
     // by RST/FIN or bounded LRU pressure. Expiring every open flow after two hours
     // corrupted long-lived connections immediately after sleep or a clock jump.
@@ -64,6 +65,7 @@ internal sealed class WinDivertFlowTable
             _frags.Clear();
             _inboundFrags.Clear();
             _ipv6Frags.Clear();
+            _inboundIpv6Frags.Clear();
             _lastGc = DateTime.UtcNow;
         }
     }
@@ -223,6 +225,35 @@ internal sealed class WinDivertFlowTable
         }
     }
 
+    public bool TryGetIpv6FragEntry(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId,
+        out FragEntry entry)
+    {
+        lock (_gate)
+        {
+            MaybeGcUnlocked();
+            var key = new Ipv6FragKey(src, dst, proto, fragmentId);
+            if (!_ipv6Frags.TryGetValue(key, out entry)) return false;
+            entry.LastSeen = DateTime.UtcNow;
+            _ipv6Frags[key] = entry;
+            return true;
+        }
+    }
+
+    public void SetIpv6FragTunnelDestination(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId,
+        IPAddress tunnelDestination)
+    {
+        lock (_gate)
+        {
+            var key = new Ipv6FragKey(src, dst, proto, fragmentId);
+            if (!_ipv6Frags.TryGetValue(key, out var entry)) return;
+            entry.TunnelDestination = tunnelDestination;
+            entry.LastSeen = DateTime.UtcNow;
+            _ipv6Frags[key] = entry;
+        }
+    }
+
     public bool TryGetFrag(
         IPAddress src, IPAddress dst, byte proto, ushort ipId,
         out FragEntry entry)
@@ -288,6 +319,41 @@ internal sealed class WinDivertFlowTable
         }
     }
 
+    public void RememberInboundIpv6Frag(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId, in FlowEntry flow)
+    {
+        lock (_gate)
+        {
+            MaybeGcUnlocked();
+            EnsureFragmentCapacityUnlocked(_inboundIpv6Frags, entry => entry.LastSeen);
+            _inboundIpv6Frags[new Ipv6FragKey(src, dst, proto, fragmentId)] =
+                new InboundFragEntry
+                {
+                    Flow = flow,
+                    LastSeen = DateTime.UtcNow,
+                };
+        }
+    }
+
+    public bool TryGetInboundIpv6Frag(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId, out FlowEntry flow)
+    {
+        lock (_gate)
+        {
+            MaybeGcUnlocked();
+            var key = new Ipv6FragKey(src, dst, proto, fragmentId);
+            if (!_inboundIpv6Frags.TryGetValue(key, out var entry))
+            {
+                flow = default;
+                return false;
+            }
+            entry.LastSeen = DateTime.UtcNow;
+            _inboundIpv6Frags[key] = entry;
+            flow = entry.Flow;
+            return true;
+        }
+    }
+
     private void MaybeGcUnlocked()
     {
         var now = DateTime.UtcNow;
@@ -307,6 +373,8 @@ internal sealed class WinDivertFlowTable
             _inboundFrags.Remove(k);
         foreach (var k in _ipv6Frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _ipv6Frags.Remove(k);
+        foreach (var k in _inboundIpv6Frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
+            _inboundIpv6Frags.Remove(k);
     }
 
     private bool FlowExpiredUnlocked(FlowKey key, FlowEntry entry, DateTime now)

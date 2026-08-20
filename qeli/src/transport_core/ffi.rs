@@ -856,13 +856,13 @@ mod tests {
 
     const CONFIG: &str = "[qeli]\nserver = 127.0.0.1:443\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n";
 
-    unsafe fn new_handle() -> u64 {
+    unsafe fn new_handle_with_capabilities(platform_capabilities: u64) -> u64 {
         let mut handle = 0;
         let rc = unsafe {
             qeli_client_new(
                 CONFIG.as_ptr(),
                 CONFIG.len(),
-                platform_capability::SYSTEM_PLAN,
+                platform_capabilities,
                 0,
                 &mut handle,
             )
@@ -870,6 +870,10 @@ mod tests {
         assert_eq!(rc, OK);
         assert_ne!(handle, 0);
         handle
+    }
+
+    unsafe fn new_handle() -> u64 {
+        unsafe { new_handle_with_capabilities(platform_capability::SYSTEM_PLAN) }
     }
 
     #[test]
@@ -882,7 +886,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V2_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000b)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -981,6 +985,14 @@ mod tests {
             .with(handle, |core| {
                 core.publish_network_plan(NetworkPlan {
                     generation: 7,
+                    family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+                    addresses: vec![crate::transport_core::NetworkAddress {
+                        family: crate::transport_core::NetworkAddressFamily::Ipv4,
+                        address: "10.0.0.2".into(),
+                        prefix_len: 24,
+                        on_link_prefix_len: 24,
+                        gateway: Some("10.0.0.1".into()),
+                    }],
                     tunnel_address: "10.0.0.2".into(),
                     prefix_len: 24,
                     mtu: 1400,
@@ -991,6 +1003,8 @@ mod tests {
                     dns_servers: Vec::new(),
                     full_tunnel: false,
                     kill_switch: false,
+                    allow_ipv4_leak: false,
+                    allow_ipv6_leak: false,
                     max_streams: 1,
                     adaptive: false,
                     data_plane: Default::default(),
@@ -1189,13 +1203,27 @@ mod tests {
 
     #[test]
     fn event_buffer_probe_does_not_consume_network_plan() {
-        let handle = unsafe { new_handle() };
+        let handle = unsafe {
+            new_handle_with_capabilities(
+                platform_capability::SYSTEM_PLAN
+                    | platform_capability::IPV6_ROUTES
+                    | platform_capability::IPV6_KILL_SWITCH,
+            )
+        };
         assert_eq!(qeli_client_start(handle), OK);
         CLIENTS.with(handle, |core| {
             core.poll_event();
             core.poll_event();
             core.publish_network_plan(NetworkPlan {
                 generation: 1,
+                family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+                addresses: vec![crate::transport_core::NetworkAddress {
+                    family: crate::transport_core::NetworkAddressFamily::Ipv4,
+                    address: "10.0.0.2".into(),
+                    prefix_len: 24,
+                    on_link_prefix_len: 24,
+                    gateway: Some("10.0.0.1".into()),
+                }],
                 tunnel_address: "10.0.0.2".into(),
                 prefix_len: 24,
                 mtu: 1400,
@@ -1213,6 +1241,8 @@ mod tests {
                 }],
                 full_tunnel: true,
                 kill_switch: true,
+                allow_ipv4_leak: false,
+                allow_ipv6_leak: false,
                 max_streams: 1,
                 adaptive: false,
                 data_plane: Default::default(),
@@ -1254,6 +1284,7 @@ mod tests {
     #[test]
     fn socket_protect_event_round_trips_through_the_frozen_abi() {
         use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
 
         let mut handle = 0;
         let rc = unsafe {
@@ -1267,12 +1298,13 @@ mod tests {
         };
         assert_eq!(rc, OK);
         assert_eq!(qeli_client_start(handle), OK);
-        let (sequence, fd) = CLIENTS
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let fd = socket.as_raw_fd();
+        let (sequence, mut result) = CLIENTS
             .with(handle, |core| {
                 core.poll_event();
                 core.poll_event();
-                let pending = core.pending_wire_socket.as_ref().unwrap();
-                (pending.sequence, pending.socket.as_raw_fd())
+                core.request_socket_protect(fd).unwrap()
             })
             .unwrap();
 
@@ -1309,12 +1341,7 @@ mod tests {
             unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
             OK
         );
-        assert_eq!(
-            CLIENTS
-                .with(handle, |core| core.protected_wire_socket_raw_fd())
-                .unwrap(),
-            Some(fd)
-        );
+        assert_eq!(result.try_recv().unwrap(), Ok(()));
         assert_eq!(
             unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
             ErrorCode::StaleRequest as i32
@@ -1508,6 +1535,14 @@ mod tests {
             core.poll_event();
             core.publish_network_plan(NetworkPlan {
                 generation: 9,
+                family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+                addresses: vec![crate::transport_core::NetworkAddress {
+                    family: crate::transport_core::NetworkAddressFamily::Ipv4,
+                    address: "10.0.0.2".into(),
+                    prefix_len: 24,
+                    on_link_prefix_len: 24,
+                    gateway: Some("10.0.0.1".into()),
+                }],
                 tunnel_address: "10.0.0.2".into(),
                 prefix_len: 24,
                 mtu: 1400,
@@ -1518,6 +1553,8 @@ mod tests {
                 dns_servers: Vec::new(),
                 full_tunnel: false,
                 kill_switch: false,
+                allow_ipv4_leak: false,
+                allow_ipv6_leak: false,
                 max_streams: 1,
                 adaptive: false,
                 data_plane: Default::default(),
@@ -1584,6 +1621,14 @@ mod tests {
             core.poll_event();
             core.publish_network_plan(NetworkPlan {
                 generation: 9,
+                family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+                addresses: vec![crate::transport_core::NetworkAddress {
+                    family: crate::transport_core::NetworkAddressFamily::Ipv4,
+                    address: "10.0.0.2".into(),
+                    prefix_len: 24,
+                    on_link_prefix_len: 24,
+                    gateway: Some("10.0.0.1".into()),
+                }],
                 tunnel_address: "10.0.0.2".into(),
                 prefix_len: 24,
                 mtu: 1400,
@@ -1594,6 +1639,8 @@ mod tests {
                 dns_servers: Vec::new(),
                 full_tunnel: false,
                 kill_switch: false,
+                allow_ipv4_leak: false,
+                allow_ipv6_leak: false,
                 max_streams: 1,
                 adaptive: false,
                 data_plane: Default::default(),

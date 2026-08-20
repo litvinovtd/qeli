@@ -1,7 +1,7 @@
 # qeli-mac
 
 Нативный macOS-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + Avalonia
-как platform/UI слой и общее Rust transport-ядро через ABI 1.10. Rust владеет
+как platform/UI слой и общее Rust transport-ядро через ABI 1.11. Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
 utun payload; C# управляет lifecycle/reconnect, созданием интерфейса,
 маршрутами/DNS/pf, trust и UI.
@@ -18,7 +18,7 @@ Rust-ядро через whole-client FFI — одна нативная либа
 | Компонент             | Чем реализовано                                                       |
 |-----------------------|----------------------------------------------------------------------|
 | TUN-устройство        | macOS `utun` (PF_SYSTEM kernel-control, P/Invoke в libc)             |
-| Transport/crypto      | Rust `libqeli.dylib`, ABI 1.10 (`qeli_client_run` + native utun fd)  |
+| Transport/crypto      | Rust `libqeli.dylib`, ABI 1.11 (`qeli_client_run` + native utun fd)  |
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                   | Avalonia UI 11 (.NET 10) — кросс-платформенный аналог WPF             |
 | Логотип / иконки / трей | SkiaSharp (пути, градиенты, текст → PNG)                            |
@@ -31,8 +31,8 @@ Rust-ядро через whole-client FFI — одна нативная либа
 ```
 qeli-mac/
 ├── QeliMac/
-│   ├── Model/         VpnConfig (INI / qeli://), AppSettings, ProfileStore, Paths
-│   ├── Vpn/           UtunDevice lifecycle, NetworkConfigurator, ABI 1.10 adapter
+│   ├── Model/         VpnConfig (JSON / qeli:// / INI), AppSettings, ProfileStore, Paths
+│   ├── Vpn/           UtunDevice lifecycle, NetworkConfigurator, ABI 1.11 adapter
 │   ├── native/        libqeli.dylib — whole-client core (universal arm64+x86_64)
 │   ├── Service/       ServiceState, ServiceManager (launchd daemon), ServiceHost
 │   ├── Styles/        Controls.axaml — стили кнопок/инпутов/списка (палитра темы)
@@ -161,7 +161,7 @@ bundle ID, например `com.apple.Safari`), `exclude` — все прило
 Подписанное system extension объединяет `NETransparentProxyProvider` для TCP/UDP и
 `NEDNSProxyProvider` для DNS. Выбранные сокеты привязываются через публичные
 `IP_BOUND_IF`/`IPV6_BOUND_IF` к активному qeli `utun`, после чего трафик обрабатывает то же
-Rust-ядро ABI 1.10. Невыбранные потоки остаются на системном маршруте/DNS. Во время reconnect
+Rust-ядро ABI 1.11. Невыбранные потоки остаются на системном маршруте/DNS. Во время reconnect
 выбранные потоки закрыты fail-closed. Flow API не даёт per-app ICMP; глобальный pf
 `kill_switch` в per-app-профиле не включается, иначе он заблокировал бы bypass-приложения.
 
@@ -178,7 +178,7 @@ Rust-ядро ABI 1.10. Невыбранные потоки остаются н�
 | Автозапуск через `schtasks` (ONLOGON)    | launchd LaunchAgent (`…autostart`)                |
 | Тема/accent из реестра                   | `defaults read -g AppleInterfaceStyle / AppleAccentColor` |
 | `requireAdministrator` (UAC)             | root (sudo) либо демон от root                    |
-| Whole-client `qeli.dll` (ABI 1.10)       | `libqeli.dylib` (universal, тот же ABI 1.10)      |
+| Whole-client `qeli.dll` (ABI 1.11)       | `libqeli.dylib` (universal, тот же ABI 1.11)      |
 | WinDivert per-app capture                | transparent + DNS Network Extension               |
 
 Палитра, темизация (светлая/тёмная + accent), тосты, поиск профилей, индикатор

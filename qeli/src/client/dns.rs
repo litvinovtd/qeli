@@ -239,6 +239,66 @@ pub fn setup_dns_for_interface(
     )
 }
 
+/// Apply exactly the resolver set already validated into the shared NetworkPlan.
+/// Unlike the legacy singular seam, this preserves both IPv4 and IPv6 resolvers.
+pub fn setup_network_plan_dns(
+    config: &ClientDnsConfig,
+    servers: &[NetworkDns],
+    ifname: &str,
+) -> anyhow::Result<()> {
+    if config.mode != "tunnel" || servers.is_empty() {
+        return Ok(());
+    }
+    let mut resolver_args = Vec::with_capacity(servers.len());
+    let mut resolver_ips = Vec::with_capacity(servers.len());
+    for server in servers {
+        let address: std::net::IpAddr = server.address.parse().map_err(|_| {
+            anyhow::anyhow!("invalid network-plan DNS address '{}'", server.address)
+        })?;
+        if server.port == 0 {
+            anyhow::bail!("invalid network-plan DNS port 0 for {address}");
+        }
+        resolver_ips.push(address.to_string());
+        resolver_args.push(if server.port == 53 {
+            address.to_string()
+        } else {
+            format!("{address}#{}", server.port)
+        });
+    }
+
+    if resolved_is_active() && try_resolvectl_many(config, ifname, &resolver_args) {
+        log::info!(
+            "DNS set via resolvectl on {}: {}",
+            ifname,
+            resolver_args.join(", ")
+        );
+        let _ = ensure_state_dir();
+        let _ = std::fs::write(resolvectl_mark_path(ifname), ifname);
+        return Ok(());
+    }
+    if servers.iter().any(|server| server.port != 53) {
+        anyhow::bail!(
+            "systemd-resolved is unavailable and /etc/resolv.conf cannot represent a non-53 DNS port"
+        );
+    }
+
+    ensure_state_dir()?;
+    let _first = register_dns_holder();
+    capture_original(Path::new(RESOLV_PATH), Path::new(BACKUP_PATH), MARKER)?;
+    write_managed_resolv_many(
+        Path::new(RESOLV_PATH),
+        &resolver_ips,
+        &config.search_domains,
+        MARKER,
+    )?;
+    log::info!(
+        "DNS set to {} (original saved at {})",
+        resolver_ips.join(", "),
+        BACKUP_PATH
+    );
+    Ok(())
+}
+
 /// Revert the `resolvectl` per-link config recorded for one interface, if any.
 fn revert_resolvectl_marker(path: &std::path::Path) -> anyhow::Result<()> {
     let ifname = match std::fs::read_to_string(path) {
@@ -516,10 +576,15 @@ fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
 }
 
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
-    let result = resolvectl_cmd().args(["dns", ifname, dns_addr]).output();
-    let applied = result
-        .as_ref()
-        .map(|output| output.status.success())
+    try_resolvectl_many(config, ifname, &[dns_addr.to_string()])
+}
+
+fn try_resolvectl_many(config: &ClientDnsConfig, ifname: &str, dns_addrs: &[String]) -> bool {
+    let ok = resolvectl_cmd()
+        .args(["dns", ifname])
+        .args(dns_addrs)
+        .output()
+        .map(|o| o.status.success())
         .unwrap_or(false);
     if !applied {
         let detail = result
@@ -774,10 +839,21 @@ fn write_managed_resolv(
     search: &[String],
     marker: &str,
 ) -> anyhow::Result<()> {
+    write_managed_resolv_many(resolv, &[dns_server.to_string()], search, marker)
+}
+
+fn write_managed_resolv_many(
+    resolv: &Path,
+    dns_servers: &[String],
+    search: &[String],
+    marker: &str,
+) -> anyhow::Result<()> {
     let mut content = String::new();
     content.push_str(marker);
     content.push('\n');
-    content.push_str(&format!("nameserver {}\n", dns_server));
+    for dns_server in dns_servers {
+        content.push_str(&format!("nameserver {}\n", dns_server));
+    }
     if !search.is_empty() {
         content.push_str(&format!("search {}\n", search.join(" ")));
     }

@@ -7,8 +7,8 @@
   rows that cannot be picked are dimmed), reorder and reachability — TCP by a connect
   probe, UDP through ABI 1.8 `qeli_client_udp_probe`, which invokes the same Rust
   X25519+ML-KEM first-flight/fragment/QUIC/obfs builder as Android and the live tunnel.
-  While the active tunnel is up the probe measures the tunnel gateway rather than the
-  public endpoint.
+  While the active tunnel is up both protocols measure the exact authenticated tunnel
+  gateway rather than the public endpoint; UDP remains a UDP first-flight probe.
 - English / Russian UI with an in-app language picker. English is the default on every
   device, matching Android — the app does not follow the system locale.
 - Connection-properties card, shown only while connected and driven by the shared
@@ -25,10 +25,10 @@
   as a config format; JSON remains only inside the backup container.
 - Share link, QR generation and system share sheet.
 - Encrypted-at-rest profile store and Android-compatible backup encryption.
-- Theme, launch auto-connect, VPN On Demand, LAN bypass and log timestamp settings.
+- Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- The production Packet Tunnel is an ABI 1.10 adapter over the common Rust whole-client
+- The production Packet Tunnel is an ABI 1.11 adapter over the common Rust whole-client
   core used by Linux, Android, Windows and macOS. Rust owns DNS/connect, plain and
   hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,
   MTU discovery and fixed/adaptive bonding for one generation; Swift owns only the
@@ -60,9 +60,9 @@
 
 ## Remaining verification milestones
 
-1. Configure an Apple Developer team, sign the app and Packet Tunnel targets, install them on a
-   physical iPhone and confirm the Network Extension entitlement. CI already covers the
-   XCFramework, generated simulator project and unit tests, but cannot substitute for this gate.
+1. Build the ABI 1.11 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
+   both the app and Packet Tunnel targets; this cannot be substituted by the Linux Rust
+   cross-target check.
 2. Run physical-device interoperability tests against every Android/server wire mode,
    including packet loss, Wi-Fi/cellular transitions and bonded-stream failure.
 3. Measure packet-pump memory, backpressure, throughput, UDP loss and MTU behaviour on

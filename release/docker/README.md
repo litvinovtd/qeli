@@ -392,7 +392,9 @@ should print `rb4194304`, not `rb212992`. TCP-only deployments can skip this.
   **identity key** is generated there on first start — losing it makes every
   pinned client fail to connect (`BAD_DECRYPT`). The users file lives there too.
 - `/var/lib/qeli` holds the client TOFU pin store — persist it for clients.
-- The example configs (`server.conf`, `server-multiprofile.conf`, `client.conf`)
+- The example configs (`server.conf`, `server-multiprofile.conf`, `server-ipv6.conf`,
+  `server-maxobf.conf`, `users.conf`, `client.conf`, `client-reality.conf`,
+  `client-maxobf.conf`)
   ship inside the image under `/usr/share/qeli/*.example`; the entrypoint copies
   the relevant one to `/etc/qeli` on first run. See `docs/{ru,eng}/CONFIG.md`.
 - **Client `dns = off` (Docker requirement).** Docker bind-mounts `/etc/resolv.conf`,
@@ -423,6 +425,11 @@ should print `rb4194304`, not `rb212992`. TCP-only deployments can skip this.
   `docker run ... -e QELI_CONFIG=/usr/share/qeli/server-multiprofile.conf.example qeli:latest server`
   — or, to be able to edit it, copy it into the volume first:
   `docker run --rm -v qeli-etc:/etc/qeli qeli:latest sh -c 'cp /usr/share/qeli/server-multiprofile.conf.example /etc/qeli/server.conf'`.
+
+- **Dual-stack server:** select `/usr/share/qeli/server-ipv6.conf.example`. When Docker
+  does not allow the daemon to write namespaced IPv6 sysctls, start the container with
+  `--sysctl net.ipv6.conf.all.forwarding=1`; the profile preflight remains fail-closed if
+  IPv6 forwarding, the IPv6 uplink, or `ip6tables` is unavailable.
 
   Two things to know. The examples live in **`/usr/share/qeli`**, not `/etc/qeli` — a
   volume mounted at `/etc/qeli` would hide them. And appending your own `--config` does

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -635,6 +636,8 @@ public partial class MainWindow : Window
     private void RenderStatus(VpnStatus status, string? extra)
     {
         _status = status;
+        if (status is VpnStatus.Connected or VpnStatus.Connecting)
+            _profileReachabilityGeneration.Clear();
         _lastExtra = extra;
         _tray?.Update(status, extra);
 
@@ -1041,6 +1044,8 @@ public partial class MainWindow : Window
     private DateTime _lastReachAll = DateTime.MinValue;
     private bool _reachPending;
     private DispatcherTimer? _probeTimer;
+    private long _nextReachabilityGeneration;
+    private readonly Dictionary<VpnConfig, long> _profileReachabilityGeneration = new();
 
     /// <summary>(Re)configure the auto-poll timer from settings. Auto off → no timer
     /// (reachability is then updated only by the manual "check" button / dot click).</summary>
@@ -1102,6 +1107,9 @@ public partial class MainWindow : Window
     {
         // Auto-poll off: leave the dot as-is (default Unknown / last manual result), don't wipe it.
         if (!manual && !QeliMac.Model.AppSettings.Current.ProbeReachability) return;
+        if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
+        var generation = ++_nextReachabilityGeneration;
+        _profileReachabilityGeneration[p] = generation;
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {
@@ -1123,6 +1131,12 @@ public partial class MainWindow : Window
             }
             Dispatcher.UIThread.Post(() =>
             {
+                if (_status is VpnStatus.Connected or VpnStatus.Connecting
+                    || !_profileReachabilityGeneration.TryGetValue(p, out var current)
+                    || current != generation)
+                    return;
+                _profileReachabilityGeneration.Remove(p);
+                if (!_profiles.Contains(p)) return;
                 p.LatencyMs = ok ? ms : null;
                 p.Reachability = ok ? ProfileReachability.Reachable : ProfileReachability.Unreachable;
             });

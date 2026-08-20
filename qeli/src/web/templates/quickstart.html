@@ -8,6 +8,16 @@
     </div>
     <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1400, stream bonding on TCP) — then saves it and restarts the server.</p>
     <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.</p>
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <label for="quickstart-ip-mode" class="text-xs font-medium" style="color:var(--txt-mut)">Inner IP mode</label>
+      <select id="quickstart-ip-mode" class="inp text-xs" style="width:auto" x-model="ipMode">
+        <option value="auto">Auto (dual-stack when native IPv6 and its firewall are available)</option>
+        <option value="ipv4">IPv4 only</option>
+        <option value="dual">Dual-stack (IPv4 + IPv6)</option>
+        <option value="ipv6">IPv6 only</option>
+      </select>
+      <span class="text-xs" style="color:var(--txt-dim)">Auto is resolved once and stored; relaunching an existing profile preserves its current mode.</span>
+    </div>
     <div class="flex items-center gap-3 text-sm">
       <a href="users" class="text-white underline">Users</a>
       <span style="color:var(--txt-dim)">·</span>
@@ -125,6 +135,7 @@
 function quickstartPage() {
   return {
     qs: { busy: null, step: '', done: null },
+    ipMode: 'auto',
     portClash: null,       // {port, profile} when Launch hits a port already in use
     // The full multiprofile set — each entry is launchable in one click. Fields
     // The Rust API builds and validates the actual profiles; these objects are display and
@@ -215,8 +226,11 @@ function quickstartPage() {
       if (!await qeliConfirm('Set up and restart',
             qeliTf('Set up the "{}" server ({}) and restart now?', m.id, m.tag) + '\n\n'
               + qeliT(existing
-                ? 'This profile already exists. Quick Start will keep its credentials and manual settings, enable it and restart the server.'
-                : 'This creates the profile with new credentials and brings the server up.'),
+                ? (this.ipMode === 'auto'
+                    ? 'This profile already exists. Quick Start will keep its credentials, IP mode and manual settings, enable it and restart the server.'
+                    : 'This profile already exists. Quick Start will keep its credentials and manual settings, explicitly switch its inner IP mode, enable it and restart the server.')
+                : 'This creates the profile with new credentials and brings the server up.')
+              + '\n' + qeliT('Inner IP mode: ') + this.ipMode,
             { label: 'Set up' })) {
         this.qs.busy = null; this.qs.step = '';
         return;
@@ -226,7 +240,7 @@ function quickstartPage() {
       try {
         const built = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expected_revision: revision }),
+          body: JSON.stringify({ expected_revision: revision, ip_mode: this.ipMode }),
         });
         if (!built.ok) throw new Error(built.error || 'profile build failed');
         const profile = built.profile;

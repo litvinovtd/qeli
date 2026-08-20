@@ -184,6 +184,9 @@ jobs:
             set -e
             dpkg -x "$0" /tmp/x
             /tmp/x/usr/bin/qeli version
+            for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
+              test -f "/tmp/x/etc/qeli/$name.conf.example"
+            done
           ' "${{ steps.pkg.outputs.deb }}"
       - name: Installs and runs on an old supported distro (ubuntu:22.04)
         run: |
@@ -194,6 +197,9 @@ jobs:
             apt-get update -qq
             apt-get install -y --no-install-recommends "./$0"
             qeli version
+            for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
+              test -f "/etc/qeli/$name.conf.example"
+            done
           ' "${{ steps.pkg.outputs.deb }}"
 
   # Hard gate: the two installer scripts are the ONLY thing between a fresh VPS and a
@@ -527,7 +533,7 @@ jobs:
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
-          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag; do
+          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag; do
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
@@ -542,7 +548,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag]
+        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly

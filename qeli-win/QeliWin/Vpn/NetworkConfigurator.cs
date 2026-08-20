@@ -147,13 +147,21 @@ public sealed class NetworkConfigurator : IDisposable
         return null;
     }
 
-    /// <summary>Pin a /32 host route to the VPN server through the physical gateway so the
-    /// encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
+    /// <summary>Pin a /32 or /128 host route to the VPN server through the physical gateway so
+    /// the encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
     public void PinServerRoute(IPAddress serverIp, IPAddress gateway, uint physicalIfIndex)
     {
+        if (serverIp.AddressFamily != gateway.AddressFamily)
+            throw new InvalidOperationException(
+                $"server route family mismatch: server {serverIp}, gateway {gateway}");
         string s = serverIp.ToString();
-        Run("route", $"add {s} mask 255.255.255.255 {gateway} metric 1 if {physicalIfIndex}");
-        _undo.Add(() => Run("route", $"delete {s}", optional: true));
+        bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
+        Run("route", v6
+            ? $"-6 add {s}/128 {gateway} metric 1 if {physicalIfIndex}"
+            : $"add {s} mask 255.255.255.255 {gateway} metric 1 if {physicalIfIndex}");
+        _undo.Add(() => Run("route", v6
+            ? $"-6 delete {s}/128"
+            : $"delete {s} mask 255.255.255.255", optional: true));
         _log($"Pinned server route {s} via {gateway}");
     }
 
@@ -167,35 +175,43 @@ public sealed class NetworkConfigurator : IDisposable
     /// plane — the handshake squeaks through, the tunnel then stalls. Same subnet ⇒ skip the pin.</summary>
     public bool IsServerOnLink(IPAddress serverIp)
     {
-        if (serverIp.AddressFamily != AddressFamily.InterNetwork) return false; // the /32 pin is IPv4
         uint ifIndex = BestInterfaceIndex(serverIp);
         if (ifIndex == 0) return false;
         byte[] srv = serverIp.GetAddressBytes();
+        bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             try
             {
                 var p = ni.GetIPProperties();
-                if ((uint)p.GetIPv4Properties().Index != ifIndex) continue;
+                uint index = v6
+                    ? (uint)p.GetIPv6Properties().Index
+                    : (uint)p.GetIPv4Properties().Index;
+                if (index != ifIndex) continue;
                 foreach (var ua in p.UnicastAddresses)
                 {
-                    if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    if (ua.Address.AddressFamily != serverIp.AddressFamily) continue;
                     int prefix = ua.PrefixLength;
-                    if (prefix is < 1 or > 32) continue;
-                    if (SameV4Subnet(ua.Address.GetAddressBytes(), srv, prefix)) return true;
+                    int maxPrefix = v6 ? 128 : 32;
+                    if (prefix is < 1 || prefix > maxPrefix) continue;
+                    if (SamePrefix(ua.Address.GetAddressBytes(), srv, prefix)) return true;
                 }
             }
-            catch { /* interface without IPv4 props */ }
+            catch { /* interface without the requested family */ }
         }
         return false;
     }
 
-    private static bool SameV4Subnet(byte[] a, byte[] b, int prefix)
+    private static bool SamePrefix(byte[] a, byte[] b, int prefix)
     {
-        uint ua = (uint)((a[0] << 24) | (a[1] << 16) | (a[2] << 8) | a[3]);
-        uint ub = (uint)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
-        uint mask = prefix == 0 ? 0u : 0xFFFFFFFFu << (32 - prefix);
-        return (ua & mask) == (ub & mask);
+        if (a.Length != b.Length || prefix < 0 || prefix > a.Length * 8) return false;
+        int wholeBytes = prefix / 8;
+        for (int i = 0; i < wholeBytes; i++)
+            if (a[i] != b[i]) return false;
+        int remaining = prefix % 8;
+        if (remaining == 0) return true;
+        int mask = 0xFF << (8 - remaining);
+        return (a[wholeBytes] & mask) == (b[wholeBytes] & mask);
     }
 
     public uint PhysicalIfIndexFor(IPAddress serverIp) => BestInterfaceIndex(serverIp);
@@ -215,14 +231,30 @@ public sealed class NetworkConfigurator : IDisposable
     /// <summary>Assign the client IP to the tun adapter with the server-pushed subnet prefix.</summary>
     public void SetAddress(string alias, string clientIp, int prefix = 24)
     {
+        if (!IPAddress.TryParse(clientIp, out var address))
+            throw new InvalidOperationException($"invalid tunnel address {clientIp}");
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (prefix is < 1 or > 128)
+                throw new InvalidOperationException($"invalid IPv6 tunnel prefix {prefix}");
+            Run("netsh", $"interface ipv6 delete address interface=\"{alias}\" address={clientIp}", optional: true);
+            Run("netsh", $"interface ipv6 add address interface=\"{alias}\" address={clientIp}/{prefix} store=active");
+            _undo.Add(() => Run("netsh",
+                $"interface ipv6 delete address interface=\"{alias}\" address={clientIp}", optional: true));
+            _log($"Set {alias} address {clientIp}/{prefix}");
+            return;
+        }
         string mask = PrefixToMask(prefix);
         Run("netsh", $"interface ipv4 set address name=\"{alias}\" source=static address={clientIp} mask={mask}");
         _log($"Set {alias} address {clientIp}/{(prefix is >= 1 and <= 32 ? prefix : 24)}");
     }
 
-    public void SetMtu(string alias, int mtu)
+    public void SetMtu(string alias, int mtu, bool ipv4, bool ipv6)
     {
-        Run("netsh", $"interface ipv4 set subinterface \"{alias}\" mtu={mtu} store=active", optional: true);
+        if (ipv4)
+            Run("netsh", $"interface ipv4 set subinterface \"{alias}\" mtu={mtu} store=active");
+        if (ipv6)
+            Run("netsh", $"interface ipv6 set subinterface \"{alias}\" mtu={mtu} store=active");
     }
 
     // MIB_IPINTERFACE_ROW (netioapi.h) — only the fields we touch are named; the rest is
@@ -288,19 +320,35 @@ public sealed class NetworkConfigurator : IDisposable
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
-    /// <summary>Capture IPv6 into the tunnel in full-tunnel mode so dual-stack traffic
-    /// can't bypass it (the classic VPN IPv6 leak: IPv4 goes through the VPN while
-    /// IPv6 exits the physical NIC). The server is IPv4-only, so these packets are
-    /// blackholed inside the tunnel rather than leaked — apps fall back to IPv4.
+    /// <summary>Install the IPv6 redirect-gateway route set without inventing an address.
+    /// The extra GUA/ULA prefixes beat router-advertised routes that are more specific than
+    /// the two /1 halves.</summary>
+    public void SetFullTunnelRoutesV6(string alias)
+    {
+        string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
+        foreach (var net in nets)
+        {
+            Run("netsh", $"interface ipv6 add route {net} \"{alias}\" metric=1");
+            string captured = net;
+            _undo.Add(() => Run("netsh",
+                $"interface ipv6 delete route {captured} \"{alias}\"", optional: true));
+        }
+        _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
+    }
+
+    /// <summary>Legacy fail-closed capture used only when a full-tunnel NetworkPlan has no
+    /// IPv6 address. A dual/IPv6 plan uses SetFullTunnelRoutesV6 with its real assignment.
     ///
     /// `::/1 + 8000::/1` beat the default `::/0`, but a router-advertised `2000::/3`
     /// (global-unicast default) is MORE specific and would still win by longest-prefix
     /// match — so we ALSO add `2000::/4 + 3000::/4` (together = all of `2000::/3`) and
     /// `fc00::/7` (ULA), mirroring what OpenVPN's redirect-gateway installs. Link-local
-    /// (`fe80::/10`) and multicast are deliberately left alone. All optional: a host with
-    /// IPv6 disabled simply has nothing to capture. See RELEASE-FIXES E2.</summary>
+    /// (`fe80::/10`) and multicast are deliberately left alone. A total route failure is
+    /// tolerated only when the host has no usable native IPv6 address; a partial capture or
+    /// a live native path fails the plan closed. See RELEASE-FIXES E2.</summary>
     public void CaptureIPv6(string alias)
     {
+        bool nativeIpv6Present = HasUsableNativeIpv6(alias);
         bool addrOk = Run("netsh", $"interface ipv6 add address \"{alias}\" fd71:e1::1/64", optional: true);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         var failed = new List<string>();
@@ -314,30 +362,53 @@ public sealed class NetworkConfigurator : IDisposable
         }
         _undo.Add(() => Run("netsh", $"interface ipv6 delete address \"{alias}\" fd71:e1::1", optional: true));
 
-        // Report what ACTUALLY happened. These commands are optional by design — a host
-        // with IPv6 disabled has nothing to capture and every add fails harmlessly, so a
-        // failure is NOT proof of a leak and must not abort the connection. But claiming
-        // "captured" unconditionally hid the opposite case (IPv6 present, capture partly
-        // or wholly failed → traffic leaves outside the tunnel while the log said it was
-        // covered). Say which ranges are actually covered and flag the leak risk.
+        // A partial route set is never safe: longest-prefix routing can still send the
+        // uncovered classes to a physical interface. A total failure is harmless only on
+        // a host that genuinely has no usable native IPv6 address at apply time.
+        if (failed.Count != 0 && (failed.Count != nets.Length || nativeIpv6Present))
+            throw new InvalidOperationException(
+                $"IPv6 fail-closed capture failed ({nets.Length - failed.Count}/{nets.Length} " +
+                $"routes installed; failed: {string.Join(", ", failed)}; " +
+                $"native IPv6 present: {nativeIpv6Present})");
         if (failed.Count == 0)
             _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
-        else if (failed.Count == nets.Length)
-            _log("IPv6 NOT captured: every route add failed. If this host has IPv6 disabled " +
-                 "there is nothing to capture and nothing leaks; if it does have IPv6, that " +
-                 "traffic is leaving OUTSIDE the tunnel — check that qeli runs elevated.");
         else
-            _log($"WARNING: IPv6 only partially captured — {nets.Length - failed.Count}/{nets.Length} " +
-                 $"ranges; failed: {string.Join(", ", failed)}. IPv6 matching the failed ranges may " +
-                 "leave OUTSIDE the tunnel.");
+            _log("IPv6 is disabled on every non-tunnel interface; no native family exists to capture");
         if (!addrOk && failed.Count != nets.Length)
             _log("note: the tunnel's IPv6 address could not be added; IPv6 capture may be incomplete.");
     }
 
-    public void AddRoute(string cidr, string clientIp, uint tunIndex)
+    private static bool HasUsableNativeIpv6(string tunnelAlias)
+    {
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up ||
+                ni.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                string.Equals(ni.Name, tunnelAlias, StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
+            {
+                foreach (var unicast in ni.GetIPProperties().UnicastAddresses)
+                {
+                    var address = unicast.Address;
+                    if (address.AddressFamily == AddressFamily.InterNetworkV6 &&
+                        !address.Equals(IPAddress.IPv6Any) &&
+                        !address.Equals(IPAddress.IPv6Loopback) &&
+                        !address.IsIPv6LinkLocal &&
+                        !address.IsIPv6Multicast &&
+                        !address.IsIPv4MappedToIPv6)
+                        return true;
+                }
+            }
+            catch { /* an interface can disappear while the snapshot is being read */ }
+        }
+        return false;
+    }
+
+    public bool AddRoute(string cidr, string clientIp, uint tunIndex)
     {
         var (addr, prefix) = ParseCidr(cidr);
-        if (addr == null) { _log($"bad route {cidr}"); return; }
+        if (addr == null) { _log($"bad route {cidr}"); return false; }
         bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
         // Program the route in-process via CreateIpForwardEntry2 (iphlpapi) instead of
         // spawning route.exe. A large split-tunnel list (e.g. 12k blocked-hosting
@@ -365,13 +436,14 @@ public sealed class NetworkConfigurator : IDisposable
             if (!Run("route", args, optional: true))
             {
                 Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
-                return;
+                return false;
             }
             _undo.Add(() => Run("route", v6
                 ? $"-6 delete {addr}/{prefix}"
                 : $"delete {addr} mask {mask}", optional: true));
         }
         _log($"route {cidr} via tunnel");
+        return true;
     }
 
     /// <summary>Split-tunnel exclude: drop a destination from the tunnel so it falls back
@@ -394,13 +466,12 @@ public sealed class NetworkConfigurator : IDisposable
     public void PinBypassRoute(string cidr, IPAddress gateway, uint physicalIfIndex)
     {
         var (addr, prefix) = ParseCidr(cidr);
-        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        if (addr == null)
+            throw new InvalidOperationException($"invalid exclude route {cidr}");
         bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
         if (gateway.AddressFamily != (v6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork))
-        {
-            Degrade($"bypass route {cidr} has no physical gateway of the same address family");
-            return;
-        }
+            throw new InvalidOperationException(
+                $"exclude route {cidr} has no physical gateway of the same address family");
         string mask = PrefixToMask(prefix);
         Run("route", v6
             ? $"-6 delete {addr}/{prefix}"
@@ -413,10 +484,8 @@ public sealed class NetworkConfigurator : IDisposable
             ? $"-6 add {addr}/{prefix} {gateway} metric 1 if {physicalIfIndex}"
             : $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}";
         if (!Run("route", addArgs, optional: true))
-        {
-            Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
-            return;
-        }
+            throw new InvalidOperationException(
+                $"exclude route {cidr} via {gateway} was not programmed");
         _undo.Add(() => Run("route", v6
             ? $"-6 delete {addr}/{prefix}"
             : $"delete {addr} mask {mask}", optional: true));
@@ -477,9 +546,9 @@ public sealed class NetworkConfigurator : IDisposable
     /// check only proved a command was ISSUED — this is the first that asks the OS what the
     /// routing table actually decided, which is what "Connected" is meant to imply.
     ///
-    /// Reported as degraded rather than thrown: the check is new and this exact code path
-    /// has not been exercised on real hardware yet, so a false positive must not tear down
-    /// a working tunnel. The log line is explicit enough to act on.
+    /// An unresolved path remains degraded because the OS supplied no answer. A path that
+    /// resolves to the exact TUN index is definitive and fatal: ACKing that plan would start
+    /// a carrier whose packets are routed back into itself.
     /// </remarks>
     public void VerifyCarrierPath(IPAddress serverIp, uint tunIndex)
     {
@@ -492,10 +561,10 @@ public sealed class NetworkConfigurator : IDisposable
         }
         if (best == tunIndex)
         {
-            Degrade($"the route to the server {serverIp} now resolves to the TUNNEL adapter " +
-                    $"(if {tunIndex}) — the encrypted carrier would loop back into the tunnel " +
-                    "and the link cannot work. The server-route pin did not take effect.");
-            return;
+            throw new InvalidOperationException(
+                $"the route to the server {serverIp} resolves to the TUNNEL adapter " +
+                $"(if {tunIndex}); the encrypted carrier would loop back into itself. " +
+                "The server-route pin did not take effect");
         }
         _log($"carrier path verified: {serverIp} leaves via interface {best} (tunnel is if {tunIndex})");
     }
@@ -503,27 +572,22 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetDns(string alias, IReadOnlyList<string> servers)
     {
         if (servers.Count == 0) return;
-        // A failed DNS apply is the single most consequential "optional" failure here:
-        // the tunnel carries traffic while name resolution keeps going to the physical
-        // resolver, which is both a privacy leak and the classic "VPN is on but sites
-        // resolve wrong" symptom. It was logged as success regardless. (C-17)
-        bool primaryOk = Run("netsh",
-            $"interface ipv4 set dnsservers name=\"{alias}\" static {servers[0]} primary validate=no",
-            optional: true);
-        if (!primaryOk)
+        var parsed = servers.Select(server => IPAddress.TryParse(server, out var address)
+                ? address : throw new InvalidOperationException($"invalid DNS address {server}"))
+            .ToList();
+        foreach (var group in parsed.GroupBy(address =>
+                     address.AddressFamily == AddressFamily.InterNetworkV6 ? "ipv6" : "ipv4"))
         {
-            Degrade($"DNS NOT applied to \"{alias}\" — queries will use the system resolver, " +
-                    $"not the tunnel's ({string.Join(", ", servers)})");
-            return;
+            var values = group.Select(address => address.ToString()).ToList();
+            Run("netsh",
+                $"interface {group.Key} set dnsservers name=\"{alias}\" static {values[0]} primary validate=no");
+            for (int i = 1; i < values.Count; i++)
+                Run("netsh",
+                    $"interface {group.Key} add dnsservers name=\"{alias}\" {values[i]} index={i + 1} validate=no");
+            string family = group.Key;
+            _undo.Add(() => Run("netsh",
+                $"interface {family} set dnsservers name=\"{alias}\" dhcp", optional: true));
         }
-        for (int i = 1; i < servers.Count; i++)
-        {
-            if (!Run("netsh",
-                    $"interface ipv4 add dnsservers name=\"{alias}\" {servers[i]} index={i + 1} validate=no",
-                    optional: true))
-                Degrade($"secondary DNS {servers[i]} not applied");
-        }
-        _dnsAlias = alias;
         _log($"DNS set to {string.Join(", ", servers)}");
     }
 

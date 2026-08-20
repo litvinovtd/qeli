@@ -32,10 +32,17 @@ ini_sanitize() { printf '%s' "$1" | tr -d '\000-\037'; }
 # Append `key = value` to the INI only when value is non-empty.
 ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$(ini_sanitize "$2")" >> "$CONF"; }
 
+append_dns_server() {
+	local value
+	value="$(ini_sanitize "$1")"
+	[ -n "$value" ] || return 0
+	[ -z "$dns_servers" ] && dns_servers="$value" || dns_servers="$dns_servers, $value"
+}
+
 # Render the UCI `main` section into the flat-INI the binary expects.
 render_conf() {
 	local server proto user pass key bind_static mode sni obfs_key front quic \
-	      reality_sid gateway dns dev mtu route_local kill_switch allow_ipv6_leak log_level \
+	      reality_sid gateway ipv6 dns dns_mode dns_servers dev mtu route_local kill_switch allow_ipv4_leak allow_ipv6_leak log_level \
 	      log_time_format
 
 	config_get server     main server
@@ -51,11 +58,15 @@ render_conf() {
 	config_get_bool quic  main quic       0
 	config_get reality_sid main reality_sid
 	config_get_bool gateway main gateway   0          # 0 = split-tunnel (safe default)
+	config_get ipv6       main ipv6       auto
 	config_get dns        main dns        off
+	dns_servers=""
+	config_list_foreach main dns_servers append_dns_server
 	config_get dev        main dev        qeli0
 	config_get mtu        main mtu        0
 	config_get_bool route_local main route_local 0
 	config_get_bool kill_switch main kill_switch 0
+	config_get_bool allow_ipv4_leak main allow_ipv4_leak 0
 	config_get_bool allow_ipv6_leak main allow_ipv6_leak 0
 	config_get log_level  main log_level  info
 	# `none` by default: procd pipes stderr to syslog, which stamps every line —
@@ -83,14 +94,31 @@ render_conf() {
 	ini_kv reality_sid "$reality_sid"
 	# Routing: full-tunnel only on explicit opt-in (`gateway = false` => split).
 	[ "$gateway" = 1 ] && echo "gateway = true" >> "$CONF" || echo "gateway = false" >> "$CONF"
-	ini_kv dns "$dns"
+	ini_kv ipv6 "$ipv6"
+	# Pre-IPv6 packages overloaded `dns` with either a mode OR a comma-separated resolver
+	# list. Preserve those installed configs, but render the unambiguous flat-INI keys the
+	# shared Rust model now consumes.
+	case "$(printf '%s' "$dns" | tr 'A-Z' 'a-z')" in
+		off|tunnel|system) dns_mode="$dns" ;;
+		*)
+			dns_mode=tunnel
+			[ -z "$dns_servers" ] && dns_servers="$(ini_sanitize "$dns")"
+			logger -t qeli "migrating legacy qeli.main.dns resolver list to dns_servers"
+			;;
+	esac
+	ini_kv dns "$dns_mode"
+	ini_kv dns_servers "$dns_servers"
 	ini_kv dev "$dev"
 	[ "$mtu" -gt 0 ] 2>/dev/null && echo "mtu = $mtu" >> "$CONF"
 	[ "$route_local" = 1 ] && echo "route_local = true" >> "$CONF"
 	[ "$kill_switch" = 1 ] && echo "kill_switch = true" >> "$CONF"
-	# Full tunnel blackholes IPv6 (qeli carries IPv4 only), and refuses to connect if
-	# it cannot. On a build without IPv6 routing support that would make the tunnel
-	# unusable with no way out, so expose the escape hatch here too.
+	# OpenWrt owns NAT through its qeli firewall zone, but the core must know this is a
+	# router when kill-switch is enabled so it guards FORWARD as well as host OUTPUT.
+	# `forward` enables the core's no-NAT forwarding lifecycle; the zone remains the NAT owner.
+	[ "$gateway" = 1 ] && [ "$kill_switch" = 1 ] && echo "forward = true" >> "$CONF"
+	# If the negotiated profile lacks one family, the secure full-tunnel default blocks
+	# that native leg. These are the explicit opt-outs that let it bypass via WAN.
+	[ "$allow_ipv4_leak" = 1 ] && echo "allow_ipv4_leak = true" >> "$CONF"
 	[ "$allow_ipv6_leak" = 1 ] && echo "allow_ipv6_leak = true" >> "$CONF"
 	# Sanitize log_level like every other value: a control char in the UCI option
 	# (e.g. a stray newline) would otherwise inject an extra INI line here. (C-10)
@@ -108,7 +136,7 @@ render_conf() {
 # stops reaching the internet through it. Re-checked on every start, and only written when
 # it actually differs (a no-op start must not commit UCI or bounce the firewall). (C-25)
 sync_firewall_device() {
-	local dev zone cur
+	local dev zone cur cur_masq6 changed
 	dev="$(uci -q get qeli.main.dev || echo qeli0)"
 
 	# `dev` comes from UCI, which the LuCI app lets an operator edit — and this function
@@ -141,13 +169,23 @@ sync_firewall_device() {
 	[ -n "$zone" ] || return 0   # no zone (gateway mode not set up) — nothing to sync
 
 	# `device` is a list; treat "exactly our dev and nothing else" as already correct.
+	# Also upgrade zones created by pre-IPv6 packages: uci-defaults runs once, so without
+	# this live reconciliation an existing installation would never acquire NAT66.
 	cur="$(uci -q get firewall.$zone.device)"
-	[ "$cur" = "$dev" ] && return 0
-
-	uci -q delete firewall."$zone".device
-	uci add_list firewall."$zone".device="$dev"
+	cur_masq6="$(uci -q get firewall.$zone.masq6)"
+	changed=0
+	if [ "$cur" != "$dev" ]; then
+		uci -q delete firewall."$zone".device
+		uci add_list firewall."$zone".device="$dev"
+		changed=1
+	fi
+	if [ "$cur_masq6" != "1" ]; then
+		uci set firewall."$zone".masq6='1'
+		changed=1
+	fi
+	[ "$changed" = 1 ] || return 0
 	uci commit firewall
-	logger -t qeli "firewall zone 'qeli': device ${cur:-<unset>} -> $dev (re-synced from uci)"
+	logger -t qeli "firewall zone 'qeli': device ${cur:-<unset>} -> $dev, masq6=1 (re-synced from uci)"
 	[ -x /etc/init.d/firewall ] && /etc/init.d/firewall reload >/dev/null 2>&1
 	return 0
 }

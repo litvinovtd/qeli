@@ -192,13 +192,13 @@ iptables -A FORWARD -i vpn0 -o br0 -m state --state RELATED,ESTABLISHED -j ACCEP
 - **Интеграция с NAT/firewall KeeneticOS** — непредсказуема, зависит от модели/прошивки.
 - **Интеграция в веб-морду** — с KeeneticOS 5.0 tun можно отдать ndm как нативный
   `OpkgTun`-интерфейс: он виден в вебморде и доступен в «Приоритетах подключений» /
-  статических маршрутах (`dev=opkgtun0` + регистрация через `ndmc` из wan.d-хука — см.
-  `release/keenetic/`). qeli использует kernel-tun («system»-режим); по данным сообщества на OpkgTun
-  официально разрешён ТОЛЬКО gvisor (userspace-стек), поэтому поедет ли kernel-tun через
-  OpkgTun на 5.x — НЕ подтверждено (проверка на устройстве). Перевод qeli на gvisor — не
-  флаг, а крупная переработка (Rust: smoltcp/собственный netstack + проприетарный контракт
-  Keenetic OpkgTun-gvisor, который сейчас реализуют Go-клиенты вроде amneziawg-go). На KeeneticOS ≤4.x нативной интеграции нет (только
-  SSH/init + скриптовый PBR через `ip rule`/`ipset`).
+  статических маршрутах (`dev=opkgtun0`, `dev_attach=true`, L3 задаёт ndm через wan.d-хук —
+  см. `release/keenetic/opkgtun/`). qeli использует обычный kernel-tun. Упоминания
+  `system`/`gvisor` относятся к выбору внутреннего сетевого стека конкретного приложения,
+  а не к обязательному типу OpkgTun в ndm. Интеграция всё ещё полу-ручная: на раннем boot
+  `ndmc` из wan.d может быть недоступен, а для стабильного переживания reconnect/reboot нужны
+  закреплённые сервером адреса. На KeeneticOS ≤4.x нативной интеграции нет (только SSH/init
+  и скриптовый PBR через `ip rule`/`ipset`).
 
 ## 9. Чек-лист
 

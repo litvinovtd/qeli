@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -133,6 +134,7 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_ERROR = "error"
         const val EXTRA_LOG = "log"
         const val EXTRA_IP = "ip"
+        const val EXTRA_GATEWAY = "gateway"
         const val STATUS_CONNECTING = "connecting"
         const val STATUS_CONNECTED = "connected"
         const val STATUS_DISCONNECTING = "disconnecting"
@@ -152,32 +154,17 @@ class VpnServiceImpl : VpnService() {
 
         // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
         // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
-        // /24 (mDNS/SSDP, so AirPlay/Chromecast discovery works). The tunnel's own /24
+        // /24 (mDNS/LLMNR) plus the exact IPv4 SSDP group, so local discovery works.
+        // The tunnel's own /24
         // (added via addAddress) is a more-specific connected route, so excluding 10/8
         // here does NOT strand the tunnel gateway.
-        private val LAN_BYPASS_EXCLUDES = listOf(
-            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/24"
+        private val LAN_BYPASS_IPV4_EXCLUDES = listOf(
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+            "224.0.0.0/24", "239.255.255.250/32",
         )
-        // 0.0.0.0/0 minus RFC1918 (10/8, 172.16/12, 192.168/16) as an explicit covering set,
-        // for pre-Android-13 devices that lack excludeRoute. Multicast (224/3) is intentionally
-        // omitted so mDNS/SSDP stay off the tunnel (on Wi-Fi) for LAN discovery.
-        /**
-         * Ceiling on the pre-13 complement split. A handful of excludes needs a few dozen
-         * prefixes; a pathological list could need thousands, and VpnService.Builder does
-         * not accept an unbounded route table. Past this we refuse and warn rather than
-         * install a partial set that silently excludes only some of what was asked. (C-22)
-         */
-        private const val MAX_COMPLEMENT_ROUTES = 200
-
-        private val PUBLIC_MINUS_RFC1918 = listOf(
-            "0.0.0.0/5", "8.0.0.0/7", "11.0.0.0/8", "12.0.0.0/6", "16.0.0.0/4", "32.0.0.0/3",
-            "64.0.0.0/2", "128.0.0.0/3", "160.0.0.0/5", "168.0.0.0/6", "172.0.0.0/12",
-            "172.32.0.0/11", "172.64.0.0/10", "172.128.0.0/9", "173.0.0.0/8", "174.0.0.0/7",
-            "176.0.0.0/4", "192.0.0.0/9", "192.128.0.0/11", "192.160.0.0/13", "192.169.0.0/16",
-            "192.170.0.0/15", "192.172.0.0/14", "192.176.0.0/12", "192.192.0.0/10", "193.0.0.0/8",
-            "194.0.0.0/7", "196.0.0.0/6", "200.0.0.0/5", "208.0.0.0/4"
-        )
-
+        // IPv6 local scope: ULA, link-local and multicast. A local GUA prefix cannot be
+        // inferred safely; users can add that exact prefix through `exclude`.
+        private val LAN_BYPASS_IPV6_EXCLUDES = listOf("fc00::/7", "fe80::/10", "ff00::/8")
         // Last known tunnel state, readable by a (re)created Activity so it can
         // restore its UI without a fresh broadcast. The foreground service keeps
         // running across Activity recreation (theme switch / rotation), so the
@@ -190,7 +177,7 @@ class VpnServiceImpl : VpnService() {
         var liveIp: String = ""
         @Volatile
         @JvmField
-        var liveTrustedSsid: String = ""
+        var liveGateway: String = ""
 
         // Session uptime anchor + cumulative byte counters, also readable after
         // recreation so the stats card restores its values.
@@ -819,8 +806,12 @@ class VpnServiceImpl : VpnService() {
                         TransportCore.PLATFORM_TUN_FD or
                         TransportCore.PLATFORM_SOCKET_PROTECT or
                         TransportCore.PLATFORM_SERVER_IDENTITY or
+                        TransportCore.PLATFORM_IPV6_TUN or
+                        TransportCore.PLATFORM_IPV6_ROUTES or
+                        TransportCore.PLATFORM_IPV6_DNS or
                         (if (killSwitchReadiness == AndroidKillSwitchReadiness.READY)
-                            TransportCore.PLATFORM_KILL_SWITCH else 0L),
+                            TransportCore.PLATFORM_KILL_SWITCH or
+                                TransportCore.PLATFORM_IPV6_KILL_SWITCH else 0L),
                 )
             } finally {
                 stableDeviceId.fill(0)
@@ -1026,6 +1017,7 @@ class VpnServiceImpl : VpnService() {
         }
         var tun: ParcelFileDescriptor? = null
         var acknowledged = false
+        val previousPushedRoutesInstalled = pushedRoutesInstalled
         try {
             check(plan.fullTunnel == config.isFullTunnel) {
                 "native plan routing mode differs from the active profile"
@@ -1044,6 +1036,21 @@ class VpnServiceImpl : VpnService() {
             check(unsupportedDns == null) {
                 "Android VpnService cannot apply DNS ${unsupportedDns?.address}:${unsupportedDns?.port}; only port 53 is supported"
             }
+            tun = setupTunInterface(config, plan)
+            vpnInterface = tun
+            if (plan.killSwitch) {
+                // Before establish(), Android's public isAlwaysOn/isLockdownEnabled calls
+                // deliberately return false because the app is not yet the current VPN owner.
+                // Once Builder.establish() succeeds they become the strongest possible check:
+                // require both live owner flags before giving Rust the TUN or ACKing the plan.
+                val readiness = currentKillSwitchReadiness(config, requireEstablishedOwner = true)
+                check(readiness == AndroidKillSwitchReadiness.READY) {
+                    killSwitchError(readiness) ?: "Android lockdown changed during TUN setup"
+                }
+            }
+            core.setTunFd(plan.generation, tun.fd)
+            core.networkPlanResult(plan.generation, applied = true)
+            acknowledged = true
             liveDns = plan.dnsServers.firstOrNull()?.address.orEmpty()
             liveMtu = plan.mtu
             liveRoutes = plan.routes.size
@@ -1059,22 +1066,7 @@ class VpnServiceImpl : VpnService() {
                 heartbeatIntervalMs = plan.dataPlane.heartbeatIntervalMs,
                 shapingEnabled = plan.dataPlane.shapingEnabled,
             )
-            tun = setupTunInterface(config, plan)
-            vpnInterface = tun
-            if (plan.killSwitch) {
-                // Before establish(), Android's public isAlwaysOn/isLockdownEnabled calls
-                // deliberately return false because the app is not yet the current VPN owner.
-                // Once Builder.establish() succeeds they become the strongest possible check:
-                // require both live owner flags before giving Rust the TUN or ACKing the plan.
-                val readiness = currentKillSwitchReadiness(config, requireEstablishedOwner = true)
-                check(readiness == AndroidKillSwitchReadiness.READY) {
-                    killSwitchError(readiness) ?: "Android lockdown changed during TUN setup"
-                }
-            }
             liveLockdown = currentOwnerLockdownState().second
-            core.setTunFd(plan.generation, tun.fd)
-            core.networkPlanResult(plan.generation, applied = true)
-            acknowledged = true
             broadcastLog(
                 "Native NetworkPlan ${plan.generation} APPLIED: mode=" +
                     "${if (plan.fullTunnel) "full" else "split"} " +
@@ -1083,9 +1075,10 @@ class VpnServiceImpl : VpnService() {
                     "pushed_routes=$pushedRoutesInstalled/${plan.pushedRoutes.size} " +
                     "plan_routes=${plan.routes.size}; Rust owns the TUN payload"
             )
-            announceConnected(plan.tunnelAddress)
+            announceConnected(plan.tunnelAddress, plan.tunnelGateway)
         } catch (error: Throwable) {
             if (!acknowledged) {
+                pushedRoutesInstalled = previousPushedRoutesInstalled
                 runCatching {
                     core.networkPlanResult(
                         plan.generation,
@@ -1271,7 +1264,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     /**
-     * Resolve every A record through Android's selected non-VPN Network. `InetAddress` and
+     * Resolve every A/AAAA record through Android's selected non-VPN Network. `InetAddress` and
      * Tokio's system resolver may be captured by the retained TUN during reconnect, creating
      * an infinite DNS/reconnect loop. Network.getAllByName is explicitly bound to the physical
      * link. Rotate the stable answer set between generations so UDP (whose connect is local and
@@ -1310,7 +1303,10 @@ class VpnServiceImpl : VpnService() {
                     deadlineAt = SystemClock.elapsedRealtime() + timeoutMs,
                     future = carrierDnsExecutor.submit<List<String>> {
                         selected.getAllByName(config.serverAddress)
-                            .filterIsInstance<Inet4Address>()
+                            .filter { address ->
+                                address is Inet4Address ||
+                                    (address is Inet6Address && !address.isLinkLocalAddress)
+                            }
                             .mapNotNull { it.hostAddress }
                             .distinct()
                     },
@@ -1344,7 +1340,9 @@ class VpnServiceImpl : VpnService() {
             }
         }
         if (addresses.isEmpty()) {
-            throw IllegalStateException("${config.serverAddress} has no IPv4 address on the physical network")
+            throw IllegalStateException(
+                "${config.serverAddress} has no usable IPv4 or IPv6 address on the physical network",
+            )
         }
         val offset = Math.floorMod(generation, addresses.size)
         addresses.drop(offset) + addresses.take(offset)
@@ -1767,12 +1765,15 @@ class VpnServiceImpl : VpnService() {
                 val network = currentNetwork
                 val caps = network?.let { cm?.getNetworkCapabilities(it) }
                 val links = network?.let { cm?.getLinkProperties(it) }
-                val hasIPv4 = links?.linkAddresses?.any { it.address is Inet4Address } == true
+                val hasInternetAddress = links?.linkAddresses?.any { link ->
+                    link.address is Inet4Address ||
+                        (link.address is Inet6Address && !link.address.isLinkLocalAddress)
+                } == true
                 val usable = caps != null
                     && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-                    && hasIPv4
+                    && hasInternetAddress
                 if (usable) break
                 delay(250)
             }
@@ -1889,6 +1890,7 @@ class VpnServiceImpl : VpnService() {
             // be unwinding and must see it as true so it does not reconnect. It is
             // reset in startVpn() on the next explicit Connect.
             liveIp = ""
+            liveGateway = ""
             liveConnectedAt = 0L
             // Clear the negotiated snapshot only after native teardown; until then the
             // system still owns a live VPN generation and its routes/DNS snapshot.
@@ -2036,9 +2038,11 @@ class VpnServiceImpl : VpnService() {
         // Some devices/ROMs reject the IPv6 capture address (fd00:71e1::1/128) at
         // establish() with "Cannot set address" even though addAddress() itself did
         // NOT throw (the failure surfaces only at establish, which is outside any
-        // try/catch). Try WITH IPv6 first; if establish fails, retry IPv4-only so the
-        // tunnel still comes up (IPv4-over-VPN; IPv6 then exits the physical iface —
-        // far better than not connecting at all).
+        // try/catch). Try WITH the synthetic IPv6 sink first for a negotiated IPv4-only
+        // plan; if establish fails, retry without it. Android still blocks an unmentioned
+        // family unless allowIpv6Leak explicitly calls allowFamily(AF_INET6), so this
+        // compatibility retry does not turn into an IPv6 leak. A real negotiated IPv6
+        // address is authoritative and may never take this fallback.
         // Capture the previous TUN: on a clean-path reconnect it is still open here.
         // establish() below replaces it at the OS level, so we close the old fd only
         // AFTER the new one is up — no no-TUN gap (hence no leak window), but we also
@@ -2047,6 +2051,9 @@ class VpnServiceImpl : VpnService() {
         val tun = try {
             buildTunInterface(config, plan, withIpv6 = true)
         } catch (e: Exception) {
+            // A negotiated IPv6 address is authoritative. Only the legacy synthetic
+            // IPv6 black-hole used by an IPv4-only plan may degrade on broken ROMs.
+            if (plan.addresses.any { it.family == "ipv6" }) throw e
             broadcastLog("TUN establish with IPv6 failed (${e.message}); retrying IPv4-only")
             buildTunInterface(config, plan, withIpv6 = false)
         }
@@ -2079,59 +2086,115 @@ class VpnServiceImpl : VpnService() {
         plan: TransportCoreNetworkPlan,
         withIpv6: Boolean,
     ): ParcelFileDescriptor {
-        val tunnelAddress = plan.tunnelAddress
-        val prefixLength = plan.prefixLength
         val tunnelMtu = plan.mtu
         val fullTunnel = plan.fullTunnel
+        val hasIpv4 = plan.addresses.any { it.family == "ipv4" }
+        val hasIpv6 = plan.addresses.any { it.family == "ipv6" }
+        // A full tunnel must account for both families. If the authenticated plan is
+        // IPv6-only, route IPv4 into a local synthetic sink so public IPv4 stays
+        // fail-closed while API 33 excludeRoute/pre-33 complements can still carve LAN
+        // and explicit physical bypasses out of that capture.
+        val needsIpv4Sink = RouteComplements.needsSyntheticSink(
+            fullTunnel = fullTunnel,
+            hasAddress = hasIpv4,
+            allowLeak = plan.allowIpv4Leak,
+        )
+        val captureIpv4 = hasIpv4 || needsIpv4Sink
+        val allowLan = fullTunnel && (config.allowLan ||
+            getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+                .getBoolean(MainActivity.PREF_ALLOW_LAN, false))
+        val effectiveRouteExcludes = buildList {
+            addAll(config.excludeRoutes)
+            if (allowLan) {
+                addAll(LAN_BYPASS_IPV4_EXCLUDES)
+                addAll(LAN_BYPASS_IPV6_EXCLUDES)
+            }
+        }
+        val protectedDnsCidrs = plan.dnsServers.mapTo(HashSet()) { dns ->
+            "${dns.address}/${RouteComplements.hostPrefix(dns.address)}"
+        }
+        plan.addresses.forEach { assigned ->
+            assigned.gateway?.let { gateway ->
+                effectiveRouteExcludes.forEach { excluded ->
+                    val overrides = RouteComplements.overridesOnLinkGateway(
+                        excluded,
+                        gateway,
+                        assigned.onLinkPrefixLength,
+                    ) ?: throw IllegalArgumentException("invalid route exclusion $excluded")
+                    require(!overrides) {
+                        "route exclusion $excluded overrides tunnel gateway $gateway at or " +
+                            "above the on-link /${assigned.onLinkPrefixLength} prefix"
+                    }
+                }
+            }
+        }
         return Builder().apply {
             setMtu(tunnelMtu)
-            addAddress(tunnelAddress, prefixLength)
+            plan.addresses.forEach { assigned ->
+                addAddress(assigned.address, assigned.prefixLength)
+            }
+            if (needsIpv4Sink) {
+                addAddress("198.18.0.1", 32)
+            }
+            // NetworkPlan v2 assigns /32 and /128 to an L3 TUN so the kernel never tries
+            // ARP/NDP on it. The negotiated pool still needs an explicit connected route,
+            // in full tunnel as well as split tunnel: a more-specific allow_lan/user bypass
+            // can otherwise beat the default route and send the tunnel gateway, DNS server
+            // or another client towards the physical network.
+            plan.addresses.forEach { assigned ->
+                addRoute(
+                    subnetBase(assigned.address, assigned.onLinkPrefixLength),
+                    assigned.onLinkPrefixLength,
+                )
+            }
 
             if (fullTunnel) {
                 // LAN bypass: per-profile allow_lan OR the global Settings toggle. When on,
                 // the local/private ranges are carved out of the tunnel so Wi-Fi/LAN devices
                 // stay reachable directly (no need to disconnect the VPN).
-                val allowLan = config.allowLan ||
-                    getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
-                        .getBoolean(MainActivity.PREF_ALLOW_LAN, false)
                 // User excludes that must be handled HERE rather than by excludeRoute():
                 // below API 33 the only way to exclude is to never route it in, and a route
                 // cannot be removed once added — so the decision has to happen before any
                 // `0.0.0.0/0`. (C-22)
                 val pre13Ipv4Excludes = if (Build.VERSION.SDK_INT < 33)
-                    config.excludeRoutes.filterNot { ':' in it } else emptyList()
+                    (if (allowLan) LAN_BYPASS_IPV4_EXCLUDES else emptyList()) +
+                        config.excludeRoutes.filterNot { ':' in it }
+                else emptyList()
                 val pre13Ipv6Excludes = if (Build.VERSION.SDK_INT < 33)
-                    config.excludeRoutes.filter { ':' in it } else emptyList()
-                when {
+                    (if (allowLan) LAN_BYPASS_IPV6_EXCLUDES else emptyList()) +
+                        config.excludeRoutes.filter { ':' in it }
+                else emptyList()
+                if (captureIpv4) when {
                     allowLan && Build.VERSION.SDK_INT >= 33 -> {
                         addRoute("0.0.0.0", 0)
-                        for (cidr in LAN_BYPASS_EXCLUDES) {
+                        for (cidr in LAN_BYPASS_IPV4_EXCLUDES) {
                             try {
                                 val slash = cidr.indexOf('/')
                                 excludeRoute(android.net.IpPrefix(
                                     android.system.Os.inet_pton(
                                         android.system.OsConstants.AF_INET,
-                                        cidr.substring(0, slash)),
+                                    cidr.substring(0, slash)),
                                     cidr.substring(slash + 1).toInt()))
-                            } catch (e: Exception) { broadcastLog("bad LAN-exclude $cidr: ${e.message}") }
+                            } catch (e: Exception) {
+                                throw IllegalStateException(
+                                    "Android could not apply IPv4 LAN bypass for $cidr",
+                                    e,
+                                )
+                            }
                         }
                         broadcastLog("LAN bypass ON — local networks reachable directly")
                     }
-                    // Pre-13 with user excludes: one complement covering BOTH the LAN
-                    // ranges (when the bypass is on) and the user's excludes. Computing
+                    // Pre-13: one complement covering BOTH the LAN ranges (when the
+                    // bypass is on) and the user's excludes. Computing
                     // them separately would let the second set re-add what the first
                     // carved out.
                     pre13Ipv4Excludes.isNotEmpty() -> {
-                        val carveOut =
-                            (if (allowLan) LAN_BYPASS_EXCLUDES else emptyList()) + pre13Ipv4Excludes
-                        val complement = complementRoutes(carveOut)
+                        val carveOut = pre13Ipv4Excludes
+                        val complement = RouteComplements.ipv4(carveOut)
                         when {
-                            complement == null -> {
-                                broadcastLog("WARNING: could not build a pre-13 route split for " +
-                                    "${carveOut.size} exclude(s) — they are NOT excluded and " +
-                                    "will go through the tunnel")
-                                addRoute("0.0.0.0", 0)
-                            }
+                            complement == null -> throw IllegalArgumentException(
+                                "cannot build a complete pre-Android-13 IPv4 route split for " +
+                                    carveOut.joinToString(", "))
                             complement.isEmpty() ->
                                 broadcastLog("exclude routes cover the entire address space — " +
                                     "no IPv4 traffic is routed into the tunnel")
@@ -2142,21 +2205,26 @@ class VpnServiceImpl : VpnService() {
                             }
                         }
                     }
-                    allowLan -> {
-                        // Pre-Android 13: no excludeRoute → route the complement of RFC1918.
-                        for (cidr in PUBLIC_MINUS_RFC1918) addCidrRoute(cidr)
-                        broadcastLog("LAN bypass ON (pre-13 route split) — local networks reachable directly")
-                    }
                     else -> addRoute("0.0.0.0", 0)
                 }
-                // Capture IPv6 too, or dual-stack traffic bypasses a "full" tunnel
-                // entirely (the classic VPN IPv6 leak: IPv4 goes through the VPN while
-                // IPv6 exits the physical interface). The server is IPv4-only, so these
-                // packets are dropped inside the tunnel rather than leaking — apps fall
-                // back to IPv4-over-VPN. Skipped on the IPv4-only retry above.
-                // allow_ipv6_leak opt-out: skip the capture so native IPv6 keeps flowing on the
-                // physical interface (the user accepts it bypasses the IPv4-only tunnel).
-                if (config.allowIpv6Leak) {
+                // A negotiated IPv6 address gets a real full-tunnel route. Without one, block
+                // the family by routing it to the legacy synthetic sink unless the user
+                // explicitly permits native IPv6 to bypass an IPv4-only tunnel.
+                if (hasIpv6) {
+                    if (pre13Ipv6Excludes.isEmpty()) {
+                        addRoute("::", 0)
+                    } else {
+                        val complement = RouteComplements.ipv6(pre13Ipv6Excludes)
+                            ?: throw IllegalArgumentException(
+                                "cannot build a complete pre-Android-13 IPv6 route split for " +
+                                    pre13Ipv6Excludes.joinToString(", "))
+                        for (cidr in complement) addCidrRoute(cidr)
+                        broadcastLog(
+                            "pre-13 IPv6 route split: ${complement.size} prefixes, excluding " +
+                                pre13Ipv6Excludes.joinToString(", "))
+                    }
+                    allowFamily(android.system.OsConstants.AF_INET6)
+                } else if (plan.allowIpv6Leak) {
                     // Android BLOCKS an address family the VPN never mentions. Merely
                     // skipping the capture therefore killed IPv6 outright — the exact
                     // opposite of what this opt-out promises (and of the comment above).
@@ -2179,15 +2247,28 @@ class VpnServiceImpl : VpnService() {
                     }
                     allowFamily(android.system.OsConstants.AF_INET6)
                 }
+                if (allowLan && Build.VERSION.SDK_INT >= 33 &&
+                    (hasIpv6 || (!plan.allowIpv6Leak && withIpv6))) {
+                    for (cidr in LAN_BYPASS_IPV6_EXCLUDES) {
+                        try {
+                            val slash = cidr.indexOf('/')
+                            excludeRoute(android.net.IpPrefix(
+                                android.system.Os.inet_pton(
+                                    android.system.OsConstants.AF_INET6,
+                                    cidr.substring(0, slash)),
+                                cidr.substring(slash + 1).toInt()))
+                        } catch (e: Exception) {
+                            throw IllegalStateException(
+                                "Android could not apply IPv6 LAN bypass for $cidr",
+                                e,
+                            )
+                        }
+                    }
+                    broadcastLog("IPv6 LAN bypass ON — ULA/link-local/multicast reachable directly")
+                }
             } else {
-                // The tunnel subnet itself is always reachable in split mode. Use the
-                // authenticated prefix from the canonical plan rather than assuming /24.
-                addRoute(subnetBase(tunnelAddress, prefixLength), prefixLength)
-                // VpnService blocks an address family that the Builder never mentions.
-                // Split tunnel must leave non-included IPv6 on the underlying network; any
-                // explicit IPv6 route applied below remains more specific and is still
-                // captured fail-closed by the IPv4-only inner data plane.
-                allowFamily(android.system.OsConstants.AF_INET6)
+                if (!hasIpv4) allowFamily(android.system.OsConstants.AF_INET)
+                if (!hasIpv6) allowFamily(android.system.OsConstants.AF_INET6)
             }
 
             // Subnets the server advertised (`route = …` on the profile / per-user) are a
@@ -2198,7 +2279,8 @@ class VpnServiceImpl : VpnService() {
                 this,
                 plan.routes,
                 pushedCidrs = plan.pushedRoutes.toHashSet(),
-                excluded = config.excludeRoutes,
+                excluded = effectiveRouteExcludes,
+                protectedCidrs = protectedDnsCidrs,
                 fullTunnel = fullTunnel,
             )
 
@@ -2212,14 +2294,20 @@ class VpnServiceImpl : VpnService() {
                             val slash = cidr.indexOf('/')
                             val addr = if (slash < 0) cidr else cidr.substring(0, slash)
                             val prefix = if (slash < 0) RouteComplements.hostPrefix(addr)
-                                else cidr.substring(slash + 1).toIntOrNull() ?: continue
+                                else cidr.substring(slash + 1).toIntOrNull()
+                                    ?: throw IllegalArgumentException("prefix is not a number")
                             val family = if (':' in addr) android.system.OsConstants.AF_INET6
                                 else android.system.OsConstants.AF_INET
                             val address = android.system.Os.inet_pton(family, addr)
                                 ?: throw IllegalArgumentException("not an IP literal")
                             excludeRoute(android.net.IpPrefix(address, prefix))
                             broadcastLog("exclude $cidr from tunnel")
-                        } catch (e: Exception) { broadcastLog("bad exclude route $cidr: ${e.message}") }
+                        } catch (e: Exception) {
+                            throw IllegalStateException(
+                                "Android could not exclude route $cidr from the tunnel",
+                                e,
+                            )
+                        }
                     }
                 } else if (config.isFullTunnel) {
                     // Pre-13 full-tunnel excludes were already applied as a complement route
@@ -2240,7 +2328,16 @@ class VpnServiceImpl : VpnService() {
                 broadcastLog("dns = ${config.dnsMode}: leaving the system resolver alone")
             }
             val dns = plan.dnsServers.map { it.address }
-            dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
+            dns.forEach { server ->
+                try {
+                    addDnsServer(server)
+                } catch (error: Exception) {
+                    throw IllegalStateException(
+                        "Android could not apply canonical DNS server $server",
+                        error,
+                    )
+                }
+            }
 
             // Per-app split tunnel. "include" = only the listed apps enter the tunnel;
             // "exclude" = every app except the listed ones. Uninstalled packages are
@@ -2285,7 +2382,8 @@ class VpnServiceImpl : VpnService() {
                 }
             }
 
-            allowFamily(android.system.OsConstants.AF_INET)
+            if (hasIpv4 || !fullTunnel || plan.allowIpv4Leak)
+                allowFamily(android.system.OsConstants.AF_INET)
         }.establish() ?: throw Exception("Failed to establish VPN interface")
     }
 
@@ -2295,20 +2393,39 @@ class VpnServiceImpl : VpnService() {
         routes: List<TransportCoreNetworkRoute>,
         pushedCidrs: Set<String>,
         excluded: List<String>,
+        protectedCidrs: Set<String>,
         fullTunnel: Boolean,
     ): Int {
         val seen = HashSet<String>()
         var pushedInstalled = 0
         for (route in routes) {
             if (!seen.add(route.cidr)) continue
-            if (excluded.any { cidrOverlaps(it, route.cidr) }) {
-                broadcastLog("core plan route REFUSED: ${route.cidr} overlaps `exclude`")
-                continue
+            val protected = route.cidr in protectedCidrs
+            val overlapsExclude = !protected &&
+                excluded.any { RouteComplements.overlaps(it, route.cidr) }
+            // Exact subtraction is required on every Android version. API 33's include/exclude
+            // API uses longest-prefix matching, so blindly adding a pushed /24 after excluding
+            // a broader /8 would make the /24 win and silently undo the user's exclusion. A DNS
+            // host route is the deliberate exception: the shared core rejects an equal /32 or
+            // /128 conflict and the more-specific host route keeps tunnel DNS from leaking.
+            val appliedCidrs = if (protected) listOf(route.cidr) else
+                RouteComplements.subtract(route.cidr, excluded)
+                    ?: throw IllegalStateException(
+                        "Android could not subtract excludes from canonical route ${route.cidr}")
+            for (cidr in appliedCidrs) {
+                check(builder.addCidrRoute(cidr)) {
+                    "Android could not apply canonical route fragment $cidr"
+                }
             }
-            if (!builder.addCidrRoute(route.cidr)) continue
-            if (route.cidr in pushedCidrs) pushedInstalled++
+            if (route.cidr in pushedCidrs && !overlapsExclude) pushedInstalled++
             val detail = buildString {
-                append("core plan route: ").append(route.cidr).append(" -> APPLIED")
+                append("core plan route: ").append(route.cidr)
+                when {
+                    appliedCidrs.isEmpty() -> append(" -> EXCLUDED")
+                    overlapsExclude -> append(" -> PARTIALLY APPLIED (exclude wins; ")
+                        .append(appliedCidrs.size).append(" route fragment(s))")
+                    else -> append(" -> APPLIED")
+                }
                 if (route.gateway.isNotEmpty() || route.metric > 0) {
                     append(" (Android ignores next-hop/metric; interface route)")
                 }
@@ -2343,119 +2460,30 @@ class VpnServiceImpl : VpnService() {
     }
 
     /**
-     * IPv4 space (`0.0.0.0/0`) MINUS [excludes], as a minimal list of CIDRs. (C-22)
-     *
-     * Pre-Android-13 has no `excludeRoute`, so the only way to keep a destination out of a
-     * full tunnel is to never route it in: install the complement instead of a default
-     * route. Same trick as [PUBLIC_MINUS_RFC1918], but computed for arbitrary user
-     * excludes rather than hardcoded for RFC1918.
-     *
-     * Returns `null` when it CANNOT be built (a malformed entry, or more than
-     * [MAX_COMPLEMENT_ROUTES] prefixes) — distinct from an EMPTY list, which is a valid
-     * answer meaning "the excludes cover everything, so route nothing into the tunnel".
-     * Conflating the two would turn `exclude = 0.0.0.0/0` into a default route, i.e. the
-     * exact opposite of what was asked.
-     */
-    private fun complementRoutes(excludes: List<String>): List<String>? {
-        val ranges = excludes.mapNotNull { cidrRange(it) }
-        if (ranges.size != excludes.size) return null  // malformed entry → cannot build
-        val sorted = ranges.sortedBy { it.first }
-        val out = mutableListOf<String>()
-        var cursor = 0L
-        for ((start, end) in sorted) {
-            if (start > cursor) rangeToCidrs(cursor, start - 1, out)
-            if (end + 1 > cursor) cursor = end + 1
-        }
-        if (cursor <= 0xFFFFFFFFL) rangeToCidrs(cursor, 0xFFFFFFFFL, out)
-        return if (out.size > MAX_COMPLEMENT_ROUTES) null else out
-    }
-
-    /** `a.b.c.d[/p]` → inclusive [start, end] as unsigned-32 values held in a Long. */
-    private fun cidrRange(cidr: String): Pair<Long, Long>? {
-        val slash = cidr.indexOf('/')
-        val addrPart = (if (slash < 0) cidr else cidr.substring(0, slash)).trim()
-        val prefix = if (slash < 0) 32 else cidr.substring(slash + 1).trim().toIntOrNull() ?: return null
-        if (prefix !in 0..32) return null
-        val octets = addrPart.split(".")
-        if (octets.size != 4) return null
-        var addr = 0L
-        for (o in octets) {
-            val v = o.toIntOrNull() ?: return null
-            if (v !in 0..255) return null
-            addr = (addr shl 8) or v.toLong()
-        }
-        val mask = if (prefix == 0) 0L else ((1L shl 32) - (1L shl (32 - prefix)))
-        val base = addr and mask
-        val size = 1L shl (32 - prefix)
-        return Pair(base, base + size - 1)
-    }
-
-    /** Cover the inclusive range [start]..[end] with the fewest aligned CIDR blocks. */
-    private fun rangeToCidrs(start: Long, end: Long, out: MutableList<String>) {
-        var cur = start
-        while (cur <= end) {
-            var bits = 32
-            while (bits > 0) {
-                val size = 1L shl (32 - (bits - 1))
-                if (cur % size != 0L || cur + size - 1 > end) break
-                bits--
-            }
-            out.add("${longToIp(cur)}/$bits")
-            cur += 1L shl (32 - bits)
-        }
-    }
-
-    private fun longToIp(v: Long): String =
-        "${(v ushr 24) and 0xFF}.${(v ushr 16) and 0xFF}.${(v ushr 8) and 0xFF}.${v and 0xFF}"
-
-    /**
      * Network address of [ip] under [prefix]. The old version zeroed the last octet,
      * which is only correct for /24 — with a /16 or /20 tunnel it produced a base
      * address outside the actual subnet, so the split-tunnel route covered the wrong
      * range. (C-13)
      */
-    /** True when the two IPv4 CIDRs share any address — i.e. one contains the other.
-     *  Used to keep a server-pushed route from re-adding a range the user excluded. */
-    private fun cidrOverlaps(a: String, b: String): Boolean {
-        fun parse(c: String): Pair<Int, Int>? {
-            val slash = c.indexOf('/')
-            val host = if (slash >= 0) c.substring(0, slash) else c
-            val prefix = if (slash >= 0) c.substring(slash + 1).toIntOrNull() ?: return null else 32
-            if (prefix !in 0..32) return null
-            val o = host.split(".")
-            if (o.size != 4) return null
-            var addr = 0
-            for (part in o) {
-                val v = part.toIntOrNull() ?: return null
-                if (v !in 0..255) return null
-                addr = (addr shl 8) or v
-            }
-            return addr to prefix
-        }
-        val (aa, ap) = parse(a) ?: return false
-        val (ba, bp) = parse(b) ?: return false
-        // Compare on the SHORTER prefix: two ranges overlap iff the wider one contains the
-        // narrower one's network address.
-        val p = minOf(ap, bp)
-        val mask = if (p <= 0) 0 else (-1 shl (32 - p))
-        return (aa and mask) == (ba and mask)
-    }
-
     private fun subnetBase(ip: String, prefix: Int): String {
-        val o = ip.split(".")
-        if (o.size != 4) return ip
-        val v = o.map { it.toIntOrNull() ?: return ip }
-        val addr = (v[0] shl 24) or (v[1] shl 16) or (v[2] shl 8) or v[3]
-        // Kotlin's `shl` uses only the low 5 bits of the count, so `-1 shl 32` would be
-        // -1 (all ones) instead of 0 — handle prefix 0 explicitly.
-        val mask = if (prefix <= 0) 0 else (-1 shl (32 - prefix))
-        val net = addr and mask
-        return "${(net ushr 24) and 0xFF}.${(net ushr 16) and 0xFF}.${(net ushr 8) and 0xFF}.${net and 0xFF}"
+        val bytes = java.net.InetAddress.getByName(ip).address
+        require(prefix in 0..(bytes.size * 8)) { "invalid subnet prefix" }
+        val fullBytes = prefix / 8
+        val remaining = prefix % 8
+        if (remaining != 0) {
+            val mask = (0xff shl (8 - remaining)) and 0xff
+            bytes[fullBytes] = (bytes[fullBytes].toInt() and mask).toByte()
+        }
+        val zeroFrom = fullBytes + if (remaining == 0) 0 else 1
+        for (index in zeroFrom until bytes.size) bytes[index] = 0
+        return java.net.InetAddress.getByAddress(bytes).hostAddress
+            ?: throw IllegalArgumentException("subnet has no textual address")
     }
 
-    private fun announceConnected(clientIp: String) {
+    private fun announceConnected(clientIp: String, tunnelGateway: String) {
         liveStatus = STATUS_CONNECTED
         liveIp = clientIp
+        liveGateway = tunnelGateway
         liveConnectedAt = System.currentTimeMillis()
         liveBytesUp = 0L
         liveBytesDown = 0L
@@ -2463,6 +2491,7 @@ class VpnServiceImpl : VpnService() {
             setPackage(packageName)
             putExtra(EXTRA_STATUS, STATUS_CONNECTED)
             putExtra(EXTRA_IP, clientIp)
+            putExtra(EXTRA_GATEWAY, tunnelGateway)
         })
         showNotification(s(R.string.notif_connected, clientIp))
     }
