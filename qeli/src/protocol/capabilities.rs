@@ -122,7 +122,13 @@ pub fn negotiate_client_capabilities(
     let mut required_platform = crate::transport_core::platform_capability::IPV6_TUN
         | crate::transport_core::platform_capability::IPV6_ROUTES
         | crate::transport_core::platform_capability::IPV6_DNS;
-    if config.routing.kill_switch {
+    // The NetworkPlan activates the kill switch only for a full tunnel. Requiring the
+    // platform IPv6 kill-switch bit for a split profile makes an intentionally ignored
+    // `kill_switch = true` downgrade `auto` (or reject `required`) even though the adapter
+    // never has to install that policy.
+    if config.routing.kill_switch
+        && crate::transport_core::network::is_full_tunnel(config)
+    {
         required_platform |= crate::transport_core::platform_capability::IPV6_KILL_SWITCH;
     }
     if platform_bits & required_platform != required_platform {
@@ -454,5 +460,48 @@ mod tests {
         config.routing.ipv6 = ClientIpv6Policy::Required;
         let error = negotiate_client_capabilities(&config, Some(server), platform).unwrap_err();
         assert!(error.to_string().contains("below the IPv6 minimum 1280"));
+    }
+
+    #[test]
+    fn split_tunnel_does_not_require_an_unused_ipv6_kill_switch() {
+        let server = implemented_server_capabilities();
+        let platform = crate::transport_core::platform_capability::IPV6_TUN
+            | crate::transport_core::platform_capability::IPV6_ROUTES
+            | crate::transport_core::platform_capability::IPV6_DNS;
+        let mut config = crate::config::client::ClientConfig::default();
+        config.routing.mode = "split-tunnel".to_string();
+        config.routing.add_default_gateway = false;
+        config.routing.kill_switch = true;
+
+        let auto = negotiate_client_capabilities(&config, Some(server), platform)
+            .unwrap()
+            .expect("capability extension");
+        assert_ne!(auto.core_bits & client_capability::INNER_IPV6, 0);
+
+        config.routing.ipv6 = ClientIpv6Policy::Required;
+        let required = negotiate_client_capabilities(&config, Some(server), platform)
+            .unwrap()
+            .expect("capability extension");
+        assert_ne!(required.core_bits & client_capability::INNER_IPV6, 0);
+    }
+
+    #[test]
+    fn full_tunnel_still_requires_the_ipv6_kill_switch_capability() {
+        let server = implemented_server_capabilities();
+        let platform = crate::transport_core::platform_capability::IPV6_TUN
+            | crate::transport_core::platform_capability::IPV6_ROUTES
+            | crate::transport_core::platform_capability::IPV6_DNS;
+        let mut config = crate::config::client::ClientConfig::default();
+        config.routing.add_default_gateway = true;
+        config.routing.kill_switch = true;
+
+        let auto = negotiate_client_capabilities(&config, Some(server), platform)
+            .unwrap()
+            .expect("capability extension");
+        assert_eq!(auto.core_bits & client_capability::INNER_IPV6, 0);
+
+        config.routing.ipv6 = ClientIpv6Policy::Required;
+        let error = negotiate_client_capabilities(&config, Some(server), platform).unwrap_err();
+        assert!(error.to_string().contains("platform adapter is missing"));
     }
 }

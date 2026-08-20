@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+@testable import QeliIOS
 
 enum HeartbeatEmission: Equatable, Sendable {
     case heartbeat

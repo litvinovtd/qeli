@@ -35,6 +35,10 @@ targets:
           # xcframework below is a required link dependency rather than an optional crypto shim.
           - Native/Qeli.xcframework
           - Native/Qeli.xcframework/**
+          # Retained Swift wire primitives are cross-language KAT/test support only. The app
+          # UI has no runtime caller and must not ship a second protocol implementation beside
+          # the Rust core used by QeliPacketTunnel.
+          - Protocol
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:
@@ -68,7 +72,7 @@ targets:
           - Native/Qeli.xcframework
           - Native/Qeli.xcframework/**
           # ABI 1.8 leaves no Swift wire implementation in the production packet extension.
-          # Conformance primitives remain in the app/test target only.
+          # Protocol conformance primitives remain in the unit-test target only.
           - Crypto
           - Protocol
           - Management
@@ -126,6 +130,7 @@ targets:
     platform: iOS
     sources:
       - path: QeliIOSTests
+      - path: QeliCore/Protocol
     dependencies:
       - target: QeliIOS
     settings:

@@ -1026,7 +1026,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             {
                 ushort current = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(pos + 2, 2));
                 if (current <= advertisedMss) return false;
-                BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(pos + 2, 2), (ushort)advertisedMss);
+                RewriteTcpMssAndChecksum(packet, ihl, pos + 2, (ushort)advertisedMss);
                 return true;
             }
             pos += optionLength;
@@ -1060,8 +1060,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 ushort current = BinaryPrimitives.ReadUInt16BigEndian(
                     packet.AsSpan(pos + 2, 2));
                 if (current <= advertisedMss) return false;
-                BinaryPrimitives.WriteUInt16BigEndian(
-                    packet.AsSpan(pos + 2, 2), (ushort)advertisedMss);
+                RewriteTcpMssAndChecksum(packet, tcpOffset, pos + 2, (ushort)advertisedMss);
                 return true;
             }
             pos += optionLength;
@@ -1818,6 +1817,35 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         uint sum = (uint)(~checksum & 0xFFFF) + (uint)(~oldWord & 0xFFFF) + newWord;
         while ((sum >> 16) != 0) sum = (sum & 0xFFFF) + (sum >> 16);
         return (ushort)~sum;
+    }
+
+    /// <summary>Rewrite a two-byte MSS option and update the TCP checksum incrementally.
+    /// The value can be unaligned after NOP options, in which case it spans two checksum
+    /// words. Full packets are recalculated later; this adjustment is essential when the
+    /// packet is subsequently split and the first fragment no longer contains the payload
+    /// needed for a full transport checksum.</summary>
+    private static void RewriteTcpMssAndChecksum(
+        byte[] packet, int tcpOffset, int valueOffset, ushort newMss)
+    {
+        int relative = valueOffset - tcpOffset;
+        int firstWordOffset = valueOffset - (relative & 1);
+        int lastWordOffset = (relative & 1) == 0 ? firstWordOffset : firstWordOffset + 2;
+        ushort oldFirst = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(firstWordOffset, 2));
+        ushort oldLast = lastWordOffset == firstWordOffset
+            ? oldFirst
+            : BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(lastWordOffset, 2));
+
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(valueOffset, 2), newMss);
+
+        ushort checksum = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(tcpOffset + 16, 2));
+        ushort newFirst = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(firstWordOffset, 2));
+        checksum = AdjustChecksumWord(checksum, oldFirst, newFirst);
+        if (lastWordOffset != firstWordOffset)
+        {
+            ushort newLast = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(lastWordOffset, 2));
+            checksum = AdjustChecksumWord(checksum, oldLast, newLast);
+        }
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(tcpOffset + 16, 2), checksum);
     }
 
     private static void FixFragmentChecksums(

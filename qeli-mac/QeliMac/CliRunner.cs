@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -144,6 +145,14 @@ public static class CliRunner
         // crash/restart journal with a fake network backend so the regression is covered on
         // every build host without root or a Mac.
         DnsJournal.RunSelfTests(Check);
+
+        // Per-app reconnect keeps the utun descriptor alive, so both address families need
+        // explicit transaction undo commands before a different NetworkPlan is applied.
+        Check("utun cleanup: IPv4 and IPv6 addresses have family-correct undo commands",
+            NetworkConfigurator.AddressRemovalArguments("utun7", IPAddress.Parse("10.8.0.2")) ==
+                "utun7 inet 10.8.0.2 -alias" &&
+            NetworkConfigurator.AddressRemovalArguments("utun7", IPAddress.Parse("fd71:e1::2")) ==
+                "utun7 inet6 fd71:e1::2 -alias");
 
 
         // Flat-INI client config parses to the expected fields.

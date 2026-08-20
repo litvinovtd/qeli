@@ -215,7 +215,7 @@ public sealed class NetworkConfigurator : IDisposable
             if (prefix is < 1 or > 128)
                 throw new InvalidOperationException($"invalid IPv6 tunnel prefix {prefix}");
             Run("/sbin/ifconfig", $"{dev} inet6 {clientIp} prefixlen {prefix} alias up");
-            _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 {clientIp} -alias", optional: true));
+            _undo.Add(() => Run("/sbin/ifconfig", AddressRemovalArguments(dev, address), optional: true));
             _log($"Set {dev} address {clientIp}/{prefix}");
             return;
         }
@@ -223,8 +223,17 @@ public sealed class NetworkConfigurator : IDisposable
         int p = (prefix is >= 1 and <= 32) ? prefix : 24;
         string mask = PrefixToMask(p);
         Run("/sbin/ifconfig", $"{dev} inet {clientIp} {clientIp} netmask {mask} up");
+        // A retained per-app utun outlives this transaction. Without an IPv4 undo action,
+        // reconnecting from dual/IPv4 to IPv6-only leaves the old primary address and its
+        // connected route on the live interface.
+        _undo.Add(() => Run("/sbin/ifconfig", AddressRemovalArguments(dev, address), optional: true));
         _log($"Set {dev} address {clientIp}/{p}");
     }
+
+    internal static string AddressRemovalArguments(string dev, IPAddress address) =>
+        address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? $"{dev} inet6 {address} -alias"
+            : $"{dev} inet {address} -alias";
 
     /// <summary>CIDR prefix length → dotted IPv4 netmask (out-of-range falls back to /24).</summary>
     private static string PrefixToMask(int prefix)

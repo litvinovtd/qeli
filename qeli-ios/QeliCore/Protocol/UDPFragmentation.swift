@@ -1,5 +1,6 @@
 import Foundation
 import Security
+@testable import QeliIOS
 
 enum UDPFragmentation {
     static let magic: [UInt8] = [0xf0, 0x9b, 0x71]
@@ -157,7 +158,12 @@ enum UDPFragmentation {
             } else if messageID != incomingID || expectedCount != count {
                 throw UDPFragmentationError.inconsistentMessage
             }
-            if parts[index] == nil { parts[index] = data.dropFirst(UDPFragmentation.headerLength) }
+            let chunk = Data(data.dropFirst(UDPFragmentation.headerLength))
+            if let existing = parts[index] {
+                guard existing == chunk else { throw UDPFragmentationError.conflictingDuplicate }
+            } else {
+                parts[index] = chunk
+            }
             guard parts.allSatisfy({ $0 != nil }) else { return nil }
             return parts.compactMap { $0 }.reduce(into: Data()) { $0.append($1) }
         }
@@ -178,6 +184,7 @@ enum UDPFragmentation {
 
 enum UDPFragmentationError: Error {
     case notFragment, invalidCount, invalidIndex, chunkTooLarge, inconsistentMessage
+    case conflictingDuplicate
     case tooManyFragments(Int)
     case randomFailure(OSStatus)
 }

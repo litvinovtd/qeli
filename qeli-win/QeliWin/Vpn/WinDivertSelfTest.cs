@@ -273,10 +273,25 @@ internal static class WinDivertSelfTest
         syn[0] = 0x45; syn[9] = 6;
         syn[32] = 0x60; // 24-byte TCP header
         syn[33] = 0x02; // SYN
+        BinaryPrimitives.WriteUInt16BigEndian(syn.AsSpan(36, 2), 0x1234);
         syn[40] = 2; syn[41] = 4; syn[42] = 0x05; syn[43] = 0xB4; // MSS 1460
         check("mtu: TCP SYN MSS is clamped to tunnel MTU",
             WinDivertAdapter.ClampTcpMss(syn, syn.Length, 1400)
-            && BinaryPrimitives.ReadUInt16BigEndian(syn.AsSpan(42, 2)) == 1360);
+            && BinaryPrimitives.ReadUInt16BigEndian(syn.AsSpan(42, 2)) == 1360
+            && BinaryPrimitives.ReadUInt16BigEndian(syn.AsSpan(36, 2)) == 0x1298);
+
+        var oddMssSyn = new byte[48];
+        oddMssSyn[0] = 0x45; oddMssSyn[9] = 6;
+        oddMssSyn[32] = 0x70; oddMssSyn[33] = 0x02; // 28-byte TCP SYN header
+        BinaryPrimitives.WriteUInt16BigEndian(oddMssSyn.AsSpan(36, 2), 0x1234);
+        oddMssSyn[40] = 1; // NOP: the MSS value now straddles checksum words
+        oddMssSyn[41] = 2; oddMssSyn[42] = 4;
+        BinaryPrimitives.WriteUInt16BigEndian(oddMssSyn.AsSpan(43, 2), 1460);
+        oddMssSyn[45] = 1;
+        check("mtu: unaligned MSS clamp adjusts both TCP checksum words",
+            WinDivertAdapter.ClampTcpMss(oddMssSyn, oddMssSyn.Length, 1400)
+            && BinaryPrimitives.ReadUInt16BigEndian(oddMssSyn.AsSpan(43, 2)) == 1360
+            && BinaryPrimitives.ReadUInt16BigEndian(oddMssSyn.AsSpan(36, 2)) == 0x7634);
 
         // Options whose copy bit is clear belong only to the first IPv4 fragment. Also refuse
         // an already-fragmented packet whose final byte cannot fit the 13-bit offset field.
@@ -389,6 +404,7 @@ internal static class WinDivertSelfTest
         ipv6Syn[6] = 6;
         ipv6Syn[52] = 0x60; // 24-byte TCP header
         ipv6Syn[53] = 0x02; // SYN
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6Syn.AsSpan(56, 2), 0x1234);
         ipv6Syn[60] = 2; ipv6Syn[61] = 4;
         BinaryPrimitives.WriteUInt16BigEndian(ipv6Syn.AsSpan(62, 2), 1460);
         check("ipv6: TCP SYN MSS accounts for the 40-byte IPv6 header",
@@ -396,7 +412,8 @@ internal static class WinDivertSelfTest
                 ipv6Syn, ipv6Syn.Length, out var ipv6SynMeta)
             && WinDivertAdapter.ClampIpv6TcpMss(
                 ipv6Syn, ipv6Syn.Length, ipv6SynMeta, 1400)
-            && BinaryPrimitives.ReadUInt16BigEndian(ipv6Syn.AsSpan(62, 2)) == 1340);
+            && BinaryPrimitives.ReadUInt16BigEndian(ipv6Syn.AsSpan(62, 2)) == 1340
+            && BinaryPrimitives.ReadUInt16BigEndian(ipv6Syn.AsSpan(56, 2)) == 0x12AC);
 
         var icmpv6 = new byte[92];
         icmpv6[0] = 0x60;

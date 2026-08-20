@@ -280,7 +280,10 @@ only to the delegated profile prefix; `nat66` admits only related/established WA
 Linux setup enables IPv6 forwarding, family-correct FORWARD/NAT rules, MSS clamp, and
 mandatory ICMPv6 including Packet Too Big. If the uplink learns its route through RA/SLAAC,
 enabling forwarding must not disable RA reception: apply `accept_ra=2` narrowly to that
-uplink and restore its previous value later. nftables or ip6tables may be used, but sysctl and
+uplink and restore its previous value later. Original values are journaled atomically before
+the `/proc` writes and recovered on the same kernel boot after an unclean worker exit; a
+different boot ID discards the stale journal instead of overwriting freshly loaded host policy.
+nftables or ip6tables may be used, but sysctl and
 firewall cleanup, rollback, and multiprofile behavior must be symmetric with IPv4.
 
 Without a working IPv6 default route/uplink, the panel and installer must not claim Internet

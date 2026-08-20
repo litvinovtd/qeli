@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+@testable import QeliIOS
 
 /// Stateless UDP obfuscation used by Qeli's `obfs` wire mode.
 ///

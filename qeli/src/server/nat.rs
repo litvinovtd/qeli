@@ -20,7 +20,7 @@
 //! any explicit rule/jump, or an unreadable chain fails closed instead of starting a
 //! profile that black-holes client traffic.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
@@ -124,29 +124,160 @@ fn enable_ip_forward() -> bool {
 }
 
 const IPV6_FORWARDING_SYSCTL: &str = "/proc/sys/net/ipv6/conf/all/forwarding";
+const BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
+const IPV6_SYSCTL_JOURNAL_VERSION: u8 = 1;
+const IPV6_SYSCTL_JOURNAL_NAME: &str = "ipv6-sysctls.state";
+const IPV6_SYSCTL_JOURNAL_LIMIT: u64 = 64 * 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ManagedIpv6Sysctl {
     original: String,
     owners: HashSet<String>,
 }
 
-/// Process-local ownership of the global IPv6 router sysctls changed by active profiles.
+/// Process-local ownership of the global IPv6 router sysctls changed by active profiles. The
+/// original values themselves are also mirrored to a crash journal below.
 ///
 /// Profiles start and stop independently. Restoring `forwarding` or an uplink's `accept_ra`
 /// from a per-profile teardown would therefore break every sibling still using the setting.
 /// The first owner records the host value, every later owner shares it, and the last one
 /// restores it. A value changed by the operator while qeli is running is never overwritten.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Ipv6SysctlState {
     forwarding: Option<ManagedIpv6Sysctl>,
     accept_ra: HashMap<String, ManagedIpv6Sysctl>,
     profile_wan: HashMap<String, String>,
 }
 
+/// Machine-local crash journal for the host-wide IPv6 knobs. This is runtime state, not a
+/// user configuration: it records only the values that must be restored if the worker is
+/// killed between acquire and release.
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+struct Ipv6SysctlJournal {
+    version: u8,
+    boot_id: String,
+    forwarding_original: Option<String>,
+    accept_ra_original: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SysctlRestoreAction {
+    AlreadyOriginal,
+    RestoreOriginal,
+    LeaveExternalValue,
+}
+
 fn ipv6_sysctl_state() -> &'static Mutex<Ipv6SysctlState> {
     static STATE: OnceLock<Mutex<Ipv6SysctlState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(Ipv6SysctlState::default()))
+}
+
+fn ipv6_sysctl_journal_path() -> std::path::PathBuf {
+    std::env::var_os("STATE_DIRECTORY")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/qeli"))
+        .join(IPV6_SYSCTL_JOURNAL_NAME)
+}
+
+fn current_boot_id() -> anyhow::Result<String> {
+    let value = std::fs::read_to_string(BOOT_ID_PATH)
+        .map_err(|error| anyhow::anyhow!("cannot read {BOOT_ID_PATH}: {error}"))?;
+    let value = value.trim();
+    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+        anyhow::bail!("{BOOT_ID_PATH} contains an invalid boot identifier");
+    }
+    Ok(value.to_string())
+}
+
+fn journal_from_state(
+    state: &Ipv6SysctlState,
+    boot_id: String,
+) -> Ipv6SysctlJournal {
+    Ipv6SysctlJournal {
+        version: IPV6_SYSCTL_JOURNAL_VERSION,
+        boot_id,
+        forwarding_original: state
+            .forwarding
+            .as_ref()
+            .map(|entry| entry.original.clone()),
+        accept_ra_original: state
+            .accept_ra
+            .iter()
+            .map(|(wan, entry)| (wan.clone(), entry.original.clone()))
+            .collect(),
+    }
+}
+
+fn validate_ipv6_sysctl_journal(journal: &Ipv6SysctlJournal) -> anyhow::Result<()> {
+    if journal.version != IPV6_SYSCTL_JOURNAL_VERSION {
+        anyhow::bail!(
+            "unsupported IPv6 sysctl journal version {}",
+            journal.version
+        );
+    }
+    if journal.boot_id.is_empty()
+        || journal.boot_id.len() > 128
+        || journal.boot_id.chars().any(char::is_control)
+    {
+        anyhow::bail!("IPv6 sysctl journal contains an invalid boot identifier");
+    }
+    if journal
+        .forwarding_original
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "0" | "1"))
+    {
+        anyhow::bail!("IPv6 sysctl journal contains an invalid forwarding value");
+    }
+    for (wan, original) in &journal.accept_ra_original {
+        accept_ra_sysctl(wan)?;
+        if !matches!(original.as_str(), "0" | "1" | "2") {
+            anyhow::bail!(
+                "IPv6 sysctl journal contains an invalid accept_ra value for '{wan}'"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn remove_ipv6_sysctl_journal() -> anyhow::Result<()> {
+    let path = ipv6_sysctl_journal_path();
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(anyhow::anyhow!(
+            "cannot remove IPv6 sysctl recovery journal {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+/// Persist the ORIGINAL values before touching `/proc`. A hard crash can therefore restore
+/// host policy on the next worker start instead of mistaking qeli's `1`/`2` for operator state.
+fn persist_ipv6_sysctl_state(state: &Ipv6SysctlState) -> anyhow::Result<()> {
+    if state.forwarding.is_none() && state.accept_ra.is_empty() {
+        return remove_ipv6_sysctl_journal();
+    }
+    let path = ipv6_sysctl_journal_path();
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("IPv6 sysctl journal has no parent directory"))?;
+    std::fs::create_dir_all(parent).map_err(|error| {
+        anyhow::anyhow!(
+            "cannot create IPv6 sysctl journal directory {}: {error}",
+            parent.display()
+        )
+    })?;
+    let journal = journal_from_state(state, current_boot_id()?);
+    validate_ipv6_sysctl_journal(&journal)?;
+    let encoded = serde_json::to_vec(&journal)
+        .map_err(|error| anyhow::anyhow!("cannot encode IPv6 sysctl journal: {error}"))?;
+    crate::util::write_atomic_private(&path, &encoded).map_err(|error| {
+        anyhow::anyhow!(
+            "cannot persist IPv6 sysctl recovery journal {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn accept_ra_sysctl(wan: &str) -> anyhow::Result<String> {
@@ -160,6 +291,7 @@ fn accept_ra_sysctl(wan: &str) -> anyhow::Result<String> {
         || wan.contains('/')
         || wan.contains('\\')
         || wan.contains('\0')
+        || wan.chars().any(|character| character.is_control() || character.is_whitespace())
     {
         anyhow::bail!("invalid IPv6 uplink interface name '{wan}'");
     }
@@ -182,26 +314,120 @@ fn set_sysctl(path: &str, value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn restore_sysctl_if_owned(path: &str, managed_value: &str, original: &str) {
+fn sysctl_restore_action(
+    current: &str,
+    managed_value: &str,
+    original: &str,
+) -> SysctlRestoreAction {
+    if current != managed_value {
+        SysctlRestoreAction::LeaveExternalValue
+    } else if current == original {
+        SysctlRestoreAction::AlreadyOriginal
+    } else {
+        SysctlRestoreAction::RestoreOriginal
+    }
+}
+
+/// Returns true when qeli no longer owns a value that needs a later recovery retry.
+fn restore_sysctl_if_owned(path: &str, managed_value: &str, original: &str) -> bool {
+    if !std::path::Path::new(path).exists() {
+        // A hot-unplugged/renamed WAN no longer has per-interface kernel state to restore.
+        // Keeping its journal entry would make every worker restart fail forever.
+        log::info!("IPv6 routing: {path} no longer exists; no sysctl remains to restore");
+        return true;
+    }
     let current = match read_sysctl(path) {
         Ok(value) => value,
         Err(error) => {
             log::warn!("IPv6 routing: cannot inspect {path} during cleanup: {error}");
-            return;
+            return false;
         }
     };
-    if current != managed_value {
-        log::warn!(
-            "IPv6 routing: not restoring {path} to {original}: it was changed externally to {current} while qeli was running"
-        );
-        return;
-    }
-    if current != original {
-        match set_sysctl(path, original) {
-            Ok(()) => log::info!("IPv6 routing: restored {path}={original}"),
-            Err(error) => log::warn!("IPv6 routing: could not restore {path}: {error}"),
+    match sysctl_restore_action(&current, managed_value, original) {
+        SysctlRestoreAction::LeaveExternalValue => {
+            log::warn!(
+                "IPv6 routing: not restoring {path} to {original}: it was changed externally to {current} while qeli was running"
+            );
+            true
+        }
+        SysctlRestoreAction::AlreadyOriginal => true,
+        SysctlRestoreAction::RestoreOriginal => match set_sysctl(path, original) {
+            Ok(()) => {
+                log::info!("IPv6 routing: restored {path}={original}");
+                true
+            }
+            Err(error) => {
+                log::warn!("IPv6 routing: could not restore {path}: {error}");
+                false
+            }
         }
     }
+}
+
+/// Restore a journal left by a killed worker. A boot-id mismatch means the kernel has rebooted
+/// and reloaded its own sysctl policy, so the old journal must be discarded without applying
+/// stale values from the previous boot.
+fn recover_ipv6_sysctls() -> anyhow::Result<()> {
+    let path = ipv6_sysctl_journal_path();
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "cannot inspect IPv6 sysctl recovery journal {}: {error}",
+                path.display()
+            ));
+        }
+    };
+    if !metadata.is_file() || metadata.len() > IPV6_SYSCTL_JOURNAL_LIMIT {
+        anyhow::bail!(
+            "refusing invalid IPv6 sysctl recovery journal {} (regular={}, size={})",
+            path.display(),
+            metadata.is_file(),
+            metadata.len()
+        );
+    }
+    let bytes = std::fs::read(&path).map_err(|error| {
+        anyhow::anyhow!(
+            "cannot read IPv6 sysctl recovery journal {}: {error}",
+            path.display()
+        )
+    })?;
+    let journal: Ipv6SysctlJournal = serde_json::from_slice(&bytes).map_err(|error| {
+        anyhow::anyhow!(
+            "cannot parse IPv6 sysctl recovery journal {}: {error}",
+            path.display()
+        )
+    })?;
+    validate_ipv6_sysctl_journal(&journal)?;
+
+    let boot_id = current_boot_id()?;
+    if journal.boot_id != boot_id {
+        log::info!(
+            "IPv6 routing: discarding recovery journal from an earlier kernel boot"
+        );
+        return remove_ipv6_sysctl_journal();
+    }
+
+    let mut restored = true;
+    // Turn router mode off first when qeli was its last owner; only then restore per-interface
+    // RA policy. Entries whose current value was changed by an operator are deliberately left.
+    if let Some(original) = journal.forwarding_original.as_deref() {
+        restored &= restore_sysctl_if_owned(IPV6_FORWARDING_SYSCTL, "1", original);
+    }
+    for (wan, original) in &journal.accept_ra_original {
+        let ra_path = accept_ra_sysctl(wan)?;
+        restored &= restore_sysctl_if_owned(&ra_path, "2", original);
+    }
+    if !restored {
+        anyhow::bail!(
+            "IPv6 sysctl recovery is incomplete; keeping {} for the next retry",
+            path.display()
+        );
+    }
+    remove_ipv6_sysctl_journal()?;
+    log::info!("IPv6 routing: recovered host sysctls from a previous unclean exit");
+    Ok(())
 }
 
 /// Acquire the host IPv6-router settings for one profile.
@@ -224,66 +450,69 @@ fn acquire_ipv6_sysctls(profile: &str, wan: &str) -> anyhow::Result<()> {
         );
     }
 
-    let mut created_ra = false;
-    if let Some(entry) = state.accept_ra.get_mut(wan) {
+    let mut next = state.clone();
+    let ra_entry_is_new = !next.accept_ra.contains_key(wan);
+    let apply_ra = if let Some(entry) = next.accept_ra.get_mut(wan) {
+        // An empty owner set means a prior release could not verify/restore this sysctl and
+        // deliberately kept the journal entry. Re-acquisition must verify the managed value
+        // again instead of assuming that stale in-memory state is active.
+        let needs_reapply = entry.owners.is_empty();
         entry.owners.insert(profile.to_string());
+        needs_reapply
     } else {
         let original = read_sysctl(&ra_path)?;
-        if original != "2" {
-            set_sysctl(&ra_path, "2")?;
-            log::info!("IPv6 routing: set {ra_path}=2 while the uplink is used by qeli");
-        }
-        state.accept_ra.insert(
+        let needs_apply = original != "2";
+        next.accept_ra.insert(
             wan.to_string(),
             ManagedIpv6Sysctl {
                 original,
                 owners: HashSet::from([profile.to_string()]),
             },
         );
-        created_ra = true;
-    }
-
-    let forwarding_result = if let Some(entry) = state.forwarding.as_mut() {
-        entry.owners.insert(profile.to_string());
-        Ok(())
-    } else {
-        read_sysctl(IPV6_FORWARDING_SYSCTL).and_then(|original| {
-            if original != "1" {
-                set_sysctl(IPV6_FORWARDING_SYSCTL, "1")?;
-                log::info!(
-                    "IPv6 routing: enabled {IPV6_FORWARDING_SYSCTL} while IPv6 profiles are active"
-                );
-            }
-            state.forwarding = Some(ManagedIpv6Sysctl {
-                original,
-                owners: HashSet::from([profile.to_string()]),
-            });
-            Ok(())
-        })
+        needs_apply
     };
-    if let Err(error) = forwarding_result {
-        // Roll back the RA ownership added above. When this was the first owner, also restore
-        // the value we changed before attempting the global forwarding write.
-        if let Some(entry) = state.accept_ra.get_mut(wan) {
-            entry.owners.remove(profile);
-        }
-        let remove_ra = state
-            .accept_ra
-            .get(wan)
-            .is_some_and(|entry| entry.owners.is_empty());
-        if remove_ra {
-            if let Some(entry) = state.accept_ra.remove(wan) {
-                if created_ra {
-                    restore_sysctl_if_owned(&ra_path, "2", &entry.original);
-                }
-            }
-        }
-        return Err(error);
-    }
 
-    state
+    let forwarding_entry_is_new = next.forwarding.is_none();
+    let apply_forwarding = if let Some(entry) = next.forwarding.as_mut() {
+        let needs_reapply = entry.owners.is_empty();
+        entry.owners.insert(profile.to_string());
+        needs_reapply
+    } else {
+        let original = read_sysctl(IPV6_FORWARDING_SYSCTL)?;
+        let needs_apply = original != "1";
+        next.forwarding = Some(ManagedIpv6Sysctl {
+            original,
+            owners: HashSet::from([profile.to_string()]),
+        });
+        needs_apply
+    };
+
+    next
         .profile_wan
         .insert(profile.to_string(), wan.to_string());
+    // A new original value reaches stable storage BEFORE its global kernel value is changed.
+    // Owner-only changes are intentionally process-local and do not rewrite identical state.
+    if ra_entry_is_new || forwarding_entry_is_new {
+        persist_ipv6_sysctl_state(&next)?;
+    }
+    *state = next;
+
+    if apply_ra {
+        if let Err(error) = set_sysctl(&ra_path, "2") {
+            release_ipv6_sysctls_locked(&mut state, profile);
+            return Err(error);
+        }
+        log::info!("IPv6 routing: set {ra_path}=2 while the uplink is used by qeli");
+    }
+    if apply_forwarding {
+        if let Err(error) = set_sysctl(IPV6_FORWARDING_SYSCTL, "1") {
+            release_ipv6_sysctls_locked(&mut state, profile);
+            return Err(error);
+        }
+        log::info!(
+            "IPv6 routing: enabled {IPV6_FORWARDING_SYSCTL} while IPv6 profiles are active"
+        );
+    }
     Ok(())
 }
 
@@ -291,9 +520,34 @@ fn release_ipv6_sysctls(profile: &str) {
     let mut state = ipv6_sysctl_state()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    release_ipv6_sysctls_locked(&mut state, profile);
+}
+
+fn release_ipv6_sysctls_locked(state: &mut Ipv6SysctlState, profile: &str) {
     let Some(wan) = state.profile_wan.remove(profile) else {
         return;
     };
+
+    let mut journal_changed = false;
+    if let Some(entry) = state.forwarding.as_mut() {
+        entry.owners.remove(profile);
+    }
+    if state
+        .forwarding
+        .as_ref()
+        .is_some_and(|entry| entry.owners.is_empty())
+    {
+        let original = state
+            .forwarding
+            .as_ref()
+            .expect("checked above")
+            .original
+            .clone();
+        if restore_sysctl_if_owned(IPV6_FORWARDING_SYSCTL, "1", &original) {
+            state.forwarding = None;
+            journal_changed = true;
+        }
+    }
 
     if let Some(entry) = state.accept_ra.get_mut(&wan) {
         entry.owners.remove(profile);
@@ -303,23 +557,25 @@ fn release_ipv6_sysctls(profile: &str) {
         .get(&wan)
         .is_some_and(|entry| entry.owners.is_empty())
     {
-        if let Some(entry) = state.accept_ra.remove(&wan) {
-            if let Ok(path) = accept_ra_sysctl(&wan) {
-                restore_sysctl_if_owned(&path, "2", &entry.original);
-            }
+        let original = state
+            .accept_ra
+            .get(&wan)
+            .expect("checked above")
+            .original
+            .clone();
+        if accept_ra_sysctl(&wan)
+            .is_ok_and(|path| restore_sysctl_if_owned(&path, "2", &original))
+        {
+            state.accept_ra.remove(&wan);
+            journal_changed = true;
         }
     }
 
-    if let Some(entry) = state.forwarding.as_mut() {
-        entry.owners.remove(profile);
-    }
-    if state
-        .forwarding
-        .as_ref()
-        .is_some_and(|entry| entry.owners.is_empty())
-    {
-        if let Some(entry) = state.forwarding.take() {
-            restore_sysctl_if_owned(IPV6_FORWARDING_SYSCTL, "1", &entry.original);
+    if journal_changed {
+        if let Err(error) = persist_ipv6_sysctl_state(state) {
+            // The previous journal is intentionally left in place. Its restore operations are
+            // ownership-checked, so retrying them after a clean partial release is safe.
+            log::error!("IPv6 routing: could not update the crash-recovery journal: {error}");
         }
     }
 }
@@ -1221,17 +1477,20 @@ pub fn cleanup(profile: &str) {
     release_ipv6_sysctls(profile);
 }
 
-/// Remove EVERY qeli-managed NAT rule (`qeli-nat:*`, any profile). Called once at
-/// worker startup so rules left behind by a profile that has since been REMOVED
+/// Restore a killed worker's host-wide IPv6 sysctls, then remove EVERY qeli-managed NAT rule
+/// (`qeli-nat:*`, any profile). Called once at worker startup so rules left behind by a profile
+/// that has since been REMOVED
 /// from the config — whose own [`cleanup`] is never called again — don't leak
 /// forever. Active profiles re-install their rules immediately afterwards.
-pub fn cleanup_all() {
+pub fn cleanup_all() -> anyhow::Result<()> {
+    recover_ipv6_sysctls()?;
     if let Some(path) = iptables_path() {
         cleanup_matching(&path, "qeli-nat:", false);
     }
     if let Some(path) = ip6tables_path() {
         cleanup_matching(&path, "qeli-nat:", false);
     }
+    Ok(())
 }
 
 fn cleanup_with(path: &str, profile: &str) {
@@ -1316,10 +1575,13 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        chain_policy_from_output, dns_input_rule, ipv6_off_rules, ipv6_rules, resolve_wan_ipv6,
-        rule_comment, tag,
+        chain_policy_from_output, dns_input_rule, ipv6_off_rules, ipv6_rules,
+        journal_from_state, resolve_wan_ipv6, rule_comment, sysctl_restore_action, tag,
+        validate_ipv6_sysctl_journal, Ipv6SysctlJournal, Ipv6SysctlState,
+        ManagedIpv6Sysctl, SysctlRestoreAction,
     };
     use crate::config::server::Ipv6RoutingMode;
+    use std::collections::{HashMap, HashSet};
 
     fn has_sequence(args: &[String], expected: &[&str]) -> bool {
         args.windows(expected.len()).any(|window| {
@@ -1452,6 +1714,61 @@ mod tests {
         assert_eq!(rule_comment(quoted).as_deref(), Some("qeli-nat:us"));
         let none = "-A FORWARD -o t -j ACCEPT";
         assert_eq!(rule_comment(none), None);
+    }
+
+    #[test]
+    fn ipv6_sysctl_journal_roundtrips_only_original_host_policy() {
+        let state = Ipv6SysctlState {
+            forwarding: Some(ManagedIpv6Sysctl {
+                original: "0".to_string(),
+                owners: HashSet::from(["edge".to_string(), "mobile".to_string()]),
+            }),
+            accept_ra: HashMap::from([
+                (
+                    "eth0".to_string(),
+                    ManagedIpv6Sysctl {
+                        original: "1".to_string(),
+                        owners: HashSet::from(["edge".to_string()]),
+                    },
+                ),
+                (
+                    "wan6".to_string(),
+                    ManagedIpv6Sysctl {
+                        original: "0".to_string(),
+                        owners: HashSet::from(["mobile".to_string()]),
+                    },
+                ),
+            ]),
+            profile_wan: HashMap::from([
+                ("edge".to_string(), "eth0".to_string()),
+                ("mobile".to_string(), "wan6".to_string()),
+            ]),
+        };
+        let journal = journal_from_state(&state, "boot-a".to_string());
+        validate_ipv6_sysctl_journal(&journal).expect("valid journal");
+        let encoded = serde_json::to_vec(&journal).expect("encode journal");
+        let decoded: Ipv6SysctlJournal =
+            serde_json::from_slice(&encoded).expect("decode journal");
+        assert_eq!(journal, decoded);
+        assert_eq!(journal.forwarding_original.as_deref(), Some("0"));
+        assert_eq!(journal.accept_ra_original.get("eth0").map(String::as_str), Some("1"));
+        assert_eq!(journal.accept_ra_original.get("wan6").map(String::as_str), Some("0"));
+    }
+
+    #[test]
+    fn ipv6_sysctl_restore_never_overwrites_an_external_change() {
+        assert_eq!(
+            sysctl_restore_action("1", "1", "0"),
+            SysctlRestoreAction::RestoreOriginal
+        );
+        assert_eq!(
+            sysctl_restore_action("0", "1", "0"),
+            SysctlRestoreAction::LeaveExternalValue
+        );
+        assert_eq!(
+            sysctl_restore_action("1", "1", "1"),
+            SysctlRestoreAction::AlreadyOriginal
+        );
     }
 
     #[test]

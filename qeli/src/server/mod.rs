@@ -2791,7 +2791,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     // Clear any leaked NAT rules from a previous run whose profile has since been
     // REMOVED from the config (its per-profile cleanup never runs again). Active
     // profiles re-install their own rules in run_profile right below.
-    nat::cleanup_all();
+    nat::cleanup_all()?;
 
     // Profiles whose `post_down` has already run for their current lifecycle. A
     // profile supervisor clears its entry immediately before every restart, so an

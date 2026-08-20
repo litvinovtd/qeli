@@ -218,7 +218,10 @@ public static class UdpFrag
             if (d.Length - HdrLen > MaxChunkAccept) throw new System.Exception("fragment chunk too large");
             if (_count == 0) { _msgId = msgId; _count = count; _parts = new byte[count][]; _have = 0; }
             else if (msgId != _msgId || count != _count) throw new System.Exception("inconsistent fragment");
-            if (_parts[idx] == null) { _parts[idx] = d[HdrLen..]; _have++; }
+            var chunk = d[HdrLen..];
+            if (_parts[idx] == null) { _parts[idx] = chunk; _have++; }
+            else if (!_parts[idx]!.AsSpan().SequenceEqual(chunk))
+                throw new System.Exception("conflicting duplicate fragment");
             if (_have != _count) return null;
             int total = 0;
             foreach (var p in _parts) total += p!.Length;

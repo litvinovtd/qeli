@@ -231,6 +231,26 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("if updateCheckGeneration == generation", ios_model)
         self.assertIn("automaticUpdateChecked = false", ios_model)
 
+    def test_ios_retained_wire_primitives_are_test_only(self):
+        root = Path(__file__).parent.parent
+        ios_project = (root / "qeli-ios/project.yml").read_text(encoding="utf-8")
+        app_target = ios_project.split("  QeliIOS:", 1)[1].split(
+            "  QeliPacketTunnel:", 1
+        )[0]
+        test_target = ios_project.split("  QeliIOSTests:", 1)[1].split(
+            "schemes:", 1
+        )[0]
+        self.assertIn("- Protocol", app_target)
+        self.assertIn("- path: QeliCore/Protocol", test_target)
+
+        protocol_dir = root / "qeli-ios/QeliCore/Protocol"
+        for source in protocol_dir.glob("*.swift"):
+            self.assertIn(
+                "@testable import QeliIOS",
+                source.read_text(encoding="utf-8"),
+                source.name,
+            )
+
     def test_mobile_update_requests_cannot_migrate_to_the_physical_network(self):
         root = Path(__file__).parent.parent
         android_checker = (

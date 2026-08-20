@@ -577,7 +577,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-5.1 | ✅ Production runtime duplicates are gone from Android, Windows/macOS and iOS; C#/Swift wire/crypto remains only for conformance/KAT, and the iOS Packet Tunnel does not compile it |
+| TC-5.1 | ✅ Production runtime duplicates are gone from Android, Windows/macOS and iOS; C#/Swift wire/crypto remains only for conformance/KAT, and neither production iOS target compiles the retained Swift wire code |
 | TC-5.2 | ✅ Windows/macOS/iOS reachability uses ABI 1.8 `qeli_client_udp_probe`; old language first-flight helpers are outside the active build |
 
 The 0.7.15 desktop cleanup reduced `VpnTunnelBase.cs` from 3,287 to 1,126 lines and

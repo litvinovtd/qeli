@@ -573,7 +573,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-5.1 | ✅ Production runtime-дубли Android, Windows/macOS и iOS удалены; C#/Swift wire/crypto остаются только как conformance/KAT, а iOS Packet Tunnel их не компилирует |
+| TC-5.1 | ✅ Production runtime-дубли Android, Windows/macOS и iOS удалены; C#/Swift wire/crypto остаются только как conformance/KAT, а сохранённый Swift wire-код не компилирует ни один production iOS target |
 | TC-5.2 | ✅ Reachability Windows/macOS/iOS переведена на ABI 1.8 `qeli_client_udp_probe`; старые C#/Swift first-flight helpers не входят в active build |
 
 Desktop cleanup 0.7.15 сократил `VpnTunnelBase.cs` с 3 287 до 1 126 строк и удалил

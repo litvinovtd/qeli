@@ -349,11 +349,16 @@ impl Reassembler {
             return Err("inconsistent fragment (msg_id/count changed)");
         }
         let slot = &mut self.parts[idx as usize];
-        if slot.is_none() {
-            *slot = Some(chunk.to_vec());
-            self.have += 1;
+        match slot {
+            Some(existing) if existing.as_slice() != chunk => {
+                return Err("conflicting duplicate fragment");
+            }
+            Some(_) => {} // A byte-identical retransmission is idempotent.
+            None => {
+                *slot = Some(chunk.to_vec());
+                self.have += 1;
+            }
         }
-        // A duplicate fragment is silently ignored.
         if self.have == self.count {
             let total: usize = self.parts.iter().map(|p| p.as_ref().unwrap().len()).sum();
             let mut out = Vec::with_capacity(total);

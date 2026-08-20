@@ -135,8 +135,9 @@ The Swift side talks through the versioned whole-client ABI in
 `QeliCore/Native/QeliFFI.swift`: `new/start/run/stop`, lifecycle events, server-identity and
 NetworkPlan ACKs, stats, `tun_push/pull`, plus the handle-free UDP diagnostic. Rust owns
 record framing, handshakes, crypto, carriers and packet loops. Swift owns only Apple system
-APIs, profile storage and UI. The Packet Tunnel target excludes the old Swift
-`Crypto/`/`Protocol/` conformance code entirely.
+APIs, profile storage and UI. Both production targets exclude the old Swift `Protocol/`
+conformance code; `QeliIOSTests` compiles it explicitly for cross-language KATs. The Packet
+Tunnel additionally excludes the retained Swift `Crypto/` helpers.
 
 Two consequences worth stating plainly. The XCFramework is a **build artefact of a specific
 Rust revision**: change anything under `qeli/src/` that the FFI touches and you must re-run

@@ -1,4 +1,5 @@
 import Foundation
+@testable import QeliIOS
 
 struct MultipathSession: Equatable, Sendable {
     let token: Data

@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+@testable import QeliIOS
 
 final class TrafficShaper: @unchecked Sendable {
     let enabled: Bool

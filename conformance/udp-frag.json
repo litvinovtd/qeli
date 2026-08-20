@@ -117,6 +117,12 @@
       "expect": { "message": "414141414242424243434343" }
     },
     {
+      "name": "conflicting-duplicate-fragment",
+      "why": "The same index cannot authenticate two different byte strings. Keeping the first silently makes the reconstructed handshake depend on arrival order and lets an injected duplicate hide corruption instead of failing closed.",
+      "feed": ["f09b7102000341414141", "f09b7102000342424242"],
+      "expect": { "reject": true }
+    },
+    {
       "name": "missing-fragment",
       "why": "A gap must stay incomplete — never completed with a hole, never padded.",
       "feed": ["f09b7102000341414141", "f09b7102020343434343"],
