@@ -54,7 +54,7 @@ internal static class WinDivertSelfTest
         var splitPol = new WinDivertDestinationPolicy(false,
             includeRoutes: new[] { "198.51.100.0/24", "2001:db8:20::/48" },
             excludeRoutes: null, pushedRoutes: null,
-            fullTunnel: false, tunnelSubnet: "10.8.0.2/24");
+            fullTunnel: false, tunnelSubnets: new[] { "10.8.0.2/24" });
         check("dest: split public IPv4 bypassed",
             splitPol.ShouldBypassTunnel(IPAddress.Parse("1.1.1.1")));
         check("dest: split public include tunnelled",
@@ -675,7 +675,7 @@ internal static class WinDivertSelfTest
                 allowIpv4Leak: false,
                 allowIpv6Leak: false,
                 fullTunnel: true,
-                clientPrefix: 24,
+                tunnelSubnets: new[] { "10.8.0.0/24" },
                 routeLocal: false,
                 includeRoutes: null,
                 excludeRoutes: null,

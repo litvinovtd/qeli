@@ -414,7 +414,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         int mtu, List<string> dnsServers,
         bool paddingEnabled, int paddingMin, int paddingMax,
         bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs,
-        string? appsMode = null, List<string>? apps = null) => new()
+        string? appsMode = null, List<string>? apps = null,
+        long? connectionTimeoutSecs = null, bool? reconnectEnabled = null,
+        int? reconnectMaxRetries = null, bool? persistTun = null,
+        bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -427,22 +430,27 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // `off`/`system` — otherwise the address the user just entered is stored and then
         // ignored, with the UI showing it as if it applied. The mode is kept when the field is
         // left empty, so a `dns = off` profile saved without touching DNS stays `off`.
-        DnsMode = dnsServers.Count > 0 ? "tunnel" : DnsMode,
+        DnsMode = dnsMode ?? (dnsServers.Count > 0 ? "tunnel" : DnsMode),
         PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
         HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
         Name = name,
         AppsMode = appsMode ?? AppsMode,
         Apps = apps ?? Apps,
+        ConnectionTimeoutSecs = connectionTimeoutSecs ?? ConnectionTimeoutSecs,
+        ReconnectEnabled = reconnectEnabled ?? ReconnectEnabled,
+        ReconnectMaxRetries = reconnectMaxRetries ?? ReconnectMaxRetries,
+        PersistTun = persistTun ?? PersistTun,
+        MtuProbe = mtuProbe ?? MtuProbe,
+        KillSwitch = killSwitch ?? KillSwitch,
         // ── preserved from `this` (no form control) ──
-        Id = Id, ConnectionTimeoutSecs = ConnectionTimeoutSecs,
+        Id = Id,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
         RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
-        ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        MtuProbe = MtuProbe, Ipv6Policy = Ipv6Policy,
+        Ipv6Policy = Ipv6Policy,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
-        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv4Leak = AllowIpv4Leak,
+        AllowIpv4Leak = AllowIpv4Leak,
         AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         HeartbeatDataSize = HeartbeatDataSize,

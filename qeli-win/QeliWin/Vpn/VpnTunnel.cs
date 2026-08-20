@@ -60,17 +60,25 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
         IReadOnlyList<IPAddress> carrierCandidates)
     {
+        var assigned = session.NetworkAddresses
+            ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
+                session.Prefix, null) };
         // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
         // the same client IP can arrive with different routes, DNS, prefix or MTU.
         if (ReusePersistedTun(config, session, serverIp))
         {
             if (_tun is WinDivertAdapter retained)
             {
+                var retainedIpv4 = assigned.FirstOrDefault(address =>
+                    address.Family.Equals("ipv4", StringComparison.OrdinalIgnoreCase));
+                var retainedIpv6 = assigned.FirstOrDefault(address =>
+                    address.Family.Equals("ipv6", StringComparison.OrdinalIgnoreCase));
                 retained.Reconfigure(
-                    IPAddress.Parse(session.ClientIp),
+                    retainedIpv4 == null ? null : IPAddress.Parse(retainedIpv4.Address),
+                    retainedIpv6 == null ? null : IPAddress.Parse(retainedIpv6.Address),
                     EffectiveDns(config, session),
                     config.IsFullTunnel,
-                    session.Prefix,
+                    ConnectedTunnelPrefixes(session),
                     config.RouteLocalNetworks,
                     config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
                     config.ExcludeRoutes,
@@ -83,10 +91,6 @@ public sealed class VpnTunnel : VpnTunnelBase
             }
             return;
         }
-
-        var assigned = session.NetworkAddresses
-            ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
-                session.Prefix, null) };
 
         if (_useWinDivert)
         {
@@ -103,6 +107,8 @@ public sealed class VpnTunnel : VpnTunnelBase
                 dnsServers: EffectiveDns(config, session),
                 allowIpv4Leak: session.AllowIpv4Leak,
                 allowIpv6Leak: session.AllowIpv6Leak,
+                fullTunnel: config.IsFullTunnel,
+                tunnelSubnets: ConnectedTunnelPrefixes(session),
                 routeLocal: config.RouteLocalNetworks,
                 includeRoutes: config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
                 excludeRoutes: config.ExcludeRoutes,

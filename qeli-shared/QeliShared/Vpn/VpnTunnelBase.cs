@@ -48,9 +48,6 @@ public abstract class VpnTunnelBase
     // state were installed. Reusing the same client IP is not enough: a changed
     // gateway, resolver or service makes those platform settings stale.
     private string? _persistedNetSig;
-    // Canonical full NetworkPlan fingerprint. An unchanged primary IP is insufficient:
-    // routes, DNS, MTU, the second-family address and leak policy may all change on reconnect.
-    private string? _persistedPlanFingerprint;
     // All A/AAAA records captured before the TUN takes over routing. Reconnects reuse and rotate
     // this set instead of asking a resolver that may now live behind the retained dead TUN.
     private string[] _carrierAddresses = Array.Empty<string>();
@@ -632,9 +629,7 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
-        _persistedPlanFingerprint = null;
         _persistedNetSig = null;
-        _persistedPlanFingerprint = null;
     }
 
     /// <summary>persist-tun: reuse a surviving TUN only when the complete effective network
@@ -646,10 +641,11 @@ public abstract class VpnTunnelBase
         string currentNetSig = PhysicalNetSignature();
         string currentPlanFingerprint = NetworkPlanFingerprint(config, session, serverIp);
         if (KeepTunDuringReconnect(config)
-            && _persistedPlanFingerprint == session.PlanFingerprint
+            && _persistedClientIp == session.ClientIp
+            && _persistedPlanFingerprint == currentPlanFingerprint
             && _persistedNetSig == currentNetSig)
         {
-            Log($"persist-tun: reusing TUN adapter + routes (complete NetworkPlan unchanged)");
+            Log("persist-tun: reusing TUN adapter + network plan (fingerprint unchanged)");
             return true;
         }
         // Per-app capture is itself the leak guard. Reconfigure it in place instead of
@@ -671,17 +667,21 @@ public abstract class VpnTunnelBase
             Log("persist-tun: effective network plan changed; rebuilding TUN address, routes, DNS and MTU");
         else if (_persistedNetSig != null && _persistedNetSig != currentNetSig)
             Log("persist-tun: physical gateway/DNS changed; rebuilding TUN routes and resolver state");
-        else if (_persistedPlanFingerprint != null
-                 && _persistedPlanFingerprint != session.PlanFingerprint)
-            Log("persist-tun: addresses/routes/DNS/MTU or family policy changed; rebuilding TUN");
+        if (NeedsSystemPlanReplacementGuard(_persistedClientIp != null, config.UsesAppFilter))
+        {
+            PlanReplacementGuardEngage(config);
+        }
+        else if (_persistedClientIp != null && config.UsesAppFilter)
+        {
+            throw new InvalidOperationException(
+                "the retained per-app adapter cannot apply the authenticated network plan in place");
+        }
         try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
-        _persistedPlanFingerprint = null;
         _persistedNetSig = null;
-        _persistedPlanFingerprint = null;
         return false;
     }
 
@@ -1184,101 +1184,9 @@ public abstract class VpnTunnelBase
                             foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
                             {
-                                var plan = JsonSerializer.Deserialize<NativePlan>(nativeEvent.Payload)
-                                    ?? throw new InvalidDataException("native NetworkPlan is empty");
-                                if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
-                                    throw new InvalidDataException("native NetworkPlan generation mismatch");
-                                if (plan.FullTunnel != config.IsFullTunnel)
-                                    throw new InvalidDataException(
-                                        "native NetworkPlan routing mode differs from the selected profile");
-                                Log($"Auth OK: user='{LogValue(config.Username)}', IP {plan.TunnelAddress}");
-                                foreach (string line in plan.ConnectionLog) Log(line);
-                                if (_handshakeOnly)
-                                {
-                                    _handshakeIp = plan.TunnelAddress;
-                                    handshakeComplete = true;
-                                    NativeTransportCore.Stop(handle);
-                                    break;
-                                }
-
-                                try
-                                {
-                                    IPAddress carrier = ResolveNativeCarrier(plan, config);
-                                    string routes = JsonSerializer.Serialize(plan.Routes);
-                                    var unsupportedDns = plan.DnsServers.FirstOrDefault(item => item.Port != 53);
-                                    if (unsupportedDns != null)
-                                        throw new InvalidDataException(
-                                            $"platform DNS adapter cannot apply {unsupportedDns.Address}:{unsupportedDns.Port}");
-                                    var dns = plan.DnsServers.Select(item => item.Address).ToList();
-                                    // route_file is deliberately platform-owned and is absent from
-                                    // the Rust NetworkPlan. Snapshot it once per authenticated
-                                    // generation so the fingerprint and the routes actually applied
-                                    // by Windows/macOS cannot observe two different file versions.
-                                    IReadOnlyList<string> routeFileRoutes =
-                                        config.UsesAppFilter || !config.IsFullTunnel
-                                            ? LoadRouteFile(config)
-                                            : Array.Empty<string>();
-                                    var session = new Session(plan.TunnelAddress, plan.PrefixLength,
-                                        dns.FirstOrDefault() ?? "", routes, plan.Mtu,
-                                        MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
-                                        PlannedDns: dns, PlanIncludesClientRoutes: true,
-                                        RouteFileRoutes: routeFileRoutes);
-                                    SetupTun(config, session, carrier);
-                                    EnforceDnsPolicy(config);
-                                    _persistedClientIp = plan.TunnelAddress;
-                                    _persistedPlanFingerprint =
-                                        NetworkPlanFingerprint(config, session, carrier);
-                                    _persistedNetSig = PhysicalNetSignature();
-                                    _lastNetSig = _persistedNetSig;
-                                    // The authenticated plan has now been rebuilt/reconfigured
-                                    // against the current carrier. Do not let an old OS event
-                                    // force a second teardown after this generation succeeds.
-                                    Interlocked.Exchange(ref _forcedNetworkRebuild, 0);
-                                    if (NativeTunFdOwnership)
-                                    {
-                                        if (_tun is not IFdTunDevice fdTun)
-                                            throw new InvalidOperationException(
-                                                "platform declared native TUN-fd ownership but exposed no descriptor");
-                                        NativeTransportCore.SetTunFd(handle, plan.Generation,
-                                            fdTun.FileDescriptor);
-                                    }
-                                    else if (NativeWintunOwnership)
-                                    {
-                                        if (_tun is not IWintunTunDevice wintun)
-                                            throw new InvalidOperationException(
-                                                "platform declared native Wintun ownership but exposed no adapter name");
-                                        NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
-                                            wintun.AdapterName);
-                                    }
-                                    NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
-                                    if (!NativeTunFdOwnership && !NativeWintunOwnership)
-                                    {
-                                        packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                                        (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
-                                            _tun as IPacketTunDevice ?? throw new InvalidOperationException(
-                                                "platform declared packet TUN ownership but exposed no packet adapter"),
-                                            packetCts.Token);
-                                    }
-                                    Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
-                                        $"mode={(plan.FullTunnel ? "full" : "split")} " +
-                                        $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
-                                        $"dns={(dns.Count == 0 ? "system unchanged" : string.Join(", ", dns))} " +
-                                        $"plan_routes={plan.Routes.Count} pushed_routes={plan.PushedRoutes.Count} " +
-                                        $"padding={plan.DataPlane.PaddingEnabled}[{plan.DataPlane.PaddingMin}..{plan.DataPlane.PaddingMax}] " +
-                                        $"heartbeat={plan.DataPlane.HeartbeatEnabled}/{plan.DataPlane.HeartbeatIntervalMs}ms " +
-                                        $"shaping={plan.DataPlane.ShapingEnabled}");
-                                }
-                                catch (Exception error)
-                                {
-                                    Log($"ERROR: Native NetworkPlan {plan.Generation} REJECTED: {error.Message}");
-                                    try
-                                    {
-                                        NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
-                                            error.Message);
-                                    }
-                                    catch { }
-                                    throw;
-                                }
+                                _handshakeIp = plan.TunnelAddress;
+                                handshakeComplete = true;
+                                NativeTransportCore.Stop(handle);
                                 break;
                             }
 
@@ -1299,6 +1207,13 @@ public abstract class VpnTunnelBase
                                     .Append(carrier)
                                     .Distinct()
                                     .ToArray();
+                                // route_file is platform-owned and absent from the Rust plan.
+                                // Snapshot it once so fingerprinting and route installation see
+                                // the same contents even if the file is edited concurrently.
+                                IReadOnlyList<string> routeFileRoutes =
+                                    config.UsesAppFilter || !config.IsFullTunnel
+                                        ? LoadRouteFile(config)
+                                        : Array.Empty<string>();
                                 var session = new Session(plan.TunnelAddress, plan.PrefixLength,
                                     dns.FirstOrDefault() ?? "", routes, plan.Mtu,
                                     MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
@@ -1307,12 +1222,16 @@ public abstract class VpnTunnelBase
                                     AllowIpv4Leak: plan.AllowIpv4Leak,
                                     AllowIpv6Leak: plan.AllowIpv6Leak,
                                     PlanFingerprint: FingerprintNativePlan(plan,
-                                        carrierCandidates.Select(address => address.ToString())));
+                                        carrierCandidates.Select(address => address.ToString())),
+                                    RouteFileRoutes: routeFileRoutes);
                                 SetupTun(config, session, carrier, carrierCandidates);
                                 EnforceDnsPolicy(config);
                                 _persistedClientIp = plan.TunnelAddress;
                                 _persistedNetSig = PhysicalNetSignature();
-                                _persistedPlanFingerprint = session.PlanFingerprint;
+                                _persistedPlanFingerprint =
+                                    NetworkPlanFingerprint(config, session, carrier);
+                                _lastNetSig = _persistedNetSig;
+                                Interlocked.Exchange(ref _forcedNetworkRebuild, 0);
                                 if (NativeTunFdOwnership)
                                 {
                                     if (_tun is not IFdTunDevice fdTun)
@@ -1756,7 +1675,11 @@ public abstract class VpnTunnelBase
         IReadOnlyList<string>? PlannedDns = null, bool PlanIncludesClientRoutes = false,
         string FamilyMode = "ipv4", IReadOnlyList<AssignedAddress>? NetworkAddresses = null,
         bool AllowIpv4Leak = false, bool AllowIpv6Leak = false,
-        string PlanFingerprint = "");
+        string PlanFingerprint = "",
+        // One immutable snapshot is shared by fingerprinting and platform setup. Reading the
+        // file independently in each phase permits a concurrent edit to fingerprint one route
+        // set while installing another.
+        IReadOnlyList<string>? RouteFileRoutes = null);
 
     /// <summary>Resolve the effective TUN MTU: an explicit client config value (>0)
     /// wins, else the server-pushed value (>0), else the auto fallback (1400).</summary>
@@ -1863,11 +1786,15 @@ public abstract class VpnTunnelBase
 
         Add(canonical, "client_ip", NormalizeAddress(session.ClientIp));
         Add(canonical, "prefix", session.Prefix.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        // The native fingerprint carries the complete typed dual-stack plan, including the
+        // second-family address/prefix/gateway, all A/AAAA carrier candidates and leak policy.
+        Add(canonical, "native_plan", session.PlanFingerprint);
         Add(canonical, "mtu", EffectiveMtu(config.Mtu, session.PushedMtu)
             .ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(canonical, "full_tunnel", config.IsFullTunnel.ToString());
         Add(canonical, "plan_includes_client_routes", session.PlanIncludesClientRoutes.ToString());
-        Add(canonical, "allow_ipv6_leak", config.AllowIpv6Leak.ToString());
+        Add(canonical, "allow_ipv4_leak", session.AllowIpv4Leak.ToString());
+        Add(canonical, "allow_ipv6_leak", session.AllowIpv6Leak.ToString());
         Add(canonical, "route_local", config.RouteLocalNetworks.ToString());
         Add(canonical, "interface_metric", config.InterfaceMetric
             .ToString(System.Globalization.CultureInfo.InvariantCulture));

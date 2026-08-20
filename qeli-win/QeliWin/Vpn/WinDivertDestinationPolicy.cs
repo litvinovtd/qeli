@@ -22,10 +22,11 @@ internal sealed class WinDivertDestinationPolicy
         IEnumerable<string>? excludeRoutes,
         IEnumerable<string>? pushedRoutes,
         bool fullTunnel = true,
-        string? tunnelSubnet = null)
+        IEnumerable<string>? tunnelSubnets = null)
     {
         _fullTunnel = fullTunnel;
-        if (!string.IsNullOrWhiteSpace(tunnelSubnet)) AddTunnel(tunnelSubnet);
+        if (tunnelSubnets != null)
+            foreach (var cidr in tunnelSubnets) AddTunnel(cidr);
         if (routeLocal)
         {
             AddTunnel("10.0.0.0/8");
@@ -51,9 +52,9 @@ internal sealed class WinDivertDestinationPolicy
         if (dst.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (IsIpv6LinkLocalOrLoopback(dst)) return true;
-            if (IsIpv6UlaOrMulticast(dst))
-                return !Matches(_tunnelPrivate, dst);
-            return false;
+            if (Matches(_tunnelRoutes, dst)) return false;
+            if (IsIpv6UlaOrMulticast(dst)) return true;
+            return !_fullTunnel;
         }
 
         if (IsIpv4LoopbackOrLinkLocal(dst)) return true;
@@ -102,7 +103,7 @@ internal sealed class WinDivertDestinationPolicy
     private void AddTunnel(string cidr)
     {
         if (TryParseCidr(cidr, out var c))
-            _tunnelPrivate.Add(c);
+            _tunnelRoutes.Add(c);
     }
 
     private void AddExclude(string cidr)
