@@ -560,14 +560,11 @@ async fn main() -> anyhow::Result<()> {
             // their own parser and implement a few keys this binary does not. Those
             // are perfectly valid here — reporting them as typos would be a lie —
             // so they are listed separately and do not fail the check.
-            use config::GUI_ONLY_CLIENT_KEYS;
-
             // Keys removed in 0.7.12 because they never had any effect. An existing
             // config may still carry them, and calling those a "typo" would send the
             // operator hunting for a spelling mistake that isn't there. Name them for
             // what they are, and don't fail the check — deleting the line is optional
             // tidying, not a fix.
-            use config::RETIRED_KEYS;
             // NB: `[logging] format` is deliberately absent. It is still parsed into
             // the config (it just isn't applied), so it never lands in unread_keys and
             // could never be reported here — listing it would promise a message that
@@ -576,10 +573,10 @@ async fn main() -> anyhow::Result<()> {
             let (gui_only, rest): (Vec<_>, Vec<_>) = doc
                 .unread_keys()
                 .into_iter()
-                .partition(|(_, k)| client && GUI_ONLY_CLIENT_KEYS.contains(k));
+                .partition(|(section, key)| client && config::is_gui_only_client_key(section, key));
             let (retired, unknown): (Vec<_>, Vec<_>) = rest
                 .into_iter()
-                .partition(|(_, k)| RETIRED_KEYS.contains(k));
+                .partition(|(section, key)| config::is_retired_key(section, key));
 
             if !gui_only.is_empty() {
                 println!(

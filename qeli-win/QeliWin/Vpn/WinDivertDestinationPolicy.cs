@@ -43,6 +43,16 @@ internal sealed class WinDivertDestinationPolicy
             foreach (var c in excludeRoutes) AddExclude(c);
     }
 
+    /// <summary>
+    /// True when the destination was explicitly assigned to the tunnel by an include,
+    /// pushed/connected route, or route_local. Unlike an ordinary full-tunnel default,
+    /// this intent must fail closed when the negotiated address family is unavailable;
+    /// allow_ipv4/ipv6_leak only opts out of capturing the otherwise-default family.
+    /// Explicit exclusions still win.
+    /// </summary>
+    public bool RequiresTunnel(IPAddress dst) =>
+        !Matches(_exclude, dst) && Matches(_tunnelRoutes, dst);
+
     /// <summary>True → reinject without app filtering (keep on physical path).</summary>
     public bool ShouldBypassTunnel(IPAddress dst)
     {

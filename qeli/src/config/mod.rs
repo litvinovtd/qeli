@@ -68,6 +68,25 @@ pub const RETIRED_KEYS: &[&str] = &[
     "perf.connection.rate_limit_packets_per_sec",
 ];
 
+/// GUI-owned keys are valid only in the flat client `[qeli]` section. Matching the name
+/// alone would hide a misspelling or misplaced no-op setting in any other section.
+pub fn is_gui_only_client_key(section: &str, key: &str) -> bool {
+    section == "[qeli]" && GUI_ONLY_CLIENT_KEYS.contains(&key)
+}
+
+/// Retired keys remain recognised only where the old setting actually lived. In particular,
+/// `password_hash` is still security-critical under `[web]` and `[user:*]`, so a same-named
+/// unread key elsewhere must never be waved through as harmless legacy configuration.
+pub fn is_retired_key(section: &str, key: &str) -> bool {
+    match key {
+        "password_hash" | "token_ttl_secs" => section == "[auth]",
+        key if RETIRED_KEYS.contains(&key) => {
+            section == "[qeli]" || (section.starts_with("[profile:") && section.ends_with(']'))
+        }
+        _ => false,
+    }
+}
+
 /// Key NAMES nobody read — i.e. typos — with the two known-benign classes filtered out.
 ///
 /// `unread_keys` is the only thing that can catch a misspelled key name: a wrong name is not a
@@ -85,8 +104,8 @@ pub fn unknown_keys(doc: &format::IniDoc, client: bool) -> Vec<String> {
         // wants; comparing it against a bare "qeli" silently matched nothing and turned the
         // exemption off entirely, so every desktop profile went back to reporting 22
         // misspellings. Compared in the shape it actually has.
-        .filter(|(section, k)| !(client && section == "[qeli]" && GUI_ONLY_CLIENT_KEYS.contains(k)))
-        .filter(|(_, k)| !RETIRED_KEYS.contains(k))
+        .filter(|(section, key)| !(client && is_gui_only_client_key(section, key)))
+        .filter(|(section, key)| !is_retired_key(section, key))
         .map(|(section, k)| {
             if section.is_empty() {
                 k.to_string()
@@ -570,6 +589,21 @@ mod tests {
             !unknown.iter().any(|k| k == "reconnect"),
             "the same key in [qeli] is a real desktop setting and must stay exempt, got {unknown:?}"
         );
+    }
+
+    #[test]
+    fn retired_key_exemption_is_scoped_to_its_historical_section() {
+        assert!(super::is_retired_key("[auth]", "password_hash"));
+        assert!(super::is_retired_key("[auth]", "token_ttl_secs"));
+        assert!(!super::is_retired_key("[web]", "token_ttl_secs"));
+        assert!(!super::is_retired_key("[logging]", "password_hash"));
+
+        assert!(super::is_retired_key("[qeli]", "obf.cipher"));
+        assert!(super::is_retired_key(
+            "[profile:tcp]",
+            "perf.tun.write_buffer_size"
+        ));
+        assert!(!super::is_retired_key("[logging]", "obf.cipher"));
     }
 
     /// A wire mode that needs a stream must not validate on a datagram transport.

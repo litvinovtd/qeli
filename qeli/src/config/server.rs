@@ -1053,6 +1053,39 @@ pub struct Ipv6RoutingConfig {
     pub interface: String,
 }
 
+/// DNS proxy resource bounds. Validation rejects larger file/panel values and the runtime
+/// clamps defensively so a direct programmatic caller cannot create unbounded failover or cache
+/// state.
+pub const DNS_MAX_UPSTREAMS: usize = 16;
+pub const DNS_MAX_CACHE_ENTRIES: usize = 10_000;
+pub const DNS_MAX_TIMEOUT_SECS: u64 = 300;
+pub const DNS_MAX_BLOCKLIST_ENTRIES: usize = 10_000;
+
+/// Canonical textual DNS owner name accepted by the blocklist.
+///
+/// The matcher implements exact-name and subdomain matching, not wildcard syntax. IDNs must be
+/// supplied in their on-wire ASCII (punycode) form, which also keeps byte length and DNS label
+/// limits unambiguous.
+pub fn normalize_blocklist_domain(raw: &str) -> Option<String> {
+    let name = raw.trim().trim_end_matches('.');
+    if name.is_empty() || name.len() > 253 || !name.is_ascii() {
+        return None;
+    }
+    for label in name.split('.') {
+        if label.is_empty()
+            || label.len() > 63
+            || !label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            || label.starts_with('-')
+            || label.ends_with('-')
+        {
+            return None;
+        }
+    }
+    Some(name.to_ascii_lowercase())
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct DnsConfig {
     #[serde(default = "default_false")]
@@ -1443,4 +1476,40 @@ fn default_reality_target_port() -> u16 {
 }
 fn default_device_type() -> String {
     "tun".into()
+}
+
+#[cfg(test)]
+mod dns_blocklist_tests {
+    use super::normalize_blocklist_domain;
+
+    #[test]
+    fn blocklist_domains_are_canonical_and_strict() {
+        assert_eq!(
+            normalize_blocklist_domain(" Ads.Example.COM. "),
+            Some("ads.example.com".into())
+        );
+        assert_eq!(
+            normalize_blocklist_domain("_service.example.com"),
+            Some("_service.example.com".into())
+        );
+        for invalid in [
+            "",
+            ".",
+            ".example.com",
+            "example..com",
+            "-bad.example",
+            "bad-.example",
+            "*.example.com",
+            "not a domain",
+            "пример.рф",
+        ] {
+            assert_eq!(
+                normalize_blocklist_domain(invalid),
+                None,
+                "{invalid:?} must be rejected"
+            );
+        }
+        let long_label = format!("{}.example", "a".repeat(64));
+        assert_eq!(normalize_blocklist_domain(&long_label), None);
+    }
 }

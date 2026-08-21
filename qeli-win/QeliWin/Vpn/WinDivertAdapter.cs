@@ -341,8 +341,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private void HandleIpv4(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
     {
         var decision = ClassifyIpv4(buf, len, ref addr, out var meta);
+        bool requireIpv4Tunnel = decision == PacketDisposition.Tunnel
+            && (_dest.RequiresTunnel(meta.Dst)
+                || (meta.IsDns && CanTunnelDns()));
+        bool ipv4PathAvailable = _clientIpv4 != null
+            || (meta.IsDns && CanTunnelDns());
         decision = DispositionForFamily(
-            decision, _clientIpv4 != null, _allowIpv4Leak);
+            decision, ipv4PathAvailable, _allowIpv4Leak, requireIpv4Tunnel);
         bool discardPending = false;
         if (meta.IsFragment && meta.IsFirstFrag && decision != PacketDisposition.Unknown)
             _flows.RememberFrag(meta.OrigSrc, meta.Dst, meta.Proto, meta.IpId, decision);
@@ -365,16 +370,27 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                         discardPending = true;
                         return;
                     }
-                    ClampTcpMss(buf, len, _tunnelMtu);
-                    if (len > _tunnelMtu && IsIpv4DontFragment(buf, len))
+                    bool dnsToIpv6 = meta.IsDns
+                        && !HasTunnelDns(AddressFamily.InterNetwork)
+                        && _clientIpv6 != null
+                        && HasTunnelDns(AddressFamily.InterNetworkV6);
+                    int ipv4PathMtu = EffectiveIpv4PathMtu(
+                        _tunnelMtu, (buf[0] & 0x0F) * 4, dnsToIpv6);
+                    // DNS46 replaces the IPv4 header with a 40-byte IPv6 header. Enforce
+                    // the resulting inner-packet budget before creating NAT state. IPv4
+                    // fragmentation cannot be used here because the translator deliberately
+                    // accepts only complete UDP/TCP datagrams.
+                    if (len > ipv4PathMtu
+                        && (dnsToIpv6 || IsIpv4DontFragment(buf, len)))
                     {
                         Interlocked.Increment(ref _mtuDrops);
                         discardPending = true;
-                        InjectFragmentationNeeded(buf, len, _tunnelMtu, ref addr);
+                        InjectFragmentationNeeded(buf, len, ipv4PathMtu, ref addr);
                         return;
                     }
+                    ClampTcpMss(buf, len, ipv4PathMtu);
 
-                    byte[] packet = ArrayPool<byte>.Shared.Rent(len);
+                    byte[] packet = ArrayPool<byte>.Shared.Rent(Math.Min(0xFFFF, len + 40));
                     int packetLength = BuildTunnelPacket(buf, len, ref addr, meta, packet);
                     if (packetLength == 0)
                     {
@@ -475,21 +491,25 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             remotePort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(transportOffset + 2));
         }
         bool isDns = proto is 6 or 17 && remotePort == 53;
-        bool hasIpv6Dns = _dnsServers.Any(
-            ip => ip.AddressFamily == AddressFamily.InterNetworkV6);
+        bool canTunnelDns = CanTunnelDns();
 
         PacketDisposition outcome;
         if (IsCarrier(proto, dst, remotePort))
             outcome = PacketDisposition.Bypass;
-        else if ((!isDns || !hasIpv6Dns) && _dest.ShouldBypassTunnel(dst))
+        else if (TunnelDnsFamilyMismatch(isDns, _dnsServers.Count, canTunnelDns))
+            outcome = PacketDisposition.Drop;
+        else if ((!isDns || _dnsServers.Count == 0) && _dest.ShouldBypassTunnel(dst))
             outcome = PacketDisposition.Bypass;
         else
         {
-            var appDisposition = proto is 6 or 17
+            var appDisposition = isDns && canTunnelDns
+                ? PacketDisposition.Tunnel
+                : proto is 6 or 17
                 ? _apps.Classify(proto, src, localPort, dst, remotePort)
                 : PacketDisposition.Drop;
             outcome = DispositionForFamily(
-                appDisposition, _clientIpv6 != null, _allowIpv6Leak);
+                appDisposition, _clientIpv6 != null || (isDns && canTunnelDns), _allowIpv6Leak,
+                _dest.RequiresTunnel(dst) || (isDns && canTunnelDns));
         }
 
         WinDivertFlowTable.Ipv6FragKey fragmentKey = default;
@@ -552,7 +572,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 }
                 ClampIpv6TcpMss(buf, len, meta, _tunnelMtu);
 
-                byte[] packet = ArrayPool<byte>.Shared.Rent(len);
+                byte[] packet = ArrayPool<byte>.Shared.Rent(Math.Min(0xFFFF, len + 20));
                 int packetLength = BuildIpv6TunnelPacket(
                     buf, len, ref addr, meta, src, dst,
                     fragmentTunnelDestination, packet);
@@ -580,13 +600,34 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
     }
 
+    private bool HasTunnelDns(AddressFamily family) =>
+        _dnsServers.Any(address => address.AddressFamily == family);
+
+    private bool CanTunnelDns() =>
+        (_clientIpv4 != null && HasTunnelDns(AddressFamily.InterNetwork))
+        || (_clientIpv6 != null && HasTunnelDns(AddressFamily.InterNetworkV6));
+
+    internal static int EffectiveIpv4PathMtu(
+        int tunnelMtu, int ipv4HeaderLength, bool translateToIpv6)
+    {
+        if (!translateToIpv6) return tunnelMtu;
+        int headerGrowth = Math.Max(0, 40 - ipv4HeaderLength);
+        return Math.Max(68, tunnelMtu - headerGrowth);
+    }
+
+    internal static bool TunnelDnsFamilyMismatch(
+        bool isDns, int configuredDnsCount, bool hasCompatibleDns) =>
+        isDns && configuredDnsCount > 0 && !hasCompatibleDns;
+
     internal static PacketDisposition DispositionForFamily(
-        PacketDisposition appDisposition, bool familyAvailable, bool allowLeak)
+        PacketDisposition appDisposition, bool familyAvailable, bool allowLeak,
+        bool tunnelRequired = false)
     {
         if (appDisposition is PacketDisposition.Bypass or PacketDisposition.Drop
             or PacketDisposition.Unknown)
             return appDisposition;
         if (familyAvailable) return PacketDisposition.Tunnel;
+        if (tunnelRequired) return PacketDisposition.Drop;
         return allowLeak ? PacketDisposition.Bypass : PacketDisposition.Drop;
     }
 
@@ -785,12 +826,19 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         if (IsCarrier(proto, dst, remotePort)) return PacketDisposition.Bypass;
         // A configured/pushed tunnel DNS is authoritative even when the application's
         // original resolver is RFC1918. DestinationPolicy must see the eventual tunnel
-        // destination, not prematurely bypass the packet before DNS NAT is applied.
+        // destination, not prematurely bypass the packet before DNS NAT is applied. A DNS
+        // list containing only the other family cannot be translated safely and must not
+        // fall back to the original physical resolver.
+        bool canTunnelDns = CanTunnelDns();
+        if (TunnelDnsFamilyMismatch(meta.IsDns, _dnsServers.Count, canTunnelDns))
+            return PacketDisposition.Drop;
         if (!meta.IsDns || _dnsServers.Count == 0)
             if (_dest.ShouldBypassTunnel(dst)) return PacketDisposition.Bypass;
         // WinDivert's NETWORK layer can attribute TCP/UDP endpoints to a process.
         // Other protocols have no safe owning-process identity or reversible flow key.
-        var disp = proto is 6 or 17
+        var disp = meta.IsDns && canTunnelDns
+            ? PacketDisposition.Tunnel
+            : proto is 6 or 17
             ? _apps.Classify(proto, src, localPort, dst, remotePort)
             : PacketDisposition.Drop;
         return disp;
@@ -805,6 +853,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             _log?.Invoke($"WinDivert packet dropped: {len} bytes exceeds packet-pump buffer {destination.Length}");
             return 0;
         }
+        if (meta.IsDns && !HasTunnelDns(AddressFamily.InterNetwork)
+            && _clientIpv6 != null && HasTunnelDns(AddressFamily.InterNetworkV6))
+            return BuildIpv4DnsAsIpv6(buf, len, ref addr, meta, destination);
         var origSrc = meta.OrigSrc;
         var clientIp = _clientIpv4
             ?? throw new InvalidOperationException("IPv4 tunnel address is unavailable");
@@ -892,6 +943,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 $"WinDivert IPv6 packet dropped: {len} bytes exceeds packet-pump buffer {destination.Length}");
             return 0;
         }
+        bool isDns = meta.HasTransport && meta.Protocol is 6 or 17
+            && BinaryPrimitives.ReadUInt16BigEndian(
+                buf.AsSpan(meta.TransportOffset + 2, 2)) == 53;
+        if (isDns && !HasTunnelDns(AddressFamily.InterNetworkV6)
+            && _clientIpv4 != null && HasTunnelDns(AddressFamily.InterNetwork))
+            return BuildIpv6DnsAsIpv4(
+                buf, len, ref addr, meta, originalSource, originalDestination, destination);
         var clientIp = _clientIpv6
             ?? throw new InvalidOperationException("IPv6 tunnel address is unavailable");
         WriteIpv6(buf, 8, clientIp);
@@ -966,6 +1024,99 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
         Buffer.BlockCopy(buf, 0, destination, 0, len);
         return len;
+    }
+
+    private int BuildIpv4DnsAsIpv6(
+        byte[] packet, int length, ref WinDivertNative.WinDivertAddress address,
+        Ipv4Meta meta, byte[] destination)
+    {
+        if (meta.IsFragment || meta.Proto is not (6 or 17)
+            || meta.LocalPort == 0 || meta.RemotePort != 53 || _clientIpv6 == null)
+            return 0;
+        int ihl = (packet[0] & 0x0F) * 4;
+        int total = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(2, 2));
+        if (ihl < 20 || total < ihl || total > length) return 0;
+        int payloadLength = total - ihl;
+        int translatedLength = 40 + payloadLength;
+        if (translatedLength > destination.Length || translatedLength > 0xFFFF) return 0;
+
+        var resolvers = _dnsServers
+            .Where(ip => ip.AddressFamily == AddressFamily.InterNetworkV6)
+            .ToList();
+        if (resolvers.Count == 0) return 0;
+        var resolver = SelectDnsResolver(
+            resolvers, meta.Proto, meta.OrigSrc, meta.LocalPort, meta.Dst, meta.RemotePort);
+        bool tcpFin = meta.Proto == 6 && total >= ihl + 14 && (packet[ihl + 13] & 0x01) != 0;
+        bool tcpRst = meta.Proto == 6 && total >= ihl + 14 && (packet[ihl + 13] & 0x04) != 0;
+        ushort translatedPort = _flows.RememberOutbound(
+            meta.Proto, _clientIpv6, meta.OrigSrc, meta.LocalPort,
+            resolver, meta.RemotePort, in address, meta.Dst, tcpFin, tcpRst);
+        if (translatedPort == 0) return 0;
+
+        Array.Clear(destination, 0, 40);
+        destination[0] = (byte)(0x60 | (packet[1] >> 4));
+        destination[1] = (byte)((packet[1] & 0x0F) << 4);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            destination.AsSpan(4, 2), (ushort)payloadLength);
+        destination[6] = meta.Proto;
+        destination[7] = packet[8];
+        WriteIpv6(destination, 8, _clientIpv6);
+        WriteIpv6(destination, 24, resolver);
+        Buffer.BlockCopy(packet, ihl, destination, 40, payloadLength);
+        if (translatedPort != meta.LocalPort)
+            BinaryPrimitives.WriteUInt16BigEndian(destination.AsSpan(40, 2), translatedPort);
+        FixChecksums(destination, translatedLength, ref address);
+        return translatedLength;
+    }
+
+    private int BuildIpv6DnsAsIpv4(
+        byte[] packet, int length, ref WinDivertNative.WinDivertAddress address,
+        Ipv6PacketMeta meta, IPAddress originalSource, IPAddress originalDestination,
+        byte[] destination)
+    {
+        if (meta.IsFragment || !meta.HasTransport || meta.Protocol is not (6 or 17)
+            || _clientIpv4 == null) return 0;
+        ushort localPort = BinaryPrimitives.ReadUInt16BigEndian(
+            packet.AsSpan(meta.TransportOffset, 2));
+        ushort remotePort = BinaryPrimitives.ReadUInt16BigEndian(
+            packet.AsSpan(meta.TransportOffset + 2, 2));
+        if (localPort == 0 || remotePort != 53) return 0;
+        int payloadLength = length - meta.TransportOffset;
+        int translatedLength = 20 + payloadLength;
+        if (payloadLength < 8 || translatedLength > destination.Length
+            || translatedLength > 0xFFFF) return 0;
+
+        var resolvers = _dnsServers
+            .Where(ip => ip.AddressFamily == AddressFamily.InterNetwork)
+            .ToList();
+        if (resolvers.Count == 0) return 0;
+        var resolver = SelectDnsResolver(
+            resolvers, meta.Protocol, originalSource, localPort, originalDestination, remotePort);
+        bool tcpFin = meta.Protocol == 6 && length >= meta.TransportOffset + 14
+            && (packet[meta.TransportOffset + 13] & 0x01) != 0;
+        bool tcpRst = meta.Protocol == 6 && length >= meta.TransportOffset + 14
+            && (packet[meta.TransportOffset + 13] & 0x04) != 0;
+        ushort translatedPort = _flows.RememberOutbound(
+            meta.Protocol, _clientIpv4, originalSource, localPort,
+            resolver, remotePort, in address, originalDestination, tcpFin, tcpRst);
+        if (translatedPort == 0) return 0;
+
+        Array.Clear(destination, 0, 20);
+        destination[0] = 0x45;
+        destination[1] = (byte)(((packet[0] & 0x0F) << 4) | (packet[1] >> 4));
+        BinaryPrimitives.WriteUInt16BigEndian(
+            destination.AsSpan(2, 2), (ushort)translatedLength);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            destination.AsSpan(4, 2), (ushort)Random.Shared.Next(1, 0x10000));
+        destination[8] = packet[7];
+        destination[9] = meta.Protocol;
+        WriteIpv4(destination, 12, _clientIpv4);
+        WriteIpv4(destination, 16, resolver);
+        Buffer.BlockCopy(packet, meta.TransportOffset, destination, 20, payloadLength);
+        if (translatedPort != localPort)
+            BinaryPrimitives.WriteUInt16BigEndian(destination.AsSpan(20, 2), translatedPort);
+        FixChecksums(destination, translatedLength, ref address);
+        return translatedLength;
     }
 
     /// <summary>Queues one inner IP packet. Oversized IPv4 may be fragmented when DF is
@@ -1284,6 +1435,107 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(checksumOffset, 2), (ushort)~sum);
     }
 
+    private void InjectIpv4DnsReplyAsIpv6(
+        byte[] packet, int length, int ihl, byte protocol,
+        IPAddress remoteIp, IPAddress tunnelIp, ushort remotePort, ushort localPort,
+        WinDivertFlowTable.FlowEntry flow, IntPtr handle)
+    {
+        if (flow.DnsOrigDst is not { AddressFamily: AddressFamily.InterNetworkV6 } dns
+            || flow.OriginalSrc.AddressFamily != AddressFamily.InterNetworkV6)
+        {
+            Interlocked.Increment(ref _replyDrops);
+            return;
+        }
+        int payloadLength = length - ihl;
+        int translatedLength = 40 + payloadLength;
+        if (payloadLength < 8 || translatedLength > packet.Length || translatedLength > 0xFFFF)
+        {
+            Interlocked.Increment(ref _replyDrops);
+            return;
+        }
+        byte trafficClass = packet[1];
+        byte hopLimit = packet[8];
+        Buffer.BlockCopy(packet, ihl, packet, 40, payloadLength);
+        Array.Clear(packet, 0, 40);
+        packet[0] = (byte)(0x60 | (trafficClass >> 4));
+        packet[1] = (byte)((trafficClass & 0x0F) << 4);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(4, 2), (ushort)payloadLength);
+        packet[6] = protocol;
+        packet[7] = hopLimit;
+        WriteIpv6(packet, 8, dns);
+        WriteIpv6(packet, 24, flow.OriginalSrc);
+        if (flow.OriginalLocalPort != localPort)
+            BinaryPrimitives.WriteUInt16BigEndian(
+                packet.AsSpan(42, 2), flow.OriginalLocalPort);
+        var address = flow.Addr;
+        address.Outbound = false;
+        FixChecksums(packet, translatedLength, ref address);
+        if (protocol == 6 && payloadLength >= 14)
+        {
+            byte flags = packet[53];
+            _flows.ObserveInboundTcp(
+                remoteIp, remotePort, tunnelIp, localPort,
+                fin: (flags & 0x01) != 0, rst: (flags & 0x04) != 0);
+        }
+        if (WinDivertNative.WinDivertSend(
+                handle, packet, (uint)translatedLength, out _, ref address))
+            Interlocked.Increment(ref _replyInjected);
+        else
+            Interlocked.Increment(ref _replyDrops);
+    }
+
+    private void InjectIpv6DnsReplyAsIpv4(
+        byte[] packet, int length, Ipv6PacketMeta meta,
+        IPAddress remoteIp, IPAddress tunnelIp, ushort remotePort, ushort localPort,
+        WinDivertFlowTable.FlowEntry flow, IntPtr handle)
+    {
+        if (flow.DnsOrigDst is not { AddressFamily: AddressFamily.InterNetwork } dns
+            || flow.OriginalSrc.AddressFamily != AddressFamily.InterNetwork)
+        {
+            Interlocked.Increment(ref _replyDrops);
+            return;
+        }
+        int payloadLength = length - meta.TransportOffset;
+        int translatedLength = 20 + payloadLength;
+        if (payloadLength < 8 || translatedLength > packet.Length || translatedLength > 0xFFFF)
+        {
+            Interlocked.Increment(ref _replyDrops);
+            return;
+        }
+        byte trafficClass = (byte)(((packet[0] & 0x0F) << 4) | (packet[1] >> 4));
+        byte ttl = packet[7];
+        Buffer.BlockCopy(packet, meta.TransportOffset, packet, 20, payloadLength);
+        Array.Clear(packet, 0, 20);
+        packet[0] = 0x45;
+        packet[1] = trafficClass;
+        BinaryPrimitives.WriteUInt16BigEndian(
+            packet.AsSpan(2, 2), (ushort)translatedLength);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            packet.AsSpan(4, 2), (ushort)Random.Shared.Next(1, 0x10000));
+        packet[8] = ttl;
+        packet[9] = meta.Protocol;
+        WriteIpv4(packet, 12, dns);
+        WriteIpv4(packet, 16, flow.OriginalSrc);
+        if (flow.OriginalLocalPort != localPort)
+            BinaryPrimitives.WriteUInt16BigEndian(
+                packet.AsSpan(22, 2), flow.OriginalLocalPort);
+        var address = flow.Addr;
+        address.Outbound = false;
+        FixChecksums(packet, translatedLength, ref address);
+        if (meta.Protocol == 6 && payloadLength >= 14)
+        {
+            byte flags = packet[33];
+            _flows.ObserveInboundTcp(
+                remoteIp, remotePort, tunnelIp, localPort,
+                fin: (flags & 0x01) != 0, rst: (flags & 0x04) != 0);
+        }
+        if (WinDivertNative.WinDivertSend(
+                handle, packet, (uint)translatedLength, out _, ref address))
+            Interlocked.Increment(ref _replyInjected);
+        else
+            Interlocked.Increment(ref _replyDrops);
+    }
+
     public void SendPacket(byte[] packet, int offset, int length)
     {
         lock (_policyGate) SendPacketCore(packet, offset, length);
@@ -1395,6 +1647,22 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         {
             _flows.RememberInboundFrag(remoteIp, clientIp, proto, ipId, in flow);
             reordered = _pendingInboundIpv4.Take(fragmentKey);
+        }
+
+        if (flow.OriginalSrc.AddressFamily != AddressFamily.InterNetwork)
+        {
+            if (moreFragments || fragOffset != 0)
+            {
+                _pendingInboundIpv4.Discard(fragmentKey);
+                Interlocked.Increment(ref _replyDrops);
+            }
+            else
+            {
+                InjectIpv4DnsReplyAsIpv6(
+                    buf, length, ihl, proto, remoteIp, tunnelIpv4,
+                    remotePort, localPort, flow, h);
+            }
+            return;
         }
 
         var translatedSource = flow.DnsOrigDst ?? remoteIp;
@@ -1534,6 +1802,22 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             _flows.RememberInboundIpv6Frag(
                 remoteIp, clientIp, meta.FragmentProtocol, meta.FragmentId, in flow);
             reordered = _pendingInboundIpv6.Take(fragmentKey);
+        }
+
+        if (flow.OriginalSrc.AddressFamily != AddressFamily.InterNetworkV6)
+        {
+            if (meta.IsFragment)
+            {
+                _pendingInboundIpv6.Discard(fragmentKey);
+                Interlocked.Increment(ref _replyDrops);
+            }
+            else
+            {
+                InjectIpv6DnsReplyAsIpv4(
+                    buf, length, meta, remoteIp, tunnelIpv6,
+                    remotePort, localPort, flow, handle);
+            }
+            return;
         }
 
         var exposedSource = flow.DnsOrigDst ?? remoteIp;

@@ -1170,7 +1170,7 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 | `max_sessions` | `0` | per-user simultaneous-device cap (`0` = from the group, else unlimited); see "`max_sessions`" above |
 | `profiles` | `[]` (all) | comma-separated list of profiles the user may connect to; empty = all (interface isolation, see above) |
 | `group` | — | name of a `[group:<name>]` to inherit `bandwidth`/`max_sessions`/`allowed_networks` from |
-| `route` | — | repeatable per-user route pushed to the client, `<cidr> [gateway=<ip>] [metric=<n>]`; **overrides** the profile's global `route`/`advertised_routes` when present |
+| `route` | — | repeatable per-user route pushed to the client, `<cidr> [gateway=<ip>] [metric=<n>]`; **overrides** the profile's global `route`/`advertised_routes` when present; maximum 256 |
 | `client_subnet` | `[]` | repeatable (or comma-separated) subnet/address **behind** this client that the server routes INBOUND into this client's tunnel (OpenVPN `iroute`); server-side inbound registration only — see §"Routing networks behind nodes WITHOUT NAT" |
 | `allowed_networks` | `[]` (any) | destination ACL — CIDRs/IPs the user is allowed to reach; empty = anywhere |
 | `bandwidth.limit_mbps` | `0` | per-user rate cap in Mbit/s (`0` = unlimited or from the group), applied independently to concurrent upload and download; multipath streams share their direction's cap |
@@ -1320,6 +1320,11 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
 changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
 the same ABI 1.11 Rust transport and uses the same server push, crypto and reconnect logic.
+On Windows, a configured/pushed tunnel resolver is intentionally tunnel-wide in per-app mode:
+DNS commonly belongs to the shared system resolver process rather than the originating app, so
+trying to classify it by that process leaks selected applications' queries. IPv4 DNS can use an
+IPv6 tunnel resolver and vice versa; the adapter translates the packet family and reverse-NATs
+the reply. Non-DNS traffic remains governed by `apps_mode`.
 Windows captures/classifies with the bundled WinDivert driver. macOS uses a signed system
 extension containing both `NETransparentProxyProvider` and `NEDNSProxyProvider`; an ad-hoc or
 cross-built macOS archive therefore rejects an app-filtered profile until a Developer-ID build
@@ -1331,6 +1336,11 @@ Per-app ICMP is not available through the macOS flow API and is not promised by 
 For an app-filtered profile, host-global `kill_switch` is ignored because it would also block the
 applications explicitly bypassed by `exclude`; selected TCP/UDP/DNS is instead held fail-closed
 by the classifier while qeli reconnects. Unknown process identity is fail-closed for `include`.
+In macOS split mode, ordinary destinations outside `include`/server-pushed routes bypass the
+tunnel; an explicit route always requires its negotiated address family and is dropped rather
+than leaked when that family is absent. Hostnames are resolved through the tunnel DNS with both
+A and AAAA queries, and the relay tries policy-compatible candidates instead of treating the
+first A record as authoritative for an IPv6-only profile.
 
 **Data plane — local values and server push**
 
@@ -1814,6 +1824,12 @@ The rules are removed on a **clean** stop; **a crash leaves them in place** — 
 kill-switch this is fail-safe, not forgetfulness. Manual cleanup after a crash is in
 [GETTING-STARTED.md](GETTING-STARTED.md) §13.2.
 
+The host-wide forwarding, `rp_filter`, and IPv6 `accept_ra` values use a locked persistent
+owner journal shared by standalone client processes and in-daemon client profiles. Ownership is
+registered even when the kernel already has the requested value. A clean stop restores the
+pristine value only after the last `PID + process-start-time + TUN` owner exits; the next client
+operation prunes SIGKILLed owners safely, and a journal from another kernel boot is discarded.
+
 ### Caveats
 
 - **Linux only** (`iptables` and, when IPv6 is negotiated, `ip6tables`), like
@@ -1894,6 +1910,10 @@ Server: `[user:branch1] client_subnet = 192.168.50.0/24`, on the profile `routin
 `routing.nat.enabled = false`; the client gets the return route to the server LAN via
 `routing.advertised_routes` (push). Client branch1: `forward = true`. Result: a host on the server LAN
 pings `192.168.50.x` behind branch1 and back — no NAT, real addresses.
+For the IPv6 equivalent, use an IPv6 `client_subnet`, set the profile's
+`routing.ipv6.mode = route`, advertise the server-LAN return prefix, and keep `forward = true`
+on branch1. Route mode permits both server-originated OUTPUT and third-party LAN FORWARD along
+the authenticated dynamic route without NAT66.
 
 ## Multiple listeners per profile (`listen`)
 
@@ -1916,6 +1936,11 @@ profile is ONE transport — use a separate profile for the other (a per-listene
 supported; a `addr:port udp` suffix is ignored as malformed). Panel: profile → "Extra listeners". A
 malformed spec is ignored (logged); a busy port logs "address already in use" and the others keep
 running.
+
+For a newly created Quick Start profile, the backend adds the V6ONLY `[::]:port` outer listener
+only when its host snapshot reports an IPv6 interface/default route. This keeps IPv4 Quick Start
+launchable on kernels with IPv6 disabled. Re-launching an existing profile never removes or
+rewrites its manually configured listener set.
 
 ## Lifecycle hooks: `post_up` / `post_down`
 
@@ -2161,10 +2186,15 @@ mode; `routing.forward_private` is also IPv4-only. Configure IPv6 egress explici
 
 Every profile carrying inner IPv6 requires `ip6tables`, including
 `routing.ipv6.mode = off`. In `off`, qeli installs a verified per-profile drop for packets
-leaving that TUN toward any other interface, so an isolated profile cannot accidentally
-inherit host-wide forwarding enabled by a sibling profile. `route` permits bidirectional
-inbound forwarding only to that profile's delegated prefix and preserves source addresses;
+entering or leaving that TUN through any other interface, so an isolated profile cannot
+inherit host-wide forwarding enabled by a sibling profile in either direction. `route` permits
+source-preserving forwarding between the TUN and networks selected by the profile's kernel
+routes (WAN, server LAN, its pool and authenticated dynamic IPv6 `client_subnet` routes);
 `nat66` adds MASQUERADE and accepts only related/established return traffic from the WAN.
+`route` does not require a public/default IPv6 uplink: on a LAN-only/site-to-site router an
+empty `routing.ipv6.interface` enables forwarding without `accept_ra`; when an uplink is found
+or explicitly configured, qeli also leases `accept_ra=2` so enabling forwarding preserves SLAAC.
+`nat66` always requires a detected or explicit uplink.
 
 ## Built-in DNS resolver (`dns.*`)
 
@@ -2184,11 +2214,11 @@ unreadable chain fails profile startup.
 | `dns.listen` | `10.9.0.1` | listen address (usually the tun IP) |
 | `dns.listen_ipv6` | — | IPv6 listener; required with `dns.enabled` in `dual`/`ipv6` and must equal `tun.ipv6_address` |
 | `dns.port` | `53` | the port the **server-side proxy** listens on. Clients are still told 53, and qeli redirects 53 to this port; a non-53 port requires `iptables` for IPv4 and `ip6tables` for IPv6 |
-| `dns.upstream` | `1.1.1.1, 8.8.8.8` | upstream resolvers (comma-separated) |
+| `dns.upstream` | `1.1.1.1, 8.8.8.8` | unique IP-literal upstream resolvers (comma-separated), maximum 16 |
 | `dns.upstream_protocol` | `udp` | `udp` \| `tcp`. `tcp` really does force TCP to the upstream, and a UDP answer that comes back TRUNCATED is retried over TCP either way. ⚠️ **`tls` (DoT) is REJECTED at config load** — the server refuses to start rather than silently sending plaintext UDP while the config says DoT |
-| `dns.cache_size` | `1000` | record cache size |
-| `dns.timeout_secs` | `5` | upstream timeout (seconds) |
-| `dns.blocklist` | `[]` | domains answered with `0.0.0.0` (ad/tracker blocking) |
+| `dns.cache_size` | `1000` | record cache size; `0` disables caching, maximum 10000 entries |
+| `dns.timeout_secs` | `5` | one total deadline across all upstream attempts, 1–300 seconds |
+| `dns.blocklist` | `[]` | ASCII/punycode domains answered with `NXDOMAIN` (the name and all subdomains); no `*` wildcard, maximum 10000 unique names |
 | `dns.push_servers` | `[]` | hand clients IPv4/IPv6 resolvers **without** running the proxy. Empty = the active proxy listeners when `dns.enabled`, else nothing. Every address is strict-IP-validated and must belong to an active inner family |
 
 ## DHCP server (`dhcp.*`)
@@ -2252,8 +2282,8 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 | `routing.nat.enabled` | `false` | IPv4 NAT44/MASQUERADE for client Internet traffic; rejected in IPv6-only mode |
 | `routing.nat.interface` | `eth0` | NAT egress interface (auto-detected when left at default) |
 | `routing.ipv6.mode` | `off` | IPv6 egress: fail-closed isolated `off`, bidirectional source-preserving `route`, or stateful `nat66`; every IPv6 profile requires `ip6tables`, including `off` |
-| `routing.ipv6.interface` | — | IPv6 uplink; empty = detect it from the IPv6 default route |
-| `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]` |
+| `routing.ipv6.interface` | — | IPv6 uplink; empty = detect it from the IPv6 default route when present. Required by `nat66`, optional for LAN-only `route` |
+| `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]`; maximum 256 |
 | `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env includes `QELI_PROFILE`, `QELI_TUN`, explicit `QELI_POOL_IPV4`/`QELI_POOL_IPV6`, actual `QELI_WAN_IPV4`/`QELI_WAN_IPV6`, `QELI_BIND_PORT`; legacy `QELI_POOL`/`QELI_WAN` select the profile's primary family |
 | `routing.post_down` | — | command run on a clean profile/server stop (mirrors `routing.post_up`; a crash doesn't run it) |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |

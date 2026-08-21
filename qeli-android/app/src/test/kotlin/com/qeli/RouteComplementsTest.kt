@@ -77,6 +77,16 @@ class RouteComplementsTest {
     }
 
     @Test
+    fun `two IPv6 host excludes do not trip the complexity guard`() {
+        val routes = RouteComplements.ipv6(listOf("2001:db8::1/128", "fd00::1/128"))
+        assertNotNull(routes)
+        assertEquals(254, routes!!.size)
+        assertFalse(routes.any { contains(it, "2001:db8::1") })
+        assertFalse(routes.any { contains(it, "fd00::1") })
+        assertTrue(routes.any { contains(it, "2001:4860:4860::8888") })
+    }
+
+    @Test
     fun `subtract preserves every non-excluded part of a broad IPv4 route`() {
         val routes = RouteComplements.subtract(
             "10.0.0.0/8",

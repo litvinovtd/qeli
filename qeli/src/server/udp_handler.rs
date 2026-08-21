@@ -2222,7 +2222,7 @@ async fn handle_udp_auth(
             sessions.write().await.remove(&old.peer);
         }
     }
-    let mut installed_iroutes = Vec::new();
+    let mut installed_iroutes: Vec<String> = Vec::new();
     for cidr in &programmed_iroutes {
         if let Err(error) =
             handler::program_client_subnet_route(true, cidr, &profile.config.tun.name).await

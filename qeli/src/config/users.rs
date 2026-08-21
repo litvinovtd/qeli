@@ -110,8 +110,8 @@ pub struct GroupTemplate {
     pub allowed_networks: Option<Vec<String>>,
 }
 
-/// Validate an IPv4 allow-list in the same form accepted by the data plane:
-/// CIDR notation or a bare address (treated as /32).  This lives in the config
+/// Validate an IPv4/IPv6 allow-list in the same form accepted by the data plane:
+/// CIDR notation or a bare address (treated as /32 or /128). This lives in the config
 /// layer rather than the panel so file-based, inline and restored users receive
 /// the same fail-closed validation.
 pub fn validate_allowed_networks(nets: &[String], owner: &str) -> Result<(), String> {
@@ -120,16 +120,10 @@ pub fn validate_allowed_networks(nets: &[String], owner: &str) -> Result<(), Str
         if value.is_empty() {
             continue;
         }
-        let valid = match value.split_once('/') {
-            Some((address, prefix)) => {
-                address.trim().parse::<std::net::Ipv4Addr>().is_ok()
-                    && prefix.trim().parse::<u8>().is_ok_and(|length| length <= 32)
-            }
-            None => value.parse::<std::net::Ipv4Addr>().is_ok(),
-        };
+        let valid = crate::util::is_valid_cidr(value) || value.parse::<std::net::IpAddr>().is_ok();
         if !valid {
             return Err(format!(
-                "{owner}: allowed_networks entry {value:?} is not a valid IPv4 CIDR or address"
+                "{owner}: allowed_networks entry {value:?} is not a valid IPv4/IPv6 CIDR or address"
             ));
         }
     }
@@ -168,6 +162,20 @@ fn reject_unread_keys(doc: &crate::config::format::IniDoc, path: &Path) -> anyho
     )
 }
 
+fn validate_users_instance_names(doc: &crate::config::format::IniDoc) -> anyhow::Result<()> {
+    for kind in ["user", "group"] {
+        for section in doc.sections_of(kind) {
+            let name = section.instance.as_deref().unwrap_or("");
+            if !crate::util::is_valid_ident(name) {
+                anyhow::bail!(
+                    "users database: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 impl UsersDb {
     /// Validate access-control values that cannot be represented by the INI
     /// parser's scalar type checks. A typo here must refuse the database rather
@@ -192,6 +200,7 @@ impl UsersDb {
     pub fn parse_strict(content: &str, source: impl AsRef<Path>) -> anyhow::Result<Self> {
         // The users file is flat INI: `[user:<name>]` / `[group:<name>]`.
         let doc = crate::config::format::IniDoc::parse(content)?;
+        validate_users_instance_names(&doc)?;
         let db = UsersDb::from_ini(&doc);
         // Values that were PRESENT but unreadable are refused here, not shrugged off.
         //
@@ -295,6 +304,7 @@ impl UsersDb {
                 // nothing at all. The load path above has always done this correctly; this one
                 // asked first and answered into the void, which is worse than not checking —
                 // it looks checked.
+                validate_users_instance_names(&doc)?;
                 let db = UsersDb::from_ini(&doc);
                 let bad = doc.bad_values();
                 if !bad.is_empty() {
@@ -370,8 +380,21 @@ impl UsersDb {
 
         let mut static_ipv4_owners: HashMap<Ipv4Addr, &str> = HashMap::new();
         let mut static_ipv6_owners: HashMap<Ipv6Addr, &str> = HashMap::new();
+        let mut usernames = std::collections::HashSet::new();
+
+        for group in self.groups.keys() {
+            if !crate::util::is_valid_ident(group) {
+                anyhow::bail!("group name {group:?} is invalid");
+            }
+        }
 
         for user in &self.users {
+            if !crate::util::is_valid_ident(&user.username) {
+                anyhow::bail!("username {:?} is invalid", user.username);
+            }
+            if !usernames.insert(user.username.as_str()) {
+                anyhow::bail!("duplicate username {:?}", user.username);
+            }
             if let Some(raw) = user.static_ip.as_deref() {
                 let value = raw.trim();
                 let address = value.parse::<Ipv4Addr>().map_err(|error| {
@@ -423,6 +446,14 @@ impl UsersDb {
                 );
             }
             validate_network_list(&user.username, "client_subnet", &user.client_subnets)?;
+            if user.routes.len() > crate::transport_core::MAX_ROUTES {
+                anyhow::bail!(
+                    "user '{}': routes has {} entries; maximum is {}",
+                    user.username,
+                    user.routes.len(),
+                    crate::transport_core::MAX_ROUTES
+                );
+            }
             for route in &user.routes {
                 if !crate::util::is_valid_cidr(&route.cidr) {
                     anyhow::bail!(
@@ -455,6 +486,25 @@ impl UsersDb {
         for (group, template) in &self.groups {
             if let Some(networks) = &template.allowed_networks {
                 validate_network_list(&format!("group:{group}"), "allowed_networks", networks)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate group references only after the server has merged standalone and inline
+    /// users/groups. A file user may intentionally reference an inline group, but after the
+    /// union is complete a missing group is always a typo. Treating it as "no group" silently
+    /// removes bandwidth/session limits and destination ACLs, so this check is fail-closed.
+    pub fn validate_group_references(&self) -> anyhow::Result<()> {
+        for user in &self.users {
+            if let Some(group) = user.group.as_deref() {
+                if !self.groups.contains_key(group) {
+                    anyhow::bail!(
+                        "user '{}': group '{}' does not exist; refusing to drop the group's limits and allowed_networks silently",
+                        user.username,
+                        group
+                    );
+                }
             }
         }
         Ok(())
@@ -553,6 +603,48 @@ mod load_tests {
     }
 
     #[test]
+    fn access_control_validator_accepts_ipv6_for_users_and_groups() {
+        let mut groups = HashMap::new();
+        groups.insert(
+            "staff".into(),
+            GroupTemplate {
+                allowed_networks: Some(vec!["2001:db8:200::/48".into(), "fd71:e1::1".into()]),
+                ..Default::default()
+            },
+        );
+        let db = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                allowed_networks: vec!["2001:db8:100::/48".into(), "fd71:e1::2".into()],
+                ..Default::default()
+            }],
+            groups,
+        };
+        db.validate_access_controls().unwrap();
+        db.validate_network_fields().unwrap();
+    }
+
+    #[test]
+    fn pushed_user_route_count_is_bounded_before_handshake() {
+        let db = UsersDb {
+            users: vec![UserEntry {
+                username: "branch".into(),
+                routes: (0..=crate::transport_core::MAX_ROUTES)
+                    .map(|_| UserRoute {
+                        cidr: "2001:db8:300::/48".into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            groups: HashMap::new(),
+        };
+        let error = db.validate_network_fields().unwrap_err().to_string();
+        assert!(error.contains("routes has 257 entries"), "{error}");
+        assert!(error.contains("maximum is 256"), "{error}");
+    }
+
+    #[test]
     fn invalid_static_ipv6_is_rejected_before_it_can_be_saved() {
         let db = UsersDb {
             users: vec![UserEntry {
@@ -617,6 +709,41 @@ mod load_tests {
         .unwrap_err()
         .to_string();
         assert!(ipv6_error.contains("same static_ipv6"), "{ipv6_error}");
+    }
+
+    #[test]
+    fn missing_group_reference_is_rejected_after_union_validation() {
+        let db = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                group: Some("typo".into()),
+                ..Default::default()
+            }],
+            groups: HashMap::new(),
+        };
+        let error = db.validate_group_references().unwrap_err().to_string();
+        assert!(error.contains("does not exist"), "{error}");
+
+        let mut complete = db;
+        complete
+            .groups
+            .insert("typo".into(), GroupTemplate::default());
+        complete.validate_group_references().unwrap();
+    }
+
+    #[test]
+    fn users_file_rejects_missing_or_overlong_section_instances() {
+        let empty =
+            UsersDb::parse_strict("[user:]\npassword_hash = $argon2id$x\n", "empty-user.conf")
+                .unwrap_err()
+                .to_string();
+        assert!(empty.contains("invalid [user:<name>]"), "{empty}");
+
+        let overlong = format!("[group:{}]\nmax_sessions = 1\n", "g".repeat(129));
+        let error = UsersDb::parse_strict(&overlong, "long-group.conf")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid [group:<name>]"), "{error}");
     }
 
     /// A MISSPELLED key must refuse the load too — the more dangerous half of the same bug.

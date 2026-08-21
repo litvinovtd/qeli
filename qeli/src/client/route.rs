@@ -1017,7 +1017,7 @@ pub fn apply_pushed_routes(
             .cidr
             .rsplit_once('/')
             .and_then(|(_, p)| p.parse::<u8>().ok())
-            .unwrap_or(32);
+            .unwrap_or(if route_address.is_ipv4() { 32 } else { 128 });
         if !crate::transport_core::network::pushed_route_prefix_is_allowed(route_address, prefix) {
             log::warn!(
                 "REFUSING pushed route {}: a /{} covers the whole default route, and a server                  may not turn a split-tunnel client into a full-tunnel one. Set                  'routing.mode = full-tunnel' locally if that is what you want.",
@@ -1060,8 +1060,11 @@ pub fn apply_pushed_routes(
                     let via = format!("via {gateway}");
                     let dev = format!("dev {ifname}");
                     let metric = format!("metric {metric}");
-                    if existing_route_satisfies_all(false, &route.cidr, &[&via, &dev, &metric])
-                        == Some(true)
+                    if existing_route_satisfies_all(
+                        route_address.is_ipv6(),
+                        &route.cidr,
+                        &[&via, &dev, &metric],
+                    ) == Some(true)
                     {
                         continue;
                     }

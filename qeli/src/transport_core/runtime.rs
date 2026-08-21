@@ -34,6 +34,8 @@ use tokio::net::TcpStream;
 
 const PLATFORM_ACK_POLL: Duration = Duration::from_millis(20);
 const NETWORK_ACK_TIMEOUT: Duration = Duration::from_secs(45);
+const MAX_SUPPLIED_CARRIER_ADDRESSES: usize = 1024;
+const MAX_CARRIER_ADDRESSES_PER_FAMILY: usize = 32;
 
 async fn wait_for_runtime_cancel(cancel: Arc<AtomicBool>) {
     while !cancel.load(Ordering::Acquire) {
@@ -379,6 +381,15 @@ pub(crate) fn run(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow::
 }
 
 async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow::Result<()> {
+    let supplied_carrier_count = input.carrier_addresses.len();
+    let carrier_addresses = normalize_carrier_addresses(&input.carrier_addresses);
+    if carrier_addresses.len() < supplied_carrier_count {
+        log::warn!(
+            "platform supplied {supplied_carrier_count} carrier addresses; using {} unique \
+             candidates after canonicalisation and the per-family limit",
+            carrier_addresses.len()
+        );
+    }
     let (config, cancel, counters) = {
         let mut guard = lock_core(&core);
         if guard.state != ClientState::Connecting {
@@ -405,13 +416,7 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         cancel: cancel.clone(),
         counters: counters.clone(),
         fallback_dns_servers: Arc::new(input.fallback_dns_servers),
-        carrier_addresses: Arc::new(
-            input
-                .carrier_addresses
-                .iter()
-                .filter_map(|address| address.parse::<IpAddr>().ok())
-                .collect(),
-        ),
+        carrier_addresses: Arc::new(carrier_addresses),
         carrier_address: Arc::new(Mutex::new(None)),
     };
     // `qeli_client_stop` is the ownership boundary used by every GUI adapter. It must cancel
@@ -600,8 +605,10 @@ fn validate_input(input: &RuntimeInput) -> anyhow::Result<()> {
             .parse::<IpAddr>()
             .map_err(|_| anyhow::anyhow!("invalid fallback DNS server '{server}'"))?;
     }
-    if input.carrier_addresses.len() > 16 {
-        anyhow::bail!("at most 16 carrier addresses are accepted");
+    if input.carrier_addresses.len() > MAX_SUPPLIED_CARRIER_ADDRESSES {
+        anyhow::bail!(
+            "at most {MAX_SUPPLIED_CARRIER_ADDRESSES} supplied carrier addresses are accepted"
+        );
     }
     for address in &input.carrier_addresses {
         address
@@ -609,6 +616,38 @@ fn validate_input(input: &RuntimeInput) -> anyhow::Result<()> {
             .map_err(|_| anyhow::anyhow!("invalid carrier IP address '{address}'"))?;
     }
     Ok(())
+}
+
+fn normalize_carrier_addresses(addresses: &[String]) -> Vec<IpAddr> {
+    let mut output = Vec::new();
+    let mut ipv4_count = 0usize;
+    let mut ipv6_count = 0usize;
+    for raw in addresses {
+        let Ok(address) = raw.parse::<IpAddr>() else {
+            // `validate_input` owns the diagnostic. Keep this helper total so its output can
+            // never accidentally re-introduce an unvalidated string at the socket boundary.
+            continue;
+        };
+        let address = carrier::canonical_carrier_ip(address);
+        if output.contains(&address) {
+            continue;
+        }
+        let accepted = match address {
+            IpAddr::V4(_) if ipv4_count < MAX_CARRIER_ADDRESSES_PER_FAMILY => {
+                ipv4_count += 1;
+                true
+            }
+            IpAddr::V6(_) if ipv6_count < MAX_CARRIER_ADDRESSES_PER_FAMILY => {
+                ipv6_count += 1;
+                true
+            }
+            _ => false,
+        };
+        if accepted {
+            output.push(address);
+        }
+    }
+    output
 }
 
 fn finish_generation(
@@ -661,5 +700,48 @@ fn lock_core(shared: &Arc<Mutex<ClientCore>>) -> MutexGuard<'_, ClientCore> {
     match shared.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_dns_can_supply_more_than_sixteen_dual_stack_addresses() {
+        let mut carrier_addresses: Vec<String> =
+            (1..=40).map(|host| format!("192.0.2.{host}")).collect();
+        carrier_addresses.extend(["2001:db8::1".into(), "2001:db8::2".into()]);
+        let input = RuntimeInput {
+            fallback_dns_servers: Vec::new(),
+            carrier_addresses,
+        };
+
+        validate_input(&input).unwrap();
+        let normalized = normalize_carrier_addresses(&input.carrier_addresses);
+        assert_eq!(normalized.len(), 34);
+        assert_eq!(
+            normalized
+                .iter()
+                .filter(|address| address.is_ipv4())
+                .count(),
+            MAX_CARRIER_ADDRESSES_PER_FAMILY
+        );
+        assert_eq!(
+            normalized
+                .iter()
+                .filter(|address| address.is_ipv6())
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn mapped_carrier_addresses_are_canonicalised_and_deduplicated() {
+        let addresses = vec!["192.0.2.1".into(), "::ffff:192.0.2.1".into()];
+        assert_eq!(
+            normalize_carrier_addresses(&addresses),
+            vec!["192.0.2.1".parse::<IpAddr>().unwrap()]
+        );
     }
 }

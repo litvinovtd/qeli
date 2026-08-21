@@ -187,7 +187,7 @@ pub(crate) async fn resolve_ip_candidates(
 /// DNS APIs are allowed to expose IPv4 answers as IPv4-mapped IPv6 addresses. Treat those
 /// as their canonical IPv4 value so candidate de-duplication, socket-family selection and
 /// carrier MTU accounting all describe the packet that will actually be sent on the wire.
-fn canonical_carrier_ip(address: IpAddr) -> IpAddr {
+pub(crate) fn canonical_carrier_ip(address: IpAddr) -> IpAddr {
     match address {
         IpAddr::V6(address) => address
             .to_ipv4_mapped()

@@ -574,7 +574,7 @@ fn resolvectl_cmd() -> std::process::Command {
 
 /// The `resolvectl domain` list for the tunnel link.
 ///
-/// Split out of [`try_resolvectl`] so the decision can be tested without spawning anything —
+/// Shared with [`try_resolvectl_many`] so the decision can be tested without spawning anything —
 /// it is the difference between "all DNS goes through the tunnel" and a silent split.
 fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
     let mut domains: Vec<String> = config.search_domains.clone();
@@ -584,6 +584,7 @@ fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
     domains
 }
 
+#[cfg(test)]
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
     try_resolvectl_many(config, ifname, &[dns_addr.to_string()])
 }

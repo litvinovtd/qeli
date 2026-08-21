@@ -454,10 +454,10 @@ fn build_quickstart_profile(
     profile.bind.address = "0.0.0.0".into();
     profile.bind.transport = spec.transport.into();
     profile.bind.port = spec.port;
-    // Outer carrier family is independent from the inner tunnel mode. The server
-    // creates the IPv6 socket V6ONLY, so this is a safe dual-listener pair rather
-    // than relying on platform-specific IPv4-mapped behavior of `[::]`.
-    profile.bind.listen = vec![format!("[::]:{}", spec.port)];
+    // The host-aware Quick Start wrapper adds an outer IPv6 listener only when the
+    // snapshot proves that an IPv6 interface exists. Keeping the pure baseline IPv4-only
+    // avoids creating a profile that cannot bind at all on an IPv6-disabled kernel.
+    profile.bind.listen.clear();
     profile.tun.name = format!("vpn{}", spec.index);
     profile.tun.address = format!("10.9.{}.1", spec.index);
     profile.tun.mtu = 1400;
@@ -605,6 +605,12 @@ fn host_has_native_ipv6_egress(host: Option<&crate::server::preflight::HostNet>)
         // is not evidence that NAT66 can reach the public IPv6 Internet.
         (address.segments()[0] & 0xe000) == 0x2000
             && host.ipv6_default_interfaces.contains(interface)
+    })
+}
+
+fn host_has_ipv6_listener(host: Option<&crate::server::preflight::HostNet>) -> bool {
+    host.is_some_and(|snapshot| {
+        !snapshot.ipv6_addrs.is_empty() || !snapshot.ipv6_default_interfaces.is_empty()
     })
 }
 
@@ -894,6 +900,12 @@ fn quickstart_profile_for_current(
 
     let (profile, short_id, obfs_key) = build_quickstart_profile(mode)?;
     let mut profile = place_quickstart_network(profile, current, host)?;
+    // Outer carrier reachability is independent from inner `tun.ip_mode`. Add the V6ONLY
+    // wildcard socket only when the host snapshot contains an IPv6 interface/default;
+    // otherwise `[::]` can make an otherwise valid IPv4 Quick Start profile fail startup.
+    if host_has_ipv6_listener(host) {
+        profile.bind.listen = vec![format!("[::]:{}", spec.port)];
+    }
     let desired = resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
     configure_quickstart_ip_mode(
         &mut profile,
@@ -2226,6 +2238,10 @@ mod raw_secret_tests {
             assert_eq!(sid.is_some(), spec.needs_short_id);
             assert_eq!(obfs_key.is_some(), spec.needs_obfs_key);
             assert!(
+                profile.bind.listen.is_empty(),
+                "the host-independent baseline must not assume an IPv6 socket"
+            );
+            assert!(
                 !profile.pool.exclude.contains(&profile.tun.address),
                 "Quick Start must rely on automatic tun.address reservation"
             );
@@ -2367,6 +2383,7 @@ mod raw_secret_tests {
         );
         assert_eq!(profile.dns.listen_ipv6, profile.tun.ipv6_address);
         assert!(profile.routing.nat.enabled);
+        assert_eq!(profile.bind.listen, vec!["[::]:443".to_string()]);
     }
 
     #[test]
@@ -2421,6 +2438,24 @@ mod raw_secret_tests {
         assert!(was_reused);
         assert_eq!(reused.tun.ip_mode, crate::config::server::IpMode::Dual);
         assert_eq!(reused.pool.ipv6.cidr, ipv6_cidr);
+        assert_eq!(reused.bind.listen, vec!["[::]:443".to_string()]);
+    }
+
+    #[test]
+    fn quickstart_omits_outer_ipv6_listener_when_the_host_cannot_bind_it() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let (profile, _, _, reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&crate::server::preflight::HostNet::default()),
+            false,
+            Some(QuickStartIpMode::Ipv4),
+        )
+        .unwrap();
+        assert!(!reused);
+        assert!(profile.bind.listen.is_empty());
+        assert_eq!(profile.bind.address, "0.0.0.0");
     }
 
     #[test]

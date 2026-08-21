@@ -32,6 +32,16 @@ public sealed class VpnTunnel : VpnTunnelBase
     /// policy in the shared base. (Р2)</summary>
     protected override bool NetworkDnsFailed => _net?.DnsFailed ?? false;
 
+    private static IReadOnlyList<string> PerAppTunnelSubnets(Session session)
+    {
+        var assigned = session.NetworkAddresses
+            ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
+                session.Prefix, null) };
+        // Destination policy only needs a canonical membership prefix. CIDR matching masks
+        // host bits, so the authenticated address plus its on-link prefix is sufficient.
+        return assigned.Select(address =>
+            $"{address.Address}/{address.OnLinkPrefixLength}").ToArray();
+    }
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
         IReadOnlyList<IPAddress> carrierCandidates)
@@ -46,6 +56,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                     config, retained.Name, serverIp, EffectiveDns(config, session),
                     config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                     config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson),
+                    PerAppTunnelSubnets(session),
                     session.NetworkAddresses?.Any(address => address.Family == "ipv4") ?? true,
                     session.NetworkAddresses?.Any(address => address.Family == "ipv6") ?? false,
                     tunnelUp: true);
@@ -130,6 +141,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                 config, dev, serverIp, EffectiveDns(config, session),
                 config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                 config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson),
+                PerAppTunnelSubnets(session),
                 assigned.Any(address => address.Family == "ipv4"),
                 assigned.Any(address => address.Family == "ipv6"),
                 tunnelUp: true);

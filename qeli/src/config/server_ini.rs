@@ -97,6 +97,20 @@ fn put_list(sec: &mut Section, key: &str, vals: &[String]) {
 impl ServerConfig {
     /// Parse a server config from the flat-INI format.
     pub fn from_ini(doc: &IniDoc) -> anyhow::Result<ServerConfig> {
+        // Repeatable section instances are executable/configuration identities, not display
+        // labels. Validate file-authored names at the same boundary as panel-authored names;
+        // otherwise a manual `[profile:]` is silently normalised/dropped and an overlong
+        // profile reaches iptables comments that cannot represent it.
+        for kind in ["profile", "user", "group"] {
+            for section in doc.sections_of(kind) {
+                let name = section.instance.as_deref().unwrap_or("");
+                if !crate::util::is_valid_ident(name) {
+                    anyhow::bail!(
+                        "server config: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
+                    );
+                }
+            }
+        }
         let mut cfg = ServerConfig {
             auth: doc
                 .section("auth")

@@ -16,7 +16,10 @@ internal object RouteComplements {
     ): Boolean = fullTunnel && !hasAddress && !allowLeak
 
     /** Bound Builder route growth; over-complex complements are rejected, never truncated. */
-    private const val MAX_ROUTES = 200
+    // Two unrelated IPv6 /128 exclusions have an exact minimal complement of 254 prefixes.
+    // The previous 200-route ceiling therefore rejected an ordinary two-host bypass even
+    // though the builder can carry it. Keep a finite abuse bound while admitting that case.
+    private const val MAX_ROUTES = 512
     private const val IPV4_MAX = 0xffff_ffffL
     private val ONE = BigInteger.ONE
     private val IPV6_MAX = ONE.shiftLeft(128).subtract(ONE)

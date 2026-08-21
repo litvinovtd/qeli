@@ -355,6 +355,42 @@ impl NumericCidr {
     }
 }
 
+fn cidrs_cover(base: NumericCidr, candidates: &[NumericCidr]) -> bool {
+    let overlapping: Vec<_> = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| candidate.bits == base.bits && candidate.overlaps(base))
+        .collect();
+    if overlapping.is_empty() {
+        return false;
+    }
+    if overlapping
+        .iter()
+        .any(|candidate| candidate.prefix <= base.prefix)
+    {
+        return true;
+    }
+    base.children().is_some_and(|children| {
+        cidrs_cover(children[0], &overlapping) && cidrs_cover(children[1], &overlapping)
+    })
+}
+
+fn routes_cover_address_family(routes: &[NetworkRoute], bits: u8) -> bool {
+    let candidates: Vec<_> = routes
+        .iter()
+        .filter_map(|route| NumericCidr::parse(&route.cidr).ok())
+        .filter(|route| route.bits == bits)
+        .collect();
+    cidrs_cover(
+        NumericCidr {
+            start: 0,
+            prefix: 0,
+            bits,
+        },
+        &candidates,
+    )
+}
+
 fn subtract_one_cidr(
     base: NumericCidr,
     excluded: NumericCidr,
@@ -968,7 +1004,7 @@ pub(crate) fn planned_pushed_routes_for_addresses(
             .cidr
             .rsplit_once('/')
             .and_then(|(_, prefix)| prefix.parse::<u8>().ok())
-            .unwrap_or(32);
+            .unwrap_or(if route_address.is_ipv4() { 32 } else { 128 });
         // Reject only routes broader than the public/global aggregate for their family. The
         // previous shared /8 floor accidentally discarded valid IPv6 aggregates such as ULA
         // fc00::/7 and global-unicast 2000::/3.
@@ -980,6 +1016,13 @@ pub(crate) fn planned_pushed_routes_for_addresses(
             gateway: gateway.to_string(),
             metric: route.metric.unwrap_or(100),
         });
+    }
+    for (bits, family) in [(32, "IPv4"), (128, "IPv6")] {
+        if routes_cover_address_family(&planned, bits) {
+            anyhow::bail!(
+                "server-pushed routes collectively cover the entire {family} address space; only the local client may enable full-tunnel mode"
+            );
+        }
     }
     Ok(planned)
 }
@@ -1140,6 +1183,25 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].cidr, "10.20.0.0/16");
         assert_eq!(routes[0].metric, 42);
+    }
+
+    #[test]
+    fn rejects_composite_default_routes() {
+        let ipv4 = serde_json::to_string(
+            &(0u16..=255)
+                .map(|octet| serde_json::json!({ "cidr": format!("{octet}.0.0.0/8") }))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let error = planned_pushed_routes(&ipv4, "10.8.0.1").unwrap_err();
+        assert!(error.to_string().contains("entire IPv4"), "{error}");
+
+        let ipv6 = r#"[
+            {"cidr":"::/3"},{"cidr":"2000::/3"},{"cidr":"4000::/3"},{"cidr":"6000::/3"},
+            {"cidr":"8000::/3"},{"cidr":"a000::/3"},{"cidr":"c000::/3"},{"cidr":"e000::/3"}
+        ]"#;
+        let error = planned_pushed_routes(ipv6, "fd71:e1::1").unwrap_err();
+        assert!(error.to_string().contains("entire IPv6"), "{error}");
     }
 
     #[test]

@@ -27,25 +27,27 @@ struct SocketEndpoint {
     var host: String
     var port: UInt16
 
-    static func resolve(
+    static func resolveAll(
         host: String,
         port: UInt16,
         socketType: Int32,
         interface: String?,
         dnsServers: [String]
-    ) throws -> SocketEndpoint {
+    ) throws -> [SocketEndpoint] {
         let numeric = numericResolve(host: host, port: port, socketType: socketType)
-        if let first = numeric.first { return first }
+        if !numeric.isEmpty { return numeric }
         guard let interface, !dnsServers.isEmpty else {
             throw interface == nil ? RelayError.resolveFailed(host) : RelayError.noTunnelDNS
         }
-        let resolved = try TunnelDNSResolver.resolveA(
+        let resolved = try TunnelDNSResolver.resolveAddresses(
             name: host, servers: dnsServers, interface: interface)
-        guard let address = resolved.first,
-              let result = numericResolve(host: address, port: port, socketType: socketType).first else {
+        let endpoints = resolved.flatMap {
+            numericResolve(host: $0, port: port, socketType: socketType)
+        }
+        guard !endpoints.isEmpty else {
             throw RelayError.resolveFailed(host)
         }
-        return result
+        return endpoints
     }
 
     static func numericResolve(host: String, port: UInt16, socketType: Int32) -> [SocketEndpoint] {
@@ -195,21 +197,30 @@ final class TCPRelay: RelayClosable {
         var lastError: Error = RelayError.resolveFailed(parsed.host)
         for host in candidates {
             do {
-                var endpoint = try SocketEndpoint.resolve(
+                let endpoints = try SocketEndpoint.resolveAll(
                     host: host, port: parsed.port,
                     socketType: SOCK_STREAM, interface: interface,
                     dnsServers: dnsServers)
-                let decision = destinationPolicy?(endpoint.host) ?? .tunnel
-                if decision == .drop { throw RelayError.destinationBlocked }
-                let boundInterface = decision == .bypass ? nil : interface
-                let socket = try makeSocket(
-                    family: endpoint.family, type: SOCK_STREAM,
-                    interface: boundInterface)
-                if withSockAddr(&endpoint, { Darwin.connect(socket, $0, $1) }) == 0 {
-                    return socket
+                for var endpoint in endpoints {
+                    do {
+                        let decision = destinationPolicy?(endpoint.host) ?? .tunnel
+                        if decision == .drop {
+                            lastError = RelayError.destinationBlocked
+                            continue
+                        }
+                        let boundInterface = decision == .bypass ? nil : interface
+                        let socket = try makeSocket(
+                            family: endpoint.family, type: SOCK_STREAM,
+                            interface: boundInterface)
+                        if withSockAddr(&endpoint, { Darwin.connect(socket, $0, $1) }) == 0 {
+                            return socket
+                        }
+                        Darwin.close(socket)
+                        lastError = RelayError.socketFailed("connect")
+                    } catch {
+                        lastError = error
+                    }
                 }
-                Darwin.close(socket)
-                throw RelayError.socketFailed("connect")
             } catch { lastError = error }
         }
         throw lastError
@@ -340,26 +351,38 @@ final class UDPRelay: RelayClosable {
         let initialDecision = destinationPolicy?(targetHost) ?? .tunnel
         if initialDecision == .drop { return }
         let initialInterface = initialDecision == .bypass ? nil : interface
-        var endpoint = try SocketEndpoint.resolve(
+        let endpoints = try SocketEndpoint.resolveAll(
             host: targetHost, port: parsed.port,
             socketType: SOCK_DGRAM, interface: initialInterface,
             dnsServers: dnsServers)
-        let finalDecision = destinationPolicy?(endpoint.host) ?? initialDecision
-        if finalDecision == .drop { return }
-        let boundInterface = finalDecision == .bypass ? nil : interface
-        let socket = try socketForFamily(endpoint.family, interface: boundInterface)
-        let originKey = overrideHosts.isEmpty
-            ? nil : makeDNSOriginKey(socket: socket, endpoint: &endpoint, data: data)
-        if let originKey {
-            rememberDNSOrigin(originKey, endpoint: remote)
+        var lastError: Error?
+        var allowedCandidate = false
+        for var endpoint in endpoints {
+            let finalDecision = destinationPolicy?(endpoint.host) ?? initialDecision
+            if finalDecision == .drop { continue }
+            allowedCandidate = true
+            do {
+                let boundInterface = finalDecision == .bypass ? nil : interface
+                let socket = try socketForFamily(endpoint.family, interface: boundInterface)
+                let originKey = overrideHosts.isEmpty
+                    ? nil : makeDNSOriginKey(socket: socket, endpoint: &endpoint, data: data)
+                if let originKey {
+                    rememberDNSOrigin(originKey, endpoint: remote)
+                }
+                let count = data.withUnsafeBytes { raw in
+                    withSockAddr(&endpoint) {
+                        Darwin.sendto(socket, raw.baseAddress, data.count, 0, $0, $1)
+                    }
+                }
+                if count == data.count { return }
+                if let originKey { forgetDNSOrigin(originKey) }
+                lastError = RelayError.socketFailed("sendto")
+            } catch {
+                lastError = error
+            }
         }
-        let count = data.withUnsafeBytes { raw in
-            withSockAddr(&endpoint) { Darwin.sendto(socket, raw.baseAddress, data.count, 0, $0, $1) }
-        }
-        guard count == data.count else {
-            if let originKey { forgetDNSOrigin(originKey) }
-            throw RelayError.socketFailed("sendto")
-        }
+        if !allowedCandidate { return }
+        throw lastError ?? RelayError.socketFailed("sendto")
     }
 
     private func socketForFamily(_ family: Int32, interface: String?) throws -> Int32 {
@@ -526,19 +549,33 @@ private func endpointFrom(storage: sockaddr_storage, length: socklen_t)
 }
 
 private enum TunnelDNSResolver {
-    static func resolveA(name: String, servers: [String], interface: String) throws -> [String] {
+    static func resolveAddresses(
+        name: String, servers: [String], interface: String
+    ) throws -> [String] {
         for server in servers {
-            if let result = try? query(name: name, server: server, interface: interface), !result.isEmpty {
-                return result
+            var result: [String] = []
+            for type in [UInt16(1), UInt16(28)] {
+                if let addresses = try? query(
+                    name: name, type: type, server: server, interface: interface
+                ) {
+                    result.append(contentsOf: addresses)
+                }
+            }
+            if !result.isEmpty {
+                var seen = Set<String>()
+                return result.filter { seen.insert($0).inserted }
             }
         }
         throw RelayError.resolveFailed(name)
     }
 
-    private static func query(name: String, server: String, interface: String) throws -> [String] {
-        var endpoint = try SocketEndpoint.resolve(
-            host: server, port: 53, socketType: SOCK_DGRAM,
-            interface: nil, dnsServers: [])
+    private static func query(
+        name: String, type: UInt16, server: String, interface: String
+    ) throws -> [String] {
+        guard var endpoint = SocketEndpoint.numericResolve(
+            host: server, port: 53, socketType: SOCK_DGRAM).first else {
+            throw RelayError.resolveFailed(server)
+        }
         let fd = try makeSocket(family: endpoint.family, type: SOCK_DGRAM,
                                 interface: interface)
         defer { Darwin.close(fd) }
@@ -546,38 +583,58 @@ private enum TunnelDNSResolver {
         _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
                        socklen_t(MemoryLayout.size(ofValue: timeout)))
         let id = UInt16.random(in: 1...UInt16.max)
-        let packet = makeQuery(name: name, id: id)
+        let packet = try makeQuery(name: name, type: type, id: id)
+        guard withSockAddr(&endpoint, { Darwin.connect(fd, $0, $1) }) == 0 else {
+            throw RelayError.socketFailed("DNS connect")
+        }
+        // A connected UDP socket accepts replies only from the selected resolver endpoint;
+        // an arbitrary datagram arriving on the bound utun must not win by guessing the ID.
         let sent = packet.withUnsafeBytes { raw in
-            withSockAddr(&endpoint) { Darwin.sendto(fd, raw.baseAddress, packet.count, 0, $0, $1) }
+            Darwin.send(fd, raw.baseAddress, packet.count, 0)
         }
         guard sent == packet.count else { throw RelayError.socketFailed("DNS sendto") }
         var answer = [UInt8](repeating: 0, count: 4096)
         let count = Darwin.recv(fd, &answer, answer.count, 0)
         guard count > 0 else { throw RelayError.socketFailed("DNS recv") }
-        return parseA(Data(answer[0..<count]), id: id)
+        return parseAddresses(Data(answer[0..<count]), id: id, type: type)
     }
 
-    private static func makeQuery(name: String, id: UInt16) -> Data {
+    private static func makeQuery(name: String, type: UInt16, id: UInt16) throws -> Data {
+        let absolute = name.hasSuffix(".") ? String(name.dropLast()) : name
+        let labels = absolute.split(separator: ".", omittingEmptySubsequences: false)
+        let qnameLength = 1 + labels.reduce(0) { $0 + 1 + $1.utf8.count }
+        guard !labels.isEmpty,
+              labels.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 63 }),
+              qnameLength <= 255 else {
+            throw RelayError.resolveFailed(name)
+        }
         var bytes: [UInt8] = [UInt8(id >> 8), UInt8(id & 0xff), 0x01, 0x00,
                               0x00, 0x01, 0, 0, 0, 0, 0, 0]
-        for label in name.split(separator: ".") {
-            bytes.append(UInt8(min(label.utf8.count, 63))); bytes.append(contentsOf: label.utf8.prefix(63))
+        for label in labels {
+            bytes.append(UInt8(label.utf8.count))
+            bytes.append(contentsOf: label.utf8)
         }
-        bytes += [0, 0, 1, 0, 1]
+        // Root-label terminator, QTYPE, QCLASS=IN. Omitting the first zero changes the first
+        // QTYPE byte into a label length and makes every A/AAAA request malformed.
+        bytes += [0, UInt8(type >> 8), UInt8(type & 0xff), 0, 1]
         return Data(bytes)
     }
 
-    private static func parseA(_ data: Data, id: UInt16) -> [String] {
+    private static func parseAddresses(_ data: Data, id: UInt16, type expectedType: UInt16)
+        -> [String] {
         let b = [UInt8](data)
         guard b.count >= 12, UInt16(b[0]) << 8 | UInt16(b[1]) == id,
+              b[2] & 0x80 != 0, b[2] & 0x78 == 0, b[2] & 0x02 == 0,
               b[3] & 0x0f == 0 else { return [] }
         let questions = Int(UInt16(b[4]) << 8 | UInt16(b[5]))
         let answers = Int(UInt16(b[6]) << 8 | UInt16(b[7]))
+        guard questions == 1 else { return [] }
         var offset = 12
-        for _ in 0..<questions {
-            guard skipName(b, &offset), offset + 4 <= b.count else { return [] }
-            offset += 4
-        }
+        guard skipName(b, &offset), offset + 4 <= b.count else { return [] }
+        let questionType = UInt16(b[offset]) << 8 | UInt16(b[offset + 1])
+        let questionClass = UInt16(b[offset + 2]) << 8 | UInt16(b[offset + 3])
+        guard questionType == expectedType, questionClass == 1 else { return [] }
+        offset += 4
         var result: [String] = []
         for _ in 0..<answers {
             guard skipName(b, &offset), offset + 10 <= b.count else { break }
@@ -585,8 +642,12 @@ private enum TunnelDNSResolver {
             let klass = UInt16(b[offset + 2]) << 8 | UInt16(b[offset + 3])
             let length = Int(UInt16(b[offset + 8]) << 8 | UInt16(b[offset + 9])); offset += 10
             guard offset + length <= b.count else { break }
-            if type == 1 && klass == 1 && length == 4 {
+            if type == expectedType && klass == 1 && length == 4 && type == 1 {
                 result.append("\(b[offset]).\(b[offset+1]).\(b[offset+2]).\(b[offset+3])")
+            } else if type == expectedType && klass == 1 && length == 16 && type == 28 {
+                result.append(stride(from: 0, to: 16, by: 2).map {
+                    String(format: "%x", UInt16(b[offset + $0]) << 8 | UInt16(b[offset + $0 + 1]))
+                }.joined(separator: ":"))
             }
             offset += length
         }

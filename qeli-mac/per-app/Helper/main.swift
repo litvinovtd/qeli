@@ -72,7 +72,16 @@ struct QeliPerAppCtl {
     /// still exist. If either disappears, expire the state and disable both managers. The
     /// already-running helper remains mapped even when Qeli.app is removed from Applications.
     private static func guardOwner(_ ownerPID: Int32, executablePath: String) throws {
-        while processExists(ownerPID)
+        // This helper is spawned directly by the owning Qeli process. PID existence alone is
+        // not an identity check: after Qeli exits macOS can reuse that PID for an unrelated
+        // process, which would keep renewing a stale utun lease indefinitely. Once a parent
+        // exits, this process is re-parented and getppid() never changes back even if the
+        // numeric PID is reused, so parenthood is the stable lifetime token we need.
+        guard ownerPID > 1, getppid() == ownerPID else {
+            throw HelperError.invalidGuardianOwner
+        }
+        while getppid() == ownerPID
+                && processExists(ownerPID)
                 && FileManager.default.fileExists(atPath: executablePath) {
             do {
                 try mutateState {
@@ -280,7 +289,7 @@ private final class ExtensionActivationWaiter: NSObject, OSSystemExtensionReques
 private enum HelperError: LocalizedError {
     case usage, timeout, rebootRequired, transparentConfigurationMissing
     case transparentConfigurationDisabled, transparentProviderUnavailable
-    case transparentSessionMissing, providerRejected(String)
+    case transparentSessionMissing, invalidGuardianOwner, providerRejected(String)
 
     var errorDescription: String? {
         switch self {
@@ -291,6 +300,8 @@ private enum HelperError: LocalizedError {
         case .transparentConfigurationDisabled: return "Qeli transparent-proxy configuration is disabled"
         case .transparentProviderUnavailable: return "Qeli transparent-proxy provider did not become connected"
         case .transparentSessionMissing: return "Qeli transparent-proxy session is unavailable"
+        case .invalidGuardianOwner:
+            return "Qeli per-app guardian was not started by the declared owner process"
         case .providerRejected(let text): return text
         }
     }

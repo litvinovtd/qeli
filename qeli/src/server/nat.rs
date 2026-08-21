@@ -20,9 +20,11 @@
 //! any explicit rule/jump, or an unreadable chain fails closed instead of starting a
 //! profile that black-holes client traffic.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
+
+const XTABLES_LOCK_WAIT_SECS: &str = "5";
 
 /// iptables comment tag for the rules belonging to `profile`.
 fn tag(profile: &str) -> String {
@@ -79,7 +81,13 @@ pub fn available() -> bool {
 }
 
 fn ipt(path: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
-    Command::new(path).args(args).output()
+    // qeli serialises its own mutations, but package managers and host firewall services use
+    // the same xtables lock. Wait for a short bounded interval instead of failing a profile
+    // because another process happened to hold the lock for a few milliseconds.
+    Command::new(path)
+        .args(["--wait", XTABLES_LOCK_WAIT_SECS])
+        .args(args)
+        .output()
 }
 
 /// Auto-detect the default-route (WAN) interface via `ip route get 1.1.1.1`.
@@ -100,184 +108,52 @@ fn detect_wan() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Best-effort `net.ipv4.ip_forward = 1` (needs CAP_NET_ADMIN, which the worker has).
-/// Left enabled on teardown — forwarding is a global host knob and flipping it off
-/// could break other services on the box.
+/// Acquire `net.ipv4.ip_forward = 1` for the server worker through the common host journal.
+/// The lease deliberately lasts for the worker lifetime, matching the long-standing policy of
+/// not flipping a host-global knob off when one server profile stops. A panel-managed client
+/// can therefore stop without restoring `0` underneath an active NAT44/routed server profile.
 fn enable_ip_forward() -> bool {
     let path = "/proc/sys/net/ipv4/ip_forward";
-    if matches!(std::fs::read_to_string(path), Ok(ref v) if v.trim() == "1") {
-        return true; // already on
-    }
-    match std::fs::write(path, "1\n") {
-        Ok(()) => {
-            log::info!("NAT: enabled net.ipv4.ip_forward (left enabled on teardown)");
-            true
-        }
-        Err(e) => {
-            log::error!(
-                "NAT: could not enable net.ipv4.ip_forward ({e}) — the kernel will not forward \
-                 anything between the tunnel and the WAN"
-            );
-            false
-        }
+    if crate::sysctl::acquire(path, "1", "server-ipv4") {
+        log::info!("NAT: net.ipv4.ip_forward is owned for the server worker lifetime");
+        true
+    } else {
+        log::error!(
+            "NAT: could not enable net.ipv4.ip_forward — the kernel will not forward \
+             anything between the tunnel and the WAN"
+        );
+        false
     }
 }
 
 const IPV6_FORWARDING_SYSCTL: &str = "/proc/sys/net/ipv6/conf/all/forwarding";
-const BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
-const IPV6_SYSCTL_JOURNAL_VERSION: u8 = 1;
-const IPV6_SYSCTL_JOURNAL_NAME: &str = "ipv6-sysctls.state";
-const IPV6_SYSCTL_JOURNAL_LIMIT: u64 = 64 * 1024;
 
-#[derive(Debug, Clone)]
-struct ManagedIpv6Sysctl {
-    original: String,
-    owners: HashSet<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Ipv6SysctlLease {
+    wan: Option<String>,
+    scope: String,
 }
 
-/// Process-local ownership of the global IPv6 router sysctls changed by active profiles. The
-/// original values themselves are also mirrored to a crash journal below.
-///
-/// Profiles start and stop independently. Restoring `forwarding` or an uplink's `accept_ra`
-/// from a per-profile teardown would therefore break every sibling still using the setting.
-/// The first owner records the host value, every later owner shares it, and the last one
-/// restores it. A value changed by the operator while qeli is running is never overwritten.
-#[derive(Debug, Default, Clone)]
-struct Ipv6SysctlState {
-    forwarding: Option<ManagedIpv6Sysctl>,
-    accept_ra: HashMap<String, ManagedIpv6Sysctl>,
-    profile_wan: HashMap<String, String>,
+fn ipv6_sysctl_leases() -> &'static Mutex<HashMap<String, Ipv6SysctlLease>> {
+    static LEASES: OnceLock<Mutex<HashMap<String, Ipv6SysctlLease>>> = OnceLock::new();
+    LEASES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Machine-local crash journal for the host-wide IPv6 knobs. This is runtime state, not a
-/// user configuration: it records only the values that must be restored if the worker is
-/// killed between acquire and release.
-#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-struct Ipv6SysctlJournal {
-    version: u8,
-    boot_id: String,
-    forwarding_original: Option<String>,
-    accept_ra_original: BTreeMap<String, String>,
+fn firewall_program_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SysctlRestoreAction {
-    AlreadyOriginal,
-    RestoreOriginal,
-    LeaveExternalValue,
-}
-
-fn ipv6_sysctl_state() -> &'static Mutex<Ipv6SysctlState> {
-    static STATE: OnceLock<Mutex<Ipv6SysctlState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(Ipv6SysctlState::default()))
-}
-
-fn ipv6_sysctl_journal_path() -> std::path::PathBuf {
-    std::env::var_os("STATE_DIRECTORY")
-        .filter(|value| !value.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/qeli"))
-        .join(IPV6_SYSCTL_JOURNAL_NAME)
-}
-
-fn current_boot_id() -> anyhow::Result<String> {
-    let value = std::fs::read_to_string(BOOT_ID_PATH)
-        .map_err(|error| anyhow::anyhow!("cannot read {BOOT_ID_PATH}: {error}"))?;
-    let value = value.trim();
-    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
-        anyhow::bail!("{BOOT_ID_PATH} contains an invalid boot identifier");
+fn server_sysctl_scope(tun: &str) -> String {
+    // Encode the kernel interface name instead of using it verbatim. Linux permits a few
+    // punctuation characters that are deliberately forbidden in the journal's owner grammar.
+    let mut scope = String::with_capacity(2 + tun.len() * 2);
+    scope.push_str("s-");
+    for byte in tun.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut scope, "{byte:02x}").expect("writing to String cannot fail");
     }
-    Ok(value.to_string())
-}
-
-fn journal_from_state(
-    state: &Ipv6SysctlState,
-    boot_id: String,
-) -> Ipv6SysctlJournal {
-    Ipv6SysctlJournal {
-        version: IPV6_SYSCTL_JOURNAL_VERSION,
-        boot_id,
-        forwarding_original: state
-            .forwarding
-            .as_ref()
-            .map(|entry| entry.original.clone()),
-        accept_ra_original: state
-            .accept_ra
-            .iter()
-            .map(|(wan, entry)| (wan.clone(), entry.original.clone()))
-            .collect(),
-    }
-}
-
-fn validate_ipv6_sysctl_journal(journal: &Ipv6SysctlJournal) -> anyhow::Result<()> {
-    if journal.version != IPV6_SYSCTL_JOURNAL_VERSION {
-        anyhow::bail!(
-            "unsupported IPv6 sysctl journal version {}",
-            journal.version
-        );
-    }
-    if journal.boot_id.is_empty()
-        || journal.boot_id.len() > 128
-        || journal.boot_id.chars().any(char::is_control)
-    {
-        anyhow::bail!("IPv6 sysctl journal contains an invalid boot identifier");
-    }
-    if journal
-        .forwarding_original
-        .as_deref()
-        .is_some_and(|value| !matches!(value, "0" | "1"))
-    {
-        anyhow::bail!("IPv6 sysctl journal contains an invalid forwarding value");
-    }
-    for (wan, original) in &journal.accept_ra_original {
-        accept_ra_sysctl(wan)?;
-        if !matches!(original.as_str(), "0" | "1" | "2") {
-            anyhow::bail!(
-                "IPv6 sysctl journal contains an invalid accept_ra value for '{wan}'"
-            );
-        }
-    }
-    Ok(())
-}
-
-fn remove_ipv6_sysctl_journal() -> anyhow::Result<()> {
-    let path = ipv6_sysctl_journal_path();
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(anyhow::anyhow!(
-            "cannot remove IPv6 sysctl recovery journal {}: {error}",
-            path.display()
-        )),
-    }
-}
-
-/// Persist the ORIGINAL values before touching `/proc`. A hard crash can therefore restore
-/// host policy on the next worker start instead of mistaking qeli's `1`/`2` for operator state.
-fn persist_ipv6_sysctl_state(state: &Ipv6SysctlState) -> anyhow::Result<()> {
-    if state.forwarding.is_none() && state.accept_ra.is_empty() {
-        return remove_ipv6_sysctl_journal();
-    }
-    let path = ipv6_sysctl_journal_path();
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("IPv6 sysctl journal has no parent directory"))?;
-    std::fs::create_dir_all(parent).map_err(|error| {
-        anyhow::anyhow!(
-            "cannot create IPv6 sysctl journal directory {}: {error}",
-            parent.display()
-        )
-    })?;
-    let journal = journal_from_state(state, current_boot_id()?);
-    validate_ipv6_sysctl_journal(&journal)?;
-    let encoded = serde_json::to_vec(&journal)
-        .map_err(|error| anyhow::anyhow!("cannot encode IPv6 sysctl journal: {error}"))?;
-    crate::util::write_atomic_private(&path, &encoded).map_err(|error| {
-        anyhow::anyhow!(
-            "cannot persist IPv6 sysctl recovery journal {}: {error}",
-            path.display()
-        )
-    })
+    scope
 }
 
 fn accept_ra_sysctl(wan: &str) -> anyhow::Result<String> {
@@ -291,295 +167,79 @@ fn accept_ra_sysctl(wan: &str) -> anyhow::Result<String> {
         || wan.contains('/')
         || wan.contains('\\')
         || wan.contains('\0')
-        || wan.chars().any(|character| character.is_control() || character.is_whitespace())
+        || wan
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
     {
         anyhow::bail!("invalid IPv6 uplink interface name '{wan}'");
     }
     Ok(format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"))
 }
 
-fn read_sysctl(path: &str) -> anyhow::Result<String> {
-    std::fs::read_to_string(path)
-        .map(|value| value.trim().to_string())
-        .map_err(|error| anyhow::anyhow!("cannot read {path}: {error}"))
-}
-
-fn set_sysctl(path: &str, value: &str) -> anyhow::Result<()> {
-    std::fs::write(path, format!("{value}\n"))
-        .map_err(|error| anyhow::anyhow!("cannot write {path}={value}: {error}"))?;
-    let actual = read_sysctl(path)?;
-    if actual != value {
-        anyhow::bail!("{path} remained {actual} after writing {value}");
-    }
-    Ok(())
-}
-
-fn sysctl_restore_action(
-    current: &str,
-    managed_value: &str,
-    original: &str,
-) -> SysctlRestoreAction {
-    if current != managed_value {
-        SysctlRestoreAction::LeaveExternalValue
-    } else if current == original {
-        SysctlRestoreAction::AlreadyOriginal
-    } else {
-        SysctlRestoreAction::RestoreOriginal
-    }
-}
-
-/// Returns true when qeli no longer owns a value that needs a later recovery retry.
-fn restore_sysctl_if_owned(path: &str, managed_value: &str, original: &str) -> bool {
-    if !std::path::Path::new(path).exists() {
-        // A hot-unplugged/renamed WAN no longer has per-interface kernel state to restore.
-        // Keeping its journal entry would make every worker restart fail forever.
-        log::info!("IPv6 routing: {path} no longer exists; no sysctl remains to restore");
-        return true;
-    }
-    let current = match read_sysctl(path) {
-        Ok(value) => value,
-        Err(error) => {
-            log::warn!("IPv6 routing: cannot inspect {path} during cleanup: {error}");
-            return false;
-        }
-    };
-    match sysctl_restore_action(&current, managed_value, original) {
-        SysctlRestoreAction::LeaveExternalValue => {
-            log::warn!(
-                "IPv6 routing: not restoring {path} to {original}: it was changed externally to {current} while qeli was running"
-            );
-            true
-        }
-        SysctlRestoreAction::AlreadyOriginal => true,
-        SysctlRestoreAction::RestoreOriginal => match set_sysctl(path, original) {
-            Ok(()) => {
-                log::info!("IPv6 routing: restored {path}={original}");
-                true
-            }
-            Err(error) => {
-                log::warn!("IPv6 routing: could not restore {path}: {error}");
-                false
-            }
-        }
-    }
-}
-
-/// Restore a journal left by a killed worker. A boot-id mismatch means the kernel has rebooted
-/// and reloaded its own sysctl policy, so the old journal must be discarded without applying
-/// stale values from the previous boot.
-fn recover_ipv6_sysctls() -> anyhow::Result<()> {
-    let path = ipv6_sysctl_journal_path();
-    let metadata = match std::fs::metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(anyhow::anyhow!(
-                "cannot inspect IPv6 sysctl recovery journal {}: {error}",
-                path.display()
-            ));
-        }
-    };
-    if !metadata.is_file() || metadata.len() > IPV6_SYSCTL_JOURNAL_LIMIT {
-        anyhow::bail!(
-            "refusing invalid IPv6 sysctl recovery journal {} (regular={}, size={})",
-            path.display(),
-            metadata.is_file(),
-            metadata.len()
-        );
-    }
-    let bytes = std::fs::read(&path).map_err(|error| {
-        anyhow::anyhow!(
-            "cannot read IPv6 sysctl recovery journal {}: {error}",
-            path.display()
-        )
-    })?;
-    let journal: Ipv6SysctlJournal = serde_json::from_slice(&bytes).map_err(|error| {
-        anyhow::anyhow!(
-            "cannot parse IPv6 sysctl recovery journal {}: {error}",
-            path.display()
-        )
-    })?;
-    validate_ipv6_sysctl_journal(&journal)?;
-
-    let boot_id = current_boot_id()?;
-    if journal.boot_id != boot_id {
-        log::info!(
-            "IPv6 routing: discarding recovery journal from an earlier kernel boot"
-        );
-        return remove_ipv6_sysctl_journal();
-    }
-
-    let mut restored = true;
-    // Turn router mode off first when qeli was its last owner; only then restore per-interface
-    // RA policy. Entries whose current value was changed by an operator are deliberately left.
-    if let Some(original) = journal.forwarding_original.as_deref() {
-        restored &= restore_sysctl_if_owned(IPV6_FORWARDING_SYSCTL, "1", original);
-    }
-    for (wan, original) in &journal.accept_ra_original {
-        let ra_path = accept_ra_sysctl(wan)?;
-        restored &= restore_sysctl_if_owned(&ra_path, "2", original);
-    }
-    if !restored {
-        anyhow::bail!(
-            "IPv6 sysctl recovery is incomplete; keeping {} for the next retry",
-            path.display()
-        );
-    }
-    remove_ipv6_sysctl_journal()?;
-    log::info!("IPv6 routing: recovered host sysctls from a previous unclean exit");
-    Ok(())
-}
-
-/// Acquire the host IPv6-router settings for one profile.
-///
-/// `accept_ra=2` is applied before global forwarding is enabled. Linux otherwise stops
-/// accepting Router Advertisements when it becomes a router, which can silently remove the
-/// WAN's SLAAC address/default route. The ordering also keeps auto-detection usable.
-fn acquire_ipv6_sysctls(profile: &str, wan: &str) -> anyhow::Result<()> {
-    let ra_path = accept_ra_sysctl(wan)?;
-    let mut state = ipv6_sysctl_state()
+/// Acquire the host IPv6-router settings for one server profile through the same persistent,
+/// cross-process journal used by router/exit clients. `accept_ra=2` is applied first so
+/// enabling global forwarding cannot silently remove a SLAAC WAN address/default route.
+fn acquire_ipv6_sysctls(profile: &str, wan: Option<&str>, tun: &str) -> anyhow::Result<()> {
+    let ra_path = wan.map(accept_ra_sysctl).transpose()?;
+    let scope = server_sysctl_scope(tun);
+    let mut leases = ipv6_sysctl_leases()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    if let Some(existing) = state.profile_wan.get(profile) {
-        if existing == wan {
-            return Ok(());
+    if let Some(existing) = leases.get(profile) {
+        if existing.wan.as_deref() != wan || existing.scope != scope {
+            anyhow::bail!(
+                "profile '{profile}' already owns IPv6 router settings for interface '{}'",
+                existing.wan.as_deref().unwrap_or("<none>")
+            );
         }
-        anyhow::bail!(
-            "profile '{profile}' already owns IPv6 router settings for interface '{existing}'"
-        );
+        // Do not return early. A previous release may have restored one knob but retained
+        // this process-local lease because another knob could not be restored. Re-acquiring
+        // both settings is idempotent and repairs that partial-teardown state.
     }
 
-    let mut next = state.clone();
-    let ra_entry_is_new = !next.accept_ra.contains_key(wan);
-    let apply_ra = if let Some(entry) = next.accept_ra.get_mut(wan) {
-        // An empty owner set means a prior release could not verify/restore this sysctl and
-        // deliberately kept the journal entry. Re-acquisition must verify the managed value
-        // again instead of assuming that stale in-memory state is active.
-        let needs_reapply = entry.owners.is_empty();
-        entry.owners.insert(profile.to_string());
-        needs_reapply
-    } else {
-        let original = read_sysctl(&ra_path)?;
-        let needs_apply = original != "2";
-        next.accept_ra.insert(
-            wan.to_string(),
-            ManagedIpv6Sysctl {
-                original,
-                owners: HashSet::from([profile.to_string()]),
-            },
-        );
-        needs_apply
-    };
-
-    let forwarding_entry_is_new = next.forwarding.is_none();
-    let apply_forwarding = if let Some(entry) = next.forwarding.as_mut() {
-        let needs_reapply = entry.owners.is_empty();
-        entry.owners.insert(profile.to_string());
-        needs_reapply
-    } else {
-        let original = read_sysctl(IPV6_FORWARDING_SYSCTL)?;
-        let needs_apply = original != "1";
-        next.forwarding = Some(ManagedIpv6Sysctl {
-            original,
-            owners: HashSet::from([profile.to_string()]),
-        });
-        needs_apply
-    };
-
-    next
-        .profile_wan
-        .insert(profile.to_string(), wan.to_string());
-    // A new original value reaches stable storage BEFORE its global kernel value is changed.
-    // Owner-only changes are intentionally process-local and do not rewrite identical state.
-    if ra_entry_is_new || forwarding_entry_is_new {
-        persist_ipv6_sysctl_state(&next)?;
+    if let Some(ra_path) = ra_path.as_deref() {
+        crate::sysctl::acquire_checked(ra_path, "2", &scope)?;
     }
-    *state = next;
-
-    if apply_ra {
-        if let Err(error) = set_sysctl(&ra_path, "2") {
-            release_ipv6_sysctls_locked(&mut state, profile);
-            return Err(error);
+    if let Err(error) = crate::sysctl::acquire_checked(IPV6_FORWARDING_SYSCTL, "1", &scope) {
+        if let Err(release_error) = crate::sysctl::release_scope(&scope) {
+            log::error!(
+                "IPv6 routing: could not roll back router sysctls after forwarding acquisition failed: {release_error}"
+            );
         }
-        log::info!("IPv6 routing: set {ra_path}=2 while the uplink is used by qeli");
+        return Err(error);
     }
-    if apply_forwarding {
-        if let Err(error) = set_sysctl(IPV6_FORWARDING_SYSCTL, "1") {
-            release_ipv6_sysctls_locked(&mut state, profile);
-            return Err(error);
-        }
-        log::info!(
-            "IPv6 routing: enabled {IPV6_FORWARDING_SYSCTL} while IPv6 profiles are active"
-        );
-    }
+
+    leases.insert(
+        profile.to_string(),
+        Ipv6SysctlLease {
+            wan: wan.map(str::to_string),
+            scope,
+        },
+    );
     Ok(())
 }
 
 fn release_ipv6_sysctls(profile: &str) {
-    let mut state = ipv6_sysctl_state()
+    let mut leases = ipv6_sysctl_leases()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    release_ipv6_sysctls_locked(&mut state, profile);
-}
-
-fn release_ipv6_sysctls_locked(state: &mut Ipv6SysctlState, profile: &str) {
-    let Some(wan) = state.profile_wan.remove(profile) else {
+    let Some(lease) = leases.get(profile).cloned() else {
         return;
     };
-
-    let mut journal_changed = false;
-    if let Some(entry) = state.forwarding.as_mut() {
-        entry.owners.remove(profile);
-    }
-    if state
-        .forwarding
-        .as_ref()
-        .is_some_and(|entry| entry.owners.is_empty())
-    {
-        let original = state
-            .forwarding
-            .as_ref()
-            .expect("checked above")
-            .original
-            .clone();
-        if restore_sysctl_if_owned(IPV6_FORWARDING_SYSCTL, "1", &original) {
-            state.forwarding = None;
-            journal_changed = true;
+    match crate::sysctl::release_scope(&lease.scope) {
+        Ok(()) => {
+            leases.remove(profile);
         }
-    }
-
-    if let Some(entry) = state.accept_ra.get_mut(&wan) {
-        entry.owners.remove(profile);
-    }
-    if state
-        .accept_ra
-        .get(&wan)
-        .is_some_and(|entry| entry.owners.is_empty())
-    {
-        let original = state
-            .accept_ra
-            .get(&wan)
-            .expect("checked above")
-            .original
-            .clone();
-        if accept_ra_sysctl(&wan)
-            .is_ok_and(|path| restore_sysctl_if_owned(&path, "2", &original))
-        {
-            state.accept_ra.remove(&wan);
-            journal_changed = true;
-        }
-    }
-
-    if journal_changed {
-        if let Err(error) = persist_ipv6_sysctl_state(state) {
-            // The previous journal is intentionally left in place. Its restore operations are
-            // ownership-checked, so retrying them after a clean partial release is safe.
-            log::error!("IPv6 routing: could not update the crash-recovery journal: {error}");
+        Err(error) => {
+            // Retain the process-local lease so a later profile cleanup can retry. The
+            // persistent journal also keeps any value whose restore could not be verified.
+            log::error!(
+                "IPv6 routing: could not release host sysctls for profile '{profile}': {error}"
+            );
         }
     }
 }
-
 fn detect_wan_ipv6() -> Option<String> {
     let output = Command::new("ip")
         .args(["-6", "route", "get", "2606:4700:4700::1111"])
@@ -627,8 +287,47 @@ struct Rule {
     essential: bool,
 }
 
+fn cross_profile_drop_rules(profile: &str, tun: &str, peers: &[String]) -> Vec<Rule> {
+    let comment = tag(profile);
+    let mut unique = std::collections::HashSet::new();
+    let mut rules = Vec::new();
+    for peer in peers
+        .iter()
+        .map(|value| value.trim())
+        .filter(|peer| !peer.is_empty() && *peer != tun && unique.insert((*peer).to_string()))
+    {
+        for (input, output) in [(tun, peer), (peer, tun)] {
+            rules.push(Rule {
+                table: "filter",
+                chain: "FORWARD",
+                args: vec![
+                    "-i".into(),
+                    input.into(),
+                    "-o".into(),
+                    output.into(),
+                    "-j".into(),
+                    "DROP".into(),
+                    "-m".into(),
+                    "comment".into(),
+                    "--comment".into(),
+                    comment.clone(),
+                ],
+                essential: true,
+            });
+        }
+    }
+    rules
+}
+
 /// The iptables rules we install for one profile.
-fn rules(profile: &str, wan: &str, tun: &str, pool_cidr: &str, mss: i32) -> Vec<Rule> {
+fn rules(
+    profile: &str,
+    wan: &str,
+    tun: &str,
+    pool_cidr: &str,
+    peer_tuns: &[String],
+    mss: i32,
+) -> Vec<Rule> {
     let mss = mss.to_string();
     let comment = tag(profile);
     let cm = |mut r: Vec<String>| -> Vec<String> {
@@ -640,7 +339,8 @@ fn rules(profile: &str, wan: &str, tun: &str, pool_cidr: &str, mss: i32) -> Vec<
         ]);
         r
     };
-    vec![
+    let mut managed = cross_profile_drop_rules(profile, tun, peer_tuns);
+    managed.extend([
         // ESSENTIAL — MASQUERADE the client pool out the WAN interface.
         Rule {
             table: "nat",
@@ -721,7 +421,8 @@ fn rules(profile: &str, wan: &str, tun: &str, pool_cidr: &str, mss: i32) -> Vec<
             .collect(),
             essential: false,
         },
-    ]
+    ]);
+    managed
 }
 
 /// Is this exact rule currently present? Verified with `iptables -C` (the only
@@ -736,14 +437,80 @@ fn rule_present(path: &str, table: &str, chain: &str, rule: &[String]) -> bool {
         .unwrap_or(false)
 }
 
+fn rule_jumps_to(args: &[String], target: &str) -> bool {
+    args.windows(2)
+        .any(|pair| pair[0] == "-j" && pair[1].eq_ignore_ascii_case(target))
+}
+
+/// Return the first position below every qeli-managed isolation DROP. Broad routing permits
+/// are inserted there, never at rule 1, so a later profile restart cannot move an ACCEPT above
+/// another profile's boundary.
+fn forward_permit_position_from_listing(listing: &str) -> usize {
+    let mut position = 0usize;
+    let mut last_managed_drop = 0usize;
+    for line in listing
+        .lines()
+        .filter(|line| line.starts_with("-A FORWARD "))
+    {
+        position += 1;
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        let drops = tokens
+            .windows(2)
+            .any(|pair| pair[0] == "-j" && pair[1].eq_ignore_ascii_case("DROP"));
+        if drops && rule_comment(line).is_some_and(|comment| comment.starts_with("qeli-nat:")) {
+            last_managed_drop = position;
+        }
+    }
+    last_managed_drop + 1
+}
+
+fn forward_permit_position(path: &str) -> Option<usize> {
+    let output = ipt(path, &["-t", "filter", "-S", "FORWARD"]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(forward_permit_position_from_listing(
+        &String::from_utf8_lossy(&output.stdout),
+    ))
+}
+
+fn install_rule(path: &str, rule: &Rule) -> bool {
+    let insert = rule.table == "filter" && rule.chain == "FORWARD";
+    let mut args = vec![
+        "-t".to_string(),
+        rule.table.to_string(),
+        if insert { "-I" } else { "-A" }.to_string(),
+        rule.chain.to_string(),
+    ];
+    if insert {
+        let position = if rule_jumps_to(&rule.args, "DROP") {
+            1
+        } else {
+            match forward_permit_position(path) {
+                Some(position) => position,
+                None => return false,
+            }
+        };
+        args.push(position.to_string());
+    }
+    args.extend(rule.args.clone());
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let _ = ipt(path, &refs);
+    rule_present(path, rule.table, rule.chain, &rule.args)
+}
+
 /// Install NAT for `profile`. Returns the chosen WAN interface on success.
 pub fn setup(
     profile: &str,
     configured_iface: &str,
     pool_cidr: &str,
     tun: &str,
+    peer_tuns: &[String],
     mtu: i32,
 ) -> anyhow::Result<String> {
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = iptables_path().ok_or_else(|| {
         anyhow::anyhow!(
             "`iptables` is not installed (apt install iptables) — required for routing.nat.enabled"
@@ -776,21 +543,8 @@ pub fn setup(
 
     let mss = (mtu - 40).max(536);
     let mut forward_unapplied = false;
-    for r in rules(profile, &wan, tun, pool_cidr, mss) {
-        let insert = r.table == "filter" && r.chain == "FORWARD";
-        let mut args: Vec<String> = vec![
-            "-t".into(),
-            r.table.into(),
-            if insert { "-I".into() } else { "-A".into() },
-            r.chain.into(),
-        ];
-        if insert {
-            args.push("1".into());
-        }
-        args.extend(r.args.clone());
-        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-        let _ = ipt(&path, &argv); // exit code is unreliable on nft-incompatible chains
-        if !rule_present(&path, r.table, r.chain, &r.args) {
+    for r in rules(profile, &wan, tun, pool_cidr, peer_tuns, mss) {
+        if !install_rule(&path, &r) {
             if r.essential {
                 cleanup_with(&path, profile); // roll back the partial set
                 anyhow::bail!(
@@ -834,6 +588,7 @@ fn ipv6_rules(
     wan: &str,
     tun: &str,
     pool_cidr: &str,
+    peer_tuns: &[String],
     mss: i32,
     mode: crate::config::server::Ipv6RoutingMode,
 ) -> Vec<Rule> {
@@ -847,7 +602,7 @@ fn ipv6_rules(
         ]);
         rule
     };
-    let mut rules = Vec::new();
+    let mut rules = cross_profile_drop_rules(profile, tun, peer_tuns);
     if mode == crate::config::server::Ipv6RoutingMode::Nat66 {
         rules.push(Rule {
             table: "nat",
@@ -883,29 +638,47 @@ fn ipv6_rules(
             essential: true,
         });
     }
-    rules.push(Rule {
-        table: "filter",
-        chain: "FORWARD",
-        args: annotate(vec![
+    let outbound = if mode == crate::config::server::Ipv6RoutingMode::Route {
+        // Route mode is the no-NAT site-to-site mode. The kernel route, not one selected
+        // Internet uplink, decides whether a packet goes to the server LAN, WAN or another
+        // operator-routed network. Same-TUN traffic stays in qeli's authenticated direct
+        // forwarder and is deliberately not opened here.
+        vec![
+            "-i".into(),
+            tun.into(),
+            "!".into(),
+            "-o".into(),
+            tun.into(),
+            "-j".into(),
+            "ACCEPT".into(),
+        ]
+    } else {
+        vec![
             "-i".into(),
             tun.into(),
             "-o".into(),
             wan.into(),
             "-j".into(),
             "ACCEPT".into(),
-        ]),
+        ]
+    };
+    rules.push(Rule {
+        table: "filter",
+        chain: "FORWARD",
+        args: annotate(outbound),
         essential: false,
     });
     let inbound = if mode == crate::config::server::Ipv6RoutingMode::Route {
-        // A delegated/routed GUA prefix is bidirectional by definition. Limit the permit
-        // to this profile's pool so it cannot open another TUN or a server-local address.
+        // The output interface is selected only by routes owned by this profile: its
+        // connected pool plus authenticated dynamic client_subnet routes. Do not pin the
+        // input to the WAN; that silently breaks a server-side LAN initiating to a client
+        // LAN. Same-TUN traffic remains under the user-space client-to-client policy.
         vec![
+            "!".into(),
             "-i".into(),
-            wan.into(),
+            tun.into(),
             "-o".into(),
             tun.into(),
-            "-d".into(),
-            pool_cidr.into(),
             "-j".into(),
             "ACCEPT".into(),
         ]
@@ -937,8 +710,8 @@ fn ipv6_rules(
 /// `off` still carries IPv6 inside the profile, but must never inherit host-wide forwarding
 /// from a sibling route/NAT66 profile or from the administrator. Client-to-client and
 /// client-side routed-LAN traffic uses qeli's authenticated direct forwarder, so no broad
-/// kernel ACCEPT is needed here; fail closed for every packet leaving through another
-/// interface while leaving local INPUT and same-TUN handling untouched.
+/// kernel ACCEPT is needed here; fail closed in both transit directions while leaving local
+/// INPUT/OUTPUT and same-TUN handling untouched.
 fn ipv6_off_rules(profile: &str, tun: &str) -> Vec<Rule> {
     let comment = tag(profile);
     let annotate = |mut rule: Vec<String>| {
@@ -950,10 +723,8 @@ fn ipv6_off_rules(profile: &str, tun: &str) -> Vec<Rule> {
         ]);
         rule
     };
-    vec![Rule {
-        table: "filter",
-        chain: "FORWARD",
-        args: annotate(vec![
+    [
+        vec![
             "-i".into(),
             tun.into(),
             "!".into(),
@@ -961,9 +732,25 @@ fn ipv6_off_rules(profile: &str, tun: &str) -> Vec<Rule> {
             tun.into(),
             "-j".into(),
             "DROP".into(),
-        ]),
+        ],
+        vec![
+            "!".into(),
+            "-i".into(),
+            tun.into(),
+            "-o".into(),
+            tun.into(),
+            "-j".into(),
+            "DROP".into(),
+        ],
+    ]
+    .into_iter()
+    .map(|args| Rule {
+        table: "filter",
+        chain: "FORWARD",
+        args: annotate(args),
         essential: true,
-    }]
+    })
+    .collect()
 }
 
 /// Configure native IPv6 forwarding for one profile. `route` preserves client source
@@ -974,8 +761,12 @@ pub fn setup_ipv6(
     configured_iface: &str,
     pool_cidr: &str,
     tun: &str,
+    peer_tuns: &[String],
     mtu: i32,
 ) -> anyhow::Result<Option<String>> {
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = ip6tables_path().ok_or_else(|| {
         anyhow::anyhow!(
             "an IPv6 profile with routing.ipv6.mode = {mode} requires ip6tables so its egress boundary can be enforced"
@@ -990,17 +781,7 @@ pub fn setup_ipv6(
         // Verification is mandatory: falling back to a permissive FORWARD policy would be
         // the exact cross-profile leak this mode exists to prevent.
         for rule in ipv6_off_rules(profile, tun) {
-            let mut args = vec![
-                "-t".to_string(),
-                rule.table.to_string(),
-                "-I".to_string(),
-                rule.chain.to_string(),
-                "1".to_string(),
-            ];
-            args.extend(rule.args.clone());
-            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            let _ = ipt(&path, &refs);
-            if !rule_present(&path, rule.table, rule.chain, &rule.args) {
+            if !install_rule(&path, &rule) {
                 cleanup_with(&path, profile);
                 anyhow::bail!(
                     "ip6tables could not enforce routing.ipv6.mode = off for profile '{profile}'; refusing an IPv6 plan that could inherit Internet forwarding"
@@ -1009,45 +790,47 @@ pub fn setup_ipv6(
         }
         return Ok(None);
     }
-    let wan = resolve_wan_ipv6(configured_iface).ok_or_else(|| {
-        anyhow::anyhow!("could not detect an IPv6 uplink; set routing.ipv6.interface explicitly")
-    })?;
-    acquire_ipv6_sysctls(profile, &wan).map_err(|error| {
+    let wan = resolve_wan_ipv6(configured_iface);
+    if mode == crate::config::server::Ipv6RoutingMode::Nat66 && wan.is_none() {
+        anyhow::bail!(
+            "could not detect an IPv6 uplink for NAT66; set routing.ipv6.interface explicitly"
+        );
+    }
+    let uplink_label = wan.as_deref().unwrap_or("<kernel routes>");
+    acquire_ipv6_sysctls(profile, wan.as_deref(), tun).map_err(|error| {
         anyhow::anyhow!(
-            "routing.ipv6.mode = {mode} could not enable safe IPv6 forwarding on '{wan}': {error}"
+            "routing.ipv6.mode = {mode} could not enable safe IPv6 forwarding via '{uplink_label}': {error}"
         )
     })?;
     // Auto-detection depends on the RA/default route that existed before forwarding was
     // enabled. Verify it survived the transition: otherwise rules below would be installed
     // for a stale uplink and the profile would ACK IPv6 while public traffic has no route.
     if configured_iface.trim().is_empty() {
-        match detect_wan_ipv6() {
-            Some(active_wan) if active_wan == wan => {}
-            active_wan => {
-                release_ipv6_sysctls(profile);
-                anyhow::bail!(
-                    "the auto-detected IPv6 uplink changed from '{wan}' to '{}' after enabling forwarding; check accept_ra=2 and the host IPv6 default route",
-                    active_wan.as_deref().unwrap_or("none")
-                );
+        if let Some(expected_wan) = wan.as_deref() {
+            match detect_wan_ipv6() {
+                Some(active_wan) if active_wan == expected_wan => {}
+                active_wan => {
+                    release_ipv6_sysctls(profile);
+                    anyhow::bail!(
+                        "the auto-detected IPv6 uplink changed from '{expected_wan}' to '{}' after enabling forwarding; check accept_ra=2 and the host IPv6 default route",
+                        active_wan.as_deref().unwrap_or("none")
+                    );
+                }
             }
         }
     }
+    let wan_for_rules = wan.as_deref().unwrap_or("");
     let mut forward_unapplied = false;
-    for rule in ipv6_rules(profile, &wan, tun, pool_cidr, (mtu - 60).max(1220), mode) {
-        let insert = rule.table == "filter" && rule.chain == "FORWARD";
-        let mut args = vec![
-            "-t".to_string(),
-            rule.table.to_string(),
-            if insert { "-I" } else { "-A" }.to_string(),
-            rule.chain.to_string(),
-        ];
-        if insert {
-            args.push("1".to_string());
-        }
-        args.extend(rule.args.clone());
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let _ = ipt(&path, &refs);
-        if !rule_present(&path, rule.table, rule.chain, &rule.args) {
+    for rule in ipv6_rules(
+        profile,
+        wan_for_rules,
+        tun,
+        pool_cidr,
+        peer_tuns,
+        (mtu - 60).max(1220),
+        mode,
+    ) {
+        if !install_rule(&path, &rule) {
             if rule.essential {
                 cleanup_with(&path, profile);
                 release_ipv6_sysctls(profile);
@@ -1066,7 +849,7 @@ pub fn setup_ipv6(
             Some(status) if status.unconditionally_accepts => log::warn!(
                 "Profile '{profile}': IPv6 FORWARD permit rules could not be verified; \
                  the empty built-in chain has policy ACCEPT. Ensure {pool_cidr} can forward between \
-                 {tun} and {wan}."
+                 {tun} and {uplink_label}."
             ),
             status => {
                 cleanup_with(&path, profile);
@@ -1078,7 +861,7 @@ pub fn setup_ipv6(
             }
         }
     }
-    Ok(Some(wan))
+    Ok(Some(wan.unwrap_or_default()))
 }
 
 /// The `filter/FORWARD` chain's default policy plus whether it contains explicit rules, or
@@ -1186,6 +969,9 @@ pub fn enable_dns_input(
     listen: &str,
     port: u16,
 ) -> anyhow::Result<()> {
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let ipv6 = listen
         .parse::<std::net::IpAddr>()
         .is_ok_and(|address| address.is_ipv6());
@@ -1252,7 +1038,15 @@ pub fn enable_dns_input(
 /// FORWARD chain is empty and its policy is exactly ACCEPT. Rules carry the same
 /// `qeli-nat:<profile>` tag, so
 /// [`cleanup`]/[`cleanup_all`] remove them too.
-pub fn enable_routing(profile: &str, tun: &str, mtu: i32) -> anyhow::Result<()> {
+pub fn enable_routing(
+    profile: &str,
+    tun: &str,
+    peer_tuns: &[String],
+    mtu: i32,
+) -> anyhow::Result<()> {
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Same invariant as `setup`, for the same reason: `forward_private` promises the server
     // ROUTES transit traffic, and without `ip_forward` the kernel drops every transit packet
     // whatever the rules say. This used to be ignored entirely — the function returned `()`
@@ -1314,27 +1108,27 @@ pub fn enable_routing(profile: &str, tun: &str, mtu: i32) -> anyhow::Result<()> 
                 .collect(),
         )
     };
+    for rule in cross_profile_drop_rules(profile, tun, peer_tuns) {
+        if !install_rule(&path, &rule) {
+            cleanup_with(&path, profile);
+            anyhow::bail!("could not enforce cross-profile isolation for {tun}");
+        }
+    }
     // MSS-clamp forwarded TCP (PMTU black-hole guard), then permit tun<->anywhere routing.
     let mut forward_unapplied = false;
     let mut mss_unapplied = false;
     for (table, chain, args) in [mss_rule("-o"), mss_rule("-i"), accept("-i"), accept("-o")] {
         let insert = table == "filter" && chain == "FORWARD";
-        let mut argv = vec![
-            "-t".to_string(),
-            table.to_string(),
-            if insert { "-I" } else { "-A" }.to_string(),
-            chain.to_string(),
-        ];
-        if insert {
-            argv.push("1".to_string());
-        }
-        argv.extend(args.clone());
-        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-        let _ = ipt(&path, &refs); // exit code is unreliable on nft-incompatible chains
-                                   // VERIFY instead of assuming. The whole set was applied with `let _ =` and then
-                                   // reported as success, so a host that refused every rule still logged "FORWARD ACCEPT
-                                   // for tun0" — the operator had no way to tell routing from silence.
-        if !rule_present(&path, table, chain, &args) {
+        let rule = Rule {
+            table,
+            chain,
+            args: args.clone(),
+            essential: false,
+        };
+        // VERIFY instead of assuming. The whole set was applied with `let _ =` and then
+        // reported as success, so a host that refused every rule still logged "FORWARD ACCEPT
+        // for tun0" — the operator had no way to tell routing from silence.
+        if !install_rule(&path, &rule) {
             if insert {
                 forward_unapplied = true;
             } else {
@@ -1392,6 +1186,9 @@ pub fn enable_dns_redirect(profile: &str, tun: &str, listen: &str, port: u16) ->
     if port == 53 {
         return true; // nothing to bridge
     }
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let ipv6 = listen
         .parse::<std::net::IpAddr>()
         .is_ok_and(|address| address.is_ipv6());
@@ -1468,6 +1265,9 @@ pub fn enable_dns_redirect(profile: &str, tun: &str, listen: &str, port: u16) ->
 /// Remove every NAT rule tagged for `profile` (idempotent; a no-op if none exist or
 /// iptables is absent).
 pub fn cleanup(profile: &str) {
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(path) = iptables_path() {
         cleanup_with(&path, profile);
     }
@@ -1483,7 +1283,10 @@ pub fn cleanup(profile: &str) {
 /// from the config — whose own [`cleanup`] is never called again — don't leak
 /// forever. Active profiles re-install their rules immediately afterwards.
 pub fn cleanup_all() -> anyhow::Result<()> {
-    recover_ipv6_sysctls()?;
+    let _firewall_guard = firewall_program_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    crate::sysctl::recover()?;
     if let Some(path) = iptables_path() {
         cleanup_matching(&path, "qeli-nat:", false);
     }
@@ -1501,13 +1304,67 @@ fn cleanup_with(path: &str, profile: &str) {
     cleanup_matching(path, &tag(profile), true);
 }
 
+/// Parse the shell-quoted shape emitted by `iptables -S` without invoking a shell. Comments
+/// may contain whitespace or quotes because profile names are user-visible strings.
+fn split_iptables_args(line: &str) -> Option<Vec<String>> {
+    let mut output = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in line.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            started = true;
+            continue;
+        }
+        match quote {
+            Some(delimiter) if character == delimiter => {
+                quote = None;
+                started = true;
+            }
+            Some(_) if character == '\\' => escaped = true,
+            Some(_) => {
+                current.push(character);
+                started = true;
+            }
+            None if character.is_whitespace() => {
+                if started {
+                    output.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            None if character == '"' || character == '\'' => {
+                quote = Some(character);
+                started = true;
+            }
+            None if character == '\\' => {
+                escaped = true;
+                started = true;
+            }
+            None => {
+                current.push(character);
+                started = true;
+            }
+        }
+    }
+    if escaped || quote.is_some() {
+        return None;
+    }
+    if started {
+        output.push(current);
+    }
+    Some(output)
+}
+
 /// The iptables comment on a rule (the token right after `--comment`, dequoted). `None`
-/// when the rule carries no comment.
+/// when the rule carries no comment or malformed quoting.
 fn rule_comment(line: &str) -> Option<String> {
-    let toks: Vec<&str> = line.split_whitespace().collect();
+    let toks = split_iptables_args(line)?;
     toks.windows(2)
         .find(|w| w[0] == "--comment")
-        .map(|w| w[1].trim_matches('"').to_string())
+        .map(|w| w[1].clone())
 }
 
 /// Delete every managed rule whose iptables comment matches `needle`. With `exact`, the
@@ -1533,8 +1390,10 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
         ("mangle", "FORWARD"),
     ] {
         // List the chain, find a tagged rule, delete it by replaying its own spec
-        // with -D, and re-list (positions shift). Capped to avoid spinning.
-        for _ in 0..64 {
+        // with -D, and re-list (positions shift). Every successful iteration removes
+        // one exact rule, so no arbitrary cap is needed. The former limit of 64 became
+        // incorrect once cross-profile isolation legitimately created two rules per peer.
+        loop {
             let out = match ipt(path, &["-t", table, "-S", chain]) {
                 Ok(o) if o.status.success() => o,
                 _ => break,
@@ -1554,11 +1413,11 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
             };
             // "-A CHAIN <spec...>" -> "iptables -t table -D CHAIN <spec...>".
             // Strip the quotes iptables-save puts around the comment value.
-            let spec: Vec<String> = line
-                .split_whitespace()
-                .skip(2)
-                .map(|t| t.trim_matches('"').to_string())
-                .collect();
+            let Some(spec) =
+                split_iptables_args(line).map(|arguments| arguments.into_iter().skip(2))
+            else {
+                break;
+            };
             let mut args: Vec<String> = vec!["-t".into(), table.into(), "-D".into(), chain.into()];
             args.extend(spec);
             let argv: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1575,13 +1434,11 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        chain_policy_from_output, dns_input_rule, ipv6_off_rules, ipv6_rules,
-        journal_from_state, resolve_wan_ipv6, rule_comment, sysctl_restore_action, tag,
-        validate_ipv6_sysctl_journal, Ipv6SysctlJournal, Ipv6SysctlState,
-        ManagedIpv6Sysctl, SysctlRestoreAction,
+        chain_policy_from_output, cross_profile_drop_rules, dns_input_rule,
+        forward_permit_position_from_listing, ipv6_off_rules, ipv6_rules, resolve_wan_ipv6,
+        rule_comment, server_sysctl_scope, tag,
     };
     use crate::config::server::Ipv6RoutingMode;
-    use std::collections::{HashMap, HashSet};
 
     fn has_sequence(args: &[String], expected: &[&str]) -> bool {
         args.windows(expected.len()).any(|window| {
@@ -1593,44 +1450,96 @@ mod tests {
     }
 
     #[test]
-    fn ipv6_off_is_an_essential_non_tun_egress_drop() {
+    fn ipv6_off_is_an_essential_bidirectional_transit_drop() {
         let rules = ipv6_off_rules("isolated", "qeli6");
-        assert_eq!(rules.len(), 1);
-        let rule = &rules[0];
-        assert!(rule.essential);
-        assert_eq!(rule.table, "filter");
-        assert_eq!(rule.chain, "FORWARD");
-        assert!(has_sequence(
-            &rule.args,
-            &["-i", "qeli6", "!", "-o", "qeli6"]
-        ));
+        assert_eq!(rules.len(), 2);
+        assert!(rules.iter().all(|rule| rule.essential));
+        assert!(rules
+            .iter()
+            .all(|rule| rule.table == "filter" && rule.chain == "FORWARD"));
+        assert!(rules
+            .iter()
+            .any(|rule| has_sequence(&rule.args, &["-i", "qeli6", "!", "-o", "qeli6"])));
+        assert!(rules
+            .iter()
+            .any(|rule| has_sequence(&rule.args, &["!", "-i", "qeli6", "-o", "qeli6"])));
         // The boundary is the authenticated profile TUN, not only its address pool.
         // A client may legitimately source traffic from an operator-approved
         // `client_subnet`; mode=off must keep that routed prefix from inheriting host-wide
         // forwarding just as strictly as a pool address.
-        assert!(!rule.args.iter().any(|value| value == "-s"));
-        assert!(has_sequence(&rule.args, &["-j", "DROP"]));
-        assert!(!rule.args.iter().any(|value| value == "ACCEPT"));
+        assert!(rules
+            .iter()
+            .all(|rule| !rule.args.iter().any(|value| value == "-s")));
+        assert!(rules
+            .iter()
+            .all(|rule| has_sequence(&rule.args, &["-j", "DROP"])));
+        assert!(rules
+            .iter()
+            .all(|rule| !rule.args.iter().any(|value| value == "ACCEPT")));
     }
 
     #[test]
-    fn routed_ipv6_opens_only_the_profiles_delegated_prefix_inbound() {
+    fn routed_ipv6_uses_the_profiles_kernel_routes_bidirectionally() {
         let rules = ipv6_rules(
             "routed",
-            "wan6",
+            "",
             "qeli6",
             "2001:db8:42::/64",
+            &[],
             1340,
             Ipv6RoutingMode::Route,
         );
         assert!(!rules.iter().any(|rule| rule.table == "nat"));
+        assert!(rules
+            .iter()
+            .all(|rule| !rule.args.iter().any(String::is_empty)));
+        let outbound = rules
+            .iter()
+            .find(|rule| has_sequence(&rule.args, &["-i", "qeli6", "!", "-o", "qeli6"]))
+            .expect("route mode needs an outbound routed permit");
+        assert!(has_sequence(&outbound.args, &["-j", "ACCEPT"]));
         let inbound = rules
             .iter()
-            .find(|rule| has_sequence(&rule.args, &["-i", "wan6", "-o", "qeli6"]))
-            .expect("route mode needs an inbound WAN permit");
-        assert!(has_sequence(&inbound.args, &["-d", "2001:db8:42::/64"]));
+            .find(|rule| has_sequence(&rule.args, &["!", "-i", "qeli6", "-o", "qeli6"]))
+            .expect("route mode needs an inbound routed permit");
         assert!(has_sequence(&inbound.args, &["-j", "ACCEPT"]));
         assert!(!inbound.args.iter().any(|value| value == "--state"));
+        assert!(!inbound.args.iter().any(|value| value == "-d"));
+    }
+
+    #[test]
+    fn cross_profile_isolation_is_bidirectional_and_deduplicated() {
+        let rules = cross_profile_drop_rules(
+            "edge",
+            "qeli0",
+            &[
+                "qeli1".to_string(),
+                " qeli1 ".to_string(),
+                "qeli0".to_string(),
+                String::new(),
+            ],
+        );
+        assert_eq!(rules.len(), 2);
+        assert!(rules.iter().all(|rule| rule.essential));
+        assert!(rules
+            .iter()
+            .any(|rule| has_sequence(&rule.args, &["-i", "qeli0", "-o", "qeli1", "-j", "DROP"])));
+        assert!(rules
+            .iter()
+            .any(|rule| has_sequence(&rule.args, &["-i", "qeli1", "-o", "qeli0", "-j", "DROP"])));
+    }
+
+    #[test]
+    fn broad_permits_are_placed_below_every_managed_drop() {
+        let listing = "\
+-P FORWARD ACCEPT
+-A FORWARD -i lan0 -j ACCEPT
+-A FORWARD -i qeli0 -o qeli1 -j DROP -m comment --comment qeli-nat:a
+-A FORWARD -i hostile0 -j DROP
+-A FORWARD -i qeli2 -o qeli3 -m comment --comment qeli-nat:b -j DROP
+-A FORWARD -i lan1 -j ACCEPT
+";
+        assert_eq!(forward_permit_position_from_listing(listing), 5);
     }
 
     #[test]
@@ -1640,6 +1549,7 @@ mod tests {
             "wan6",
             "qeli6",
             "fd71:e1:42::/64",
+            &[],
             1340,
             Ipv6RoutingMode::Nat66,
         );
@@ -1712,65 +1622,27 @@ mod tests {
         assert_eq!(rule_comment(bare).as_deref(), Some("qeli-nat:us"));
         let quoted = "-A FORWARD -o t -m comment --comment \"qeli-nat:us\" -j ACCEPT";
         assert_eq!(rule_comment(quoted).as_deref(), Some("qeli-nat:us"));
+        let spaced = "-A FORWARD -o t -m comment --comment \"qeli-nat:branch office\" -j ACCEPT";
+        assert_eq!(
+            rule_comment(spaced).as_deref(),
+            Some("qeli-nat:branch office")
+        );
+        let escaped = "-A FORWARD -m comment --comment \"qeli-nat:branch \\\"office\\\"\" -j DROP";
+        assert_eq!(
+            rule_comment(escaped).as_deref(),
+            Some("qeli-nat:branch \"office\"")
+        );
+        assert_eq!(rule_comment("--comment \"unterminated"), None);
         let none = "-A FORWARD -o t -j ACCEPT";
         assert_eq!(rule_comment(none), None);
     }
 
     #[test]
-    fn ipv6_sysctl_journal_roundtrips_only_original_host_policy() {
-        let state = Ipv6SysctlState {
-            forwarding: Some(ManagedIpv6Sysctl {
-                original: "0".to_string(),
-                owners: HashSet::from(["edge".to_string(), "mobile".to_string()]),
-            }),
-            accept_ra: HashMap::from([
-                (
-                    "eth0".to_string(),
-                    ManagedIpv6Sysctl {
-                        original: "1".to_string(),
-                        owners: HashSet::from(["edge".to_string()]),
-                    },
-                ),
-                (
-                    "wan6".to_string(),
-                    ManagedIpv6Sysctl {
-                        original: "0".to_string(),
-                        owners: HashSet::from(["mobile".to_string()]),
-                    },
-                ),
-            ]),
-            profile_wan: HashMap::from([
-                ("edge".to_string(), "eth0".to_string()),
-                ("mobile".to_string(), "wan6".to_string()),
-            ]),
-        };
-        let journal = journal_from_state(&state, "boot-a".to_string());
-        validate_ipv6_sysctl_journal(&journal).expect("valid journal");
-        let encoded = serde_json::to_vec(&journal).expect("encode journal");
-        let decoded: Ipv6SysctlJournal =
-            serde_json::from_slice(&encoded).expect("decode journal");
-        assert_eq!(journal, decoded);
-        assert_eq!(journal.forwarding_original.as_deref(), Some("0"));
-        assert_eq!(journal.accept_ra_original.get("eth0").map(String::as_str), Some("1"));
-        assert_eq!(journal.accept_ra_original.get("wan6").map(String::as_str), Some("0"));
+    fn server_sysctl_scope_is_bounded_and_unambiguous() {
+        assert_eq!(server_sysctl_scope("qeli6"), "s-71656c6936");
+        assert_ne!(server_sysctl_scope("qeli:6"), server_sysctl_scope("qeli6"));
+        assert!(server_sysctl_scope("abcdefghijklmno").len() <= 32);
     }
-
-    #[test]
-    fn ipv6_sysctl_restore_never_overwrites_an_external_change() {
-        assert_eq!(
-            sysctl_restore_action("1", "1", "0"),
-            SysctlRestoreAction::RestoreOriginal
-        );
-        assert_eq!(
-            sysctl_restore_action("0", "1", "0"),
-            SysctlRestoreAction::LeaveExternalValue
-        );
-        assert_eq!(
-            sysctl_restore_action("1", "1", "1"),
-            SysctlRestoreAction::AlreadyOriginal
-        );
-    }
-
     #[test]
     fn dns_input_rule_is_scoped_to_one_profile_resolver() {
         assert_eq!(

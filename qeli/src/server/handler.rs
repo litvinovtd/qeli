@@ -934,7 +934,7 @@ where
                 }
                 crate::server::notify::fire_disconnect(&old.username, &profile.name, old.peer);
             }
-            let mut installed_client_routes = Vec::new();
+            let mut installed_client_routes: Vec<String> = Vec::new();
             for cidr in &programmed_client_routes {
                 if let Err(error) = program_client_subnet_route(true, cidr, &pcfg.tun.name).await {
                     // The session is not client-visible until AUTH OK. Roll back every part
@@ -954,12 +954,7 @@ where
                         }
                     };
                     for installed in installed_client_routes.iter().rev() {
-                        let _ = program_client_subnet_route(
-                            false,
-                            installed,
-                            &pcfg.tun.name,
-                        )
-                        .await;
+                        let _ = program_client_subnet_route(false, installed, &pcfg.tun.name).await;
                     }
                     profile.pool.lock().await.release(&dkey);
                     return Err(anyhow::anyhow!(
@@ -1677,8 +1672,7 @@ async fn run_stream<R, W>(
                 .retain(|r| r.client_ip != session.client_ip);
             drop(sessions);
             for cidr in &iroutes {
-                let _ =
-                    program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+                let _ = program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
             }
             profile.pool.lock().await.release(&session.device_key);
             log::info!(
@@ -2756,11 +2750,7 @@ pub(crate) async fn program_client_subnet_route(
     result
 }
 
-async fn program_client_subnet_route_inner(
-    add: bool,
-    cidr: &str,
-    tun: &str,
-) -> anyhow::Result<()> {
+async fn program_client_subnet_route_inner(add: bool, cidr: &str, tun: &str) -> anyhow::Result<()> {
     // Defence in depth: exit-node defaults live only in SessionMap. Even if a future caller
     // accidentally includes one in its programmed/teardown list, never add *or delete* the
     // Linux host default route here.
@@ -2920,8 +2910,8 @@ fn client_subnet_route_args(action: &str, cidr: &str, tun: &str) -> Vec<String> 
             "metric",
             CLIENT_SUBNET_ROUTE_METRIC,
         ]
-            .into_iter()
-            .map(str::to_string),
+        .into_iter()
+        .map(str::to_string),
     );
     args
 }
@@ -2994,7 +2984,15 @@ mod iroute_family_tests {
         );
         assert_eq!(
             client_subnet_route_show_args("2001:db8:20::/64"),
-            ["-6", "route", "show", "table", "main", "exact", "2001:db8:20::/64"]
+            [
+                "-6",
+                "route",
+                "show",
+                "table",
+                "main",
+                "exact",
+                "2001:db8:20::/64"
+            ]
         );
     }
 

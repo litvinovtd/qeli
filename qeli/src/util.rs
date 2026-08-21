@@ -358,7 +358,18 @@ impl FileLock {
         // later users-file change from the panel or the control socket would fail with
         // EACCES. Best effort: only root can chown, and a mismatch is not fatal on a
         // single-user setup.
-        if let Ok(target) = std::fs::metadata(path.as_ref()) {
+        let ownership = std::fs::metadata(path.as_ref()).or_else(|_| {
+            // A first writer has no target to inherit from. The directory owns the future
+            // state file, so use its uid/gid; otherwise a root CLI can create a root-only
+            // sidecar that the packaged User=qeli service can never reopen.
+            let parent = path
+                .as_ref()
+                .parent()
+                .filter(|value| !value.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            std::fs::metadata(parent)
+        });
+        if let Ok(target) = ownership {
             use std::os::unix::fs::MetadataExt;
             if let Ok(lock_meta) = f.metadata() {
                 if lock_meta.uid() != target.uid() || lock_meta.gid() != target.gid() {
@@ -463,7 +474,8 @@ fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> an
                 {
                     use std::os::unix::fs::MetadataExt;
                     use std::os::unix::io::AsRawFd;
-                    if let Ok(target) = std::fs::metadata(path) {
+                    let ownership = std::fs::metadata(path).or_else(|_| std::fs::metadata(dir));
+                    if let Ok(target) = ownership {
                         if let Ok(cur) = f.metadata() {
                             if cur.uid() != target.uid() || cur.gid() != target.gid() {
                                 unsafe { libc::fchown(f.as_raw_fd(), target.uid(), target.gid()) };

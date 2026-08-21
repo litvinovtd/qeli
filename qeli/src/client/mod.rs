@@ -158,6 +158,7 @@ static CARRIER_CANDIDATES: std::sync::Mutex<CarrierCandidateState> =
 
 #[cfg(target_os = "linux")]
 fn note_connected_peer(ip: std::net::IpAddr) {
+    let ip = crate::transport_core::carrier::canonical_carrier_ip(ip);
     if let Ok(mut g) = CONNECTED_PEER.lock() {
         *g = Some(ip);
     }
@@ -196,6 +197,7 @@ fn note_carrier_candidates(candidates: impl IntoIterator<Item = std::net::IpAddr
         }
         state.addresses.clear();
         for address in candidates {
+            let address = crate::transport_core::carrier::canonical_carrier_ip(address);
             if !state.addresses.contains(&address) {
                 state.addresses.push(address);
             }
@@ -218,7 +220,9 @@ fn carrier_pin_targets(config: &crate::config::client::ClientConfig) -> Vec<std:
     }
     if addresses.is_empty() {
         if let Ok(literal) = config.server.address.parse::<std::net::IpAddr>() {
-            addresses.push(literal);
+            addresses.push(crate::transport_core::carrier::canonical_carrier_ip(
+                literal,
+            ));
         }
     }
     addresses
@@ -1206,7 +1210,8 @@ async fn connect_tcp_candidates(
         .as_deref()
         .map(str::parse::<std::net::IpAddr>)
         .transpose()
-        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
+        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?
+        .map(crate::transport_core::carrier::canonical_carrier_ip);
     let deadline = tokio::time::Instant::now() + total;
     let pinned = pinned_carrier_socket_addresses(port);
     let using_pinned_generation = pinned.is_some();
@@ -1229,7 +1234,15 @@ async fn connect_tcp_candidates(
                 }
             };
         let mut seen = std::collections::HashSet::new();
-        resolved.filter(|address| seen.insert(*address)).collect()
+        resolved
+            .map(|address| {
+                std::net::SocketAddr::new(
+                    crate::transport_core::carrier::canonical_carrier_ip(address.ip()),
+                    address.port(),
+                )
+            })
+            .filter(|address| seen.insert(*address))
+            .collect()
     };
     if let Some(local) = local_ip {
         candidates.retain(|address| local.is_ipv4() == address.is_ipv4());
@@ -4192,7 +4205,8 @@ fn setup_tunnel(
             .as_deref()
             .map(str::parse::<std::net::IpAddr>)
             .transpose()
-            .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
+            .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?
+            .map(crate::transport_core::carrier::canonical_carrier_ip);
         route::setup_network_plan_routes(
             &config.routing,
             plan,
@@ -4292,8 +4306,15 @@ async fn connect_udp_candidates(
         }
     };
     let mut seen = std::collections::HashSet::new();
-    let mut candidates: Vec<std::net::SocketAddr> =
-        resolved.filter(|address| seen.insert(*address)).collect();
+    let mut candidates: Vec<std::net::SocketAddr> = resolved
+        .map(|address| {
+            std::net::SocketAddr::new(
+                crate::transport_core::carrier::canonical_carrier_ip(address.ip()),
+                address.port(),
+            )
+        })
+        .filter(|address| seen.insert(*address))
+        .collect();
     if candidates.is_empty() {
         anyhow::bail!("UDP server {host}:{port} resolved to no IPv4 or IPv6 address");
     }
@@ -4304,7 +4325,8 @@ async fn connect_udp_candidates(
         .as_deref()
         .map(str::parse::<std::net::IpAddr>)
         .transpose()
-        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?;
+        .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?
+        .map(crate::transport_core::carrier::canonical_carrier_ip);
     if let Some(local) = local_ip {
         candidates.retain(|address| local.is_ipv4() == address.is_ipv4());
     }

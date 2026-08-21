@@ -65,6 +65,14 @@ internal static class WinDivertSelfTest
             splitPol.ShouldBypassTunnel(IPAddress.Parse("2001:4860:4860::8888")));
         check("dest: split IPv6 include remains captured fail-closed",
             !splitPol.ShouldBypassTunnel(IPAddress.Parse("2001:db8:20::7")));
+        check("dest: explicit include is marked as required tunnel intent",
+            splitPol.RequiresTunnel(IPAddress.Parse("198.51.100.7"))
+            && splitPol.RequiresTunnel(IPAddress.Parse("2001:db8:20::7")));
+        var excludedRequiredPol = new WinDivertDestinationPolicy(false,
+            includeRoutes: new[] { "198.51.100.0/24" },
+            excludeRoutes: new[] { "198.51.100.0/25" }, pushedRoutes: null);
+        check("dest: explicit exclude wins over required tunnel intent",
+            !excludedRequiredPol.RequiresTunnel(IPAddress.Parse("198.51.100.7")));
 
         // Flow table: two parallel flows keep distinct orig IPs / interfaces.
         var flows = new WinDivertFlowTable();
@@ -227,14 +235,35 @@ internal static class WinDivertSelfTest
             WinDivertAdapter.DispositionForFamily(
                 PacketDisposition.Tunnel, familyAvailable: false, allowLeak: false)
                 == PacketDisposition.Drop);
-        check("family policy: explicit leak opt-out bypasses an unavailable family",
+        check("family policy: explicit leak opt-out bypasses an unavailable default family",
             WinDivertAdapter.DispositionForFamily(
                 PacketDisposition.Tunnel, familyAvailable: false, allowLeak: true)
                 == PacketDisposition.Bypass);
+        check("family policy: explicit tunnel route stays fail-closed despite leak opt-out",
+            WinDivertAdapter.DispositionForFamily(
+                PacketDisposition.Tunnel, familyAvailable: false, allowLeak: true,
+                tunnelRequired: true) == PacketDisposition.Drop);
         check("family policy: explicit app bypass is never captured",
             WinDivertAdapter.DispositionForFamily(
                 PacketDisposition.Bypass, familyAvailable: true, allowLeak: false)
                 == PacketDisposition.Bypass);
+        check("dns family: configured other-family resolver fails closed",
+            WinDivertAdapter.TunnelDnsFamilyMismatch(
+                isDns: true, configuredDnsCount: 1, hasCompatibleDns: false));
+        check("dns family: compatible or unconfigured resolver is not mismatch",
+            !WinDivertAdapter.TunnelDnsFamilyMismatch(
+                isDns: true, configuredDnsCount: 1, hasCompatibleDns: true)
+            && !WinDivertAdapter.TunnelDnsFamilyMismatch(
+                isDns: true, configuredDnsCount: 0, hasCompatibleDns: false)
+            && !WinDivertAdapter.TunnelDnsFamilyMismatch(
+                isDns: false, configuredDnsCount: 1, hasCompatibleDns: false));
+        check("dns46 mtu: IPv6 header growth reduces the advertised IPv4 path MTU",
+            WinDivertAdapter.EffectiveIpv4PathMtu(
+                tunnelMtu: 1280, ipv4HeaderLength: 20, translateToIpv6: true) == 1260
+            && WinDivertAdapter.EffectiveIpv4PathMtu(
+                tunnelMtu: 1280, ipv4HeaderLength: 20, translateToIpv6: false) == 1280
+            && WinDivertAdapter.EffectiveIpv4PathMtu(
+                tunnelMtu: 1280, ipv4HeaderLength: 60, translateToIpv6: true) == 1280);
 
         // Filter captures both families and no longer relies on a TTL marker to avoid
         // recapturing the carrier.

@@ -5,6 +5,7 @@ import NetworkExtension
 
 let qeliAppGroup = "group.ru.qeli.app"
 let qeliStateFile = "per-app-state.json"
+let qeliRoutingStateVersion = 3
 
 struct RoutingState: Codable, Equatable {
     var version: Int
@@ -30,6 +31,7 @@ struct RoutingState: Codable, Equatable {
     var includeRoutes: [String]
     var excludeRoutes: [String]
     var pushedRoutes: [String]
+    var tunnelSubnets: [String]
     var alwaysBypassApps: [String]
 
     func leaseIsValid(nowUnixMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Bool {
@@ -49,12 +51,16 @@ struct RoutingState: Codable, Equatable {
             && carrierAddress == other.carrierAddress
             && carrierPort == other.carrierPort
             && carrierProtocol == other.carrierProtocol
+            && tunnelIpv4 == other.tunnelIpv4
+            && tunnelIpv6 == other.tunnelIpv6
+            && allowIpv4Leak == other.allowIpv4Leak
             && allowIpv6Leak == other.allowIpv6Leak
             && fullTunnel == other.fullTunnel
             && routeLocalNetworks == other.routeLocalNetworks
             && includeRoutes == other.includeRoutes
             && excludeRoutes == other.excludeRoutes
             && pushedRoutes == other.pushedRoutes
+            && tunnelSubnets == other.tunnelSubnets
             && alwaysBypassApps == other.alwaysBypassApps
     }
 
@@ -72,21 +78,27 @@ struct RoutingState: Codable, Equatable {
         if excludeRoutes.compactMap(CIDR.init).contains(where: { $0.contains(address) }) {
             return .bypass
         }
-        let explicitlyTunneled = (includeRoutes + pushedRoutes).compactMap(CIDR.init)
+        let explicitlyTunneled = (tunnelSubnets + includeRoutes + pushedRoutes).compactMap(CIDR.init)
             .contains(where: { $0.contains(address) })
         if address.isIPv6 {
             if address.isIPv6LoopbackOrLinkLocal { return .bypass }
-            let explicit = (includeRoutes + pushedRoutes).compactMap(CIDR.init)
-                .contains(where: { $0.contains(address) })
-            if address.isIPv6Local && !routeLocalNetworks && !explicit { return .bypass }
+            if address.isIPv6Local && !routeLocalNetworks && !explicitlyTunneled {
+                return .bypass
+            }
+            if explicitlyTunneled || (address.isIPv6Local && routeLocalNetworks) {
+                return tunnelIpv6 ? .tunnel : .drop
+            }
+            if !fullTunnel { return .bypass }
             if tunnelIpv6 { return .tunnel }
             return allowIpv6Leak ? .bypass : .drop
         }
         if address.isIPv4LoopbackOrLinkLocal { return .bypass }
-        if explicitlyTunneled { return .tunnel }
+        if explicitlyTunneled { return tunnelIpv4 ? .tunnel : .drop }
         if address.isRFC1918 {
-            return routeLocalNetworks ? .tunnel : .bypass
+            guard routeLocalNetworks else { return .bypass }
+            return tunnelIpv4 ? .tunnel : .drop
         }
+        if !fullTunnel { return .bypass }
         if tunnelIpv4 { return .tunnel }
         return allowIpv4Leak ? .bypass : .drop
     }
@@ -103,8 +115,17 @@ enum RoutingStateStore {
         return base.appendingPathComponent(qeliStateFile)
     }
 
+    static func validate(_ state: RoutingState) throws {
+        guard state.version == qeliRoutingStateVersion else {
+            throw StateError.unsupportedVersion(state.version)
+        }
+    }
+
     static func load() throws -> RoutingState {
-        try JSONDecoder().decode(RoutingState.self, from: Data(contentsOf: try url()))
+        let state = try JSONDecoder().decode(
+            RoutingState.self, from: Data(contentsOf: try url()))
+        try validate(state)
+        return state
     }
 
     /// Replace the complete policy under the same cross-process lock used by lease
@@ -126,6 +147,7 @@ enum RoutingStateStore {
     }
 
     private static func saveUnlocked(_ state: RoutingState) throws {
+        try validate(state)
         let data = try JSONEncoder().encode(state)
         try data.write(to: url(), options: .atomic)
     }
@@ -151,7 +173,16 @@ enum RoutingStateStore {
 
     enum StateError: LocalizedError {
         case appGroupUnavailable
-        var errorDescription: String? { "Qeli application group is unavailable" }
+        case unsupportedVersion(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .appGroupUnavailable:
+                return "Qeli application group is unavailable"
+            case .unsupportedVersion(let version):
+                return "Unsupported Qeli per-app state version \(version)"
+            }
+        }
     }
 }
 

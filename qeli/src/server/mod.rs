@@ -1356,6 +1356,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     // cosmetic clash: TUNSETIFF can attach another queue to an existing multi-queue device,
     // splitting traffic between unrelated profile generations. (Audit 2026-08-01, §4.)
     let mut tun_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // Cross-profile pool collisions are purely a property of this configuration and must not
+    // depend on Linux host-state discovery. `preflight::run` deliberately fails open when the
+    // `ip` snapshot cannot be read; keeping this check only there allowed two enabled profiles
+    // to install competing connected routes and allocate the same client addresses.
+    let mut ipv4_pools: Vec<(String, crate::config::server::PoolSubnet)> = Vec::new();
+    let mut ipv6_pools: Vec<(String, crate::config::server::Ipv6PoolSubnet)> = Vec::new();
     for p in &config.profiles {
         // Disabled profiles are not bound/served, so their config is not validated
         // here — this lets an operator turn off a profile that would otherwise fail
@@ -1365,6 +1371,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         }
         if p.name.is_empty() {
             anyhow::bail!("profile has an empty name");
+        }
+        if !crate::util::is_valid_ident(&p.name) {
+            anyhow::bail!(
+                "profile name {:?} is invalid (must be 1..=128 bytes, without edge whitespace or control characters)",
+                p.name
+            );
         }
         if !seen.insert(&p.name) {
             anyhow::bail!("duplicate profile name: '{}'", p.name);
@@ -2092,12 +2104,40 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         //
         let ipv6_subnet = crate::config::server::validate_ipv6_profile(p)
             .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
+        if let Some(subnet) = ipv6_subnet {
+            let overlap = ipv6_pools.iter().find(|(_, other)| {
+                subnet.contains(other.network) || other.contains(subnet.network)
+            });
+            if let Some((other_name, _)) = overlap {
+                anyhow::bail!(
+                    "profiles '{}' and '{}' have overlapping IPv6 pools ('{}' and '{}')",
+                    other_name,
+                    p.name,
+                    config
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.name.as_str() == other_name.as_str())
+                        .map(|profile| profile.pool.ipv6.cidr.as_str())
+                        .unwrap_or("<unknown>"),
+                    p.pool.ipv6.cidr
+                );
+            }
+            ipv6_pools.push((p.name.clone(), subnet));
+        }
         let tunnel_ipv6_address = p
             .tun
             .ipv6_address
             .as_deref()
             .and_then(|value| value.trim().parse::<std::net::Ipv6Addr>().ok());
 
+        if p.routing.advertised_routes.len() > crate::transport_core::MAX_ROUTES {
+            anyhow::bail!(
+                "profile '{}': routing.advertised_routes has {} entries; maximum is {}",
+                p.name,
+                p.routing.advertised_routes.len(),
+                crate::transport_core::MAX_ROUTES
+            );
+        }
         for route in &p.routing.advertised_routes {
             let route_address = route
                 .cidr
@@ -2124,6 +2164,21 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         let tunnel_address = if p.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
             let tunnel_subnet = crate::config::server::pool_subnet(&p.pool.cidr)
                 .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
+            let overlap = ipv4_pools.iter().find(|(_, other)| {
+                u32::from(tunnel_subnet.network) <= u32::from(other.broadcast)
+                    && u32::from(other.network) <= u32::from(tunnel_subnet.broadcast)
+            });
+            if let Some((other_name, other)) = overlap {
+                anyhow::bail!(
+                    "profiles '{}' and '{}' have overlapping IPv4 pools ('{}/{}' and '{}')",
+                    other_name,
+                    p.name,
+                    other.network,
+                    other.prefix,
+                    p.pool.cidr
+                );
+            }
+            ipv4_pools.push((p.name.clone(), tunnel_subnet));
             let tunnel_address = p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
                 anyhow::anyhow!(
                     "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
@@ -2221,27 +2276,37 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // still resolves.
         if p.dns.enabled {
             let mut usable = 0usize;
+            let mut upstream_addresses = std::collections::HashSet::new();
             for up in &p.dns.upstream {
-                if let Ok(ip) = up.trim().parse::<std::net::IpAddr>() {
-                    if ip.is_unspecified() || ip.is_multicast() {
+                let ip = match up.trim().parse::<std::net::IpAddr>() {
+                    Ok(ip) => ip,
+                    Err(_) => {
                         log::warn!(
-                            "profile '{}': dns.upstream '{}' is not a reachable resolver                              address — it will be skipped at query time",
+                            "profile '{}': dns.upstream '{}' is not a valid IP address — this \
+                             resolver will be skipped at query time",
                             p.name,
                             up
                         );
                         continue;
                     }
-                }
-                if up.trim().parse::<std::net::IpAddr>().is_err() {
+                };
+                if ip.is_unspecified() || ip.is_multicast() {
                     log::warn!(
-                        "profile '{}': dns.upstream '{}' is not a valid IP address — this \
-                         resolver will be skipped at query time",
+                        "profile '{}': dns.upstream '{}' is not a reachable resolver address — \
+                         it will be skipped at query time",
                         p.name,
                         up
                     );
-                } else {
-                    usable += 1;
+                    continue;
                 }
+                if !upstream_addresses.insert(ip) {
+                    anyhow::bail!(
+                        "profile '{}': duplicate dns.upstream address '{}'",
+                        p.name,
+                        ip
+                    );
+                }
+                usable += 1;
             }
             // One bad entry among good ones is a warning; ALL of them bad is a resolver that
             // can never answer anything. Since clients are handed this proxy as their DNS,
@@ -2266,6 +2331,56 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     "profile '{}': dns.timeout_secs = 0 gives every upstream query a zero                      deadline, so the proxy can never answer",
                     p.name
                 );
+            }
+            if p.dns.timeout_secs > crate::config::server::DNS_MAX_TIMEOUT_SECS {
+                anyhow::bail!(
+                    "profile '{}': dns.timeout_secs = {} exceeds the maximum {} seconds",
+                    p.name,
+                    p.dns.timeout_secs,
+                    crate::config::server::DNS_MAX_TIMEOUT_SECS
+                );
+            }
+            if p.dns.upstream.len() > crate::config::server::DNS_MAX_UPSTREAMS {
+                anyhow::bail!(
+                    "profile '{}': dns.upstream has {} entries; maximum is {}",
+                    p.name,
+                    p.dns.upstream.len(),
+                    crate::config::server::DNS_MAX_UPSTREAMS
+                );
+            }
+            if p.dns.cache_size > crate::config::server::DNS_MAX_CACHE_ENTRIES {
+                anyhow::bail!(
+                    "profile '{}': dns.cache_size = {} exceeds the maximum {} entries",
+                    p.name,
+                    p.dns.cache_size,
+                    crate::config::server::DNS_MAX_CACHE_ENTRIES
+                );
+            }
+            if p.dns.blocklist.len() > crate::config::server::DNS_MAX_BLOCKLIST_ENTRIES {
+                anyhow::bail!(
+                    "profile '{}': dns.blocklist has {} entries; maximum is {}",
+                    p.name,
+                    p.dns.blocklist.len(),
+                    crate::config::server::DNS_MAX_BLOCKLIST_ENTRIES
+                );
+            }
+            let mut blocked_domains = std::collections::HashSet::new();
+            for raw in &p.dns.blocklist {
+                let Some(domain) = crate::config::server::normalize_blocklist_domain(raw) else {
+                    anyhow::bail!(
+                        "profile '{}': dns.blocklist entry {:?} is not a valid ASCII DNS name \
+                         (labels 1..=63 bytes, total <=253; wildcard syntax is not supported)",
+                        p.name,
+                        raw
+                    );
+                };
+                if !blocked_domains.insert(domain.clone()) {
+                    anyhow::bail!(
+                        "profile '{}': duplicate dns.blocklist domain '{}'",
+                        p.name,
+                        domain
+                    );
+                }
             }
             // On IPv4/dual profiles `dns.listen` is handed to clients as their resolver AND
             // bound locally. IPv6-only profiles deliberately ignore this legacy/default IPv4
@@ -2607,6 +2722,7 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
         }
     };
     if !has_inline {
+        db.validate_group_references()?;
         return Ok(db);
     }
 
@@ -2633,7 +2749,13 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
             shadowed
         );
     }
-    db.validate_access_controls()?;
+    // Re-run the complete validator on the UNION. Each source was valid in isolation, but
+    // conflicts can exist only after merging (for example the same static IPv6 on one file
+    // user and one inline user). Group references are intentionally checked here: a file user
+    // may reference a group supplied inline, but a name missing from the final union would
+    // silently remove every inherited restriction.
+    db.validate_network_fields()?;
+    db.validate_group_references()?;
     Ok(db)
 }
 
@@ -4187,6 +4309,13 @@ async fn run_profile_generation(
     // behind first (covers an unclean exit, or routing.nat toggled off then a
     // restart), then (re)install if this profile requests masquerading.
     nat::cleanup(&pcfg.name);
+    let peer_tuns: Vec<String> = state
+        .config
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled && profile.name != pcfg.name)
+        .map(|profile| profile.tun.name.trim().to_string())
+        .collect();
     let mut wan_ipv4 = String::new();
     if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6 && pcfg.routing.nat.enabled {
         match nat::setup(
@@ -4194,6 +4323,7 @@ async fn run_profile_generation(
             &pcfg.routing.nat.interface,
             &pcfg.pool.cidr,
             &ifname,
+            &peer_tuns,
             pcfg.tun.mtu,
         ) {
             Ok(wan) => {
@@ -4225,7 +4355,7 @@ async fn run_profile_generation(
         // only the route and works regardless (#13).
         // Fails the profile rather than logging: `forward_private` promises transit routing,
         // and a profile that cannot route it serves clients whose packets vanish.
-        nat::enable_routing(&pcfg.name, &ifname, pcfg.tun.mtu)
+        nat::enable_routing(&pcfg.name, &ifname, &peer_tuns, pcfg.tun.mtu)
             .map_err(|e| anyhow::anyhow!("profile '{}': {e}", pcfg.name))?;
     }
     let mut wan_ipv6 = String::new();
@@ -4236,14 +4366,20 @@ async fn run_profile_generation(
             &pcfg.routing.ipv6.interface,
             &pcfg.pool.ipv6.cidr,
             &ifname,
+            &peer_tuns,
             pcfg.tun.mtu,
         )? {
+            let target = if wan.is_empty() {
+                "kernel routes (no IPv6 default uplink required)"
+            } else {
+                wan.as_str()
+            };
             log::info!(
                 "Profile '{}': IPv6 {} active ({} -> {})",
                 name,
                 pcfg.routing.ipv6.mode,
                 pcfg.pool.ipv6.cidr,
-                wan
+                target
             );
             wan_ipv6 = wan;
         }
@@ -5259,28 +5395,46 @@ async fn run_profile_generation(
                 pcfg.dns.port
             ),
         };
-        // ONE cache and one upstream-preference shared by both transports: two of each would
-        // double upstream traffic and let the same name answer differently depending on which
-        // transport the client happened to use.
+        // ONE cache, blocklist and upstream-preference shared by both transports AND both
+        // listener families: duplicate state doubles upstream traffic and lets the same name
+        // answer differently depending on whether the client reached the IPv4 or IPv6 listener.
         let dns_cache: dns::DnsCache = Arc::new(RwLock::new(std::collections::HashMap::new()));
         let dns_pref = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let dns_blocklist = dns::compile_blocklist(&pcfg.dns.blocklist);
         {
             let cfg_tcp = primary_dns_cfg.clone();
             let cache_tcp = dns_cache.clone();
             let pref_tcp = dns_pref.clone();
+            let blocklist_tcp = dns_blocklist.clone();
             let dns_tasks = tasks.clone();
             let label = format!("profile '{name}' DNS proxy (TCP)");
             service_set.spawn(async move {
-                dns::run_dns_proxy_tcp(cfg_tcp, dns_tcp, cache_tcp, pref_tcp, dns_tasks)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
+                dns::run_dns_proxy_tcp(
+                    cfg_tcp,
+                    dns_tcp,
+                    cache_tcp,
+                    pref_tcp,
+                    blocklist_tcp,
+                    dns_tasks,
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
             });
         }
         let dns_tasks = tasks.clone();
         let label = format!("profile '{name_dns}' DNS proxy (UDP) on {dns_listen}");
+        let cache_udp = dns_cache.clone();
+        let pref_udp = dns_pref.clone();
+        let blocklist_udp = dns_blocklist.clone();
         service_set.spawn(async move {
             dns::run_dns_proxy(
-                dns_state, dns_cfg, dns_socket, dns_cache, dns_pref, dns_tasks,
+                dns_state,
+                dns_cfg,
+                dns_socket,
+                cache_udp,
+                pref_udp,
+                blocklist_udp,
+                dns_tasks,
             )
             .await
             .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
@@ -5308,16 +5462,15 @@ async fn run_profile_generation(
             ipv6_dns_cfg.listen = listen_ipv6.clone();
             let udp = dns::bind_dns_proxy(&ipv6_dns_cfg).await?;
             let tcp = dns::bind_dns_proxy_tcp(&ipv6_dns_cfg).await?;
-            let cache: dns::DnsCache = Arc::new(RwLock::new(std::collections::HashMap::new()));
-            let preference = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             {
                 let cfg = ipv6_dns_cfg.clone();
-                let cache = cache.clone();
-                let preference = preference.clone();
+                let cache = dns_cache.clone();
+                let preference = dns_pref.clone();
+                let blocklist = dns_blocklist.clone();
                 let dns_tasks = tasks.clone();
                 let label = format!("profile '{name}' IPv6 DNS proxy (TCP)");
                 service_set.spawn(async move {
-                    dns::run_dns_proxy_tcp(cfg, tcp, cache, preference, dns_tasks)
+                    dns::run_dns_proxy_tcp(cfg, tcp, cache, preference, blocklist, dns_tasks)
                         .await
                         .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
                 });
@@ -5326,9 +5479,17 @@ async fn run_profile_generation(
             let dns_tasks = tasks.clone();
             let label = format!("profile '{name}' IPv6 DNS proxy (UDP) on {listen_ipv6}");
             service_set.spawn(async move {
-                dns::run_dns_proxy(dns_state, ipv6_dns_cfg, udp, cache, preference, dns_tasks)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
+                dns::run_dns_proxy(
+                    dns_state,
+                    ipv6_dns_cfg,
+                    udp,
+                    dns_cache,
+                    dns_pref,
+                    dns_blocklist,
+                    dns_tasks,
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
             });
         }
     }
@@ -5951,6 +6112,79 @@ mod tests {
         assert!(validate_profiles(&cfg_addr("10.1.0.1", "10.1.0.0/16")).is_ok());
     }
 
+    #[test]
+    fn overlapping_profile_pools_are_rejected_without_host_discovery() {
+        fn profile(
+            name: &str,
+            port: u16,
+            tun: &str,
+            mode: &str,
+            address: &str,
+            pool: &str,
+        ) -> String {
+            if mode == "ipv4" {
+                format!(
+                    "[profile:{name}]\n\
+                     bind.address = 0.0.0.0\n\
+                     bind.port = {port}\n\
+                     bind.transport = tcp\n\
+                     tun.name = {tun}\n\
+                     tun.address = {address}\n\
+                     tun.mtu = 1400\n\
+                     pool.cidr = {pool}\n\
+                     obf.mode = fake-tls\n"
+                )
+            } else {
+                format!(
+                    "[profile:{name}]\n\
+                     bind.address = 0.0.0.0\n\
+                     bind.port = {port}\n\
+                     bind.transport = tcp\n\
+                     tun.name = {tun}\n\
+                     tun.ip_mode = ipv6\n\
+                     tun.ipv6_address = {address}\n\
+                     tun.mtu = 1400\n\
+                     pool.ipv6.cidr = {pool}\n\
+                     obf.mode = fake-tls\n"
+                )
+            }
+        }
+
+        let ipv4 = crate::config::parse_server_config(
+            &(profile("a", 4401, "vpn0", "ipv4", "10.20.0.1", "10.20.0.0/24")
+                + &profile("b", 4402, "vpn1", "ipv4", "10.20.0.129", "10.20.0.128/25")),
+        )
+        .unwrap();
+        let error = validate_profiles(&ipv4).unwrap_err().to_string();
+        assert!(error.contains("overlapping IPv4 pools"), "{error}");
+        assert!(error.contains("'a'") && error.contains("'b'"), "{error}");
+
+        let ipv6 = crate::config::parse_server_config(
+            &(profile(
+                "v6a",
+                6401,
+                "vpn6a",
+                "ipv6",
+                "fd71:e1:20::1",
+                "fd71:e1:20::/64",
+            ) + &profile(
+                "v6b",
+                6402,
+                "vpn6b",
+                "ipv6",
+                "fd71:e1:20::8000:0:0:1",
+                "fd71:e1:20:0:8000::/65",
+            )),
+        )
+        .unwrap();
+        let error = validate_profiles(&ipv6).unwrap_err().to_string();
+        assert!(error.contains("overlapping IPv6 pools"), "{error}");
+        assert!(
+            error.contains("'v6a'") && error.contains("'v6b'"),
+            "{error}"
+        );
+    }
+
     /// The PRIMARY bind, which the extra-listener checks never covered (§5).
     ///
     /// Built as a WHOLE config rather than appended to the shared fixture: the INI parser takes
@@ -6381,6 +6615,93 @@ pool.cidr = 10.1.0.0/24
             validate_profiles(&cfg(true, 0)).is_err(),
             "and still rejected when DNS is on"
         );
+    }
+
+    #[test]
+    fn dns_runtime_resource_bounds_are_validated() {
+        fn cfg() -> ServerConfig {
+            crate::config::parse_server_config(
+                "[profile:p]\n\
+                 bind.address = 0.0.0.0\n\
+                 bind.port = 4443\n\
+                 bind.transport = tcp\n\
+                 tun.name = vpn0\n\
+                 tun.address = 10.9.0.1\n\
+                 tun.mtu = 1400\n\
+                 pool.cidr = 10.9.0.0/24\n\
+                 obf.mode = fake-tls\n\
+                 dns.enabled = true\n\
+                 dns.listen = 10.9.0.1\n\
+                 dns.upstream = 1.1.1.1\n",
+            )
+            .expect("fixture INI must parse")
+        }
+
+        let mut valid = cfg();
+        valid.profiles[0].dns.timeout_secs = crate::config::server::DNS_MAX_TIMEOUT_SECS;
+        valid.profiles[0].dns.cache_size = crate::config::server::DNS_MAX_CACHE_ENTRIES;
+        valid.profiles[0].dns.upstream = (1..=crate::config::server::DNS_MAX_UPSTREAMS)
+            .map(|last| format!("192.0.2.{last}"))
+            .collect();
+        validate_profiles(&valid).expect("documented DNS maxima must validate");
+
+        let mut timeout = cfg();
+        timeout.profiles[0].dns.timeout_secs = crate::config::server::DNS_MAX_TIMEOUT_SECS + 1;
+        assert!(validate_profiles(&timeout)
+            .unwrap_err()
+            .to_string()
+            .contains("dns.timeout_secs"));
+
+        let mut cache = cfg();
+        cache.profiles[0].dns.cache_size = crate::config::server::DNS_MAX_CACHE_ENTRIES + 1;
+        assert!(validate_profiles(&cache)
+            .unwrap_err()
+            .to_string()
+            .contains("dns.cache_size"));
+
+        let mut upstreams = cfg();
+        upstreams.profiles[0].dns.upstream = (1..=crate::config::server::DNS_MAX_UPSTREAMS + 1)
+            .map(|last| format!("192.0.2.{last}"))
+            .collect();
+        assert!(validate_profiles(&upstreams)
+            .unwrap_err()
+            .to_string()
+            .contains("dns.upstream"));
+
+        let mut duplicate_upstream = cfg();
+        duplicate_upstream.profiles[0].dns.upstream =
+            vec!["2001:db8::1".into(), "2001:0db8:0:0::1".into()];
+        assert!(validate_profiles(&duplicate_upstream)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate dns.upstream"));
+
+        let mut no_cache = cfg();
+        no_cache.profiles[0].dns.cache_size = 0;
+        validate_profiles(&no_cache).expect("zero explicitly disables DNS caching");
+
+        let mut bad_domain = cfg();
+        bad_domain.profiles[0].dns.blocklist = vec!["*.example.com".into()];
+        assert!(validate_profiles(&bad_domain)
+            .unwrap_err()
+            .to_string()
+            .contains("dns.blocklist"));
+
+        let mut duplicate = cfg();
+        duplicate.profiles[0].dns.blocklist =
+            vec!["Ads.Example.com".into(), "ads.example.com.".into()];
+        assert!(validate_profiles(&duplicate)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate dns.blocklist"));
+
+        let mut too_many = cfg();
+        too_many.profiles[0].dns.blocklist =
+            vec!["ads.example.com".into(); crate::config::server::DNS_MAX_BLOCKLIST_ENTRIES + 1];
+        assert!(validate_profiles(&too_many)
+            .unwrap_err()
+            .to_string()
+            .contains("dns.blocklist"));
     }
 
     /// Nonsensical obfuscation values must be refused at load, not accepted and then

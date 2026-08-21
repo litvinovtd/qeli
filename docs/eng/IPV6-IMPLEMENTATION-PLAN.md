@@ -1,7 +1,7 @@
 # Full IPv6 support — implementation plan
 
 Status: source implementation complete; release certification is still in progress. Updated:
-2026-08-20.
+2026-08-21.
 
 The development runtime gate and authenticated capability negotiation are enabled. This is
 not yet a release-readiness claim: the physical/native and Linux network-namespace matrix in
@@ -273,9 +273,10 @@ table/explicit mechanism or it will hijack the server's uplink.
 - `nat66` — ULA/GUA through an explicit IPv6 uplink and stateful NAT66.
 
 All three modes require `ip6tables`. `off` is not an absence of policy: it inserts and
-verifies a profile-tagged non-TUN egress drop so the profile cannot inherit forwarding from
-another active profile or a host-wide administrator setting. `route` admits inbound traffic
-only to the delegated profile prefix; `nat66` admits only related/established WAN replies.
+verifies profile-tagged non-TUN drops in both directions so the profile cannot inherit
+forwarding from another active profile or a host-wide administrator setting. `route` follows
+the profile's connected and authenticated dynamic kernel routes bidirectionally, including
+server LAN and IPv6 `client_subnet` transit; `nat66` admits only related/established WAN replies.
 
 Linux setup enables IPv6 forwarding, family-correct FORWARD/NAT rules, MSS clamp, and
 mandatory ICMPv6 including Packet Too Big. If the uplink learns its route through RA/SLAAC,
@@ -329,7 +330,9 @@ atomic apply/rollback, and a full NetworkPlan fingerprint.
 
 - **Linux CLI:** generic address/route setup, IPv6 DNS and firewall. The attach-existing
   exchange must carry both addresses instead of one IPv4 value; version it or use one
-  family-tagged line per address.
+  family-tagged line per address. Router/exit sysctls require a cross-process owner journal:
+  acquire even an already-correct value, key owners by PID start-time plus TUN/profile, restore
+  only after the last live owner, and discard stale state after a kernel reboot.
 - **OpenWrt:** UCI/LuCI render new INI keys; fw4 uses the correct family, routed IPv6 or
   `masq6`; rollback removes all IPv6 route/firewall state.
 - **Keenetic/OpkgTun:** hooks and `ndmc` stop parsing address/routes with IPv4-only regular
@@ -345,7 +348,9 @@ atomic apply/rollback, and a full NetworkPlan fingerprint.
   rewrite the physical source to tunnel IPv6 and reverse replies, update TCP/UDP/ICMPv6
   checksum/pseudo-header, and handle fragments safely.
 - **macOS per-app:** the transparent proxy tunnels selected IPv6 with family-correct
-  source/destination/interface binds and DNS relay; it does not copy Windows raw-NAT design.
+  source/destination/interface binds and an A+AAAA tunnel-DNS relay that retries usable family
+  candidates; split ordinary traffic bypasses while explicit routes fail closed without their
+  negotiated family. It does not copy Windows raw-NAT design.
 
 ## 12. TUN, TAP, NDP, and RA
 
@@ -375,6 +380,9 @@ The existing `dhcp.enabled` remains explicitly DHCPv4 and must not silently impl
 Quick Start must not silently migrate an existing IPv4 profile on repeated execution. Add
 an explicit Enable/Configure IPv6 action and `auto|off|dual|ipv6` choice. `auto` verifies
 global IPv6, a default route, and real egress, then persists a concrete mode.
+The independent outer `[::]` listener is added only when the host snapshot proves IPv6 socket
+availability; an IPv4 profile must still launch on a kernel with IPv6 completely disabled.
+Repeated Quick Start preserves an existing profile's manually configured listener set.
 
 ULA creation generates a stable RFC 4193 prefix (random `/48`, per-profile `/64`), checks it
 against host addresses and other profiles, and persists it. Never regenerate it on restart

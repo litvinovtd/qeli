@@ -26,42 +26,10 @@ use super::killswitch::{ipt, ipt_path, present, present_checked, valid_ifname};
 /// Comment tag on every rule we own, so teardown removes exactly ours.
 const TAG: &str = "qeli-gw-nat";
 
-/// Best-effort write to a `/proc/sys` knob. Returns whether the write succeeded
-/// (a missing/read-only path in a restricted container yields `false`). Callers verify
-/// load-bearing forwarding knobs and fail closed when their effective value is wrong.
-fn write_sysctl_raw(path: &str, val: &str) -> bool {
-    std::fs::write(path, val).is_ok()
-}
-
-fn set_sysctl(path: &str, val: &str) -> bool {
-    // A read-only container may already have the required value. In that case
-    // no write (and no later restoration) is necessary.
-    if std::fs::read_to_string(path).is_ok_and(|current| current.trim() == val) {
-        return true;
-    }
-    // Record the host's PRIOR value before overwriting it. Doing this inside the writer
-    // makes the ordering structural: the previous code snapshotted separately, after the
-    // writes had already happened, so it captured our own values and `disengage` then
-    // "restored" ip_forward=1 / rp_filter=0 — permanently turning a workstation into a
-    // router with anti-spoofing disabled. With the snapshot bound to the write, that
-    // mistake is no longer expressible.
-    remember_prior(path);
-    std::fs::write(path, val).is_ok()
-}
-
-/// First-write-wins snapshot of one knob. Called only from [`set_sysctl`]; a reconnect
-/// re-enters `engage` and must NOT overwrite the pristine value with our own.
-fn remember_prior(path: &str) {
-    let Ok(current) = std::fs::read_to_string(path) else {
-        return; // knob absent (container / older kernel) — nothing to restore later
-    };
-    let mut g = PRIOR_SYSCTLS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let prior = g.get_or_insert_with(Vec::new);
-    if !prior.iter().any(|(p, _)| p == path) {
-        prior.push((path.to_string(), current.trim().to_string()));
-    }
+/// Acquire a host sysctl for one TUN-scoped router plan. This registers ownership even
+/// when the knob already has the requested value, so sibling profiles cannot restore it.
+fn managed_sysctl(path: &str, val: &str, tun_if: &str) -> bool {
+    crate::sysctl::acquire(path, val, tun_if)
 }
 
 /// Should the gateway firewall run for this config? True for NAT (`gateway_nat`) OR
@@ -352,7 +320,7 @@ fn exit_mss(tun_if: &str) -> Vec<&str> {
 /// Historically `engage` / `engage_exit` ran before the connect loop, i.e. before
 /// `setup_tunnel` created the TUN — so their per-interface write to
 /// `/proc/sys/net/ipv4/conf/<tun>/rp_filter` hit a path that did not exist yet,
-/// `remember_prior` bailed on the read, the write failed and `set_sysctl` returned false
+/// the old snapshot helper bailed on the read and the per-interface write failed
 /// into a discarded result. The knob was therefore never applied.
 ///
 /// That matters because the kernel evaluates reverse-path filtering as
@@ -364,7 +332,11 @@ fn exit_mss(tun_if: &str) -> Vec<&str> {
 /// Called from `setup_tunnel` after the interface is up, on every connect.
 /// (Audit 2026-07-27, R1.)
 pub fn apply_tun_rp_filter(tun_if: &str) {
-    if !set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0") {
+    if !managed_sysctl(
+        &format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"),
+        "0",
+        tun_if,
+    ) {
         log::warn!(
             "could not relax rp_filter on {tun_if} — asymmetric paths (gateway-NAT /              exit-node) may be dropped by reverse-path filtering"
         );
@@ -389,25 +361,30 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     })?;
 
     // ip_forward is load-bearing (same as gateway_nat); rp_filter relaxed for the
-    // asymmetric tun<->wan path. Each snapshots its prior value (remember_prior) so
-    // disengage restores it — these are HOST-wide knobs, not ours to leave changed.
+    // asymmetric tun<->wan path. The cross-process owner journal restores the pristine
+    // values only after the last client plan releases them.
     let forwarding_path = "/proc/sys/net/ipv4/ip_forward";
-    let forwarding_enabled = matches!(
-        std::fs::read_to_string(forwarding_path),
-        Ok(value) if value.trim() == "1"
-    ) || (set_sysctl(forwarding_path, "1")
+    let forwarding_enabled = managed_sysctl(forwarding_path, "1", tun_if)
         && matches!(
             std::fs::read_to_string(forwarding_path),
             Ok(value) if value.trim() == "1"
-        ));
+        );
     if !forwarding_enabled {
         anyhow::bail!(
             "exit-node: could not enable net.ipv4.ip_forward; refusing to advertise a black-holed IPv4 exit"
         );
     }
-    set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
-    set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0");
-    set_sysctl(&format!("/proc/sys/net/ipv4/conf/{wan}/rp_filter"), "0");
+    managed_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0", tun_if);
+    managed_sysctl(
+        &format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"),
+        "0",
+        tun_if,
+    );
+    managed_sysctl(
+        &format!("/proc/sys/net/ipv4/conf/{wan}/rp_filter"),
+        "0",
+        tun_if,
+    );
 
     // Record the target before the first stateful rule is attempted. An iptables failure can
     // leave the MARK rule installed while the later MASQUERADE verification fails; teardown
@@ -485,16 +462,17 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
     // Enabling IPv6 forwarding normally disables acceptance of Router Advertisements.
     // Preserve the physical WAN's RA-derived default by selecting router+host mode before
     // the host-wide switch, exactly as the IPv6 gateway path does.
-    set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+    managed_sysctl(
+        &format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"),
+        "2",
+        tun_if,
+    );
     let forwarding_path = "/proc/sys/net/ipv6/conf/all/forwarding";
-    let forwarding_enabled = matches!(
-        std::fs::read_to_string(forwarding_path),
-        Ok(value) if value.trim() == "1"
-    ) || (set_sysctl(forwarding_path, "1")
+    let forwarding_enabled = managed_sysctl(forwarding_path, "1", tun_if)
         && matches!(
             std::fs::read_to_string(forwarding_path),
             Ok(value) if value.trim() == "1"
-        ));
+        );
     if !forwarding_enabled {
         anyhow::bail!(
             "exit-node IPv6: could not enable net.ipv6.conf.all.forwarding; refusing a black-holed IPv6 exit"
@@ -511,7 +489,11 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
     if !valid_ifname(&wan) {
         anyhow::bail!("exit-node IPv6: post-forwarding WAN name {wan:?} is invalid");
     }
-    set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+    managed_sysctl(
+        &format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"),
+        "2",
+        tun_if,
+    );
 
     // See the IPv4 path above: remember the WAN before a partially successful rule batch
     // can return an error, otherwise a subsequent path change makes that batch unreachable
@@ -659,7 +641,7 @@ fn remove_exit_rules(tun_if: &str) -> anyhow::Result<()> {
 
 pub fn disengage_exit(tun_if: &str) -> anyhow::Result<()> {
     let rules = remove_exit_rules(tun_if);
-    let sysctls = restore_sysctls();
+    let sysctls = restore_sysctls(tun_if);
     match (rules, sysctls) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
@@ -773,26 +755,26 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     // Verify the effective value: accepting a firewall plan while forwarding remains off
     // advertises a working router but deterministically black-holes every LAN packet.
     let forwarding_path = "/proc/sys/net/ipv4/ip_forward";
-    let forwarding_enabled = matches!(
-        std::fs::read_to_string(forwarding_path),
-        Ok(value) if value.trim() == "1"
-    ) || (set_sysctl(forwarding_path, "1")
+    let forwarding_enabled = managed_sysctl(forwarding_path, "1", tun_if)
         && matches!(
             std::fs::read_to_string(forwarding_path),
             Ok(value) if value.trim() == "1"
-        ));
+        );
     if !forwarding_enabled {
         anyhow::bail!(
             "gateway-nat: could not enable net.ipv4.ip_forward; refusing a router plan that would black-hole LAN traffic"
         );
     }
     // rp_filter stays best-effort (relaxing it only avoids drops on the asymmetric path).
-    set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
-    set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0");
-    // (Each set_sysctl snapshots the prior value itself — see remember_prior. These are
-    // HOST-wide knobs: leaving ip_forward on turns a workstation into a router after the
-    // VPN stops, and a relaxed rp_filter keeps an anti-spoofing check disabled — neither
-    // is ours to change permanently.)
+    managed_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0", tun_if);
+    managed_sysctl(
+        &format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"),
+        "0",
+        tun_if,
+    );
+    // These are HOST-wide knobs: leaving ip_forward on turns a workstation into a router
+    // after the VPN stops, and relaxed rp_filter leaves anti-spoofing disabled. The shared
+    // owner journal restores both only after every client profile has released them.
 
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
         ensure_rule(&path, tun_if, table, chain, rule)
@@ -875,17 +857,18 @@ pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> any
     // flipping the host-wide forwarding bit, and restore both values on clean teardown.
     let ipv6_wan_before = detect_wan_ipv6().filter(|interface| valid_ifname(interface));
     if let Some(wan) = &ipv6_wan_before {
-        set_sysctl(&format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"), "2");
+        managed_sysctl(
+            &format!("/proc/sys/net/ipv6/conf/{wan}/accept_ra"),
+            "2",
+            tun_if,
+        );
     }
     let forwarding_path = "/proc/sys/net/ipv6/conf/all/forwarding";
-    let forwarding_enabled = matches!(
-        std::fs::read_to_string(forwarding_path),
-        Ok(value) if value.trim() == "1"
-    ) || (set_sysctl(forwarding_path, "1")
+    let forwarding_enabled = managed_sysctl(forwarding_path, "1", tun_if)
         && matches!(
             std::fs::read_to_string(forwarding_path),
             Ok(value) if value.trim() == "1"
-        ));
+        );
     if !forwarding_enabled {
         anyhow::bail!(
             "gateway IPv6 could not enable net.ipv6.conf.all.forwarding; LAN IPv6 would be black-holed"
@@ -907,9 +890,10 @@ pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> any
         }
         // Policy routing or a simultaneous roaming event may have selected a different
         // interface. Preserve RA acceptance on the path the kernel actually retained.
-        set_sysctl(
+        managed_sysctl(
             &format!("/proc/sys/net/ipv6/conf/{ipv6_wan_after}/accept_ra"),
             "2",
+            tun_if,
         );
     }
 
@@ -1012,7 +996,7 @@ fn remove_gateway_rules(
 
 pub fn disengage(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) -> anyhow::Result<()> {
     let rules = remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
-    let sysctls = restore_sysctls();
+    let sysctls = restore_sysctls(tun_if);
     match (rules, sysctls) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
@@ -1042,7 +1026,7 @@ pub fn disengage_plan(
         }
     }
     if gateway_enabled || exit_enabled {
-        if let Err(error) = restore_sysctls() {
+        if let Err(error) = restore_sysctls(tun_if) {
             errors.push(error.to_string());
         }
     }
@@ -1053,39 +1037,8 @@ pub fn disengage_plan(
     }
 }
 
-/// Host sysctl values as they were before `engage` touched them, so `disengage` can put
-/// them back. Recorded per path by [`remember_prior`] on the first write (a reconnect
-/// re-enters `engage` and must not overwrite the pristine values with our own); a knob we
-/// could not read is simply not recorded, since there is nothing to restore.
-static PRIOR_SYSCTLS: std::sync::Mutex<Option<Vec<(String, String)>>> = std::sync::Mutex::new(None);
-
-fn restore_sysctls() -> anyhow::Result<()> {
-    let mut g = PRIOR_SYSCTLS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(prior) = g.take() else {
-        return Ok(());
-    };
-    let mut failed = Vec::new();
-    for (path, value) in prior {
-        // RAW write: going through set_sysctl would re-record the value we are about to
-        // replace (i.e. our own), so the next engage would treat it as the pristine one.
-        if !write_sysctl_raw(&path, &value) {
-            failed.push((path, value));
-        }
-    }
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        let detail = failed
-            .iter()
-            .map(|(path, value)| format!("{path}={value:?}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        // Keep the failed entries so another in-process cleanup attempt can retry them.
-        *g = Some(failed);
-        anyhow::bail!("could not restore host sysctl value(s): {detail}")
-    }
+fn restore_sysctls(tun_if: &str) -> anyhow::Result<()> {
+    crate::sysctl::release_scope(tun_if)
 }
 
 #[cfg(test)]

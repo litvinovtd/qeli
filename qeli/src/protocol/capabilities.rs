@@ -126,9 +126,7 @@ pub fn negotiate_client_capabilities(
     // platform IPv6 kill-switch bit for a split profile makes an intentionally ignored
     // `kill_switch = true` downgrade `auto` (or reject `required`) even though the adapter
     // never has to install that policy.
-    if config.routing.kill_switch
-        && crate::transport_core::network::is_full_tunnel(config)
-    {
+    if config.routing.kill_switch && crate::transport_core::network::is_full_tunnel(config) {
         required_platform |= crate::transport_core::platform_capability::IPV6_KILL_SWITCH;
     }
     if platform_bits & required_platform != required_platform {
@@ -148,16 +146,16 @@ pub fn negotiate_client_capabilities(
         let required_core = client_capability::INNER_IPV6
             | client_capability::NETWORK_PLAN_V2
             | client_capability::UDP_DATA_FRAG_V1;
-        let missing_core = required_core & !core_bits;
-        if missing_core != 0 {
-            anyhow::bail!(
-                "inner IPv6 is required but this client core is missing capabilities 0x{missing_core:x}"
-            );
-        }
         let missing_platform = required_platform & !platform_bits;
         if missing_platform != 0 {
             anyhow::bail!(
                 "inner IPv6 is required but the platform adapter is missing capabilities 0x{missing_platform:x}"
+            );
+        }
+        let missing_core = required_core & !core_bits;
+        if missing_core != 0 {
+            anyhow::bail!(
+                "inner IPv6 is required but this client core is missing capabilities 0x{missing_core:x}"
             );
         }
     }

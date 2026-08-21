@@ -1,6 +1,6 @@
 use crate::config::server::DnsConfig;
 use crate::server::ServerState;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -16,12 +16,10 @@ use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
 /// for a day was re-queried just as often. `timeout_secs` is a network timeout; reusing it
 /// as a cache lifetime conflated two unrelated settings.
 pub type DnsCache = Arc<RwLock<HashMap<Vec<u8>, (Vec<u8>, Instant, Duration)>>>;
+pub type DnsBlocklist = Arc<HashSet<String>>;
 
-/// Floor/ceiling on a record-derived cache lifetime. The floor keeps a zone that publishes
-/// TTL 0/1 from turning the cache into a no-op (and us into an amplifier of upstream
-/// load); the ceiling stops a record with a week-long TTL pinning a stale answer after a
-/// real IP change.
-const MIN_CACHE_TTL: Duration = Duration::from_secs(5);
+/// Ceiling on a record-derived cache lifetime. Short authoritative TTLs are honoured exactly;
+/// raising 1..4 seconds to a local floor serves records beyond the lifetime chosen by the zone.
 const MAX_CACHE_TTL: Duration = Duration::from_secs(3600);
 
 /// Advance past a (possibly compressed) name; returns the offset just after it.
@@ -34,14 +32,73 @@ fn skip_name(msg: &[u8], mut pos: usize) -> Option<usize> {
     for _ in 0..128 {
         let len = *msg.get(pos)?;
         if len & 0xC0 == 0xC0 {
+            let low = *msg.get(pos.checked_add(1)?)?;
+            let target = (((len & 0x3F) as usize) << 8) | low as usize;
+            if target >= msg.len() {
+                return None;
+            }
             return pos.checked_add(2).filter(|p| *p <= msg.len()); // pointer ends the name
+        }
+        // 01xxxxxx and 10xxxxxx are reserved DNS label encodings, not long labels.
+        if len & 0xC0 != 0 {
+            return None;
         }
         if len == 0 {
             return pos.checked_add(1);
         }
-        pos = pos.checked_add(1 + len as usize)?;
+        pos = pos
+            .checked_add(1 + len as usize)
+            .filter(|end| *end <= msg.len())?;
     }
     None
+}
+
+/// Validate the framing of every declared DNS section. A response can have a perfectly
+/// readable ANSWER TTL while its last RDATA, authority or additional record is truncated;
+/// such a datagram may still be returned to the requester, but it must never become a
+/// reusable cache entry.
+fn dns_message_is_complete(msg: &[u8]) -> bool {
+    if msg.len() < 12 {
+        return false;
+    }
+    let qdcount = u16::from_be_bytes([msg[4], msg[5]]) as usize;
+    let counts = [
+        u16::from_be_bytes([msg[6], msg[7]]) as usize,
+        u16::from_be_bytes([msg[8], msg[9]]) as usize,
+        u16::from_be_bytes([msg[10], msg[11]]) as usize,
+    ];
+    let mut pos = 12usize;
+    for _ in 0..qdcount {
+        let Some(next) = skip_name(msg, pos)
+            .and_then(|after_name| after_name.checked_add(4))
+            .filter(|end| *end <= msg.len())
+        else {
+            return false;
+        };
+        pos = next;
+    }
+    for count in counts {
+        for _ in 0..count {
+            let Some(after_name) = skip_name(msg, pos) else {
+                return false;
+            };
+            let Some(header_end) = after_name.checked_add(10).filter(|end| *end <= msg.len())
+            else {
+                return false;
+            };
+            let rdlen = u16::from_be_bytes([msg[after_name + 8], msg[after_name + 9]]) as usize;
+            let Some(next) = header_end
+                .checked_add(rdlen)
+                .filter(|end| *end <= msg.len())
+            else {
+                return false;
+            };
+            pos = next;
+        }
+    }
+    // DNS padding belongs inside an OPT RDATA. Bytes outside the counted sections are
+    // unframed trailing data and are not safe to replay from a shared cache.
+    pos == msg.len()
 }
 
 /// Subtract `age` seconds from every resource record's TTL, in place, saturating at zero.
@@ -82,18 +139,19 @@ fn decrement_ttls(msg: &mut [u8], age: u32) {
             }
             let rtype = u16::from_be_bytes([msg[after_name], msg[after_name + 1]]);
             let rdlen = u16::from_be_bytes([msg[after_name + 8], msg[after_name + 9]]) as usize;
+            let Some(record_end) = after_name
+                .checked_add(10)
+                .and_then(|header_end| header_end.checked_add(rdlen))
+                .filter(|end| *end <= msg.len())
+            else {
+                return;
+            };
             if rtype != 41 {
                 let t = after_name + 4;
                 let ttl = u32::from_be_bytes([msg[t], msg[t + 1], msg[t + 2], msg[t + 3]]);
                 msg[t..t + 4].copy_from_slice(&ttl.saturating_sub(age).to_be_bytes());
             }
-            pos = match after_name
-                .checked_add(10)
-                .and_then(|p| p.checked_add(rdlen))
-            {
-                Some(p) => p,
-                None => return,
-            };
+            pos = record_end;
         }
     }
 }
@@ -127,9 +185,106 @@ fn answer_min_ttl(msg: &[u8]) -> Option<u32> {
         let ttl = u32::from_be_bytes([msg[pos + 4], msg[pos + 5], msg[pos + 6], msg[pos + 7]]);
         let rdlen = u16::from_be_bytes([msg[pos + 8], msg[pos + 9]]) as usize;
         min = min.min(ttl);
-        pos = pos.checked_add(10)?.checked_add(rdlen)?;
+        pos = pos
+            .checked_add(10)?
+            .checked_add(rdlen)
+            .filter(|end| *end <= msg.len())?;
     }
     Some(min)
+}
+
+/// RFC 2308 negative-cache lifetime from an SOA in the AUTHORITY section:
+/// `min(SOA RR TTL, SOA.MINIMUM)`. A negative answer without SOA is not reusable.
+fn negative_cache_ttl(msg: &[u8]) -> Option<u32> {
+    if msg.len() < 12 {
+        return None;
+    }
+    let qdcount = u16::from_be_bytes([msg[4], msg[5]]) as usize;
+    let ancount = u16::from_be_bytes([msg[6], msg[7]]) as usize;
+    let nscount = u16::from_be_bytes([msg[8], msg[9]]) as usize;
+    let mut pos = 12usize;
+    for _ in 0..qdcount {
+        pos = skip_name(msg, pos)?
+            .checked_add(4)
+            .filter(|end| *end <= msg.len())?;
+    }
+    for _ in 0..ancount {
+        let after_name = skip_name(msg, pos)?;
+        let header_end = after_name.checked_add(10).filter(|end| *end <= msg.len())?;
+        let rdlen = u16::from_be_bytes([msg[after_name + 8], msg[after_name + 9]]) as usize;
+        pos = header_end
+            .checked_add(rdlen)
+            .filter(|end| *end <= msg.len())?;
+    }
+
+    let mut minimum_ttl = None;
+    for _ in 0..nscount {
+        let after_name = skip_name(msg, pos)?;
+        let header_end = after_name.checked_add(10).filter(|end| *end <= msg.len())?;
+        let rtype = u16::from_be_bytes([msg[after_name], msg[after_name + 1]]);
+        let rr_ttl = u32::from_be_bytes([
+            msg[after_name + 4],
+            msg[after_name + 5],
+            msg[after_name + 6],
+            msg[after_name + 7],
+        ]);
+        let rdlen = u16::from_be_bytes([msg[after_name + 8], msg[after_name + 9]]) as usize;
+        let record_end = header_end
+            .checked_add(rdlen)
+            .filter(|end| *end <= msg.len())?;
+        if rtype == 6 {
+            // SOA RDATA = MNAME, RNAME, SERIAL, REFRESH, RETRY, EXPIRE, MINIMUM.
+            let after_mname = skip_name(msg, header_end).filter(|p| *p <= record_end)?;
+            let numeric = skip_name(msg, after_mname).filter(|p| *p <= record_end)?;
+            if numeric.checked_add(20)? != record_end {
+                return None;
+            }
+            let minimum = u32::from_be_bytes([
+                msg[numeric + 16],
+                msg[numeric + 17],
+                msg[numeric + 18],
+                msg[numeric + 19],
+            ]);
+            let candidate = rr_ttl.min(minimum);
+            minimum_ttl =
+                Some(minimum_ttl.map_or(candidate, |current: u32| current.min(candidate)));
+        }
+        pos = record_end;
+    }
+    minimum_ttl
+}
+
+fn response_cache_ttl(msg: &[u8]) -> Option<Duration> {
+    if !dns_message_is_complete(msg) || msg[2] & 0x02 != 0 {
+        return None; // TC is a retry instruction, never a reusable answer.
+    }
+    // Cache only successful and standard negative outcomes. SERVFAIL, REFUSED,
+    // FORMERR and other transient/policy errors must be retried upstream on the next query,
+    // not amplified to every client for `dns.timeout_secs`.
+    let rcode = msg[3] & 0x0F;
+    if (rcode != 0 && rcode != 3) || dns_extended_rcode(msg)? != 0 {
+        return None;
+    }
+    let answer_ttl = answer_min_ttl(msg);
+    let negative_ttl = (rcode == 3 || answer_ttl.is_none()).then(|| negative_cache_ttl(msg));
+    let seconds = match (rcode, answer_ttl, negative_ttl.flatten()) {
+        (_, Some(0), _) | (_, _, Some(0)) => return None,
+        // NXDOMAIN may contain a CNAME chain in ANSWER. The reusable whole-message lifetime
+        // cannot exceed either that chain's TTL or the negative SOA lifetime.
+        (3, Some(answer), Some(negative)) => answer.min(negative),
+        (3, None, Some(negative)) => negative,
+        (0, Some(answer), _) => answer,
+        (0, None, Some(negative)) => negative, // RFC 2308 NODATA
+        _ => return None,
+    };
+    Some(Duration::from_secs(seconds as u64).min(MAX_CACHE_TTL))
+}
+
+fn response_is_retryable_error(msg: &[u8]) -> bool {
+    let base_retryable = msg
+        .get(3)
+        .is_some_and(|flags| matches!(flags & 0x0F, 1 | 2 | 4 | 5));
+    base_retryable || dns_extended_rcode(msg).is_some_and(|extended| extended != 0)
 }
 
 /// Upper bound on in-flight query TASKS. The permit is taken in the accept loop
@@ -185,6 +340,7 @@ pub(crate) async fn run_dns_proxy_tcp(
     listener: TcpListener,
     cache: DnsCache,
     pref: Arc<AtomicUsize>,
+    blocklist: DnsBlocklist,
     tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -207,6 +363,7 @@ pub(crate) async fn run_dns_proxy_tcp(
         let cache = cache.clone();
         let cfg = cfg.clone();
         let pref = pref.clone();
+        let blocklist = blocklist.clone();
         tasks.spawn(async move {
             let _permit = permit;
             // The timeout bounds IDLE time, not the connection.
@@ -217,7 +374,10 @@ pub(crate) async fn run_dns_proxy_tcp(
             // connects and then says nothing; a peer that keeps asking questions is a peer the
             // service exists for. Applying it per read gives that, and still releases the
             // in-flight slot from a stalled client. (Audit 2026-08-01, §10.)
-            let idle = Duration::from_secs(cfg.timeout_secs.max(1));
+            let idle = Duration::from_secs(
+                cfg.timeout_secs
+                    .clamp(1, crate::config::server::DNS_MAX_TIMEOUT_SECS),
+            );
             // RFC 7766 allows several queries per connection; serve until the peer closes.
             loop {
                 let mut len_buf = [0u8; 2];
@@ -237,7 +397,14 @@ pub(crate) async fn run_dns_proxy_tcp(
                     Ok(Ok(_)) => {}
                     _ => return,
                 }
-                let Some(resp) = resolve(cache.clone(), cfg.clone(), pref.clone(), &query).await
+                let Some(resp) = resolve(
+                    cache.clone(),
+                    cfg.clone(),
+                    pref.clone(),
+                    blocklist.clone(),
+                    &query,
+                )
+                .await
                 else {
                     return;
                 };
@@ -264,6 +431,7 @@ pub(crate) async fn run_dns_proxy(
     bound: UdpSocket,
     cache: DnsCache,
     pref: Arc<AtomicUsize>,
+    blocklist: DnsBlocklist,
     tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
     let bind_addr = crate::util::join_host_port(&dns_cfg.listen, dns_cfg.port);
@@ -334,8 +502,9 @@ pub(crate) async fn run_dns_proxy(
         let cache = cache.clone();
         let cfg = cfg.clone();
         let pref = pref.clone();
+        let blocklist = blocklist.clone();
         tasks.spawn(async move {
-            handle_query(socket, cache, cfg, permit, pref, query, src).await;
+            handle_query(socket, cache, cfg, permit, pref, blocklist, query, src).await;
         });
     }
 }
@@ -408,10 +577,11 @@ async fn handle_query(
     // spawning us, so the number of live tasks is what MAX_INFLIGHT actually bounds. (S-02)
     _permit: OwnedSemaphorePermit,
     pref: Arc<AtomicUsize>,
+    blocklist: Arc<HashSet<String>>,
     query: Vec<u8>,
     src: SocketAddr,
 ) {
-    let Some(resp) = resolve(cache, cfg, pref, &query).await else {
+    let Some(resp) = resolve(cache, cfg, pref, blocklist, &query).await else {
         return;
     };
     // Only the UDP path has a size limit to respect; over TCP the answer goes out whole.
@@ -428,16 +598,17 @@ async fn resolve(
     cache: DnsCache,
     cfg: Arc<DnsConfig>,
     pref: Arc<AtomicUsize>,
+    blocklist: Arc<HashSet<String>>,
     query: &[u8],
 ) -> Option<Vec<u8>> {
+    if !dns_message_is_complete(query) {
+        return None;
+    }
     let query = query.to_vec();
     let query_txid = [query[0], query[1]];
 
-    if is_blocked(&query, &cfg.blocklist) {
-        let mut nxdomain = query.clone();
-        nxdomain[2] = 0x81;
-        nxdomain[3] = 0x83;
-        return Some(nxdomain);
+    if is_blocked(&query, &blocklist) {
+        return blocked_response(&query);
     }
 
     // Cache key ignores the per-query transaction ID (bytes 0..2) so the same
@@ -446,7 +617,10 @@ async fn resolve(
     cache_key[0] = 0;
     cache_key[1] = 0;
 
-    let ttl = Duration::from_secs(cfg.timeout_secs);
+    let upstream_timeout = Duration::from_secs(
+        cfg.timeout_secs
+            .clamp(1, crate::config::server::DNS_MAX_TIMEOUT_SECS),
+    );
     let cached = {
         let cache_read = cache.read().await;
         cache_read
@@ -478,7 +652,10 @@ async fn resolve(
         return Some(response);
     }
 
-    let upstreams = &cfg.upstream;
+    let upstreams = &cfg.upstream[..cfg
+        .upstream
+        .len()
+        .min(crate::config::server::DNS_MAX_UPSTREAMS)];
     if upstreams.is_empty() {
         return None;
     }
@@ -517,7 +694,27 @@ async fn resolve(
 
     let start = pref.load(Ordering::Relaxed) % upstreams.len();
     let mut response = None;
+    let mut last_upstream_error = None;
+    let mut truncated_fallback = None;
+    let mut response_cacheable = true;
+    let query_deadline = tokio::time::Instant::now() + upstream_timeout;
     for attempt in 0..upstreams.len() {
+        let now = tokio::time::Instant::now();
+        let remaining = query_deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            break;
+        }
+        // One configured timeout bounds the complete query, not each upstream in turn. Split
+        // the remaining time so a dead preferred resolver cannot consume the whole budget
+        // without giving the fallback resolver a chance.
+        let attempts_left = u32::try_from(upstreams.len() - attempt)
+            .unwrap_or(u32::MAX)
+            .max(1);
+        let attempt_timeout = remaining / attempts_left;
+        if attempt_timeout.is_zero() {
+            break;
+        }
+        let attempt_deadline = now + attempt_timeout;
         let idx = (start + attempt) % upstreams.len();
         let upstream_ip = match upstreams[idx].parse::<std::net::IpAddr>() {
             Ok(address) => address,
@@ -526,10 +723,15 @@ async fn resolve(
         let upstream_sa = SocketAddr::new(upstream_ip, 53);
         let upstream_addr = upstream_sa.to_string();
         if force_tcp {
-            if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
+            if let Some(full) = query_tcp(&upstream_addr, &query, attempt_timeout).await {
                 // Same anti-spoof check as the UDP path (TCP is connection-bound, so
                 // the source is implicitly the resolver we dialled).
-                if response_matches(&full, upstream_txid, &query) {
+                if response_matches(&full, upstream_txid, &query) && dns_message_is_complete(&full)
+                {
+                    if response_is_retryable_error(&full) {
+                        last_upstream_error = Some(full);
+                        continue;
+                    }
                     response = Some(full);
                     pref.store(idx, Ordering::Relaxed);
                     break;
@@ -555,7 +757,6 @@ async fn resolve(
         // Accept only a reply that (a) came from the resolver we queried and (b)
         // carries the matching transaction ID — otherwise an off-/on-path spoof
         // could poison the cache. Bound the total wait by the configured timeout.
-        let deadline = tokio::time::Instant::now() + ttl;
         // Sized from what the CLIENT advertised, with a 4 KiB floor.
         //
         // `recv_from` DISCARDS whatever does not fit, silently and with no short-read signal,
@@ -567,7 +768,7 @@ async fn resolve(
         let want = upstream_buf_size(&query);
         let mut resp_buf = vec![0u8; want];
         loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let remaining = attempt_deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
                 break;
             }
@@ -584,44 +785,58 @@ async fn resolve(
                     if !response_matches(&resp_buf[..m], upstream_txid, &query) {
                         continue; // wrong txid/question — spoof or stale, ignore
                     }
-                    // TC (TRUNCATED, bit 1 of byte 2): the answer did not fit in a UDP
-                    // datagram and the resolver sent a stub. Forwarding it as-is made the
-                    // client see an empty/partial answer set — the classic "big TXT or
-                    // DNSSEC record silently resolves to nothing". RFC 1035 §4.2.1 says to
-                    // retry over TCP; nothing here did. (S-14)
-                    if resp_buf[2] & 0x02 != 0 {
-                        log::debug!(
-                            "DNS: truncated reply from {} — retrying over TCP",
-                            upstream_sa
-                        );
-                        if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
-                            if response_matches(&full, upstream_txid, &query) {
+                    // TC is an explicit retry instruction. An exact buffer fill is the one
+                    // case where `recv_from` cannot distinguish a complete datagram from one
+                    // it cut off. Either condition needs one (not two) TCP retry.
+                    let truncated = resp_buf[2] & 0x02 != 0;
+                    let possibly_cut_off = m == resp_buf.len();
+                    if truncated || possibly_cut_off {
+                        if truncated {
+                            log::debug!(
+                                "DNS: truncated reply from {} — retrying over TCP",
+                                upstream_sa
+                            );
+                        } else {
+                            log::debug!(
+                                "DNS: reply from {} exactly filled the {}-byte buffer — may \
+                                 have been cut off, retrying over TCP",
+                                upstream_sa,
+                                resp_buf.len()
+                            );
+                        }
+                        let tcp_budget =
+                            attempt_deadline.saturating_duration_since(tokio::time::Instant::now());
+                        if let Some(full) = query_tcp(&upstream_addr, &query, tcp_budget).await {
+                            if response_matches(&full, upstream_txid, &query)
+                                && dns_message_is_complete(&full)
+                            {
+                                if response_is_retryable_error(&full) {
+                                    last_upstream_error = Some(full);
+                                    break;
+                                }
                                 response = Some(full);
                                 pref.store(idx, Ordering::Relaxed);
                                 break;
                             }
                         }
-                        // TCP retry failed — fall through and use the truncated answer
-                        // rather than nothing (a stub reply still carries the header flags).
+                        // Give the remaining resolvers a chance before falling back to TC.
+                        // An exact buffer fill without TC may have been cut mid-record and is
+                        // never safe to forward. An explicit TC response is structurally useful:
+                        // keep it only as a last resort so the downstream client can retry TCP.
+                        if truncated && dns_message_is_complete(&resp_buf[..m]) {
+                            truncated_fallback = Some(resp_buf[..m].to_vec());
+                        }
+                        break;
                     }
-                    // A datagram that exactly fills the buffer is the one case `recv_from`
-                    // cannot distinguish from one that was cut off, because it reports the
-                    // bytes COPIED, not the bytes that arrived. Treating it as complete is how
-                    // a chopped answer got forwarded; treating it as truncated costs one TCP
-                    // retry in the rare legitimate case and is correct in the bad one.
-                    if m == resp_buf.len() {
-                        log::debug!(
-                            "DNS: reply from {} exactly filled the {}-byte buffer — may have                              been cut off, retrying over TCP",
-                            upstream_sa,
-                            resp_buf.len()
-                        );
-                        if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
-                            if response_matches(&full, upstream_txid, &query) {
-                                response = Some(full);
-                                pref.store(idx, Ordering::Relaxed);
-                                break;
-                            }
-                        }
+                    if !dns_message_is_complete(&resp_buf[..m]) {
+                        break; // corrupt framing: try another resolver
+                    }
+                    if response_is_retryable_error(&resp_buf[..m]) {
+                        // Return the last real DNS error if every resolver fails, but first
+                        // try the next upstream instead of making this one the preferred
+                        // source of SERVFAIL/REFUSED for every subsequent client.
+                        last_upstream_error = Some(resp_buf[..m].to_vec());
+                        break;
                     }
                     response = Some(resp_buf[..m].to_vec());
                     pref.store(idx, Ordering::Relaxed);
@@ -635,6 +850,15 @@ async fn resolve(
         }
     }
 
+    if response.is_none() {
+        response = last_upstream_error;
+    }
+    if response.is_none() {
+        if let Some(fallback) = truncated_fallback {
+            response = Some(fallback);
+            response_cacheable = false;
+        }
+    }
     if let Some(mut resp) = response {
         // Put the CLIENT's transaction ID back — everything above spoke to the upstream
         // under a freshly randomised one. Done before the cache insert so a cache hit and a
@@ -645,19 +869,24 @@ async fn resolve(
 
         // Cache lifetime from the record itself, clamped. A TTL of 0 means "do not cache"
         // (RFC 2181 §8) and is honoured by skipping the insert entirely — it is used for
-        // things like round-robin load balancing, where caching defeats the point. With no
-        // ANSWER section (NXDOMAIN/NODATA) there is no record TTL to read; those fall back
-        // to the configured timeout rather than being cached indefinitely. (S-14)
-        let entry_ttl = match answer_min_ttl(&resp) {
-            Some(0) => {
-                return Some(resp); // uncacheable by policy — answer, don't store
-            }
-            Some(secs) => Duration::from_secs(secs as u64).clamp(MIN_CACHE_TTL, MAX_CACHE_TTL),
-            None => ttl,
+        // things like round-robin load balancing, where caching defeats the point. Negative
+        // NXDOMAIN/NODATA responses use RFC 2308's min(SOA TTL, SOA.MINIMUM); without a valid
+        // authority SOA they are not reusable. (S-14)
+        if !response_cacheable {
+            return Some(resp);
+        }
+        let Some(entry_ttl) = response_cache_ttl(&resp) else {
+            return Some(resp);
         };
 
+        let cache_limit = cfg
+            .cache_size
+            .min(crate::config::server::DNS_MAX_CACHE_ENTRIES);
+        if cache_limit == 0 {
+            return Some(resp);
+        }
         let mut cache_write = cache.write().await;
-        if cache_write.len() >= cfg.cache_size {
+        if cache_write.len() >= cache_limit {
             // Drop expired entries first (cheap win). If the cache is still full of
             // FRESH entries, evict a batch of arbitrary keys so we make real room —
             // otherwise every insert at steady-state saturation would re-scan the
@@ -665,15 +894,15 @@ async fn resolve(
             // amortizes the scan over ~cache_size/10 inserts.
             let now = Instant::now();
             cache_write.retain(|_, (_, time, entry_ttl)| now.duration_since(*time) < *entry_ttl);
-            if cache_write.len() >= cfg.cache_size {
-                let evict = (cfg.cache_size / 10).max(1);
+            if cache_write.len() >= cache_limit {
+                let evict = (cache_limit / 10).max(1);
                 let victims: Vec<_> = cache_write.keys().take(evict).cloned().collect();
                 for k in victims {
                     cache_write.remove(&k);
                 }
             }
         }
-        if cache_write.len() < cfg.cache_size {
+        if cache_write.len() < cache_limit {
             cache_write.insert(cache_key, (resp.clone(), Instant::now(), entry_ttl));
         }
         return Some(resp);
@@ -712,19 +941,20 @@ fn advertised_udp_size(query: &[u8]) -> usize {
         }
         let rtype = u16::from_be_bytes([query[after_name], query[after_name + 1]]);
         let class = u16::from_be_bytes([query[after_name + 2], query[after_name + 3]]);
-        if rtype == 41 {
+        let rdlen = u16::from_be_bytes([query[after_name + 8], query[after_name + 9]]) as usize;
+        let Some(record_end) = after_name
+            .checked_add(10)
+            .and_then(|header_end| header_end.checked_add(rdlen))
+            .filter(|end| *end <= query.len())
+        else {
+            return FLOOR;
+        };
+        if rtype == 41 && query.get(pos) == Some(&0) {
             // Clamp: a peer may advertise anything, and a UDP datagram cannot exceed 65535
             // however large a number it writes here.
             return (class as usize).clamp(FLOOR, 65_535);
         }
-        let rdlen = u16::from_be_bytes([query[after_name + 8], query[after_name + 9]]) as usize;
-        pos = match after_name
-            .checked_add(10)
-            .and_then(|p| p.checked_add(rdlen))
-        {
-            Some(p) => p,
-            None => return FLOOR,
-        };
+        pos = record_end;
     }
     FLOOR
 }
@@ -740,7 +970,9 @@ fn additional_section_start(msg: &[u8]) -> Option<usize> {
     let nscount = u16::from_be_bytes([msg[8], msg[9]]) as usize;
     let mut pos = 12usize;
     for _ in 0..qdcount {
-        pos = skip_name(msg, pos)?.checked_add(4)?; // QTYPE + QCLASS
+        pos = skip_name(msg, pos)?
+            .checked_add(4)
+            .filter(|end| *end <= msg.len())?; // QTYPE + QCLASS
     }
     for _ in 0..(ancount + nscount) {
         pos = skip_name(msg, pos)?;
@@ -748,9 +980,38 @@ fn additional_section_start(msg: &[u8]) -> Option<usize> {
             return None;
         }
         let rdlen = u16::from_be_bytes([msg[pos + 8], msg[pos + 9]]) as usize;
-        pos = pos.checked_add(10)?.checked_add(rdlen)?;
+        pos = pos
+            .checked_add(10)?
+            .checked_add(rdlen)
+            .filter(|end| *end <= msg.len())?;
     }
     Some(pos)
+}
+
+/// Extended DNS RCODE from the single well-formed OPT pseudo-record, or zero when EDNS is
+/// absent. Multiple OPT records and a non-root OPT owner name are malformed and reject cache
+/// admission. The ordinary low four RCODE bits live in the base header.
+fn dns_extended_rcode(msg: &[u8]) -> Option<u8> {
+    let mut pos = additional_section_start(msg)?;
+    let arcount = u16::from_be_bytes([msg[10], msg[11]]) as usize;
+    let mut extended = None;
+    for _ in 0..arcount {
+        let name_start = pos;
+        let after_name = skip_name(msg, pos)?;
+        let header_end = after_name.checked_add(10).filter(|end| *end <= msg.len())?;
+        let rtype = u16::from_be_bytes([msg[after_name], msg[after_name + 1]]);
+        let rdlen = u16::from_be_bytes([msg[after_name + 8], msg[after_name + 9]]) as usize;
+        pos = header_end
+            .checked_add(rdlen)
+            .filter(|end| *end <= msg.len())?;
+        if rtype == 41 {
+            if msg.get(name_start) != Some(&0) || extended.is_some() {
+                return None;
+            }
+            extended = Some(msg[after_name + 4]);
+        }
+    }
+    Some(extended.unwrap_or(0))
 }
 
 /// Cut a UDP reply down to what the client said it can take, setting TC so it knows to ask
@@ -825,41 +1086,101 @@ fn question_section_end(msg: &[u8]) -> Option<usize> {
     let qdcount = u16::from_be_bytes([msg[4], msg[5]]) as usize;
     let mut pos = 12usize;
     for _ in 0..qdcount {
-        pos = skip_name(msg, pos)?.checked_add(4)?;
-    }
-    if pos > msg.len() {
-        return None;
+        pos = skip_name(msg, pos)?
+            .checked_add(4)
+            .filter(|end| *end <= msg.len())?;
     }
     Some(pos)
 }
 
-fn is_blocked(query: &[u8], blocklist: &[String]) -> bool {
-    if blocklist.is_empty() || query.len() < 12 {
+/// Construct a self-contained NXDOMAIN response for a blocked name.
+///
+/// Copying the whole request and only changing FLAGS also copied any client-supplied
+/// ANSWER/AUTHORITY/ADDITIONAL records while their counts still claimed they were part of
+/// our response. Besides reflecting arbitrary payload, that produced contradictory NXDOMAIN
+/// packets. Keep only the validated question and explicitly clear every resource-record count.
+fn blocked_response(query: &[u8]) -> Option<Vec<u8>> {
+    let q_end = question_section_end(query)?;
+    let mut response = query[..q_end].to_vec();
+    // Preserve OPCODE and RD from the request. This proxy provides recursion (RA), does not
+    // authenticate the synthetic answer (AD=0), and returns NXDOMAIN.
+    response[2] = 0x80 | (query[2] & 0x79);
+    response[3] = 0x80 | (query[3] & 0x10) | 0x03;
+    response[6..8].copy_from_slice(&0u16.to_be_bytes());
+    response[8..10].copy_from_slice(&0u16.to_be_bytes());
+    response[10..12].copy_from_slice(&0u16.to_be_bytes());
+    Some(response)
+}
+
+pub(crate) fn compile_blocklist(raw: &[String]) -> DnsBlocklist {
+    Arc::new(
+        raw.iter()
+            .filter_map(|domain| crate::config::server::normalize_blocklist_domain(domain))
+            .collect(),
+    )
+}
+
+fn is_blocked(query: &[u8], blocklist: &HashSet<String>) -> bool {
+    if blocklist.is_empty() {
         return false;
     }
 
-    let mut labels = Vec::new();
-    let mut pos = 12;
-
-    while pos < query.len() {
-        let label_len = query[pos] as usize;
-        if label_len == 0 {
-            break;
+    let Some(domain) = first_question_name(query) else {
+        return false;
+    };
+    let mut candidate = domain.as_str();
+    loop {
+        if blocklist.contains(candidate) {
+            return true;
         }
-        pos += 1;
-        if pos + label_len <= query.len() {
-            if let Ok(label) = std::str::from_utf8(&query[pos..pos + label_len]) {
-                labels.push(label.to_string());
-            }
-        }
-        pos += label_len;
+        let Some(dot) = candidate.find('.') else {
+            return false;
+        };
+        candidate = &candidate[dot + 1..];
     }
+}
 
-    let domain = labels.join(".").to_lowercase();
-    blocklist.iter().any(|blocked| {
-        let blocked_lower = blocked.to_lowercase();
-        domain == blocked_lower || domain.ends_with(&format!(".{}", blocked_lower))
-    })
+/// Decode the first question name, including legal compression pointers, with strict loop and
+/// length bounds. Blocklist matching must not interpret bytes from QTYPE, EDNS or another
+/// section as labels when a client sends malformed framing.
+fn first_question_name(query: &[u8]) -> Option<String> {
+    if query.len() < 12 || u16::from_be_bytes([query[4], query[5]]) == 0 {
+        return None;
+    }
+    let mut pos = 12;
+    let mut wire_len = 1usize; // terminating root label
+    let mut labels = Vec::new();
+    for _ in 0..128 {
+        let len = *query.get(pos)?;
+        if len & 0xC0 == 0xC0 {
+            let low = *query.get(pos.checked_add(1)?)?;
+            pos = (((len & 0x3F) as usize) << 8) | low as usize;
+            if pos >= query.len() {
+                return None;
+            }
+            continue;
+        }
+        if len & 0xC0 != 0 {
+            return None;
+        }
+        if len == 0 {
+            let mut domain = String::from_utf8(labels.join(&[b'.'])).ok()?;
+            domain.make_ascii_lowercase();
+            return Some(domain);
+        }
+        let label_len = len as usize;
+        wire_len = wire_len.checked_add(label_len + 1)?;
+        if wire_len > 255 {
+            return None;
+        }
+        let start = pos.checked_add(1)?;
+        let end = start
+            .checked_add(label_len)
+            .filter(|end| *end <= query.len())?;
+        labels.push(query[start..end].to_vec());
+        pos = end;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -910,6 +1231,33 @@ mod tests {
         assert!(!response_matches(&qd, txid, &query));
     }
 
+    #[test]
+    fn blocklist_matching_is_bounded_and_nxdomain_strips_request_records() {
+        let q = query(Some(1232));
+        let exact = compile_blocklist(&["EXAMPLE.COM.".to_string()]);
+        assert!(is_blocked(&q, &exact));
+        let not_a_label_suffix = compile_blocklist(&["ample.com".to_string()]);
+        assert!(!is_blocked(&q, &not_a_label_suffix));
+
+        // A compression loop is untrusted input, not a name to keep decoding forever.
+        let mut looped = q.clone();
+        looped[12..14].copy_from_slice(&[0xC0, 0x0C]);
+        assert!(!is_blocked(&looped, &exact));
+
+        // Even if the client supplied resource records, a synthetic NXDOMAIN carries only
+        // the validated question. Reflecting those bytes as part of our answer would produce
+        // contradictory counts and replay attacker-controlled payload.
+        let mut with_answer = response(&[60], true);
+        with_answer[2] &= 0x7F; // make it a request-shaped message
+        let q_end = question_section_end(&with_answer).unwrap();
+        let blocked = blocked_response(&with_answer).unwrap();
+        assert_eq!(blocked.len(), q_end);
+        assert_eq!(&blocked[12..], &with_answer[12..q_end]);
+        assert_eq!(blocked[2] & 0x80, 0x80);
+        assert_eq!(blocked[3] & 0x0F, 3);
+        assert_eq!(&blocked[6..12], &[0, 0, 0, 0, 0, 0]);
+    }
+
     /// Build a minimal DNS response: one question, `answers` A-records with the given TTLs.
     fn response(ttls: &[u32], compressed_names: bool) -> Vec<u8> {
         let mut m = vec![0u8; 12];
@@ -946,10 +1294,97 @@ mod tests {
         m
     }
 
+    fn with_soa(mut m: Vec<u8>, soa_ttl: u32, minimum: u32) -> Vec<u8> {
+        m[9] = 1; // NSCOUNT = 1
+        m.extend_from_slice(&[0xC0, 0x0C]); // owner = question name
+        m.extend_from_slice(&[0, 6, 0, 1]); // TYPE=SOA, CLASS=IN
+        m.extend_from_slice(&soa_ttl.to_be_bytes());
+        m.extend_from_slice(&22u16.to_be_bytes());
+        m.push(0); // MNAME = root
+        m.push(0); // RNAME = root
+        for value in [1, 3600, 600, 86_400, minimum] {
+            m.extend_from_slice(&value.to_be_bytes());
+        }
+        m
+    }
+
+    fn negative_response(rcode: u8, soa_ttl: u32, minimum: u32) -> Vec<u8> {
+        let mut m = response(&[], false);
+        m[3] = (m[3] & 0xF0) | (rcode & 0x0F);
+        with_soa(m, soa_ttl, minimum)
+    }
+
     #[test]
     fn reads_the_smallest_answer_ttl() {
         assert_eq!(answer_min_ttl(&response(&[300], false)), Some(300));
         assert_eq!(answer_min_ttl(&response(&[300, 60, 900], false)), Some(60));
+    }
+
+    #[test]
+    fn cache_admission_honours_short_ttls_and_rejects_tc() {
+        assert_eq!(
+            response_cache_ttl(&response(&[1], false)),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            response_cache_ttl(&response(&[4], false)),
+            Some(Duration::from_secs(4))
+        );
+        assert_eq!(response_cache_ttl(&response(&[0], false)), None);
+        let mut truncated = response(&[60], false);
+        truncated[2] |= 0x02;
+        assert_eq!(response_cache_ttl(&truncated), None);
+
+        let mut malformed_positive = response(&[60], false);
+        malformed_positive.truncate(malformed_positive.len() - 1);
+        assert_eq!(response_cache_ttl(&malformed_positive), None);
+
+        let no_answers = response(&[], false);
+        assert_eq!(response_cache_ttl(&no_answers), None);
+        let mut nxdomain = no_answers.clone();
+        nxdomain[3] = (nxdomain[3] & 0xF0) | 3;
+        assert_eq!(response_cache_ttl(&nxdomain), None);
+        assert_eq!(
+            response_cache_ttl(&negative_response(3, 300, 45)),
+            Some(Duration::from_secs(45)),
+            "negative TTL is min(SOA RR TTL, SOA.MINIMUM)"
+        );
+        assert_eq!(
+            response_cache_ttl(&negative_response(0, 20, 300)),
+            Some(Duration::from_secs(20)),
+            "NODATA uses the same RFC 2308 SOA lifetime"
+        );
+        let mut cname_nxdomain = response(&[300], true);
+        cname_nxdomain[3] = (cname_nxdomain[3] & 0xF0) | 3;
+        assert_eq!(
+            response_cache_ttl(&with_soa(cname_nxdomain, 120, 45)),
+            Some(Duration::from_secs(45)),
+            "NXDOMAIN with a CNAME cannot outlive its negative SOA TTL"
+        );
+        assert_eq!(response_cache_ttl(&negative_response(3, 300, 0)), None);
+        for rcode in [1, 2, 5] {
+            let mut error = no_answers.clone();
+            error[3] = (error[3] & 0xF0) | rcode;
+            assert!(response_is_retryable_error(&error));
+            assert_eq!(
+                response_cache_ttl(&error),
+                None,
+                "DNS error rcode {rcode} must not be cached"
+            );
+        }
+        assert!(!response_is_retryable_error(&nxdomain));
+        let mut trailing_garbage = response(&[60], false);
+        trailing_garbage.push(0);
+        assert_eq!(response_cache_ttl(&trailing_garbage), None);
+
+        let mut badvers = query(Some(1232));
+        badvers[2] = 0x81;
+        badvers[3] = 0x80;
+        let opt = additional_section_start(&badvers).unwrap();
+        let after_name = skip_name(&badvers, opt).unwrap();
+        badvers[after_name + 4] = 1; // extended RCODE 1 => BADVERS (full RCODE 16)
+        assert!(response_is_retryable_error(&badvers));
+        assert_eq!(response_cache_ttl(&badvers), None);
     }
 
     #[test]
@@ -1042,6 +1477,12 @@ mod tests {
         for cut in 0..full.len() {
             let _ = advertised_udp_size(&full[..cut]);
         }
+        let mut truncated_opt = full;
+        let opt = additional_section_start(&truncated_opt).unwrap();
+        let after_name = skip_name(&truncated_opt, opt).unwrap();
+        truncated_opt[after_name + 8..after_name + 10].copy_from_slice(&4u16.to_be_bytes());
+        truncated_opt.extend_from_slice(&[1, 2, 3]); // one byte short of the declared RDATA
+        assert_eq!(advertised_udp_size(&truncated_opt), 512);
     }
 
     /// An answer that fits is forwarded untouched; one that does not comes back as a TC=1

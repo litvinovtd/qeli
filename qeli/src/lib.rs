@@ -15,6 +15,14 @@ pub mod transport_core;
 // Cross-platform helpers (atomic file writes etc.); builds everywhere, including
 // the realtls FFI cdylib for Android/Windows/macOS.
 pub mod util;
+
+// One cross-process ownership journal for every Linux component that changes host-wide
+// forwarding sysctls. The full daemon can run server profiles and panel-managed outbound
+// clients at the same time, so separate server/client snapshots would race on teardown.
+#[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
+#[path = "client/sysctl.rs"]
+pub(crate) mod sysctl;
+
 // Linux daemon socket-option helpers and transport constants. The cross-platform client
 // carrier itself lives in `transport_core`; these helpers remain for the Linux server/CLI
 // path. `ring`-free, so they cross-compile to mipsel/aarch64.
