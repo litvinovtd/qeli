@@ -103,7 +103,7 @@ fn is_message_too_long(error: &std::io::Error) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DownlinkMtuProbe {
     generation: u64,
-    id: u16,
+    token: u128,
     payload_size: u16,
     udp_payload_budget: u32,
 }
@@ -111,7 +111,7 @@ struct DownlinkMtuProbe {
 const DOWNLINK_MTU_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn build_downlink_mtu_probe(
-    id: u16,
+    token: u128,
     udp_payload_budget: usize,
     obfs_overhead: usize,
     quic_enabled: bool,
@@ -126,7 +126,7 @@ fn build_downlink_mtu_probe(
         };
     let payload_size = udp_payload_budget.checked_sub(wrapper_bytes)?;
     let payload_size_u16 = u16::try_from(payload_size).ok()?;
-    let probe = crate::protocol::udp_frag::mtu_probe_datagram(id, payload_size)?;
+    let probe = crate::protocol::udp_frag::mtu_probe_v2_datagram(token, payload_size)?;
     let packet = if quic_enabled {
         wrap_quic_short(&probe, connection_id, packet_number)
     } else {
@@ -256,13 +256,13 @@ async fn schedule_downlink_mtu_probe(
         if budget_cell.load(std::sync::atomic::Ordering::Relaxed) as usize >= target {
             return;
         }
-        let id: u16 = rand::random();
+        let token: u128 = rand::random();
         let generation: u64 = rand::random();
         let packet_number = client
             .packet_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let Some((packet, payload_size)) = build_downlink_mtu_probe(
-            id,
+            token,
             target,
             socket.seal_overhead(),
             client.quic_enabled,
@@ -273,7 +273,7 @@ async fn schedule_downlink_mtu_probe(
         };
         let expected = DownlinkMtuProbe {
             generation,
-            id,
+            token,
             payload_size,
             udp_payload_budget: target as u32,
         };
@@ -1165,14 +1165,14 @@ async fn handle_udp_datagram(
     // Reverse PMTU ACK: only an exact response to the one outstanding server→client probe
     // may widen this session. It is deliberately handled before PacketCodec because the
     // full-size probe/short ACK exchange is carrier framing, not encrypted inner traffic.
-    if crate::protocol::udp_frag::is_mtu_probe_ack(payload) {
-        let certified = if let Some((id, payload_size)) =
-            crate::protocol::udp_frag::parse_mtu_probe_ack(payload)
+    if crate::protocol::udp_frag::is_mtu_probe_ack_v2(payload) {
+        let certified = if let Some((token, payload_size)) =
+            crate::protocol::udp_frag::parse_mtu_probe_v2_ack(payload)
         {
             let mut guard = sessions.write().await;
             guard.get_mut(&addr).and_then(|client| {
                 let expected = client.downlink_mtu_probe?;
-                if expected.id == id && expected.payload_size == payload_size {
+                if expected.token == token && expected.payload_size == payload_size {
                     client.downlink_mtu_probe = None;
                     client
                         .udp_payload_budget
@@ -1188,6 +1188,11 @@ async fn handle_udp_datagram(
         if let Some((cell, budget)) = certified {
             note_certified_udp_payload_budget(&cell, format_args!("at {addr}"), budget);
         }
+        return;
+    }
+    // Legacy ACKs remain valid for the client-driven uplink ladder, but their 16-bit id is
+    // not sufficient proof for widening the opposite direction. Drop them as carrier frames.
+    if crate::protocol::udp_frag::is_mtu_probe_ack(payload) {
         return;
     }
 

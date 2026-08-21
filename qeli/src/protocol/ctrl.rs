@@ -193,6 +193,12 @@ pub fn parse(p: &[u8]) -> Option<(u8, &[u8])> {
     }
     let ty = p[2];
     let len = p[3] as usize;
+    // One AEAD plaintext carries exactly one control frame. Accepting a valid prefix plus
+    // trailing bytes creates two interpretations of the same authenticated record and can
+    // hide accidental frame concatenation or parser differential bugs.
+    if p.len() != CTRL_HDR_LEN + len {
+        return None;
+    }
     let body = p.get(CTRL_HDR_LEN..CTRL_HDR_LEN + len)?;
     Some((ty, body))
 }
@@ -288,6 +294,11 @@ mod tests {
         assert_eq!(parse(&[0xC1, 0x9B, CTRL_MTU_REPORT, 8, 0, 0]), None);
         // Right type, wrong body size.
         assert_eq!(parse_mtu_report(&[0xC1, 0x9B, CTRL_MTU_REPORT, 1, 5]), None);
+        // Declared frame followed by undeclared bytes is not a second legal encoding.
+        assert_eq!(
+            parse_mtu_report(&[0xC1, 0x9B, CTRL_MTU_REPORT, 2, 5, 0, 0]),
+            None
+        );
         // Unknown type is parsed (so it can be skipped) but is not an MTU report.
         let unknown = [0xC1, 0x9B, 0xEE, 1, 7];
         assert_eq!(parse(&unknown), Some((0xEE, &[7u8][..])));

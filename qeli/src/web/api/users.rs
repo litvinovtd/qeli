@@ -416,6 +416,17 @@ pub async fn create_user(
         client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
+    if let Err(error) = crate::server::validate_static_address_sources(
+        &state.config,
+        &UsersDb {
+            users: vec![new_user.clone()],
+            ..Default::default()
+        },
+    ) {
+        return Ok(Json(super::err_json(format!(
+            "static address conflicts with the active profile configuration: {error}"
+        ))));
+    }
     // Append on a freshly re-read copy: this process's view may lag the file (the worker
     // rewrites it on any control-socket change), and writing it back verbatim reverted
     // whatever it had missed. Re-check the name there too — it may have appeared since.
@@ -642,6 +653,17 @@ pub async fn update_user(
             }
             if body.get("client_subnets").is_some() {
                 edited.client_subnets = strings_from_json(&body["client_subnets"]);
+            }
+            if let Err(error) = crate::server::validate_static_address_sources(
+                &state.config,
+                &UsersDb {
+                    users: vec![edited.clone()],
+                    ..Default::default()
+                },
+            ) {
+                return Ok(Json(super::err_json(format!(
+                    "static address conflicts with the active profile configuration: {error}"
+                ))));
             }
             // Persist just THIS entry onto a freshly re-read file. Writing the whole
             // in-memory database back is what let one edit revert another writer's — most

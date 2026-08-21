@@ -143,6 +143,14 @@ pub const MSG_AUTH_OK: u8 = 6;
 
 /// Probe/ACK body after the 6-byte fragment header: `id(2) + outer_size(2)`.
 pub const PROBE_BODY_LEN: usize = 4;
+/// Reverse PMTU challenge. A separate message id keeps old clients connected: they ignore
+/// it and retain the conservative downlink budget, while current clients echo its token.
+pub const MSG_MTU_PROBE_V2: u8 = 7;
+/// ACK for [`MSG_MTU_PROBE_V2`]. Only this strong form may widen a current server's
+/// server-to-client payload budget. Legacy ACKs remain supported for uplink probing.
+pub const MSG_MTU_PROBE_ACK_V2: u8 = 8;
+/// V2 reverse-probe body: `token(16 LE) + outer_size(2 LE)`.
+pub const PROBE_V2_BODY_LEN: usize = 18;
 
 /// True if `d` (a datagram payload, after obfs/QUIC unwrap) is a qeli handshake
 /// fragment. Lets a backward-compatible peer tell fragments from a legacy single
@@ -240,6 +248,77 @@ pub fn is_junk(d: &[u8]) -> bool {
 #[inline]
 pub fn is_auth_ok_fragment(d: &[u8]) -> bool {
     is_fragment(d) && d[3] == MSG_AUTH_OK
+}
+
+#[inline]
+pub fn is_mtu_probe_v2(d: &[u8]) -> bool {
+    is_fragment(d) && d[3] == MSG_MTU_PROBE_V2 && d.len() >= FRAG_HDR_LEN + PROBE_V2_BODY_LEN
+}
+
+#[inline]
+pub fn is_mtu_probe_ack_v2(d: &[u8]) -> bool {
+    is_fragment(d) && d[3] == MSG_MTU_PROBE_ACK_V2 && d.len() >= FRAG_HDR_LEN + PROBE_V2_BODY_LEN
+}
+
+fn parse_mtu_probe_v2(d: &[u8]) -> Option<(u128, u16)> {
+    if d.len() < FRAG_HDR_LEN + PROBE_V2_BODY_LEN {
+        return None;
+    }
+    let token = u128::from_le_bytes(d[FRAG_HDR_LEN..FRAG_HDR_LEN + 16].try_into().ok()?);
+    let size = u16::from_le_bytes(
+        d[FRAG_HDR_LEN + 16..FRAG_HDR_LEN + PROBE_V2_BODY_LEN]
+            .try_into()
+            .ok()?,
+    );
+    Some((token, size))
+}
+
+pub fn parse_mtu_probe_v2_request(d: &[u8]) -> Option<(u128, u16)> {
+    if !is_mtu_probe_v2(d) || d[4] != 0 || d[5] != 1 {
+        return None;
+    }
+    let parsed = parse_mtu_probe_v2(d)?;
+    (usize::from(parsed.1) == d.len()).then_some(parsed)
+}
+
+pub fn parse_mtu_probe_v2_ack(d: &[u8]) -> Option<(u128, u16)> {
+    if !is_mtu_probe_ack_v2(d)
+        || d.len() != FRAG_HDR_LEN + PROBE_V2_BODY_LEN
+        || d[4] != 0
+        || d[5] != 1
+    {
+        return None;
+    }
+    parse_mtu_probe_v2(d)
+}
+
+pub fn mtu_probe_v2_datagram(token: u128, outer_size: usize) -> Option<Vec<u8>> {
+    use rand::prelude::*;
+    let min = FRAG_HDR_LEN + PROBE_V2_BODY_LEN;
+    if outer_size < min || outer_size > u16::MAX as usize {
+        return None;
+    }
+    let mut out = Vec::with_capacity(outer_size);
+    out.extend_from_slice(&FRAG_MAGIC);
+    out.push(MSG_MTU_PROBE_V2);
+    out.push(0);
+    out.push(1);
+    out.extend_from_slice(&token.to_le_bytes());
+    out.extend_from_slice(&(outer_size as u16).to_le_bytes());
+    out.resize(outer_size, 0);
+    rand::rng().fill_bytes(&mut out[min..]);
+    Some(out)
+}
+
+pub fn mtu_probe_v2_ack_datagram(token: u128, outer_size: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(FRAG_HDR_LEN + PROBE_V2_BODY_LEN);
+    out.extend_from_slice(&FRAG_MAGIC);
+    out.push(MSG_MTU_PROBE_ACK_V2);
+    out.push(0);
+    out.push(1);
+    out.extend_from_slice(&token.to_le_bytes());
+    out.extend_from_slice(&outer_size.to_le_bytes());
+    out
 }
 
 /// Build ONE junk decoy datagram: a single-fragment [`MSG_JUNK`] message with `len`
@@ -581,6 +660,34 @@ mod tests {
             ack.len() < 32,
             "the ACK is small — only the big probe tests the path"
         );
+    }
+
+    #[test]
+    fn reverse_mtu_probe_v2_roundtrips_unpredictable_token_and_exact_shape() {
+        let token = 0x0123456789abcdef_fedcba9876543210u128;
+        let probe = mtu_probe_v2_datagram(token, 1400).unwrap();
+        assert_eq!(probe.len(), 1400);
+        assert!(is_mtu_probe_v2(&probe));
+        assert!(!is_mtu_probe(&probe));
+        assert_eq!(parse_mtu_probe_v2_request(&probe), Some((token, 1400)));
+        assert_eq!(parse_mtu_probe_v2_ack(&probe), None);
+
+        let ack = mtu_probe_v2_ack_datagram(token, 1400);
+        assert!(is_mtu_probe_ack_v2(&ack));
+        assert!(!is_mtu_probe_ack(&ack));
+        assert_eq!(ack.len(), FRAG_HDR_LEN + PROBE_V2_BODY_LEN);
+        assert_eq!(parse_mtu_probe_v2_ack(&ack), Some((token, 1400)));
+        assert_eq!(
+            parse_mtu_probe_v2_ack(&mtu_probe_ack_datagram(0x3210, 1400)),
+            None,
+        );
+
+        let mut trailing = ack.clone();
+        trailing.push(0);
+        assert_eq!(parse_mtu_probe_v2_ack(&trailing), None);
+        let mut short_claim = probe;
+        short_claim.truncate(FRAG_HDR_LEN + PROBE_V2_BODY_LEN);
+        assert_eq!(parse_mtu_probe_v2_request(&short_claim), None);
     }
 
     #[test]

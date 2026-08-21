@@ -184,7 +184,7 @@ pub(crate) fn build_network_plan(
             continue;
         }
         routes.push(NetworkRoute {
-            cidr: cidr.clone(),
+            cidr: NumericCidr::parse(cidr)?.render(),
             gateway: gateway_for_cidr(cidr, network.addresses)?.to_string(),
             metric: 100,
         });
@@ -454,7 +454,9 @@ fn apply_route_exclusions(
             cidr_minus_excludes(&route.cidr, &excludes)?
         };
         if fragments.len() == 1 && fragments[0] == original {
-            planned.push(route);
+            let mut canonical = route;
+            canonical.cidr = original.render();
+            planned.push(canonical);
         } else {
             for fragment in fragments {
                 planned.push(NetworkRoute {
@@ -1012,7 +1014,7 @@ pub(crate) fn planned_pushed_routes_for_addresses(
             continue;
         }
         planned.push(NetworkRoute {
-            cidr: route.cidr,
+            cidr: NumericCidr::parse(&route.cidr)?.render(),
             gateway: gateway.to_string(),
             metric: route.metric.unwrap_or(100),
         });
@@ -1183,6 +1185,9 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].cidr, "10.20.0.0/16");
         assert_eq!(routes[0].metric, 42);
+
+        let hostful = planned_pushed_routes(r#"[{"cidr":"10.20.7.9/16"}]"#, "10.8.0.1").unwrap();
+        assert!(hostful.is_empty());
     }
 
     #[test]

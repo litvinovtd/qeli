@@ -1598,24 +1598,9 @@ fn parse_cidr_list(key: &str, s: &str) -> anyhow::Result<Vec<String>> {
 }
 
 /// True only for a bare `addr/prefix` CIDR: no leading `-` (an `ip` option), the address
-/// parses as an `IpAddr`, and the prefix is in range for its family.
+/// parses as an `IpAddr`, the prefix is in range, and every host bit is zero.
 fn is_cidr(s: &str) -> bool {
-    if s.starts_with('-') {
-        return false;
-    }
-    let Some((addr, prefix)) = s.split_once('/') else {
-        return false;
-    };
-    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-    let Ok(pfx) = prefix.parse::<u8>() else {
-        return false;
-    };
-    match ip {
-        std::net::IpAddr::V4(_) => pfx <= 32,
-        std::net::IpAddr::V6(_) => pfx <= 128,
-    }
+    crate::util::is_valid_cidr(s)
 }
 
 #[cfg(test)]
@@ -1633,6 +1618,8 @@ mod auth_size_tests {
         for (key, value) in [
             ("include", "10.20.0.0/16, not-a-cidr"),
             ("exclude", "192.168.0.0/33"),
+            ("include", "10.20.7.9/16"),
+            ("exclude", "2001:db8::7/64"),
             ("include", "-6 route add ::/0"),
         ] {
             let ini = format!("[qeli]\nserver = vpn.example.com:443\n{key} = {value}\n");

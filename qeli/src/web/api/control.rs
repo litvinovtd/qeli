@@ -43,6 +43,14 @@ pub async fn restart(
             "restart refused: server config is invalid: {error}"
         ))));
     }
+    if let Err(error) = {
+        let users = state.users_db.read().await;
+        crate::server::validate_static_address_sources(&config, &users)
+    } {
+        return Ok(Json(super::err_json(format!(
+            "restart refused: profile reservations conflict with users: {error}"
+        ))));
+    }
     if let Err(error) = crate::server::preflight::run(&config) {
         return Ok(Json(super::err_json(format!(
             "restart refused: server config conflicts with host networking: {error}"

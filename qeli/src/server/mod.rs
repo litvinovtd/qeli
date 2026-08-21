@@ -2584,6 +2584,133 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Validate the effective address assignment after the profile config and users database
+/// have been combined. Each source is valid in isolation, but the runtime gives a user's
+/// `static_ip`/`static_ipv6` precedence over `pool.*.reservation.<user>`. Without a joint
+/// gate, one source can silently disable the other or steal an address reserved for somebody
+/// else on the same profile.
+pub fn validate_static_address_sources(config: &ServerConfig, db: &UsersDb) -> anyhow::Result<()> {
+    use crate::config::server::IpMode;
+    use std::collections::HashMap;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    for profile in config.profiles.iter().filter(|profile| profile.enabled) {
+        let ipv4_reservations: HashMap<Ipv4Addr, &str> = if profile.tun.ip_mode != IpMode::Ipv6 {
+            profile
+                .pool
+                .static_reservations
+                .iter()
+                .map(|(username, raw)| {
+                    raw.parse::<Ipv4Addr>()
+                        .map(|address| (address, username.as_str()))
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "profile '{}': pool.reservation.{} = '{}' is invalid: {}",
+                                profile.name,
+                                username,
+                                raw,
+                                error
+                            )
+                        })
+                })
+                .collect::<anyhow::Result<_>>()?
+        } else {
+            HashMap::new()
+        };
+        let ipv6_reservations: HashMap<Ipv6Addr, &str> = if profile.tun.ip_mode != IpMode::Ipv4 {
+            profile
+                .pool
+                .ipv6
+                .static_reservations
+                .iter()
+                .map(|(username, raw)| {
+                    raw.parse::<Ipv6Addr>()
+                        .map(|address| (address, username.as_str()))
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "profile '{}': pool.ipv6.reservation.{} = '{}' is invalid: {}",
+                                profile.name,
+                                username,
+                                raw,
+                                error
+                            )
+                        })
+                })
+                .collect::<anyhow::Result<_>>()?
+        } else {
+            HashMap::new()
+        };
+
+        for user in db
+            .users
+            .iter()
+            .filter(|user| user.allowed_on_profile(&profile.name))
+        {
+            if let Some(raw) = user
+                .static_ip
+                .as_deref()
+                .filter(|_| profile.tun.ip_mode != IpMode::Ipv6)
+            {
+                let address = raw.parse::<Ipv4Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "user '{}': static_ip '{}' is invalid: {}",
+                        user.username,
+                        raw,
+                        error
+                    )
+                })?;
+                if let Some(owner) = ipv4_reservations.get(&address) {
+                    if *owner != user.username {
+                        anyhow::bail!(
+                            "profile '{}': user '{}' static_ip {} collides with pool.reservation.{}",
+                            profile.name, user.username, address, owner
+                        );
+                    }
+                }
+                if let Some(reserved) = profile.pool.static_reservations.get(&user.username) {
+                    if reserved.parse::<Ipv4Addr>().ok() != Some(address) {
+                        anyhow::bail!(
+                            "profile '{}': user '{}' has static_ip {}, but pool.reservation.{} is {} — the user value would silently override the profile reservation",
+                            profile.name, user.username, address, user.username, reserved
+                        );
+                    }
+                }
+            }
+            if let Some(raw) = user
+                .static_ipv6
+                .as_deref()
+                .filter(|_| profile.tun.ip_mode != IpMode::Ipv4)
+            {
+                let address = raw.parse::<Ipv6Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "user '{}': static_ipv6 '{}' is invalid: {}",
+                        user.username,
+                        raw,
+                        error
+                    )
+                })?;
+                if let Some(owner) = ipv6_reservations.get(&address) {
+                    if *owner != user.username {
+                        anyhow::bail!(
+                            "profile '{}': user '{}' static_ipv6 {} collides with pool.ipv6.reservation.{}",
+                            profile.name, user.username, address, owner
+                        );
+                    }
+                }
+                if let Some(reserved) = profile.pool.ipv6.static_reservations.get(&user.username) {
+                    if reserved.parse::<Ipv6Addr>().ok() != Some(address) {
+                        anyhow::bail!(
+                            "profile '{}': user '{}' has static_ipv6 {}, but pool.ipv6.reservation.{} is {} — the user value would silently override the profile reservation",
+                            profile.name, user.username, address, user.username, reserved
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn available_memory_bytes() -> u64 {
     if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
         if let Some(kib) = meminfo.lines().find_map(|line| {
@@ -2723,6 +2850,7 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
     };
     if !has_inline {
         db.validate_group_references()?;
+        validate_static_address_sources(config, &db)?;
         return Ok(db);
     }
 
@@ -2756,6 +2884,7 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
     // silently remove every inherited restriction.
     db.validate_network_fields()?;
     db.validate_group_references()?;
+    validate_static_address_sources(config, &db)?;
     Ok(db)
 }
 
@@ -2824,9 +2953,13 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         Ok(db) => db,
         Err(e) => {
             let path = std::path::Path::new(&config.auth.users_file);
-            if path.exists() {
+            let has_inline = !config.auth.users.is_empty() || !config.auth.groups.is_empty();
+            // Missing-file fallback is valid only for a genuinely empty external database.
+            // If inline entries exist, load_users_db already built their effective union and
+            // this error is a validation failure that must not be replaced by an empty DB.
+            if path.exists() || has_inline {
                 anyhow::bail!(
-                    "users file '{}' exists but could not be read or parsed: {e}. Refusing to \
+                    "users configuration using '{}' could not be loaded or validated: {e}. Refusing to \
                      start with an empty user database — every client would be rejected. Fix \
                      the file, or move it aside to start fresh.",
                     config.auth.users_file
@@ -7245,5 +7378,80 @@ pool.cidr = 10.1.0.0/24
         let db = load_users_db(&config).unwrap();
         assert_eq!(db.users.len(), 1);
         assert_eq!(db.users[0].username, "solo");
+    }
+
+    #[test]
+    fn static_user_addresses_and_profile_reservations_are_validated_together() {
+        use crate::config::server::{IpMode, ProfileConfig};
+        use crate::config::users::UserEntry;
+
+        let mut profile = ProfileConfig::default();
+        profile.name = "edge".into();
+        profile.tun.ip_mode = IpMode::Dual;
+        profile
+            .pool
+            .static_reservations
+            .insert("alice".into(), "10.9.0.50".into());
+        profile
+            .pool
+            .static_reservations
+            .insert("bob".into(), "10.9.0.51".into());
+        profile
+            .pool
+            .ipv6
+            .static_reservations
+            .insert("alice".into(), "fd71:e1:1234:1::50".into());
+        profile
+            .pool
+            .ipv6
+            .static_reservations
+            .insert("bob".into(), "fd71:e1:1234:1::51".into());
+        let config = ServerConfig {
+            profiles: vec![profile],
+            ..Default::default()
+        };
+
+        let same_owner_same_address = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ip: Some("10.9.0.50".into()),
+                static_ipv6: Some("fd71:e1:1234:1::50".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        validate_static_address_sources(&config, &same_owner_same_address)
+            .expect("the two sources may repeat the same assignment");
+
+        let overrides_own_reservation = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ip: Some("10.9.0.60".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &overrides_own_reservation)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("silently override"), "{error}");
+
+        let steals_another_reservation = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ipv6: Some("fd71:e1:1234:1::51".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &steals_another_reservation)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reservation.bob"), "{error}");
+
+        let mut restricted = steals_another_reservation;
+        restricted.users[0].profiles = vec!["other-profile".into()];
+        validate_static_address_sources(&config, &restricted)
+            .expect("a user forbidden on this profile cannot consume its reservations");
     }
 }

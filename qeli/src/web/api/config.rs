@@ -1019,6 +1019,14 @@ pub async fn apply_quickstart_profile(
             "Quick Start config would be rejected at startup: {error}"
         ))));
     }
+    if let Err(error) = {
+        let users = state.users_db.read().await;
+        crate::server::validate_static_address_sources(&reparsed, &users)
+    } {
+        return Ok(Json(super::err_json(format!(
+            "Quick Start conflicts with existing static user addresses: {error}"
+        ))));
+    }
     if let Some(host) = host.as_ref() {
         if let Err(error) = crate::server::preflight::check(&reparsed, host) {
             return Ok(Json(super::err_json(format!(
@@ -1426,6 +1434,17 @@ pub async fn put_config(
             "ok": false,
             "error": format!(
                 "refusing to write a config the server would reject at startup: {}", e
+            ),
+        })));
+    }
+    if let Err(error) = {
+        let users = state.users_db.read().await;
+        crate::server::validate_static_address_sources(&reparsed, &users)
+    } {
+        return Ok(Json(json!({
+            "ok": false,
+            "error": format!(
+                "refusing to write profile reservations that conflict with existing users: {error}"
             ),
         })));
     }
@@ -1858,6 +1877,14 @@ pub async fn put_config_raw(
             e
         ))));
     }
+    if let Err(error) = {
+        let users = state.users_db.read().await;
+        crate::server::validate_static_address_sources(&parsed, &users)
+    } {
+        return Ok(Json(super::err_json(format!(
+            "refusing raw config with profile reservations that conflict with existing users: {error}"
+        ))));
+    }
 
     if let Err(e) = crate::server::preflight::run(&parsed) {
         return Ok(Json(super::err_json(format!(
@@ -2076,6 +2103,14 @@ pub async fn restore_config_history(
     if let Err(error) = crate::server::validate_profiles(&parsed) {
         return Ok(Json(super::err_json(format!(
             "snapshot would be rejected at startup: {error}"
+        ))));
+    }
+    if let Err(error) = {
+        let users = state.users_db.read().await;
+        crate::server::validate_static_address_sources(&parsed, &users)
+    } {
+        return Ok(Json(super::err_json(format!(
+            "snapshot conflicts with existing static user addresses: {error}"
         ))));
     }
     if let Err(error) = crate::server::preflight::run(&parsed) {

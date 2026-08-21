@@ -46,7 +46,8 @@ mod host_port_tests {
 }
 
 /// Validate a route CIDR (`10.20.0.0/16`). The address must parse as an `IpAddr`
-/// and the prefix must be a decimal length in range for the family. Also rejects
+/// and the prefix must be a decimal length in range for the family. Host bits must be
+/// zero so equivalent networks have one meaning across platform route APIs. Also rejects
 /// anything that could be read as an `ip` option (leading `-`).
 ///
 /// Shared by the config parser, the panel API and the client's route applier so a
@@ -65,8 +66,25 @@ pub fn is_valid_cidr(s: &str) -> bool {
     let Ok(len) = prefix.parse::<u8>() else {
         return false;
     };
-    let max = if ip.is_ipv4() { 32 } else { 128 };
-    len <= max
+    // A route is a network, not an interface address. Zero host bits make the value
+    // unambiguous across route APIs and prevent semantic duplicates under different strings.
+    match ip {
+        std::net::IpAddr::V4(address) if len <= 32 => {
+            let value = u32::from(address);
+            let mask = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+            value & mask == value
+        }
+        std::net::IpAddr::V6(address) if len <= 128 => {
+            let value = u128::from(address);
+            let mask = if len == 0 {
+                0
+            } else {
+                u128::MAX << (128 - len)
+            };
+            value & mask == value
+        }
+        _ => false,
+    }
 }
 
 /// Validate a route gateway: a bare `IpAddr` (NOT a CIDR/subnet), and not
@@ -106,6 +124,8 @@ mod route_validate_tests {
         assert!(is_valid_cidr("172.16.20.0/24"));
         assert!(is_valid_cidr("10.0.0.0/8"));
         assert!(is_valid_cidr("::/0"));
+        assert!(is_valid_cidr("172.16.20.7/32"));
+        assert!(is_valid_cidr("2001:db8::7/128"));
     }
 
     #[test]
@@ -115,6 +135,8 @@ mod route_validate_tests {
         assert!(!is_valid_cidr("172.16.20.0/33")); // prefix out of range
         assert!(!is_valid_cidr("nonsense/24"));
         assert!(!is_valid_cidr("-hostile/24"));
+        assert!(!is_valid_cidr("172.16.20.7/24"));
+        assert!(!is_valid_cidr("2001:db8::7/64"));
     }
 
     #[test]

@@ -5498,6 +5498,31 @@ pub(crate) async fn run_udp_tunnel(
                 // the probe is deliberately a bare carrier record, just like the original
                 // uplink PMTU exchange. It does not count as authenticated liveness.
                 if data_frag_enabled {
+                    if let Some((probe_token, probe_size)) =
+                        crate::protocol::udp_frag::parse_mtu_probe_v2_request(payload)
+                    {
+                        let ack = crate::protocol::udp_frag::mtu_probe_v2_ack_datagram(
+                            probe_token,
+                            probe_size,
+                        );
+                        let send_data: &[u8] = if quic_enabled {
+                            quic_pn = quic_pn.wrapping_add(1);
+                            wrap_quic_short_into(
+                                &ack,
+                                &connection_id,
+                                quic_pn - 1,
+                                &mut quic_record,
+                            );
+                            &quic_record
+                        } else {
+                            &ack
+                        };
+                        if let Err(error) = socket.send(send_data).await {
+                            log::debug!("could not acknowledge server UDP path probe V2: {error}");
+                        }
+                        continue;
+                    }
+
                     if let Some((probe_id, probe_size)) =
                         crate::protocol::udp_frag::parse_mtu_probe_request(payload)
                     {

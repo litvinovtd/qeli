@@ -17,6 +17,8 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
     private readonly List<string> _degraded = new();
+    private readonly Func<string, string, bool, bool>? _runOverride;
+    private readonly HashSet<string> _dnsFamilies = new(StringComparer.Ordinal);
     private string? _dnsAlias;
 
     /// <summary>
@@ -46,7 +48,13 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"WARNING: {what}");
     }
 
-    public NetworkConfigurator(Action<string> log) => _log = log;
+    public NetworkConfigurator(Action<string> log) : this(log, null) { }
+
+    internal NetworkConfigurator(Action<string> log, Func<string, string, bool, bool>? runOverride)
+    {
+        _log = log;
+        _runOverride = runOverride;
+    }
 
     [DllImport("iphlpapi.dll")]
     private static extern int ConvertInterfaceLuidToIndex(ref ulong luid, out uint index);
@@ -572,6 +580,10 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetDns(string alias, IReadOnlyList<string> servers)
     {
         if (servers.Count == 0) return;
+        if (_dnsAlias != null && !string.Equals(_dnsAlias, alias, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"DNS is already configured on adapter \"{_dnsAlias}\"; refusing to lose its cleanup state");
+
         var parsed = servers.Select(server => IPAddress.TryParse(server, out var address)
                 ? address : throw new InvalidOperationException($"invalid DNS address {server}"))
             .ToList();
@@ -581,12 +593,13 @@ public sealed class NetworkConfigurator : IDisposable
             var values = group.Select(address => address.ToString()).ToList();
             Run("netsh",
                 $"interface {group.Key} set dnsservers name=\"{alias}\" static {values[0]} primary validate=no");
+            // Record ownership immediately after the first successful mutation. If adding a
+            // secondary resolver fails, Dispose must still restore this family to DHCP.
+            _dnsAlias = alias;
+            _dnsFamilies.Add(group.Key);
             for (int i = 1; i < values.Count; i++)
                 Run("netsh",
                     $"interface {group.Key} add dnsservers name=\"{alias}\" {values[i]} index={i + 1} validate=no");
-            string family = group.Key;
-            _undo.Add(() => Run("netsh",
-                $"interface {family} set dnsservers name=\"{alias}\" dhcp", optional: true));
         }
         _log($"DNS set to {string.Join(", ", servers)}");
     }
@@ -595,25 +608,30 @@ public sealed class NetworkConfigurator : IDisposable
     {
         // Restore DNS while the Wintun adapter still exists. Unlike route cleanup, silently
         // forgetting a failed resolver reset gives the lifecycle layer no chance to retry.
-        string? dnsFailure = null;
-        if (_dnsAlias != null)
+        var failedDnsFamilies = new List<string>();
+        string? alias = _dnsAlias;
+        if (alias != null)
         {
-            for (int attempt = 1; attempt <= 3; attempt++)
+            foreach (string family in _dnsFamilies.ToArray())
             {
-                if (Run("netsh",
-                        $"interface ipv4 set dnsservers name=\"{_dnsAlias}\" dhcp",
-                        optional: true))
+                bool restored = false;
+                for (int attempt = 1; attempt <= 3; attempt++)
                 {
-                    _log($"DNS reset to DHCP on \"{_dnsAlias}\"");
-                    _dnsAlias = null;
-                    break;
+                    if (Run("netsh",
+                            $"interface {family} set dnsservers name=\"{alias}\" dhcp",
+                            optional: true))
+                    {
+                        restored = true;
+                        _dnsFamilies.Remove(family);
+                        _log($"{family} DNS reset to DHCP on \"{alias}\"");
+                        break;
+                    }
+                    _log($"{family} DNS reset attempt {attempt}/3 failed on \"{alias}\"");
+                    if (attempt < 3 && _runOverride == null) Thread.Sleep(250);
                 }
-                _log($"DNS reset attempt {attempt}/3 failed on \"{_dnsAlias}\"");
-                if (attempt < 3) Thread.Sleep(250);
+                if (!restored) failedDnsFamilies.Add(family);
             }
-            if (_dnsAlias != null)
-                dnsFailure =
-                    $"could not reset DNS on tunnel adapter \"{_dnsAlias}\"; cleanup will be retried";
+            if (_dnsFamilies.Count == 0) _dnsAlias = null;
         }
 
         // Routes are adapter-scoped or individually best-effort and disappear with Wintun.
@@ -622,7 +640,10 @@ public sealed class NetworkConfigurator : IDisposable
             try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
         }
         _undo.Clear();
-        if (dnsFailure != null) throw new InvalidOperationException(dnsFailure);
+        if (failedDnsFamilies.Count != 0)
+            throw new InvalidOperationException(
+                $"could not reset {string.Join("/", failedDnsFamilies)} DNS on tunnel adapter " +
+                $"\"{alias}\"; cleanup will be retried");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -641,6 +662,14 @@ public sealed class NetworkConfigurator : IDisposable
     /// ServiceManager.cs already documents). A non-optional failure still throws.</summary>
     private bool Run(string exe, string args, bool optional = false)
     {
+        if (_runOverride != null)
+        {
+            bool succeeded = _runOverride(exe, args, optional);
+            if (!succeeded && !optional)
+                throw new InvalidOperationException($"{exe} {args} -> simulated command failure");
+            return succeeded;
+        }
+
         // Resolve to an absolute System32 path. Passing a bare name lets CreateProcessW
         // search the calling image's directory FIRST, and this process is elevated (or
         // LocalSystem in service mode) — see SystemPaths. (Audit 2026-08-04, H-05.)
@@ -671,6 +700,63 @@ public sealed class NetworkConfigurator : IDisposable
             return false;
         }
         return true;
+    }
+
+    /// <summary>Non-admin regression coverage for dual-stack DNS ownership and retries.</summary>
+    internal static void RunDnsLifecycleSelfTest(Action<string, bool> check)
+    {
+        var commands = new List<string>();
+        bool Record(string exe, string args, bool optional)
+        {
+            commands.Add($"{exe} {args}");
+            return true;
+        }
+
+        var dual = new NetworkConfigurator(_ => { }, Record);
+        dual.SetDns("qeli-selftest", new[] { "1.1.1.1", "2606:4700:4700::1111" });
+        dual.Dispose();
+        check("NetworkConfigurator restores IPv4 and IPv6 DNS", commands.Any(command =>
+                  command.Contains("interface ipv4 set dnsservers", StringComparison.Ordinal) &&
+                  command.EndsWith("dhcp", StringComparison.Ordinal)) &&
+              commands.Any(command =>
+                  command.Contains("interface ipv6 set dnsservers", StringComparison.Ordinal) &&
+                  command.EndsWith("dhcp", StringComparison.Ordinal)));
+
+        int resetAttempts = 0;
+        bool FailTwice(string exe, string args, bool optional)
+        {
+            if (args.Contains("interface ipv6 set dnsservers", StringComparison.Ordinal) &&
+                args.EndsWith("dhcp", StringComparison.Ordinal))
+            {
+                resetAttempts++;
+                return resetAttempts >= 3;
+            }
+            return true;
+        }
+
+        var transient = new NetworkConfigurator(_ => { }, FailTwice);
+        transient.SetDns("qeli-selftest", new[] { "2606:4700:4700::1111" });
+        transient.Dispose();
+        check("NetworkConfigurator retries transient IPv6 DNS cleanup", resetAttempts == 3);
+
+        var partialCommands = new List<string>();
+        bool FailSecondary(string exe, string args, bool optional)
+        {
+            partialCommands.Add($"{exe} {args}");
+            return !args.Contains("add dnsservers", StringComparison.Ordinal);
+        }
+        var partial = new NetworkConfigurator(_ => { }, FailSecondary);
+        bool applyFailed = false;
+        try
+        {
+            partial.SetDns("qeli-selftest", new[] { "1.1.1.1", "1.0.0.1" });
+        }
+        catch (InvalidOperationException) { applyFailed = true; }
+        partial.Dispose();
+        check("NetworkConfigurator cleans DNS after a partial apply failure",
+            applyFailed && partialCommands.Any(command =>
+                command.Contains("interface ipv4 set dnsservers", StringComparison.Ordinal) &&
+                command.EndsWith("dhcp", StringComparison.Ordinal)));
     }
 
     /// <summary>Collect an already-exited child's pipe text without ever blocking

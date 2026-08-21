@@ -701,20 +701,7 @@ impl NetworkPlan {
 }
 
 fn validate_cidr(route: &str) -> Result<(), CoreError> {
-    if route.len() > MAX_PLAN_STRING_BYTES {
-        return Err(CoreError::InvalidArgument("route is too long".into()));
-    }
-    let (address, prefix) = route
-        .split_once('/')
-        .ok_or_else(|| CoreError::InvalidArgument(format!("invalid route '{route}'")))?;
-    let address: IpAddr = address
-        .parse()
-        .map_err(|_| CoreError::InvalidArgument(format!("invalid route '{route}'")))?;
-    let prefix: u8 = prefix
-        .parse()
-        .map_err(|_| CoreError::InvalidArgument(format!("invalid route '{route}'")))?;
-    let max_prefix = if address.is_ipv4() { 32 } else { 128 };
-    if prefix > max_prefix {
+    if route.len() > MAX_PLAN_STRING_BYTES || !crate::util::is_valid_cidr(route) {
         return Err(CoreError::InvalidArgument(format!(
             "invalid route '{route}'"
         )));

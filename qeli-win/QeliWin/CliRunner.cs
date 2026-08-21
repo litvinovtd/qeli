@@ -201,6 +201,7 @@ public static class CliRunner
             && appsLinkBack.AppsMode == "include" && appsLinkBack.Apps.SequenceEqual(appsRt.Apps));
 
         WinDivertSelfTest.RunUnit(Check);
+        NetworkConfigurator.RunDnsLifecycleSelfTest(Check);
 
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);
