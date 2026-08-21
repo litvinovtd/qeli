@@ -1115,6 +1115,16 @@ fn build_udp_frag() -> String {
             ],
         },
         ReCase {
+            name: "conflicting-duplicate-fragment",
+            why: "The same index cannot authenticate two different byte strings. Keeping the \
+                  first silently makes the reconstructed handshake depend on arrival order and \
+                  lets an injected duplicate hide corruption instead of failing closed.",
+            feed: vec![
+                frag(MSG_SERVER_HELLO, 0, 3, a),
+                frag(MSG_SERVER_HELLO, 0, 3, bb),
+            ],
+        },
+        ReCase {
             name: "missing-fragment",
             why: "A gap must stay incomplete — never completed with a hole, never padded.",
             feed: vec![

@@ -662,10 +662,11 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         meta = default;
         if (length < 40 || (packet[0] >> 4) != 6) return false;
         int payloadLength = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(4, 2));
-        // Jumbograms require Hop-by-Hop Jumbo Payload processing, which this packet
-        // path deliberately does not implement. Reject them and any truncated/trailing
-        // capture instead of parsing bytes outside the declared IPv6 packet.
-        if (payloadLength == 0 || payloadLength + 40 != length) return false;
+        // Payload Length zero is valid for a base-header-only packet (for example,
+        // No Next Header). Any bytes beyond that would require Hop-by-Hop Jumbo Payload
+        // processing, which this path deliberately does not implement. Length equality
+        // also rejects truncated and trailing captures.
+        if (payloadLength + 40 != length) return false;
         byte next = packet[6];
         int offset = 40;
         bool fragmented = false;
@@ -695,13 +696,24 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             }
             if (next == 44)
             {
-                if (length < offset + 8) return false;
+                if (fragmented || length < offset + 8) return false;
                 byte following = packet[offset];
                 ushort fragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(offset + 2, 2));
+                int fragmentOffset = fragment >> 3;
+                bool fragmentMore = (fragment & 0x0001) != 0;
+                int fragmentPayloadLength = length - (offset + 8);
+                long reassembledPayloadLength = (offset - 40L)
+                    + fragmentOffset * 8L + fragmentPayloadLength;
+                if (packet[offset + 1] != 0
+                    || (fragment & 0x0006) != 0
+                    || (fragmentMore && (fragmentPayloadLength & 7) != 0)
+                    || ((fragmentOffset != 0 || fragmentMore) && fragmentPayloadLength == 0)
+                    || reassembledPayloadLength > ushort.MaxValue)
+                    return false;
                 fragmented = true;
                 fragmentProtocol = following;
-                firstFragment = (fragment & 0xFFF8) == 0;
-                moreFragments = (fragment & 0x0001) != 0;
+                firstFragment = fragmentOffset == 0;
+                moreFragments = fragmentMore;
                 fragmentId = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(offset + 4, 4));
                 next = following;
                 offset += 8;

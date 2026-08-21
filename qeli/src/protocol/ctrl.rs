@@ -48,6 +48,12 @@ pub const CTRL_MTU_REPORT: u8 = 1;
 /// diagnostics, never a policy input. Nothing may gate access on it.
 pub const CTRL_CLIENT_INFO: u8 = 2;
 
+/// UDP client→server: the complete UDP payload size certified by the client's active
+/// path probe, including QUIC and obfuscation wrappers but excluding UDP/IP headers.
+/// Body: `[bytes(2 BE)]`. The server retains its family-safe conservative budget until
+/// this authenticated report arrives; peers that do not understand the type skip it.
+pub const CTRL_UDP_PAYLOAD_BUDGET: u8 = 3;
+
 /// Caps for the self-reported identity. Deliberately small: the value is peer-chosen and
 /// ends up in the CLI table, the JSON API, the panel and the log, so a long one is either
 /// a bug or an attempt to bloat per-session state. `version` fits semver plus a build
@@ -167,6 +173,16 @@ pub fn mtu_report(mtu: u16) -> Vec<u8> {
     f
 }
 
+/// Build the UDP payload-budget report emitted after a successful path probe.
+pub fn udp_payload_budget_report(bytes: u16) -> Vec<u8> {
+    let mut f = Vec::with_capacity(CTRL_HDR_LEN + 2);
+    f.extend_from_slice(&CTRL_MAGIC);
+    f.push(CTRL_UDP_PAYLOAD_BUDGET);
+    f.push(2);
+    f.extend_from_slice(&bytes.to_be_bytes());
+    f
+}
+
 /// Parse a control frame into `(type, body)`, or `None` when it is malformed. A frame
 /// whose declared `len` does not fit the buffer is rejected rather than truncated —
 /// there is no reason for a legitimate peer to emit one, and guessing invites confusion
@@ -190,6 +206,16 @@ pub fn parse_mtu_report(p: &[u8]) -> Option<u16> {
     }
     let mtu = u16::from_be_bytes([body[0], body[1]]);
     Some(mtu.clamp(MIN_REPORTED_MTU, MAX_REPORTED_MTU))
+}
+
+/// Read an authenticated UDP payload-budget report. Family-specific lower bounds are
+/// deliberately applied by the server, where the outer peer family is known.
+pub fn parse_udp_payload_budget_report(p: &[u8]) -> Option<u16> {
+    let (ty, body) = parse(p)?;
+    if ty != CTRL_UDP_PAYLOAD_BUDGET || body.len() != 2 {
+        return None;
+    }
+    Some(u16::from_be_bytes([body[0], body[1]]))
 }
 
 #[cfg(test)]
@@ -218,6 +244,21 @@ mod tests {
         assert_eq!(
             parse(&f).map(|(t, b)| (t, b.len())),
             Some((CTRL_MTU_REPORT, 2))
+        );
+    }
+
+    #[test]
+    fn udp_payload_budget_report_has_a_distinct_compatible_shape() {
+        let frame = udp_payload_budget_report(1500);
+        assert_eq!(
+            frame,
+            vec![0xC1, 0x9B, CTRL_UDP_PAYLOAD_BUDGET, 0x02, 0x05, 0xDC]
+        );
+        assert_eq!(parse_udp_payload_budget_report(&frame), Some(1500));
+        assert_eq!(parse_mtu_report(&frame), None);
+        assert_eq!(
+            parse_udp_payload_budget_report(&[0xC1, 0x9B, CTRL_UDP_PAYLOAD_BUDGET, 1, 5]),
+            None
         );
     }
 

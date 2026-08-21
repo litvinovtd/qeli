@@ -57,13 +57,13 @@ use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOp
 use crate::transport_core::{NetworkDns, NetworkRoute};
 use crate::transport_core::{NetworkPlan, RuntimeCounters};
 
-/// How many extra copies of the path-MTU report the UDP data plane emits after the first
-/// (#13/#5). The frame is never acknowledged — the server answers no control frame — so a
-/// single lost datagram would otherwise cost the whole session's downlink narrowing. Three
-/// copies, spread over the first ~10 s of idle ticks, survive both an isolated drop and a short
-/// burst; the server simply stores the latest value, and the copies all carry the same one, so the duplicates are a no-op.
+/// How many extra copies of the inner-MTU and certified UDP-budget reports the UDP data plane
+/// emits after the first (#13/#5). Neither frame is acknowledged, so a single lost datagram
+/// would otherwise affect the whole session's downlink sizing. Three copies, spread over the
+/// first ~10 s of idle ticks, survive both an isolated drop and a short burst. Both updates are
+/// idempotent and all copies carry the same values, so duplicates are harmless.
 /// TCP needs none of this — it retransmits for us.
-const MTU_REPORT_RESENDS: u8 = 3;
+const UDP_CONTROL_REPORT_RESENDS: u8 = 3;
 /// PacketCodec framing/nonce/counter/tag/padding-trailer plus probe safety margin. This is
 /// used only to translate the existing inner-MTU-shaped probe into the independently tracked
 /// UDP payload budget that the probe actually certified.
@@ -3421,12 +3421,12 @@ fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
     let _ = set_dont_fragment(socket, success);
 }
 
-/// Active path-MTU discovery on a UDP transport (Linux). Sends DF-marked probe
-/// datagrams from `ceiling` down a small ladder; each probe's wire size equals a
-/// full data packet of the candidate tunnel MTU, so the largest one the server
-/// echoes is a size that traverses the path unfragmented. Returns that MTU, or
-/// `None` (→ caller keeps the pushed/effective MTU) on any failure — probing is
-/// purely additive and never makes connectivity worse (DF is dropped again on miss).
+/// Active path-MTU discovery on a UDP transport. Sends DF-marked probe datagrams from
+/// `ceiling` down a small ladder; each rung is expressed in inner-packet units but the actual
+/// datagram includes every active outer wrapper. Returns the largest certified rung. The
+/// caller converts it into a complete outer UDP-payload budget; only a legacy peer without
+/// DATA_FRAG also uses it to lower an IPv4 TUN MTU. `None` keeps the pushed/effective inner
+/// MTU and selects the conservative DATA_FRAG budget (or legacy IP-fragmentation fallback).
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
@@ -3450,13 +3450,13 @@ async fn probe_udp_mtu(
     // How many bytes of the PATH a probe for tunnel-MTU `m` occupies beyond `m` itself:
     // our record overhead, the obfs seal, the QUIC short header, and the UDP + IP headers.
     //
-    // This is the difference the ladder used to ignore. `m` is an INNER (tunnel) MTU, but
-    // the rungs were the IPv6 minimum PATH mtu — so the lowest rung, 1280, actually asked
-    // the path for ~1280 + overhead bytes. On a path whose real MTU is 1280 every rung
-    // therefore failed, the probe reported nothing, and the caller fell back to the pushed
-    // MTU (typically 1400) with fragmentation re-enabled: the exact outcome probing exists
-    // to avoid. Derive the floor from the overhead actually in play instead of hard-coding
-    // a number that silently means something else. (Audit 2026-07-29, #12.)
+    // This is the difference the ladder used to ignore. `m` is an INNER-shaped value, but
+    // the rungs were the IPv6 minimum PATH MTU — so the lowest rung, 1280, actually asked
+    // the path for ~1280 + overhead bytes. On a real 1280-byte path every rung therefore
+    // failed. Before DATA_FRAG that forced the caller back to the oversized pushed MTU with
+    // IP fragmentation; now it would unnecessarily retain the conservative fragment budget.
+    // Derive the floor from the overhead actually in play instead of hard-coding a number
+    // that silently means something else. (Audit 2026-07-29, #12.)
     let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
         + socket.seal_overhead()
         + if quic_enabled {
@@ -3500,26 +3500,33 @@ async fn probe_udp_mtu(
                         if socket.send(&pkt).await.is_err() {
                             break;
                         }
-                        match tokio::time::timeout(
-                            Duration::from_millis(220),
-                            socket.recv(&mut buf),
-                        )
-                        .await
-                        {
-                            Ok(Ok(n)) if n > 0 => {
-                                let payload = if quic_enabled {
-                                    unwrap_quic(&buf[..n])
-                                        .map(|p| p.payload)
-                                        .unwrap_or_default()
-                                } else {
-                                    buf[..n].to_vec()
-                                };
-                                if parse_mtu_probe_ack(&payload) == Some((probe_id, probe_size)) {
-                                    ok = true;
-                                    break;
+                        // Cover, heartbeat, a delayed ACK for an older rung, or any other
+                        // service datagram may already be queued on this socket. Keep reading
+                        // inside ONE fixed deadline instead of spending the whole attempt on
+                        // whichever datagram happened to arrive first.
+                        let deadline = tokio::time::Instant::now() + Duration::from_millis(220);
+                        loop {
+                            match tokio::time::timeout_at(deadline, socket.recv(&mut buf)).await {
+                                Ok(Ok(n)) if n > 0 => {
+                                    let payload = if quic_enabled {
+                                        unwrap_quic(&buf[..n])
+                                            .map(|p| p.payload)
+                                            .unwrap_or_default()
+                                    } else {
+                                        buf[..n].to_vec()
+                                    };
+                                    if parse_mtu_probe_ack(&payload) == Some((probe_id, probe_size))
+                                    {
+                                        ok = true;
+                                        break;
+                                    }
                                 }
+                                Ok(Ok(_)) => continue,
+                                _ => break,
                             }
-                            _ => {}
+                        }
+                        if ok {
+                            break;
                         }
                     }
                     ok
@@ -3648,7 +3655,8 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
 /// overhead, the obfs seal, the QUIC header and the UDP + IP headers. IPv6 keeps its mandated
 /// 1280-byte path floor. IPv4 has no equivalent 1280 requirement, so its ladder descends to
 /// Qeli's supported inner minimum (576); otherwise a valid 900/1000/1200-byte IPv4 path
-/// certifies nothing and falls back to the oversized pushed MTU with fragmentation re-enabled.
+/// certifies nothing. A legacy peer then falls back to IP fragmentation, while DATA_FRAG stays
+/// unnecessarily pinned to its conservative floor instead of using the wider working budget.
 #[cfg(any(
     test,
     target_os = "linux",
@@ -3693,8 +3701,8 @@ mod mtu_ladder_tests {
     use crate::transport_core::NetworkFamilyMode;
 
     /// The narrowest rung must be reachable over a 1280-byte path once the probe's own
-    /// framing is counted; otherwise a path at the IPv6 minimum certifies nothing and the
-    /// caller falls back to the pushed MTU with fragmentation switched back on.
+    /// framing is counted; otherwise a valid IPv6-minimum path certifies no wider DATA_FRAG
+    /// budget (and a legacy peer falls back to outer IP fragmentation).
     #[test]
     fn the_lowest_rung_fits_the_ipv6_minimum_path() {
         // Worst case in this codebase: obfs seal (13) + QUIC short header (9) + UDP (8)
@@ -4912,8 +4920,9 @@ pub(crate) async fn run_udp_tunnel(
     // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
     // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a
     // narrow LTE/CGNAT path is measured, not guessed. Otherwise adopt the pushed MTU.
-    // The socket is idle here (handshake done, data plane not started), so the probe
-    // has it to itself. Falls back to the pushed/effective MTU on any miss.
+    // The client data plane is not running yet, but the server may already emit cover or a
+    // heartbeat after AuthOK. The probe receive loop ignores unrelated datagrams until each
+    // fixed deadline. Falls back to the pushed/effective MTU on any miss.
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
     let mut uplink_udp_payload_budget =
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
@@ -5185,7 +5194,46 @@ pub(crate) async fn run_udp_tunnel(
     // is simply re-sent on the next few idle ticks below, which costs a few bytes and removes
     // the single point of loss. (Audit 2026-07-30, #5.)
     let mtu_report_value = u16::try_from(tun_mtu.max(0)).ok();
-    let mut mtu_resends: u8 = 0;
+    // DATA_FRAG decouples inner MTU from outer datagram size. Report the independently
+    // certified uplink UDP payload budget as a distinct authenticated frame. A current server
+    // treats it only as the ceiling for its own reverse DF probe and widens downlink after that
+    // direction answers; an older server skips the unknown type.
+    let udp_payload_budget_report_value = data_frag_enabled
+        .then(|| u16::try_from(uplink_udp_payload_budget).ok())
+        .flatten()
+        .filter(|budget| {
+            usize::from(*budget)
+                > crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
+        });
+    // Arm retries from intent, not from the result of the first local send. If both initial
+    // datagrams hit a transient socket error, the idle ticks must still get a chance to report.
+    let mut control_report_resends =
+        if mtu_report_value.is_some() || udp_payload_budget_report_value.is_some() {
+            UDP_CONTROL_REPORT_RESENDS
+        } else {
+            0
+        };
+    if let Some(budget) = udp_payload_budget_report_value {
+        let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
+        if client_tx
+            .encrypt_packet_into(&frame, &[], &mut cover_record)
+            .is_ok()
+        {
+            let send_data: &[u8] = if quic_enabled {
+                quic_pn += 1;
+                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
+                &quic_record
+            } else {
+                &cover_record
+            };
+            match socket.send(send_data).await {
+                Ok(_) => {
+                    log::debug!("reported UDP payload budget {budget} to the server");
+                }
+                Err(e) => log::debug!("could not report UDP payload budget: {e}"),
+            }
+        }
+    }
     if let Some(mtu) = mtu_report_value {
         let frame = crate::protocol::ctrl::mtu_report(mtu);
         if client_tx
@@ -5202,7 +5250,6 @@ pub(crate) async fn run_udp_tunnel(
             match socket.send(send_data).await {
                 Ok(_) => {
                     log::debug!("reported tunnel MTU {mtu} to the server");
-                    mtu_resends = MTU_REPORT_RESENDS;
                 }
                 Err(e) => log::debug!("could not report tunnel MTU: {e}"),
             }
@@ -5445,6 +5492,37 @@ pub(crate) async fn run_udp_tunnel(
                 } else {
                     &recv_buf[..n]
                 };
+                // A current server never derives its downlink budget from the opposite
+                // client-to-server path. It sends a full-size DF probe of its own and widens
+                // only after this tiny echo returns. Handle it before DATA_FRAG/PacketCodec:
+                // the probe is deliberately a bare carrier record, just like the original
+                // uplink PMTU exchange. It does not count as authenticated liveness.
+                if data_frag_enabled {
+                    if let Some((probe_id, probe_size)) =
+                        crate::protocol::udp_frag::parse_mtu_probe_request(payload)
+                    {
+                        let ack = crate::protocol::udp_frag::mtu_probe_ack_datagram(
+                            probe_id,
+                            probe_size,
+                        );
+                        let send_data: &[u8] = if quic_enabled {
+                            quic_pn = quic_pn.wrapping_add(1);
+                            wrap_quic_short_into(
+                                &ack,
+                                &connection_id,
+                                quic_pn - 1,
+                                &mut quic_record,
+                            );
+                            &quic_record
+                        } else {
+                            &ack
+                        };
+                        if let Err(error) = socket.send(send_data).await {
+                            log::debug!("could not acknowledge server UDP path probe: {error}");
+                        }
+                        continue;
+                    }
+                }
                 let reassembled;
                 let payload = if crate::protocol::data_frag::is_data_fragment(payload) {
                     if !data_frag_enabled {
@@ -5624,13 +5702,33 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             _ = idle_check.tick() => {
-                // Re-send the unacknowledged MTU report (#5). `idle_check` fires immediately on
-                // its first tick, so the copies land at roughly 0 s, 5 s and 10 s: the first
-                // covers an isolated drop, the later ones a short burst of loss that would take
-                // out back-to-back datagrams. The server keeps the narrowest value it has seen,
-                // so duplicates are a no-op there.
-                if mtu_resends > 0 {
-                    mtu_resends -= 1;
+                // Re-send the unacknowledged MTU/budget reports (#5). `idle_check` fires
+                // immediately on its first tick, so the copies land at roughly 0 s, 5 s and
+                // 10 s: the first covers an isolated drop, the later ones a short burst that
+                // would take out back-to-back datagrams. Both server updates are idempotent.
+                if control_report_resends > 0 {
+                    control_report_resends -= 1;
+                    if let Some(budget) = udp_payload_budget_report_value {
+                        let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
+                        if client_tx
+                            .encrypt_packet_into(&frame, &[], &mut cover_record)
+                            .is_ok()
+                        {
+                            let send_data: &[u8] = if quic_enabled {
+                                quic_pn += 1;
+                                wrap_quic_short_into(
+                                    &cover_record,
+                                    &connection_id,
+                                    quic_pn - 1,
+                                    &mut quic_record,
+                                );
+                                &quic_record
+                            } else {
+                                &cover_record
+                            };
+                            let _ = socket.send(send_data).await;
+                        }
+                    }
                     if let Some(mtu) = mtu_report_value {
                         let frame = crate::protocol::ctrl::mtu_report(mtu);
                         if client_tx

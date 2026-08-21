@@ -427,6 +427,17 @@ internal static class WinDivertSelfTest
                 ipv6WithHopOptions, ipv6WithHopOptions.Length, out byte v6Proto, out int v6Offset)
             && v6Proto == 6 && v6Offset == 48);
 
+        var emptyIpv6 = new byte[40];
+        emptyIpv6[0] = 0x60;
+        emptyIpv6[6] = 59; // No Next Header
+        check("ipv6: zero-payload base packet is valid, not a jumbogram",
+            WinDivertAdapter.TryParseIpv6Packet(
+                emptyIpv6, emptyIpv6.Length, out var emptyIpv6Meta)
+            && emptyIpv6Meta.Protocol == 59
+            && emptyIpv6Meta.TransportOffset == 40
+            && !emptyIpv6Meta.HasTransport
+            && !emptyIpv6Meta.IsFragment);
+
         var ipv6Syn = new byte[64];
         ipv6Syn[0] = 0x60;
         BinaryPrimitives.WriteUInt16BigEndian(ipv6Syn.AsSpan(4, 2), 24);
@@ -481,6 +492,46 @@ internal static class WinDivertSelfTest
             WinDivertAdapter.TryParseIpv6Packet(ipv6Fragment, ipv6Fragment.Length, out var laterV6)
             && laterV6.IsFragment && !laterV6.IsFirstFragment && !laterV6.HasTransport
             && laterV6.Protocol == 17 && laterV6.FragmentId == 0x10203040);
+
+        var malformedV6Fragment = (byte[])ipv6Fragment.Clone();
+        malformedV6Fragment[41] = 1;
+        check("ipv6: Fragment reserved byte is rejected",
+            !WinDivertAdapter.TryParseIpv6Packet(
+                malformedV6Fragment, malformedV6Fragment.Length, out _));
+        malformedV6Fragment = (byte[])ipv6Fragment.Clone();
+        BinaryPrimitives.WriteUInt16BigEndian(malformedV6Fragment.AsSpan(42, 2), 0x0002);
+        check("ipv6: Fragment reserved bits are rejected",
+            !WinDivertAdapter.TryParseIpv6Packet(
+                malformedV6Fragment, malformedV6Fragment.Length, out _));
+
+        var misalignedV6Fragment = new byte[57];
+        ipv6Fragment.CopyTo(misalignedV6Fragment, 0);
+        BinaryPrimitives.WriteUInt16BigEndian(misalignedV6Fragment.AsSpan(4, 2), 17);
+        BinaryPrimitives.WriteUInt16BigEndian(misalignedV6Fragment.AsSpan(42, 2), 0x0001);
+        check("ipv6: non-final Fragment payload must be 8-byte aligned",
+            !WinDivertAdapter.TryParseIpv6Packet(
+                misalignedV6Fragment, misalignedV6Fragment.Length, out _));
+
+        var duplicateV6Fragment = new byte[64];
+        duplicateV6Fragment[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(duplicateV6Fragment.AsSpan(4, 2), 24);
+        duplicateV6Fragment[6] = 44;
+        duplicateV6Fragment[40] = 44;
+        duplicateV6Fragment[48] = 17;
+        check("ipv6: duplicate Fragment Header is rejected",
+            !WinDivertAdapter.TryParseIpv6Packet(
+                duplicateV6Fragment, duplicateV6Fragment.Length, out _));
+
+        var overflowingV6Fragment = new byte[64];
+        overflowingV6Fragment[0] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(overflowingV6Fragment.AsSpan(4, 2), 24);
+        overflowingV6Fragment[6] = 60;
+        overflowingV6Fragment[40] = 44;
+        overflowingV6Fragment[48] = 17;
+        BinaryPrimitives.WriteUInt16BigEndian(overflowingV6Fragment.AsSpan(50, 2), 0xFFF0);
+        check("ipv6: reassembled payload includes pre-Fragment extension bytes",
+            !WinDivertAdapter.TryParseIpv6Packet(
+                overflowingV6Fragment, overflowingV6Fragment.Length, out _));
         var v6src = IPAddress.Parse("2001:db8::10");
         var v6dst = IPAddress.Parse("2001:db8::20");
         flows.RememberIpv6Frag(v6src, v6dst, 17, 0x10203040, PacketDisposition.Bypass);

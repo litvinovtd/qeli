@@ -101,6 +101,25 @@ enum RouteExclusionPlanner {
         return rendered
     }
 
+    /// Count original server-pushed routes whose complete effective remainder reached the
+    /// installed route set. A partially carved original is represented by several CIDRs, so
+    /// literal equality with the original under-counts a route that is working correctly.
+    static func countInstalledOriginals(
+        _ originals: [String],
+        installedFragments: Set<String>,
+        excludes: [String],
+        protectedCidrs: Set<String>
+    ) -> Int {
+        originals.reduce(into: 0) { count, original in
+            let required: [String]? = protectedCidrs.contains(original)
+                ? [original]
+                : subtract(original, excludes: excludes)
+            guard let required, !required.isEmpty,
+                  required.allSatisfy(installedFragments.contains) else { return }
+            count += 1
+        }
+    }
+
     /// Whether an exclusion can beat or tie the route that keeps the negotiated gateway
     /// on-link. Opposite families are harmless; `nil` means malformed input.
     static func overridesOnLinkGateway(

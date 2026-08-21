@@ -66,6 +66,25 @@ pub struct ClientLink {
 
 /// Parse an operator-supplied public endpoint. IPv6 literals use the URI-compatible
 /// `[address]:port` form when a port is present; a bare literal inherits `default_port`.
+fn supported_dns_host(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 || !host.is_ascii() {
+        return false;
+    }
+    let without_root_dot = host.strip_suffix('.').unwrap_or(host);
+    if without_root_dot.is_empty() {
+        return false;
+    }
+    without_root_dot.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+    })
+}
+
 pub fn supported_public_endpoint(input: &str, default_port: u16) -> Result<(String, u16), String> {
     let value = input.trim();
     if value.is_empty() {
@@ -113,6 +132,11 @@ pub fn supported_public_endpoint(input: &str, default_port: u16) -> Result<(Stri
             None => (value.to_string(), default_port),
         }
     };
+    if host.parse::<std::net::IpAddr>().is_err() && !supported_dns_host(&host) {
+        return Err(format!(
+            "invalid public endpoint host '{host}' (expected an IP address or DNS hostname)"
+        ));
+    }
     if port == 0 {
         return Err("public endpoint port must be 1..65535".into());
     }
@@ -435,6 +459,17 @@ mod endpoint_tests {
             "2001:db8::1:443:garbage",
             "host:0",
             "host:nope",
+            "evil@attacker.example",
+            "host/path",
+            "host?query",
+            "host#fragment",
+            "host name",
+            "host%40name",
+            ".example.com",
+            "example..com",
+            "-example.com",
+            "example-.com",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example",
         ] {
             assert!(
                 supported_public_endpoint(endpoint, 443).is_err(),

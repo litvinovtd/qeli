@@ -60,6 +60,31 @@ final class RouteExclusionPlannerTests: XCTestCase {
         XCTAssertNil(RouteExclusionPlanner.subtract("not-a-route", excludes: []))
     }
 
+    func testInstalledOriginalCountUnderstandsPartialSubtraction() {
+        let excludes = ["10.1.0.0/16"]
+        let fragments = RouteExclusionPlanner.subtract(
+            "10.0.0.0/8", excludes: excludes
+        )!
+        XCTAssertEqual(RouteExclusionPlanner.countInstalledOriginals(
+            ["10.0.0.0/8"],
+            installedFragments: Set(fragments),
+            excludes: excludes,
+            protectedCidrs: []
+        ), 1)
+        XCTAssertEqual(RouteExclusionPlanner.countInstalledOriginals(
+            ["10.0.0.0/8"],
+            installedFragments: Set(fragments.dropLast()),
+            excludes: excludes,
+            protectedCidrs: []
+        ), 0)
+        XCTAssertEqual(RouteExclusionPlanner.countInstalledOriginals(
+            ["192.0.2.53/32"],
+            installedFragments: ["192.0.2.53/32"],
+            excludes: ["0.0.0.0/0"],
+            protectedCidrs: ["192.0.2.53/32"]
+        ), 1, "protected DNS host routes are never subtracted")
+    }
+
     func testTunnelGatewayCanOverrideOnlyBroaderPhysicalExclusions() {
         XCTAssertEqual(RouteExclusionPlanner.overridesOnLinkGateway(
             "10.0.0.0/8", gateway: "10.8.0.1", onLinkPrefixLength: 24

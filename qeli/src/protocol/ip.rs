@@ -67,6 +67,8 @@ pub enum IpPacketError {
     TruncatedHeader,
     #[error("invalid IPv4 header length")]
     InvalidIpv4HeaderLength,
+    #[error("invalid IPv4 fragmentation fields")]
+    InvalidIpv4Fragment,
     #[error("declared IP length does not match record length")]
     LengthMismatch,
     #[error("IPv6 jumbograms are not supported")]
@@ -77,6 +79,8 @@ pub enum IpPacketError {
     ExtensionLimit,
     #[error("duplicate IPv6 fragment header")]
     DuplicateFragmentHeader,
+    #[error("invalid IPv6 fragmentation fields")]
+    InvalidIpv6Fragment,
 }
 
 pub fn parse_ip_packet(packet: &[u8]) -> Result<IpPacketMeta, IpPacketError> {
@@ -101,13 +105,25 @@ fn parse_ipv4(packet: &[u8]) -> Result<IpPacketMeta, IpPacketError> {
         return Err(IpPacketError::LengthMismatch);
     }
     let flags_offset = u16::from_be_bytes([packet[6], packet[7]]);
+    let payload_len = total_len - ihl;
+    let offset = flags_offset & 0x1fff;
+    let more = flags_offset & 0x2000 != 0;
+    let fragmented = offset != 0 || more;
+    let fragment_end = usize::from(offset) * 8 + payload_len;
+    if flags_offset & 0x8000 != 0
+        || (flags_offset & 0x4000 != 0 && fragmented)
+        || (fragmented && payload_len == 0)
+        || (fragmented && fragment_end > usize::from(u16::MAX) - IPV4_MIN_HEADER)
+        || (more && !payload_len.is_multiple_of(8))
+    {
+        return Err(IpPacketError::InvalidIpv4Fragment);
+    }
     let fragment = FragmentInfo {
         id: u32::from(u16::from_be_bytes([packet[4], packet[5]])),
-        offset: flags_offset & 0x1fff,
-        more: flags_offset & 0x2000 != 0,
+        offset,
+        more,
         protocol: packet[9],
     };
-    let fragmented = fragment.is_fragmented();
     Ok(IpPacketMeta {
         version: IpVersion::V4,
         source: IpAddr::V4(Ipv4Addr::new(
@@ -191,10 +207,28 @@ fn parse_ipv6(packet: &[u8]) -> Result<IpPacketMeta, IpPacketError> {
         next = header[0];
         if current == 44 {
             let wire = u16::from_be_bytes([header[2], header[3]]);
+            let fragment_payload_len = total_len - (offset + extension_len);
+            let fragment_offset = wire >> 3;
+            let more = wire & 1 != 0;
+            let fragment_end = usize::from(fragment_offset) * 8 + fragment_payload_len;
+            // The Fragment Offset is relative to the fragmentable part, but the final
+            // IPv6 Payload Length also contains every per-fragment extension header before
+            // the Fragment Header (and excludes the Fragment Header itself). Checking only
+            // `fragment_end` therefore accepted an oversized non-jumbogram whenever such
+            // headers were present.
+            let reassembled_payload_len = (offset - IPV6_HEADER).checked_add(fragment_end);
+            if header[1] != 0
+                || wire & 0x0006 != 0
+                || (more && !fragment_payload_len.is_multiple_of(8))
+                || ((fragment_offset != 0 || more) && fragment_payload_len == 0)
+                || reassembled_payload_len.is_none_or(|length| length > usize::from(u16::MAX))
+            {
+                return Err(IpPacketError::InvalidIpv6Fragment);
+            }
             fragment = Some(FragmentInfo {
                 id: u32::from_be_bytes([header[4], header[5], header[6], header[7]]),
-                offset: wire >> 3,
-                more: wire & 1 != 0,
+                offset: fragment_offset,
+                more,
                 protocol: header[0],
             });
         }
@@ -313,6 +347,104 @@ mod tests {
         assert_eq!(meta.protocol, 60);
         assert_eq!(meta.l4_offset, None);
         assert_eq!(meta.fragment.unwrap().offset, 1);
+    }
+
+    #[test]
+    fn rejects_invalid_ipv4_fragment_fields_and_alignment() {
+        let mut valid = ipv4_udp();
+        valid[6..8].copy_from_slice(&0x2000u16.to_be_bytes());
+        assert!(
+            parse_ip_packet(&valid).is_ok(),
+            "8-byte non-final payload is valid"
+        );
+
+        for field in [0x8000u16, 0x6000u16] {
+            let mut invalid = ipv4_udp();
+            invalid[6..8].copy_from_slice(&field.to_be_bytes());
+            assert_eq!(
+                parse_ip_packet(&invalid),
+                Err(IpPacketError::InvalidIpv4Fragment)
+            );
+        }
+
+        let mut misaligned = valid.clone();
+        misaligned.push(0);
+        let misaligned_len = misaligned.len() as u16;
+        misaligned[2..4].copy_from_slice(&misaligned_len.to_be_bytes());
+        assert_eq!(
+            parse_ip_packet(&misaligned),
+            Err(IpPacketError::InvalidIpv4Fragment)
+        );
+
+        let mut empty = ipv4_udp();
+        empty.truncate(IPV4_MIN_HEADER);
+        empty[2..4].copy_from_slice(&(IPV4_MIN_HEADER as u16).to_be_bytes());
+        empty[6..8].copy_from_slice(&0x2000u16.to_be_bytes());
+        assert_eq!(
+            parse_ip_packet(&empty),
+            Err(IpPacketError::InvalidIpv4Fragment)
+        );
+        let mut overflow = ipv4_udp();
+        overflow[6..8].copy_from_slice(&0x1fffu16.to_be_bytes());
+        assert_eq!(
+            parse_ip_packet(&overflow),
+            Err(IpPacketError::InvalidIpv4Fragment)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_ipv6_fragment_reserved_bits_and_alignment() {
+        let mut valid = vec![0u8; 16];
+        valid[0] = 17;
+        valid[3] = 1;
+        assert!(parse_ip_packet(&ipv6(44, &valid)).is_ok());
+
+        let mut reserved_byte = valid.clone();
+        reserved_byte[1] = 1;
+        let mut reserved_wire = valid.clone();
+        reserved_wire[3] |= 0x02;
+        for invalid in [reserved_byte, reserved_wire] {
+            assert_eq!(
+                parse_ip_packet(&ipv6(44, &invalid)),
+                Err(IpPacketError::InvalidIpv6Fragment)
+            );
+        }
+
+        let mut misaligned = vec![0u8; 17];
+        misaligned[0] = 17;
+        misaligned[3] = 1;
+        assert_eq!(
+            parse_ip_packet(&ipv6(44, &misaligned)),
+            Err(IpPacketError::InvalidIpv6Fragment)
+        );
+
+        let mut empty = vec![0u8; 8];
+        empty[0] = 17;
+        empty[3] = 1;
+        let mut overflow = valid;
+        overflow[2..4].copy_from_slice(&0xfff8u16.to_be_bytes());
+        assert_eq!(
+            parse_ip_packet(&ipv6(44, &overflow)),
+            Err(IpPacketError::InvalidIpv6Fragment)
+        );
+
+        assert_eq!(
+            parse_ip_packet(&ipv6(44, &empty)),
+            Err(IpPacketError::InvalidIpv6Fragment)
+        );
+
+        // Eight bytes of Destination Options precede the Fragment Header. The fragmentable
+        // part alone ends at 65_528, but the reassembled IPv6 Payload Length would be 65_536
+        // once those per-fragment bytes are included, which is not representable without a
+        // Jumbo Payload option.
+        let mut pre_fragment_extension = vec![0u8; 24];
+        pre_fragment_extension[0] = 44; // Destination Options -> Fragment
+        pre_fragment_extension[8] = 17; // Fragment -> UDP
+        pre_fragment_extension[10..12].copy_from_slice(&0xfff0u16.to_be_bytes());
+        assert_eq!(
+            parse_ip_packet(&ipv6(60, &pre_fragment_extension)),
+            Err(IpPacketError::InvalidIpv6Fragment)
+        );
     }
 
     #[test]

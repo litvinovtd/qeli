@@ -671,11 +671,10 @@ impl ClientConfig {
             }
         }
         if let Some(m) = q.get("mtu").and_then(|s| s.trim().parse::<i32>().ok()) {
-            // A positive override must be a plausible tunnel MTU. Reject negative / tiny /
-            // jumbo values rather than silently accepting them: the UDP data plane has no
-            // application-layer fragmentation, so an oversized mtu emits one over-large
-            // datagram, and a tiny one breaks the tunnel. Same MTU_MIN..=MTU_MAX range the
-            // server-PUSHED mtu is already validated against (0 stays "auto").
+            // A positive override must fit one PacketCodec record before any negotiated UDP
+            // DATA_FRAG splitting and must remain a plausible interface MTU. Reject negative,
+            // tiny or over-format values instead of silently accepting them. This is the same
+            // MTU_MIN..=MTU_MAX range used for the server-pushed MTU (0 stays "auto").
             if m != 0 && !crate::config::server::mtu_in_range(m as i64) {
                 anyhow::bail!(
                     "invalid mtu {} — expected 0 (auto) or {}..={}",

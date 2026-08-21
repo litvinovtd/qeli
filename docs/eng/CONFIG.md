@@ -311,74 +311,79 @@ The server sets the MTU of its TUN via `tun.mtu` (per-profile, default 1400) **a
 pushes this value to the client** at auth.
 
 > **The accepted range is `576..=16638`, and it is hard (since 0.7.13).** 576 is the IPv4
-> minimum reassembly buffer (RFC 791). The ceiling is **derived from the record format**, not
-> chosen: a record carries nonce + counter + payload + padding + tag and must fit
-> `MAX_RECORD_SIZE`, and anything past it the peer rejects. It used to be a flat 9000
-> ("conventional jumbo") — an Ethernet convention that turned away workable setups, since a
-> 10G NIC doing 16348-byte frames can carry a far larger tunnel. Mind the units: this is the
-> INNER MTU, and the link still adds ~76 bytes of IP/UDP/record framing on top. A value
-> outside the range is no
-> longer **silently discarded with a fallback to the default**: the server refuses to start
-> the profile (`profile '<name>': tun.mtu <N> is out of range — expected 576..=16638`) and the
-> client rejects the link/config (`invalid mtu <N> — expected 0 (auto) or 576..=16638`). The
-> reason for the strictness: the UDP data plane has no application-layer fragmentation, so an
-> oversized MTU emits one over-large datagram and a tiny one breaks the tunnel — and both used
-> to present simply as "it doesn't work". On the client `0` still means "auto" and need not
-> be in range.
+> minimum reassembly buffer (RFC 791). The ceiling is **derived from the PacketCodec record
+> format**, not chosen: each complete inner IP packet must first fit one encrypted record
+> (nonce + counter + payload + padding + tag) inside `MAX_RECORD_SIZE`. Negotiated
+> `UDP_DATA_FRAG_V1` can split that already-encrypted record into authenticated UDP envelopes,
+> but it cannot make an over-format inner packet valid. The old flat 9000 ceiling
+> ("conventional jumbo") was an Ethernet convention that rejected otherwise workable setups;
+> a 10G NIC using 16348-byte frames can carry a much larger tunnel. Mind the units:
+> `tun.mtu` is the **inner** interface MTU, not the outer UDP-datagram budget.
+>
+> A value outside the range is no longer **silently discarded with a fallback to the
+> default**: the server refuses to start the profile (`profile '<name>': tun.mtu <N> is out of
+> range — expected 576..=16638`) and the client rejects the link/config (`invalid mtu <N> —
+> expected 0 (auto) or 576..=16638`). A peer without `UDP_DATA_FRAG_V1` still has to send one
+> complete record in one UDP datagram, which is another reason to keep the explicit bound.
+> On the client `0` still means "auto" and need not be in range.
 
 Priority on the client:
 
 1. **an explicit client MTU** (`mtu` in the `[qeli]` INI or the `qeli://` link, `> 0`) — wins;
-2. otherwise (auto, `mtu = 0`) — the **discovered / pushed** MTU, see below;
-3. otherwise (an old server pushing nothing and no probe result) — a fallback of **1400**.
+2. otherwise (auto, `mtu = 0`) — the authenticated **server-pushed inner MTU**;
+3. otherwise (an old server pushing nothing) — a fallback inner MTU of **1400**.
 
-**`mtu = 0` on the client = "auto" (this is the default).** What auto does depends on
-the transport:
-- **UDP transports** (obfs-UDP / fake-tls-UDP / QUIC): the client **actively probes the
-  real path MTU** before bringing the tunnel up. It sends DF-marked probe datagrams from
-  the server-pushed ceiling downward (the server echoes them) and sets the tunnel MTU to
-  the largest size that traverses the path **without IP-fragmenting** — so a narrow
-  LTE/CGNAT/PPPoE path is measured, not guessed. If every probe is dropped (a network that
-  blocks them), it falls back to the pushed MTU (unchanged behaviour). Turn it off with
-  **`mtu_probe = false`** in `[qeli]` (a kill switch; then auto = "just adopt the pushed
-  MTU"). Probing is **Linux/Windows/macOS/Android/iOS**. Linux/Android use
-  `IP_MTU_DISCOVER`; Windows uses `IP_DONTFRAGMENT`, and Apple platforms use
-  `IP_DONTFRAG`. If DF control is unavailable, auto falls back to the authenticated
-  server-pushed ceiling.
+**`mtu = 0` on the client = "auto" (this is the default).** On a negotiated modern UDP
+session, the inner MTU and the outer datagram size are deliberately independent:
 
-  The probe has three limits worth knowing before you treat MTU as a solved problem:
-  - **It only measures client → server.** The probe datagram is full size but the
-    acknowledgement is tiny, so a genuinely **asymmetric** path (wide up, narrow down)
-    passes the probe and that download-direction black hole goes undetected.
+- **UDP transports** (obfs-UDP / fake-tls-UDP / QUIC) actively probe the real path before
+  bringing the tunnel up. The client sends DF-marked probe datagrams from the pushed ceiling
+  down (the server echoes them) and records the largest complete **outer UDP payload** that
+  traverses client → server without IP fragmentation. With `UDP_DATA_FRAG_V1`, the inner TUN
+  keeps the explicit/pushed MTU and an encrypted record that exceeds this outer budget is split
+  into separately authenticated DATA_FRAG envelopes and exactly reassembled by the peer.
+- A legacy peer cannot reassemble DATA_FRAG. In that compatibility mode a successful probe
+  lowers an IPv4 inner MTU to the certified record size. IPv6/dual-stack keeps IPv6's mandatory
+  1280-byte interface floor and restores outer fragmentation rather than failing every
+  1280-byte IPv6 packet with `EMSGSIZE`.
+- **`mtu_probe = false`** disables active probing. The authenticated pushed value still sizes
+  the inner TUN; a DATA_FRAG session uses the conservative outer UDP-payload floor (548 bytes
+  over IPv4 or 1232 over IPv6) until a wider budget has actually been certified. Probing is
+  implemented on **Linux/Windows/macOS/Android/iOS**. Linux/Android use `IP_MTU_DISCOVER`,
+  Windows uses `IP_DONTFRAGMENT`, and Apple platforms use `IP_DONTFRAG`. If DF control is
+  unavailable, the same conservative/fallback behaviour applies.
+- **TCP transports** (reality-tls / fake-tls / obfs / plain): auto adopts the pushed inner MTU.
+  The **kernel** discovers the outer path MTU there (`tcp_mtu_probing` + MSS clamping), so no
+  application-level UDP probe or DATA_FRAG budget is involved.
 
-    On a **symmetrically narrow** path — the ordinary LTE/CGNAT/PPPoE case — the download
-    direction is covered: the client **reports** the MTU it settled on to the server (as an
-    in-tunnel control frame, since 0.7.14) and the server narrows its downlink to match. An
-    oversized packet with DF set gets an ICMP "Fragmentation Needed" back to the origin
-    carrying the real next-hop MTU, so path-MTU discovery converges on its own. A server
-    predating this ignores the report and keeps using the profile's `tun.mtu`, as before.
-  - **The bottom rung reaches exactly 1280 bytes of real path MTU** (the IPv6 minimum). The
-    rungs are **tunnel** MTUs while 1280 is a **path** limit, so the floor is computed as
-    `1280 − outer overhead` (qeli record + obfs seal + QUIC header + UDP/IP) and the narrowest
-    probe occupies exactly 1280 bytes on the wire. Before 0.7.14 the bottom rung was the
-    number 1280 used as a tunnel MTU — i.e. a 1280-byte path was asked for 1280 + overhead,
-    every rung failed, and the probe returned "no result" on precisely the networks it exists
-    for. It does not probe below 1280 of path: that is the guaranteed IPv6 minimum, and a path
-    narrower than it is a broken network, not a supported mode.
-  - **"No result" means the pushed MTU is adopted**, which on such a path is certainly
-    too large. Connectivity does not break (DF is cleared and packets fragment), but at
-    that point you are back to guessing rather than measuring.
+The probe has three limits worth knowing before you treat MTU as a solved problem:
 
-  Practically: auto-probing handles **effectively all** LTE/CGNAT/PPPoE cases — a path
-  narrower than 1280 violates the IPv6 minimum. If downloads still stall while small packets
-  flow, set `mtu` by hand (1200–1280) and retest; §12 of GETTING-STARTED and
-  TROUBLESHOOTING §6 cover the diagnosis.
-- **TCP transports** (reality-tls / fake-tls / obfs / plain): auto = adopt the pushed MTU;
-  the **kernel** discovers the path MTU there (`tcp_mtu_probing` + MSS clamping), so no
-  app-level probe is needed.
+- **The two directions are certified separately.** The client's full-size DF ladder certifies
+  client → server. Its authenticated UDP-budget report is only a ceiling for the opposite
+  direction: the server starts at the family-safe 548/1232-byte floor, sends its own full-size
+  DF probe server → client, and widens downlink only after the client echoes the exact tiny ACK.
+  A genuinely asymmetric path therefore cannot borrow the uplink result for downlink. A lost
+  report/probe is retried; an old peer or a peer that never answers remains at the safe floor.
+  A local `EMSGSIZE` after a path change atomically drops the server back to that floor and
+  retries the complete encrypted record with a new DATA_FRAG record id. The separate
+  authenticated inner-MTU report remains in place for PMTU/ICMP handling. Older peers ignore
+  the additive control type.
+- **The bottom rung reaches exactly 1280 bytes of real path MTU** (the IPv6 minimum). The rung
+  value describes the inner-shaped probe payload while the floor is computed as `1280 − outer
+  overhead` (qeli probe framing + obfs seal + QUIC header + UDP/IP), so the narrowest probe is
+  exactly 1280 bytes on the wire. It does not probe below that path size: an IPv6 path narrower
+  than 1280 is outside the supported Internet minimum.
+- **"No result" no longer makes a negotiated DATA_FRAG session guess an outer size.** Its inner
+  TUN still adopts the explicit/pushed MTU, but outer records use the conservative family
+  budget. A legacy session restores OS IP fragmentation because it has no record-layer split.
 
-So the MTU is usually set **once in the server profile** (the ceiling), UDP clients refine
-it per-path, and nothing in the client configs/links needs changing (generated `qeli://`
+Practically: auto-probing handles **effectively all** LTE/CGNAT/PPPoE cases — a path narrower
+than 1280 violates the IPv6 minimum. If downloads still stall while small packets flow, set
+`mtu` by hand (1200–1280) and retest; §12 of GETTING-STARTED and TROUBLESHOOTING §6 cover the
+diagnosis.
+
+So the inner MTU is usually set **once in the server profile** (the ceiling), while UDP clients
+refine the outer datagram budget per path. Nothing in client configs/links needs changing (`qeli://`
 links come with `mtu=0`/without it = auto). An explicit `mtu` on the client is needed only
 to forcibly override — it also disables probing.
 
@@ -655,33 +660,40 @@ In a reality-tls profile: `obf.padding.enabled = false`.
 > Rollback: remove `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
 > (`sysctl --system`), remove the mangle rules, restore `tun.mtu`/padding.
 
-### 4. UDP profiles: size the MTU together with the padding
+### 4. UDP profiles: inner MTU and the outer datagram budget
 
-For `udp-*` compute the whole on-the-wire size, or packets start fragmenting and throughput
-halves while the tunnel still looks healthy:
+The no-split threshold for one complete UDP record is:
 
 ```
-tun.mtu + 48 (qeli record) + 9 (QUIC, if enabled) + 8 (UDP) + 20 (IP)  ≤  PMTU
+tun.mtu + 48 (qeli record/probe margin)
+        + 13 (UDP obfs seal, when keyed)
+        + 9  (QUIC, when enabled)
+        + 8  (UDP)
+        + 20 (outer IPv4) or 40 (outer IPv6)  ≤  PMTU
 ```
 
-**Padding is not a separate term.** It is clamped so that `payload + padding ≤ tun.mtu` in
-both directions — client uplink in `client/mod.rs` (`pad_cap = padding_max.min(mtu −
-payload)`) and server downlink in `server/mod.rs`, which is stricter still and reserves the
-record overhead inside the same budget. So `obf.padding.max_bytes` decides how much of the
-MTU padding may *occupy*, never how far past it a packet may grow.
+With negotiated `UDP_DATA_FRAG_V1`, crossing this threshold no longer asks IP to fragment the
+oversized datagram. Qeli first encrypts the complete inner packet, then splits the opaque record
+into authenticated envelopes (44-byte DATA_FRAG header per datagram), each constrained by the
+probed outer UDP-payload budget, and reassembles the exact record before PacketCodec decryption.
+This preserves inner IPv4/IPv6 packets and avoids outer IP fragmentation; the cost is more
+datagrams, per-fragment authentication and reassembly work. The server starts at 548 bytes of
+UDP payload for an IPv4 carrier or 1232 for IPv6 and widens only after an authenticated report
+of a successful larger client probe. A peer without DATA_FRAG retains the one-record/one-datagram
+behaviour, so the formula above remains a hard deployment constraint for mixed-version pairs.
 
-That clamp is recent, and the reason it exists is the arithmetic this section used to
-document: before it, padding really did add on top, so `tun.mtu = 1380` with
-`padding.max_bytes = 400` put full-size packets at 1865 bytes on a 1500 PMTU and **every one
-of them fragmented**. Adding `padding.max_bytes` to the formula today double-counts it and
-makes profiles look unusable when they are fine — at a 1500 PMTU, `tun.mtu = 1380` now costs
-1465 bytes whatever the padding is set to.
+**Padding is not a separate term.** It is clamped so that payload plus padding remains inside
+the current record budget in both directions. `obf.padding.max_bytes` decides how much of that
+budget padding may occupy, never how far past it a datagram may grow. Before this clamp, padding
+really was added on top and could fragment every full-size packet. Adding `padding.max_bytes` to
+the formula now double-counts it.
 
-Padding still competes with the payload for that budget: a large `max_bytes` on a full-size
-packet simply gets clamped to near zero, which costs obfuscation rather than throughput. If
-you want padding to be effective on full-size packets, leave it room — `tun.mtu = 1240` with
-`obf.padding.max_bytes = 80` is a comfortable udp-quic pair. Verify either way with
-`netstat -s | grep -i 'fragments created'`: it must not climb under load.
+For example, without a keyed UDP obfs seal, `tun.mtu = 1380` plus QUIC occupies about 1465 bytes
+on an outer IPv4 path or 1485 on IPv6; a keyed seal adds 13 bytes. If that is over the discovered
+budget, DATA_FRAG splits the record. If you want padding to remain visible even on full inner
+packets, leave room for it — `tun.mtu = 1240` with `obf.padding.max_bytes = 80` is a comfortable
+udp-quic pair. `netstat -s | grep -i 'fragments created'` should not climb under load on modern
+negotiated peers; DATA_FRAG is record-layer splitting and is not counted as kernel IP fragmentation.
 
 > In production, removing the fragmentation alone took udp-quic from 22 to 30 Mbit; together
 > with the server and client buffers it reached **40+ down and 55 up**.
@@ -840,9 +852,10 @@ a few Mbps in bursts, not a constant line-rate. So throughput under stealth ≈
 `stealth_rate_mbps` is the **direct speed↔stealth knob**: higher = faster but closer
 to the bulk signature; lower = slower but stealthier. On top of the cap, the gaps are
 filled with small cover (extra bandwidth, but the *real data* is what the rate-cap
-throttles). It does NOT change the *data* packets' own size (still full-MTU, just
-rarer + interleaved with cover) — that needs fragmentation+reassembly (wire-breaking,
-not implemented). Per-mode speeds: `scripts/bench_stealth.py`.
+throttles). The shaper does not deliberately change inner data-packet sizes. Independently,
+negotiated UDP DATA_FRAG may split an encrypted record to satisfy the measured PMTU, but it is
+not a configurable DPI packet-size shaper; TCP data remains full-sized. Per-mode speeds:
+`scripts/bench_stealth.py`.
 
 **When to enable:** only under aggressive DPI/ML that blocks high-rate tunnels. For
 normal use it is overkill (needlessly slow). **Not wire-breaking** (cover = the same
@@ -2131,11 +2144,14 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.heartbeat.data_size_bytes` | `16` | payload size |
 | `obf.heartbeat.jitter_ms` | `20` | interval jitter |
 
-> **Fragmentation applies to the handshake only, not to traffic.** It splits one
+> **The `obf.fragmentation.*` setting applies to the handshake only.** It splits one
 > record — the ServerHello — once per connection. It never touches the data stream, so
-> it **costs no throughput**: the price is roughly 600 bytes (each chunk leaves as its
-> own TCP segment, with its own header) and a few tens of milliseconds on a handshake
+> it **costs no data-plane throughput**: the price is roughly 600 bytes (each chunk leaves as
+> its own TCP segment, with its own header) and a few tens of milliseconds on a handshake
 > that already takes about that long.
+>
+> This is separate from automatically negotiated UDP `DATA_FRAG_V1`, which splits oversized
+> encrypted data records to the path budget and is not controlled by `obf.fragmentation.*`.
 >
 > The point is that the ServerHello must **not arrive in one segment**, where a DPI
 > signature matcher can read it whole. The point is NOT to shred it: many tiny segments

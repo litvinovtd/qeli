@@ -1045,7 +1045,12 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
 
         if publishFacts {
             let effectiveRouteSet = Set(effectivePlanCIDRs)
-            let pushedRoutesInstalled = plan.pushedRoutes.filter(effectiveRouteSet.contains).count
+            let pushedRoutesInstalled = RouteExclusionPlanner.countInstalledOriginals(
+                plan.pushedRoutes,
+                installedFragments: effectiveRouteSet,
+                excludes: effectiveExcludes,
+                protectedCidrs: protectedDNSRoutes
+            )
             stateLock.withLock {
                 snapshot.clientAddress = plan.tunnelAddress
                 snapshot.tunnelGateway = plan.tunnelGateway

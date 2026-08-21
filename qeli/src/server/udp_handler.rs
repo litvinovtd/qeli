@@ -61,6 +61,260 @@ fn empty_udp_record_padding_cap(
         .unwrap_or(0)
 }
 
+fn max_useful_udp_payload_budget(obfs_overhead: usize, quic_enabled: bool) -> usize {
+    crate::protocol::data_frag::MAX_REASSEMBLED_RECORD
+        + obfs_overhead
+        + if quic_enabled {
+            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+        } else {
+            0
+        }
+}
+
+fn sanitized_udp_payload_budget(
+    reported: u16,
+    outer_ipv6: bool,
+    obfs_overhead: usize,
+    quic_enabled: bool,
+) -> usize {
+    usize::from(reported).clamp(
+        crate::protocol::data_frag::conservative_udp_payload_budget(outer_ipv6),
+        max_useful_udp_payload_budget(obfs_overhead, quic_enabled),
+    )
+}
+
+fn note_certified_udp_payload_budget(
+    cell: &std::sync::atomic::AtomicU32,
+    who: std::fmt::Arguments<'_>,
+    certified: u32,
+) {
+    let previous = cell.swap(certified, std::sync::atomic::Ordering::Relaxed);
+    if previous != certified {
+        log::info!(
+            "client {who} reverse-probe certified UDP downlink budget {certified} bytes (was {previous})"
+        );
+    }
+}
+#[inline]
+fn is_message_too_long(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(libc::EMSGSIZE)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DownlinkMtuProbe {
+    generation: u64,
+    id: u16,
+    payload_size: u16,
+    udp_payload_budget: u32,
+}
+
+const DOWNLINK_MTU_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+
+fn build_downlink_mtu_probe(
+    id: u16,
+    udp_payload_budget: usize,
+    obfs_overhead: usize,
+    quic_enabled: bool,
+    connection_id: &[u8; 4],
+    packet_number: u32,
+) -> Option<(Vec<u8>, u16)> {
+    let wrapper_bytes = obfs_overhead
+        + if quic_enabled {
+            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+        } else {
+            0
+        };
+    let payload_size = udp_payload_budget.checked_sub(wrapper_bytes)?;
+    let payload_size_u16 = u16::try_from(payload_size).ok()?;
+    let probe = crate::protocol::udp_frag::mtu_probe_datagram(id, payload_size)?;
+    let packet = if quic_enabled {
+        wrap_quic_short(&probe, connection_id, packet_number)
+    } else {
+        probe
+    };
+    debug_assert_eq!(packet.len() + obfs_overhead, udp_payload_budget);
+    Some((packet, payload_size_u16))
+}
+
+fn set_probe_df(socket: &socket2::Socket, peer_is_ipv6: bool) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    // Linux UAPI: IPV6_MTU_DISCOVER uses the IP_PMTUDISC_* values, just like
+    // IP_MTU_DISCOVER. The libc crate exposes the latter constants but not this option
+    // number; keep it beside the setsockopt call instead of spreading a numeric literal.
+    const IPV6_MTU_DISCOVER: libc::c_int = 23;
+    let (level, option) = if peer_is_ipv6 {
+        (libc::IPPROTO_IPV6, IPV6_MTU_DISCOVER)
+    } else {
+        (libc::IPPROTO_IP, libc::IP_MTU_DISCOVER)
+    };
+    let value: libc::c_int = libc::IP_PMTUDISC_PROBE;
+    let result = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            level,
+            option,
+            (&value as *const libc::c_int).cast(),
+            std::mem::size_of_val(&value) as libc::socklen_t,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Send one reverse PMTU probe through a short-lived connected socket. The dedicated socket
+/// carries the same local address/port via SO_REUSEPORT, but its DF option cannot race with
+/// legacy data sends on the shared listener. It is closed immediately after `send`, so the
+/// ACK returns to the stable listener worker selected by the original four-tuple.
+fn send_downlink_mtu_probe(
+    local_addr: SocketAddr,
+    peer: SocketAddr,
+    packet: &[u8],
+    obfs_key: Option<[u8; 32]>,
+) -> std::io::Result<()> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    if local_addr.is_ipv6() != peer.is_ipv6() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "reverse PMTU probe address-family mismatch",
+        ));
+    }
+    let domain = if peer.is_ipv6() {
+        Domain::IPV6
+    } else {
+        Domain::IPV4
+    };
+    let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+    if peer.is_ipv6() {
+        socket.set_only_v6(true)?;
+    }
+    socket.set_reuse_address(true)?;
+    socket.set_reuse_port(true)?;
+    socket.bind(&local_addr.into())?;
+    socket.connect(&peer.into())?;
+    set_probe_df(&socket, peer.is_ipv6())?;
+
+    let sealed;
+    let wire = if let Some(key) = obfs_key {
+        sealed = crate::protocol::obfs::obfs_datagram_seal(&key, packet);
+        sealed.as_slice()
+    } else {
+        packet
+    };
+    let sent = socket.send(wire)?;
+    if sent == wire.len() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            "reverse PMTU probe was only partially sent",
+        ))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn schedule_downlink_mtu_probe(
+    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    socket: &Arc<crate::protocol::obfs::ObfsUdp>,
+    tasks: &super::ProfileTasks,
+    profile_name: &str,
+    addr: SocketAddr,
+    budget_cell: &Arc<std::sync::atomic::AtomicU32>,
+    reported: u16,
+    obfs_key: Option<[u8; 32]>,
+) {
+    let local_addr = match socket.raw_socket().local_addr() {
+        Ok(value) => value,
+        Err(error) => {
+            log::debug!("UDP {addr}: cannot start reverse PMTU probe: {error}");
+            return;
+        }
+    };
+    let (expected, packet) = {
+        let mut guard = sessions.write().await;
+        let Some(client) = guard.get_mut(&addr) else {
+            return;
+        };
+        if !matches!(client.state, UdpSessionState::Authenticated { .. })
+            || !client.data_frag_enabled
+            || client.downlink_mtu_probe.is_some()
+            || client
+                .udp_payload_budget
+                .as_ref()
+                .is_none_or(|cell| !Arc::ptr_eq(cell, budget_cell))
+        {
+            return;
+        }
+        let target = sanitized_udp_payload_budget(
+            reported,
+            addr.is_ipv6(),
+            socket.seal_overhead(),
+            client.quic_enabled,
+        );
+        if budget_cell.load(std::sync::atomic::Ordering::Relaxed) as usize >= target {
+            return;
+        }
+        let id: u16 = rand::random();
+        let generation: u64 = rand::random();
+        let packet_number = client
+            .packet_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let Some((packet, payload_size)) = build_downlink_mtu_probe(
+            id,
+            target,
+            socket.seal_overhead(),
+            client.quic_enabled,
+            &client.connection_id,
+            packet_number,
+        ) else {
+            return;
+        };
+        let expected = DownlinkMtuProbe {
+            generation,
+            id,
+            payload_size,
+            udp_payload_budget: target as u32,
+        };
+        client.downlink_mtu_probe = Some(expected);
+        (expected, packet)
+    };
+
+    let sessions = sessions.clone();
+    let profile_name = profile_name.to_string();
+    let budget_cell = budget_cell.clone();
+    tasks.spawn(async move {
+        let send_result = send_downlink_mtu_probe(local_addr, addr, &packet, obfs_key);
+        if send_result.is_ok() {
+            tokio::time::sleep(DOWNLINK_MTU_PROBE_TIMEOUT).await;
+        }
+        let cleared = {
+            let mut guard = sessions.write().await;
+            guard.get_mut(&addr).is_some_and(|client| {
+                if client.downlink_mtu_probe == Some(expected) {
+                    client.downlink_mtu_probe = None;
+                    true
+                } else {
+                    false
+                }
+            })
+        };
+        if let Err(error) = send_result {
+            log::debug!(
+                "UDP {addr} on profile '{profile_name}': reverse PMTU probe send failed: {error}"
+            );
+        } else if cleared
+            && budget_cell.load(std::sync::atomic::Ordering::Relaxed) < expected.udp_payload_budget
+        {
+            log::debug!(
+                "UDP {addr} on profile '{profile_name}': reverse PMTU probe timed out at {} bytes",
+                expected.udp_payload_budget
+            );
+        }
+    });
+}
+
 #[allow(dead_code)] // session_id retained for symmetry with the TCP session model
 enum UdpSessionState {
     AwaitingAuth,
@@ -151,6 +405,14 @@ struct UdpClient {
     /// probing its path, written here by the receive loop and read by the TUN forwarder.
     /// `None` until authenticated; 0 inside means "never reported". (Audit 2026-07-30, #13.)
     path_mtu: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
+    /// Complete server→client outer UDP payload size certified in that same direction. The
+    /// authenticated client report is only an upper bound used to size a reverse DF probe;
+    /// the writer starts at the family-safe minimum and widens only after the probe ACK.
+    /// Kept separate from `path_mtu`: DATA_FRAG makes inner MTU and outer datagram size
+    /// independent. `None` until authentication completes.
+    udp_payload_budget: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
+    /// One bounded reverse probe awaiting its matching ACK. `None` is also the retry gate.
+    downlink_mtu_probe: Option<DownlinkMtuProbe>,
     /// Shared with this client's `SessionShared.client_info` — the `(version, platform)` it
     /// reported about itself, written here by the receive loop and read by `list-clients`
     /// through the session. `None` until authenticated; `None` inside means "never said".
@@ -450,6 +712,7 @@ pub(crate) async fn run_udp_server(
                     &handshake_permits,
                     &auth_inflight,
                     &tasks,
+                    obfs_key,
                 )
                 .await;
             }
@@ -856,6 +1119,7 @@ async fn handle_udp_datagram(
     handshake_permits: &Arc<Semaphore>,
     auth_inflight: &Arc<tokio::sync::Mutex<std::collections::HashSet<SocketAddr>>>,
     tasks: &super::ProfileTasks,
+    obfs_key: Option<[u8; 32]>,
 ) {
     // Decide whether this datagram is QUIC-masked. For an ESTABLISHED session we honour
     // the choice recorded at handshake time — a QUIC data packet is a short header over
@@ -895,6 +1159,35 @@ async fn handle_udp_datagram(
     // reordered AFTER the first ClientHello fragment (is_new_session was false then),
     // so it is never fed to the per-source reassembler.
     if crate::protocol::udp_frag::is_junk(payload) {
+        return;
+    }
+
+    // Reverse PMTU ACK: only an exact response to the one outstanding server→client probe
+    // may widen this session. It is deliberately handled before PacketCodec because the
+    // full-size probe/short ACK exchange is carrier framing, not encrypted inner traffic.
+    if crate::protocol::udp_frag::is_mtu_probe_ack(payload) {
+        let certified = if let Some((id, payload_size)) =
+            crate::protocol::udp_frag::parse_mtu_probe_ack(payload)
+        {
+            let mut guard = sessions.write().await;
+            guard.get_mut(&addr).and_then(|client| {
+                let expected = client.downlink_mtu_probe?;
+                if expected.id == id && expected.payload_size == payload_size {
+                    client.downlink_mtu_probe = None;
+                    client
+                        .udp_payload_budget
+                        .as_ref()
+                        .map(|cell| (cell.clone(), expected.udp_payload_budget))
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        if let Some((cell, budget)) = certified {
+            note_certified_udp_payload_budget(&cell, format_args!("at {addr}"), budget);
+        }
         return;
     }
 
@@ -1159,6 +1452,7 @@ async fn handle_udp_datagram(
             let exit_access = client.exit_access;
             // Same reason as recv_ctr: taken with the lock, used after it drops.
             let path_mtu = client.path_mtu.clone();
+            let udp_payload_budget = client.udp_payload_budget.clone();
             let client_info = client.client_info.clone();
             drop(sessions_guard);
 
@@ -1212,6 +1506,21 @@ async fn handle_udp_datagram(
                     crate::protocol::ctrl::parse_mtu_report(&plaintext),
                 ) {
                     crate::server::handler::note_path_mtu(cell, format_args!("at {addr}"), mtu);
+                } else if let (Some(cell), Some(budget)) = (
+                    udp_payload_budget.as_ref(),
+                    crate::protocol::ctrl::parse_udp_payload_budget_report(&plaintext),
+                ) {
+                    schedule_downlink_mtu_probe(
+                        sessions,
+                        socket,
+                        tasks,
+                        &profile.name,
+                        addr,
+                        cell,
+                        budget,
+                        obfs_key,
+                    )
+                    .await;
                 } else if let (Some(cell), Some((v, p))) = (
                     client_info.as_ref(),
                     crate::protocol::ctrl::parse_client_info(&plaintext),
@@ -2115,8 +2424,13 @@ async fn handle_udp_auth(
     let writer_cid = connection_id;
     let writer_obfs_overhead = socket.seal_overhead();
     let writer_outer_ipv6 = addr.is_ipv6();
-    let writer_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
-        crate::protocol::data_frag::conservative_udp_payload_budget(writer_outer_ipv6),
+    let initial_udp_payload_budget =
+        crate::protocol::data_frag::conservative_udp_payload_budget(writer_outer_ipv6);
+    let writer_udp_payload_budget = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(
+        initial_udp_payload_budget as u32,
+    ));
+    let fallback_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
+        initial_udp_payload_budget,
         writer_obfs_overhead,
         writer_quic,
     )
@@ -2267,6 +2581,23 @@ async fn handle_udp_auth(
         }
         installed_iroutes.push(cidr.clone());
     }
+    // Publish every authenticated-session cell before AuthOK. Once AuthOK is on the wire the
+    // client may immediately send its one-shot info and path reports on another worker turn;
+    // linking these cells afterwards created a race where those valid control frames saw
+    // `None` and were silently ignored. Admission and route programming are already complete,
+    // so an early authenticated frame cannot observe a half-admitted session.
+    {
+        let mut sessions_guard = sessions.write().await;
+        if let Some(client) = sessions_guard.get_mut(&addr) {
+            client.revoked = Some(writer_session.revoked.clone());
+            client.path_mtu = Some(writer_session.path_mtu.clone());
+            if data_frag_enabled {
+                client.udp_payload_budget = Some(writer_udp_payload_budget.clone());
+            }
+            client.client_info = Some(writer_session.client_info.clone());
+        }
+    }
+
     // ADMITTED — only now does the client learn it is authenticated.
     //
     // Charge what actually goes on the wire first: this send used to be invisible to the
@@ -2287,19 +2618,6 @@ async fn handle_udp_auth(
         client.auth_ok_sent = true;
     }
 
-    // Link the per-worker ingress entry to the session's revocation flag, so a later
-    // kick / quota cut-off / supersede stops this client's UPLOAD as well as its
-    // download. Ingress is keyed by source address here, but every control action edits
-    // `profile.sessions.by_ip` — the flag is the only thing joining the two registries.
-    // (Audit 2026-07-27, A2/A3.)
-    {
-        let mut sessions_guard = sessions.write().await;
-        if let Some(client) = sessions_guard.get_mut(&addr) {
-            client.revoked = Some(writer_session.revoked.clone());
-            client.path_mtu = Some(writer_session.path_mtu.clone());
-            client.client_info = Some(writer_session.client_info.clone());
-        }
-    }
     // Do not let another transport supersede this session between the authoritative insert
     // and its first client-visible AuthOK. UDP sends are bounded to the already-built
     // fragment list, so this does not place an unbounded operation under the admission lock.
@@ -2338,83 +2656,169 @@ async fn handle_udp_auth(
                     let limit = writer_session
                         .bandwidth_limit_mbps
                         .load(std::sync::atomic::Ordering::Relaxed);
-                    if data_frag_enabled && data.len() > writer_record_budget {
-                        let this_record_id = record_id;
-                        record_id = record_id.wrapping_add(1);
-                        let fragments = match crate::protocol::data_frag::fragment_record(
-                            &data,
-                            &writer_data_frag_key,
-                            this_record_id,
-                            writer_record_budget - crate::protocol::data_frag::HEADER_LEN,
-                        ) {
-                            Ok(fragments) => fragments,
-                            Err(error) => {
-                                log::warn!(
-                                    "UDP writer for {} could not fragment a data record: {}",
-                                    writer_addr,
-                                    error
-                                );
+                    let mut retried_at_floor = false;
+                    'budget_attempt: loop {
+                        let current_udp_payload_budget = writer_udp_payload_budget
+                            .load(std::sync::atomic::Ordering::Relaxed) as usize;
+                        let writer_record_budget =
+                            crate::protocol::data_frag::unfragmented_record_budget(
+                                current_udp_payload_budget,
+                                writer_obfs_overhead,
+                                writer_quic,
+                            )
+                            .unwrap_or(fallback_record_budget);
+                        if data_frag_enabled && data.len() > writer_record_budget {
+                            let this_record_id = record_id;
+                            record_id = record_id.wrapping_add(1);
+                            let fragments = match crate::protocol::data_frag::fragment_record(
+                                &data,
+                                &writer_data_frag_key,
+                                this_record_id,
+                                writer_record_budget - crate::protocol::data_frag::HEADER_LEN,
+                            ) {
+                                Ok(fragments) => fragments,
+                                Err(error) => {
+                                    log::warn!(
+                                        "UDP writer for {} could not fragment a data record: {}",
+                                        writer_addr,
+                                        error
+                                    );
+                                    writer_session
+                                        .dropped
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    break 'budget_attempt;
+                                }
+                            };
+                            let wrappers = writer_obfs_overhead
+                                + if writer_quic {
+                                    crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+                                } else {
+                                    0
+                                };
+                            let attempted_wire_len: u64 = fragments
+                                .iter()
+                                .map(|fragment| (fragment.len() + wrappers) as u64)
+                                .sum();
+                            let delay = writer_session
+                                .rates
+                                .download
+                                .consume(attempted_wire_len * 8, limit);
+                            if !delay.is_zero() {
+                                tokio::time::sleep(delay).await;
+                            }
+                            let mut sent_wire_len = 0u64;
+                            let mut send_error = None;
+                            for fragment in fragments {
+                                let pkt: &[u8] = if writer_quic {
+                                    let pn = writer_pn
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    wrap_quic_short_into(
+                                        &fragment,
+                                        &writer_cid,
+                                        pn,
+                                        &mut quic_record,
+                                    );
+                                    &quic_record
+                                } else {
+                                    &fragment
+                                };
+                                match writer_socket.send_to(pkt, writer_addr).await {
+                                    Ok(sent) => sent_wire_len += sent as u64,
+                                    Err(error) => {
+                                        send_error = Some(error);
+                                        break;
+                                    }
+                                }
+                            }
+                            if sent_wire_len > 0 {
+                                writer_session
+                                    .bytes_sent
+                                    .fetch_add(sent_wire_len, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            if let Some(error) = send_error {
+                                if is_message_too_long(&error)
+                                    && !retried_at_floor
+                                    && current_udp_payload_budget > initial_udp_payload_budget
+                                {
+                                    writer_udp_payload_budget.store(
+                                        initial_udp_payload_budget as u32,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    );
+                                    retried_at_floor = true;
+                                    log::warn!(
+                                        "UDP writer for {} hit EMSGSIZE at {} bytes; retrying the complete record at the conservative {}-byte budget",
+                                        writer_addr,
+                                        current_udp_payload_budget,
+                                        initial_udp_payload_budget
+                                    );
+                                    continue 'budget_attempt;
+                                }
                                 writer_session
                                     .dropped
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                continue;
+                                log::warn!(
+                                    "UDP writer for {} dropped a fragmented record after send failure: {}",
+                                    writer_addr,
+                                    error
+                                );
                             }
+                            break 'budget_attempt;
+                        }
+
+                        // Build the actual wire datagram before accounting. Only a successful
+                        // send is charged; a local EMSGSIZE after a path change downgrades the
+                        // session and retries the SAME encrypted record through DATA_FRAG.
+                        let pkt: &[u8] = if writer_quic {
+                            let pn = writer_pn
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            wrap_quic_short_into(&data, &writer_cid, pn, &mut quic_record);
+                            &quic_record
+                        } else {
+                            &data
                         };
-                        let wrappers = writer_obfs_overhead
-                            + if writer_quic {
-                                crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-                            } else {
-                                0
-                            };
-                        let wire_len: u64 = fragments
-                            .iter()
-                            .map(|fragment| (fragment.len() + wrappers) as u64)
-                            .sum();
+                        let wire_len = (pkt.len() + writer_obfs_overhead) as u64;
                         let delay = writer_session.rates.download.consume(wire_len * 8, limit);
                         if !delay.is_zero() {
                             tokio::time::sleep(delay).await;
                         }
-                        writer_session
-                            .bytes_sent
-                            .fetch_add(wire_len, std::sync::atomic::Ordering::Relaxed);
-                        for fragment in fragments {
-                            let pkt: &[u8] = if writer_quic {
-                                let pn = writer_pn
+                        match writer_socket.send_to(pkt, writer_addr).await {
+                            Ok(sent) => {
+                                writer_session
+                                    .bytes_sent
+                                    .fetch_add(sent as u64, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            Err(error)
+                                if data_frag_enabled
+                                    && is_message_too_long(&error)
+                                    && !retried_at_floor
+                                    && current_udp_payload_budget > initial_udp_payload_budget =>
+                            {
+                                writer_udp_payload_budget.store(
+                                    initial_udp_payload_budget as u32,
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                                retried_at_floor = true;
+                                log::warn!(
+                                    "UDP writer for {} hit EMSGSIZE at {} bytes; retrying through DATA_FRAG at the conservative {}-byte budget",
+                                    writer_addr,
+                                    current_udp_payload_budget,
+                                    initial_udp_payload_budget
+                                );
+                                continue 'budget_attempt;
+                            }
+                            Err(error) => {
+                                writer_session
+                                    .dropped
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                wrap_quic_short_into(&fragment, &writer_cid, pn, &mut quic_record);
-                                &quic_record
-                            } else {
-                                &fragment
-                            };
-                            if writer_socket.send_to(pkt, writer_addr).await.is_err() {
-                                break;
+                                log::warn!(
+                                    "UDP writer for {} dropped a record after send failure: {}",
+                                    writer_addr,
+                                    error
+                                );
                             }
                         }
-                        continue;
+                        break 'budget_attempt;
                     }
-                    // Build the actual wire datagram FIRST, then account and throttle on its
-                    // length. `data` is the encrypted record; in QUIC mode the short-header
-                    // wrapper adds bytes that genuinely go on the wire. Counting `data.len()`
-                    // meant a udp+quic session under-reported bytes_sent by the header on
-                    // every packet — and since the download quota is checked against this
-                    // counter, that user got more than their cap. TCP already accounts the
-                    // full on-wire `packet.len()`, so this also removes a UDP-vs-TCP skew.
-                    let pkt: &[u8] = if writer_quic {
-                        let pn = writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        wrap_quic_short_into(&data, &writer_cid, pn, &mut quic_record);
-                        &quic_record
-                    } else {
-                        &data
-                    };
-                    let wire_len = (pkt.len() + writer_obfs_overhead) as u64;
-                    let delay = writer_session.rates.download.consume(wire_len * 8, limit);
-                    if !delay.is_zero() {
-                        tokio::time::sleep(delay).await;
-                    }
-                    writer_session
-                        .bytes_sent
-                        .fetch_add(wire_len, std::sync::atomic::Ordering::Relaxed);
-                    let _ = writer_socket.send_to(pkt, writer_addr).await;
                 }
             }
         }
@@ -2541,6 +2945,8 @@ async fn handle_new_udp_client(
             exit_access: crate::server::ExitAccess::default(),
             revoked: None,
             path_mtu: None,
+            udp_payload_budget: None,
+            downlink_mtu_probe: None,
             client_info: None,
             wire_pool: None,
             // Seed the budget with the exchange that just happened, so the session starts
@@ -2585,7 +2991,10 @@ async fn handle_new_udp_client(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_auth_ok_datagrams, udp_reap_window, AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN};
+    use super::{
+        build_auth_ok_datagrams, build_downlink_mtu_probe, max_useful_udp_payload_budget,
+        sanitized_udp_payload_budget, udp_reap_window, AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
+    };
     use crate::protocol::udp_frag;
     use std::time::Duration;
 
@@ -2747,5 +3156,39 @@ mod tests {
             udp_reap_window(Duration::from_secs(600), None),
             Some(Duration::from_secs(600))
         );
+    }
+
+    #[test]
+    fn reported_udp_budget_never_drops_below_the_family_safe_floor() {
+        assert_eq!(sanitized_udp_payload_budget(1, false, 0, false), 548);
+        assert_eq!(sanitized_udp_payload_budget(1, true, 0, false), 1232);
+        assert_eq!(sanitized_udp_payload_budget(1500, false, 13, true), 1500);
+        assert_eq!(sanitized_udp_payload_budget(1500, true, 13, true), 1500);
+        assert_eq!(
+            sanitized_udp_payload_budget(u16::MAX, false, 13, true),
+            max_useful_udp_payload_budget(13, true),
+            "an authenticated client still cannot make the server emit a useless 64K probe"
+        );
+    }
+
+    #[test]
+    fn reverse_probe_exactly_fills_the_reported_udp_payload_budget() {
+        for (obfs, quic) in [(0usize, false), (13, false), (0, true), (13, true)] {
+            let target = 1500;
+            let (packet, payload_size) =
+                build_downlink_mtu_probe(7, target, obfs, quic, &[1, 2, 3, 4], 9)
+                    .expect("target fits");
+            assert_eq!(packet.len() + obfs, target);
+            assert_eq!(
+                usize::from(payload_size)
+                    + obfs
+                    + if quic {
+                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+                    } else {
+                        0
+                    },
+                target
+            );
+        }
     }
 }

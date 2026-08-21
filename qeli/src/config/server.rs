@@ -290,9 +290,10 @@ impl Default for BruteForceConfig {
 /// anything past that the PEER REJECTS. So the largest inner packet is that budget minus the
 /// per-record overhead, and going higher is a wire error rather than a matter of taste.
 ///
-/// Note the units: this is the TUNNEL (inner) MTU. The link still adds IP + UDP/TCP + the
-/// record and any obfs/QUIC framing on top — about 76 bytes worst case — so on a 16348-byte
-/// link the largest inner MTU that avoids outer fragmentation is nearer 16270.
+/// Note the units: this is the TUNNEL (inner) MTU. A legacy UDP peer still adds IP + UDP +
+/// record + obfs/QUIC framing to one datagram, so on a 16348-byte link its largest no-fragment
+/// inner MTU is nearer 16270. Negotiated DATA_FRAG instead splits the encrypted record to an
+/// independently measured outer budget; the codec ceiling above still applies before splitting.
 /// (Audit 2026-07-27, C4; ceiling derived 2026-07-31.)
 pub const MTU_MIN: u32 = 576;
 pub const MTU_MAX: u32 = crate::protocol::packet::MAX_TUNNEL_MTU as u32;

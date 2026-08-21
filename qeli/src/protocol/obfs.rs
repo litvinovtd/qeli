@@ -162,7 +162,7 @@ pub mod ws {
         }
         msg.extend_from_slice(&bit_len.to_be_bytes());
 
-        for chunk in msg.chunks_exact(64) {
+        for chunk in msg.as_chunks::<64>().0 {
             let mut w = [0u32; 80];
             for (i, word) in w.iter_mut().take(16).enumerate() {
                 *word = u32::from_be_bytes([
@@ -1151,19 +1151,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
 
         let mut local = [0u8; NONCE_LEN];
         rand::Rng::fill_bytes(&mut rand::rng(), &mut local);
-        let peer: [u8; NONCE_LEN];
-        if fronting {
+        let peer: [u8; NONCE_LEN] = if fronting {
             // Nonce carried as a WS binary frame (masked: client→server).
             inner.write_all(&ws_encode_frames(&local, true)).await?;
             inner.flush().await?;
-            peer = read_ws_nonce(&mut inner, &mut reframer).await?;
+            read_ws_nonce(&mut inner, &mut reframer).await?
         } else {
             inner.write_all(&local).await?;
             inner.flush().await?;
             let mut p = [0u8; NONCE_LEN];
             inner.read_exact(&mut p).await?;
-            peer = p;
-        }
+            p
+        };
         Ok(Self {
             read_cipher: cipher_from(key, &peer),
             write_cipher: cipher_from(key, &local),

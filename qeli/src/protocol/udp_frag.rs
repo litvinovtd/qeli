@@ -99,14 +99,16 @@ pub const MSG_SERVER_HELLO: u8 = 2;
 /// need only agree that junk is DROPPED (they never agree on the count — a lost or
 /// reordered junk datagram is harmless), unlike the count-based TCP obfs junk.
 pub const MSG_JUNK: u8 = 3;
-/// Path-MTU **probe** (client→server): a single-fragment datagram padded so the whole
+/// Directional path-MTU **probe**: a single-fragment datagram padded so the whole
 /// outer datagram is exactly the size being tested. Sent with DF set, so if it exceeds
 /// the path MTU it is dropped (not IP-fragmented) → no ACK → that size fails. The body
 /// is `[id(2 LE)][outer_size(2 LE)]` then random padding. Rides the same obfs-XOR /
 /// QUIC wrap as data, so it measures the REAL data-plane path. Recognized and handled
-/// (echoed) before the reassembler, so its oversized "chunk" never hits [`MAX_CHUNK_ACCEPT`].
+/// (echoed) before the reassembler, so its oversized "chunk" never hits
+/// [`MAX_CHUNK_ACCEPT`]. The client probes uplink; a DATA_FRAG-capable server may use the
+/// same frame in reverse and widen downlink only after the client echoes the ACK.
 pub const MSG_MTU_PROBE: u8 = 4;
-/// Path-MTU probe **ACK** (server→client): a tiny datagram echoing the probe's
+/// Path-MTU probe **ACK**: a tiny datagram in the opposite direction, echoing the probe's
 /// `[id(2 LE)][outer_size(2 LE)]`, confirming the big probe arrived intact.
 pub const MSG_MTU_PROBE_ACK: u8 = 5;
 /// The **AuthOK** (server→client), fragmented for the same reason as the ServerHello.
@@ -173,7 +175,7 @@ pub fn parse_mtu_probe(d: &[u8]) -> Option<(u16, u16)> {
     Some((id, size))
 }
 
-/// Parse a client-to-server path-MTU probe only when its complete wire shape is valid.
+/// Parse a directional path-MTU probe only when its complete wire shape is valid.
 ///
 /// The size field is a claim about this payload before QUIC/obfs wrapping. Echoing it from a
 /// short packet would let a spoofed source obtain an ACK for a size that never crossed the
@@ -187,7 +189,7 @@ pub fn parse_mtu_probe_request(d: &[u8]) -> Option<(u16, u16)> {
     (usize::from(parsed.1) == d.len()).then_some(parsed)
 }
 
-/// Parse the fixed-size server-to-client ACK form. Trailing bytes and fragment-like
+/// Parse the fixed-size ACK form. Trailing bytes and fragment-like
 /// `idx/count` values are rejected so the PMTU state machine accepts one unambiguous shape.
 pub fn parse_mtu_probe_ack(d: &[u8]) -> Option<(u16, u16)> {
     if !is_mtu_probe_ack(d) || d.len() != FRAG_HDR_LEN + PROBE_BODY_LEN || d[4] != 0 || d[5] != 1 {
