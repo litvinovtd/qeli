@@ -11,10 +11,12 @@ namespace QeliWin;
 
 /// <summary>
 /// Headless command-line modes for testing without the GUI:
-///   QeliWin.exe selftest             — crypto/codec/parse round-trips (no network, no admin)
+///   QeliWin.exe selftest             — crypto/codec/parse round-trips (no network)
 ///   QeliWin.exe packetbench [--ci]   — managed PacketCodec release benchmark
-///   QeliWin.exe handshake &lt;link|ini|file&gt; — connect + full handshake only (no admin)
+///   QeliWin.exe handshake &lt;link|ini|file&gt; — connect + full handshake only
 ///   QeliWin.exe connect   &lt;link|ini|file&gt; [seconds] — full tunnel (needs admin)
+/// The EXE manifest requests elevation for every verb. Run the framework-dependent
+/// <c>dotnet QeliWin.dll selftest|handshake</c> form when a no-admin diagnostic is required.
 /// </summary>
 public static class CliRunner
 {

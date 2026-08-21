@@ -9,7 +9,7 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // Keep the documented no-admin self-test free from startup recovery side effects.
+        // Keep self-test free from startup recovery side effects (the DLL-hosted form is no-admin).
         // A stale firewall journal is host state and must not be touched by a CI probe.
         if (args.Length > 0 &&
             string.Equals(args[0], "selftest", StringComparison.OrdinalIgnoreCase))

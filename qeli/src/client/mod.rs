@@ -3469,11 +3469,8 @@ async fn probe_udp_mtu(
     let ladder = mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6());
 
     let mut buf = vec![0u8; 2048];
-    // Randomize the probe-id sequence per connection. A fixed start (0x4D54 "MT") + a
-    // predictable +1 per rung let an off-path attacker forge a probe-ACK and pin the client
-    // to a too-large MTU (a DoS on fake-tls-UDP-without-obfs, where the probe rides in the
-    // clear). A random 16-bit start means the attacker must also guess the id.
-    let mut probe_id: u16 = rand::rng().random();
+    // Every challenge gets an independent id. A random start followed by predictable +1
+    // still let one lucky off-path guess predict all later rungs.
 
     // One rung: send up to twice, accept only an ACK echoing this id AND this size.
     //
@@ -3482,7 +3479,7 @@ async fn probe_udp_mtu(
     macro_rules! try_mtu {
         ($m:expr) => {{
             let m: i32 = $m;
-            probe_id = probe_id.wrapping_add(1);
+            let probe_id: u16 = rand::rng().random();
             let probe_size = (m as usize + UDP_RECORD_PROBE_OVERHEAD) as u16;
             match mtu_probe_datagram(probe_id, m as usize + UDP_RECORD_PROBE_OVERHEAD) {
                 None => false,
@@ -3574,6 +3571,21 @@ async fn probe_udp_mtu(
             log::debug!("path-MTU probe: refined {lo0} -> {lo} (upper bound {hi0})");
         }
         found = Some(lo);
+    }
+
+    // V1 has only a 16-bit correlation id for compatibility with old servers. Do not let a
+    // single lucky off-path guess certify the session's final budget: require two additional,
+    // independently random exact echoes after the search converges. Together with the probe
+    // that selected the candidate this raises blind-forgery work from 2^16 to roughly 2^48,
+    // without changing the wire format. If confirmation is lost/blocked, fail closed to the
+    // existing conservative DATA_FRAG budget (or the legacy IP-fragmentation fallback).
+    if let Some(candidate) = found {
+        if !try_mtu!(candidate) || !try_mtu!(candidate) {
+            log::warn!(
+                "path-MTU probe: final candidate {candidate} did not pass independent confirmation"
+            );
+            found = None;
+        }
     }
     // DATA_FRAG_V1 keeps every outer datagram inside the certified budget, so retaining DF
     // prevents accidental IP fragmentation. A legacy peer cannot split an encrypted record:

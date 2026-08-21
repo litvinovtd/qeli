@@ -13,6 +13,24 @@ use qeli::config::format::IniDoc;
 use qeli::config::server::ServerConfig;
 use qeli::config::users::UsersDb;
 
+const VALID_TEST_PIN: &str = "0900000000000000000000000000000000000000000000000000000000000000";
+
+fn materialize_client_template(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("key = ") {
+                format!("key = {VALID_TEST_PIN}")
+            } else if trimmed == "# reality_sid = <hex>" {
+                "reality_sid = 0123456789abcdef".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn shipped_server_examples_have_no_unread_keys() {
@@ -126,6 +144,18 @@ fn shipped_client_examples_have_no_unexpected_unread_keys() {
                 "{name}: placeholder refusal must point at the pinned key, got: {error}"
             );
         }
+
+        // Placeholder rejection alone is not proof that the rest of a REALITY template
+        // works. Substitute a valid public pin and run the complete pair/range validator.
+        let materialized = materialize_client_template(text);
+        let materialized_doc = IniDoc::parse(&materialized)
+            .unwrap_or_else(|e| panic!("{name}: materialized parse error: {e}"));
+        let materialized_cfg = ClientConfig::from_ini(&materialized_doc)
+            .unwrap_or_else(|e| panic!("{name}: materialized from_ini failed: {e}"));
+        materialized_cfg
+            .validate()
+            .unwrap_or_else(|e| panic!("{name}: materialized template would refuse to start: {e}"));
+
         let unexpected: Vec<_> = doc
             .unread_keys()
             .into_iter()
@@ -136,6 +166,46 @@ fn shipped_client_examples_have_no_unexpected_unread_keys() {
             "{name}: {} key(s) check-config would flag as typos: {:?}",
             unexpected.len(),
             unexpected
+        );
+    }
+}
+
+#[test]
+fn release_client_templates_validate_after_documented_materialization() {
+    for (name, text) in [
+        (
+            "release/reality-tls/client-reality.conf",
+            include_str!("../../release/reality-tls/client-reality.conf"),
+        ),
+        (
+            "release/keenetic/client.conf.example",
+            include_str!("../../release/keenetic/client.conf.example"),
+        ),
+        (
+            "release/keenetic/opkgtun/client.conf.example",
+            include_str!("../../release/keenetic/opkgtun/client.conf.example"),
+        ),
+    ] {
+        let materialized = materialize_client_template(text)
+            .replace("YOUR_SERVER_HOST", "vpn.example.com")
+            .replace("YOUR_USERNAME", "client1")
+            .replace("YOUR_PASSWORD", "changeme")
+            .replace("YOUR_SERVER_PUBKEY_HEX", VALID_TEST_PIN)
+            .replace("YOUR_SHORT_ID_HEX", "0123456789abcdef");
+        let doc = IniDoc::parse(&materialized)
+            .unwrap_or_else(|e| panic!("{name}: materialized parse error: {e}"));
+        let cfg = ClientConfig::from_ini(&doc)
+            .unwrap_or_else(|e| panic!("{name}: materialized from_ini failed: {e}"));
+        cfg.validate()
+            .unwrap_or_else(|e| panic!("{name}: materialized template would refuse to start: {e}"));
+        let unexpected: Vec<_> = doc
+            .unread_keys()
+            .into_iter()
+            .filter(|(_, key)| !qeli::config::GUI_ONLY_CLIENT_KEYS.contains(key))
+            .collect();
+        assert!(
+            unexpected.is_empty(),
+            "{name}: materialized template has unread keys: {unexpected:?}"
         );
     }
 }

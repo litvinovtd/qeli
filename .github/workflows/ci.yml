@@ -187,6 +187,11 @@ jobs:
             for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
               test -f "/tmp/x/etc/qeli/$name.conf.example"
             done
+            pin=0900000000000000000000000000000000000000000000000000000000000000
+            for name in client client-reality client-maxobf; do
+              sed "s/^key = .*/key = $pin/" "/tmp/x/etc/qeli/$name.conf.example" >"/tmp/$name.conf"
+              /tmp/x/usr/bin/qeli check-config --client --config "/tmp/$name.conf"
+            done
           ' "${{ steps.pkg.outputs.deb }}"
       - name: Installs and runs on an old supported distro (ubuntu:22.04)
         run: |
@@ -199,6 +204,11 @@ jobs:
             qeli version
             for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
               test -f "/etc/qeli/$name.conf.example"
+            done
+            pin=0900000000000000000000000000000000000000000000000000000000000000
+            for name in client client-reality client-maxobf; do
+              sed "s/^key = .*/key = $pin/" "/etc/qeli/$name.conf.example" >"/tmp/$name.conf"
+              qeli check-config --client --config "/tmp/$name.conf"
             done
           ' "${{ steps.pkg.outputs.deb }}"
 

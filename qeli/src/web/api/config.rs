@@ -723,6 +723,7 @@ fn configure_quickstart_ip_mode(
         // an existing IPv6-only profile (where NAT44 is deliberately disabled) is
         // switched back to IPv4.
         profile.routing.nat.enabled = true;
+        profile.routing.forward_private = true;
         profile.tun.ipv6_address = None;
         profile.pool.ipv6 = Default::default();
         profile.routing.ipv6.mode = Ipv6RoutingMode::Off;
@@ -899,14 +900,22 @@ fn quickstart_profile_for_current(
     }
 
     let (profile, short_id, obfs_key) = build_quickstart_profile(mode)?;
-    let mut profile = place_quickstart_network(profile, current, host)?;
+    let desired = resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
+    // IPv6-only profiles do not lease, assign or route the dormant IPv4 fields. Requiring a
+    // collision-free RFC1918 /24 here made an otherwise valid IPv6-only Quick Start fail on
+    // corporate hosts that route all private IPv4 space. Dual/IPv4 profiles still use the
+    // full host-aware selector because their IPv4 pool is active.
+    let mut profile = if desired == crate::config::server::IpMode::Ipv6 {
+        profile
+    } else {
+        place_quickstart_network(profile, current, host)?
+    };
     // Outer carrier reachability is independent from inner `tun.ip_mode`. Add the V6ONLY
     // wildcard socket only when the host snapshot contains an IPv6 interface/default;
     // otherwise `[::]` can make an otherwise valid IPv4 Quick Start profile fail startup.
     if host_has_ipv6_listener(host) {
         profile.bind.listen = vec![format!("[::]:{}", spec.port)];
     }
-    let desired = resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
     configure_quickstart_ip_mode(
         &mut profile,
         desired,
@@ -2380,6 +2389,32 @@ mod raw_secret_tests {
         };
         let error = place_quickstart_network(target, &current, Some(&host)).unwrap_err();
         assert!(error.contains("no collision-free private /24"));
+    }
+
+    #[test]
+    fn ipv6_only_quickstart_does_not_require_unused_rfc1918_space() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let mut host = native_ipv6_host();
+        host.routes = vec![
+            ("corp0".into(), "10.0.0.0/8".parse().unwrap()),
+            ("corp0".into(), "172.16.0.0/12".parse().unwrap()),
+            ("corp0".into(), "192.168.0.0/16".parse().unwrap()),
+        ];
+
+        let (profile, _, _, reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap();
+        assert!(!reused);
+        assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Ipv6);
+        current.profiles.push(profile);
+        crate::server::validate_profiles(&current).unwrap();
+        crate::server::preflight::check(&current, &host).unwrap();
     }
 
     fn native_ipv6_host() -> crate::server::preflight::HostNet {

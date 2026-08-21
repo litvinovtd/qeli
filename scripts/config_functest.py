@@ -26,6 +26,9 @@ SRC_BIN = os.environ.get("QELI_LAB_SRC_BIN", "/opt/qeli-src/target/release/qeli"
 ROOT = Path(__file__).resolve().parents[1]
 CFG = ROOT / "qeli" / "config"
 USER, PASS = "client1", "testpass123"
+# RFC 7748 X25519 base point (little-endian u=9): public, non-secret and accepted as
+# a syntactically and cryptographically meaningful pinned key in validation-only configs.
+VALID_TEST_PIN = "09" + "00" * 31
 SERVER_PID = "/tmp/qeli-config-functest-server.pid"
 CLIENT_PID = "/tmp/qeli-config-functest-client.pid"
 IPERF_PID = "/tmp/qeli-config-functest-iperf.pid"
@@ -126,12 +129,16 @@ def parse_validate(s, cl):
             print("        ", output.splitlines()[-1][:160] if output else "(no output)")
         results.append((f"check-config {f} + users.conf", ok))
 
-    # Validate all client files without opening a socket. One developer template has
-    # an explicit paste marker; replace only that documented marker with an inert key.
+    # Validate all client files without opening a socket. REALITY templates intentionally
+    # ship an unusable zero/paste placeholder; materialize every documented key placeholder
+    # with a real non-zero X25519 public input so this gate tests the complete config instead
+    # of merely confirming that placeholder rejection works.
     for path in sorted(CFG.glob("client*.conf")):
         f = path.name
-        text = path.read_text(encoding="utf-8").replace(
-            "PASTE_64_HEX_KEY_FROM_qeli_show-identity", "0" * 64
+        text = re.sub(
+            r"(?m)^key\s*=\s*(?:0{64}|PASTE_64_HEX_KEY_FROM_qeli_show-identity)\s*$",
+            f"key = {VALID_TEST_PIN}",
+            path.read_text(encoding="utf-8"),
         )
         put_text(cl, f"/tmp/pv-{f}", text)
         rc, output = checked(
