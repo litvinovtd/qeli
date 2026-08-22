@@ -538,11 +538,30 @@ where
 
             // Negotiate the family set before touching either pool. IPv6-only incapable
             // clients fail here; dual profiles downgrade old/off clients to legacy IPv4.
-            let negotiated_ip_mode = crate::protocol::capabilities::negotiated_profile_ip_mode(
+            let negotiated_ip_mode = match crate::protocol::capabilities::negotiated_profile_ip_mode(
                 pcfg.tun.ip_mode,
                 capabilities,
-            )
-            .map_err(|error| anyhow::anyhow!("profile '{}': {error}", pcfg.name))?;
+            ) {
+                Ok(mode) => mode,
+                Err(error) => {
+                    let reason = error.to_string();
+                    let message = build_auth_error(&reason);
+                    match server_tx_codec.encrypt_packet(message.as_bytes(), &[]) {
+                        Ok(record) => {
+                            if let Err(send_error) = stream.write_all(&record).await {
+                                log::debug!(
+                                    "TCP {addr}: failed to send authenticated negotiation error: {send_error}"
+                                );
+                            }
+                        }
+                        Err(send_error) => log::debug!(
+                            "TCP {addr}: failed to encrypt authenticated negotiation error: \
+                             {send_error}"
+                        ),
+                    }
+                    return Err(anyhow::anyhow!("profile '{}': {error}", pcfg.name));
+                }
+            };
 
             // Identify the device: same login + same device-id supersedes its own
             // old session (clean reconnect on IP change); different devices of one
@@ -569,10 +588,7 @@ where
             // same tunnel IP. None = normal dynamic allocation.
             let (fixed_ip, fixed_ipv6) = {
                 let db = server_state.users_db.read().await;
-                (
-                    resolve_static_ip(&db, pcfg, &username),
-                    resolve_static_ipv6(&db, pcfg, &username),
-                )
+                resolve_static_addresses(&db, pcfg, &username, negotiated_ip_mode)?
             };
             // #13 iroute: subnets/addresses behind THIS client (its extra address or LAN),
             // from the LIVE users db so a panel edit + SIGHUP applies. Registered in the
@@ -763,43 +779,17 @@ where
                 for s in &cap_evicted {
                     pool.release(&s.device_key);
                 }
-                let result = if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
-                    pool.retain_mode_leases(&dkey, negotiated_ip_mode);
-                    let ip = match fixed_ip {
-                        // Fixed address for this user; if it's out of the pool / excluded,
-                        // allocate_fixed returns None and we fall back to a dynamic address.
-                        Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
-                            log::warn!(
-                                "static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
-                                want, username, profile.name
-                            );
-                            pool.allocate(&dkey)
-                        }),
-                        None => pool.allocate(&dkey),
-                    };
-                    ip.map(|ipv4| crate::server::pool::AssignedAddresses {
-                        ipv4: Some(ipv4),
-                        ipv6: None,
-                    })
-                    .ok_or_else(|| {
+                let result = pool
+                    .allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
+                    .map_err(|error| {
                         anyhow::anyhow!(
-                            "no IP available for {} on profile '{}'",
+                            "cannot allocate {} address set for '{}' on profile '{}': {}",
+                            negotiated_ip_mode,
                             username,
-                            profile.name
+                            profile.name,
+                            error
                         )
-                    })
-                } else {
-                    pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
-                        .map_err(|error| {
-                            anyhow::anyhow!(
-                                "cannot allocate {} address set for '{}' on profile '{}': {}",
-                                negotiated_ip_mode,
-                                username,
-                                profile.name,
-                                error
-                            )
-                        })
-                };
+                    });
                 // A reconnect removes the old authoritative session before allocation. The
                 // allocator transaction intentionally restores this device's previous leases
                 // on failure, but with no session left those leases would be orphaned forever.
@@ -2206,38 +2196,34 @@ pub fn build_routes_json_pub(
 }
 
 /// Resolve a user's FIXED tunnel address for this profile (variant-b static IP): the
-/// per-user `static_ip`, else a profile-level `pool.reservation.<user>`. Returns the
-/// parsed address if configured; the pool's `allocate_fixed` then validates it against the
-/// pool range/exclusions, and the caller falls back to dynamic allocation on a `None`.
+/// per-user `static_ip`, else a profile-level `pool.reservation.<user>`. A configured value
+/// that cannot be parsed is an admission error; only an actually absent value becomes `None`.
 /// Read from the LIVE users_db at auth time, so a panel edit + SIGHUP takes effect at once.
 pub fn resolve_static_ip(
     users_db: &crate::config::users::UsersDb,
     pcfg: &crate::config::server::ProfileConfig,
     username: &str,
-) -> Option<std::net::Ipv4Addr> {
-    let configured = users_db
+) -> anyhow::Result<Option<std::net::Ipv4Addr>> {
+    let Some(configured) = users_db
         .find_user(username)
         .and_then(|u| u.static_ip.clone())
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| pcfg.pool.static_reservations.get(username).cloned())?;
-    match configured.trim().parse::<std::net::Ipv4Addr>() {
-        Ok(ip) => Some(ip),
-        Err(_) => {
-            // Previously `.ok()` swallowed this, making a malformed address
-            // indistinguishable from "no static IP" — the user silently got a dynamic
-            // one with NOTHING in the log. The out-of-pool case already warns in the
-            // caller; this covers the typo case. (The panel now rejects it at
-            // authoring time too, but a hand-edited file still reaches here.)
-            log::warn!(
-                "static IP {:?} for user '{}' on profile '{}' is not a valid IPv4 address — \
-                 using a dynamic address",
+        .or_else(|| pcfg.pool.static_reservations.get(username).cloned())
+    else {
+        return Ok(None);
+    };
+    configured
+        .trim()
+        .parse::<std::net::Ipv4Addr>()
+        .map(Some)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "static_ip '{}' for user '{}' on profile '{}' is invalid: {error}",
                 configured,
                 crate::util::log_sanitize(username),
-                profile_name_of(pcfg)
-            );
-            None
-        }
-    }
+                pcfg.name
+            )
+        })
 }
 
 /// Resolve a user's fixed IPv6 tunnel address from the live user database, falling back
@@ -2247,30 +2233,52 @@ pub fn resolve_static_ipv6(
     users_db: &crate::config::users::UsersDb,
     pcfg: &crate::config::server::ProfileConfig,
     username: &str,
-) -> Option<std::net::Ipv6Addr> {
-    let configured = users_db
+) -> anyhow::Result<Option<std::net::Ipv6Addr>> {
+    let Some(configured) = users_db
         .find_user(username)
         .and_then(|user| user.static_ipv6.clone())
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| pcfg.pool.ipv6.static_reservations.get(username).cloned())?;
-    match configured.trim().parse::<std::net::Ipv6Addr>() {
-        Ok(address) => Some(address),
-        Err(_) => {
-            log::warn!(
-                "static IPv6 {:?} for user '{}' on profile '{}' is invalid; using a dynamic address",
+        .or_else(|| pcfg.pool.ipv6.static_reservations.get(username).cloned())
+    else {
+        return Ok(None);
+    };
+    configured
+        .trim()
+        .parse::<std::net::Ipv6Addr>()
+        .map(Some)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "static_ipv6 '{}' for user '{}' on profile '{}' is invalid: {error}",
                 configured,
                 crate::util::log_sanitize(username),
-                profile_name_of(pcfg)
-            );
-            None
-        }
-    }
+                pcfg.name
+            )
+        })
 }
 
-/// Profile name for a log line (the config carries it; kept tiny so `resolve_static_ip`
-/// stays a pure lookup).
-fn profile_name_of(pcfg: &crate::config::server::ProfileConfig) -> &str {
-    &pcfg.name
+pub fn resolve_static_addresses(
+    users_db: &crate::config::users::UsersDb,
+    pcfg: &crate::config::server::ProfileConfig,
+    username: &str,
+    mode: crate::config::server::IpMode,
+) -> anyhow::Result<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>)> {
+    let ipv4 = if matches!(
+        mode,
+        crate::config::server::IpMode::Ipv4 | crate::config::server::IpMode::Dual
+    ) {
+        resolve_static_ip(users_db, pcfg, username)?
+    } else {
+        None
+    };
+    let ipv6 = if matches!(
+        mode,
+        crate::config::server::IpMode::Ipv6 | crate::config::server::IpMode::Dual
+    ) {
+        resolve_static_ipv6(users_db, pcfg, username)?
+    } else {
+        None
+    };
+    Ok((ipv4, ipv6))
 }
 
 /// Build the auth-OK payload sent to the client after a successful login.
@@ -2298,6 +2306,10 @@ pub fn build_auth_ok(
         max_streams,
         client_capabilities,
     )
+}
+
+pub(crate) fn build_auth_error(reason: &str) -> String {
+    format!("ERR:{reason}")
 }
 
 pub fn build_auth_ok_for_addresses(
@@ -2464,8 +2476,52 @@ pub fn build_auth_ok_for_addresses(
 #[cfg(test)]
 mod auth_ok_prefix_tests {
     use super::{
-        build_auth_ok, build_auth_ok_for_addresses, build_routes_json_for_user, JOIN_TOKEN_LEN,
+        build_auth_error, build_auth_ok, build_auth_ok_for_addresses, build_routes_json_for_user,
+        resolve_static_addresses, JOIN_TOKEN_LEN,
     };
+
+    #[test]
+    fn inactive_static_address_family_is_not_parsed() {
+        use crate::config::server::{IpMode, ProfileConfig};
+        use crate::config::users::{UserEntry, UsersDb};
+
+        let profile = ProfileConfig::baseline();
+        let ipv4_db = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ip: Some("10.8.0.7".into()),
+                static_ipv6: Some("not-an-ipv6-address".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_static_addresses(&ipv4_db, &profile, "alice", IpMode::Ipv4).unwrap(),
+            (Some("10.8.0.7".parse().unwrap()), None)
+        );
+
+        let ipv6_db = UsersDb {
+            users: vec![UserEntry {
+                username: "alice".into(),
+                static_ip: Some("not-an-ipv4-address".into()),
+                static_ipv6: Some("fd71:e1::7".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_static_addresses(&ipv6_db, &profile, "alice", IpMode::Ipv6).unwrap(),
+            (None, Some("fd71:e1::7".parse().unwrap()))
+        );
+    }
+
+    #[test]
+    fn authenticated_negotiation_error_has_client_visible_wire_marker() {
+        assert_eq!(
+            build_auth_error("profile requires IPv6 capability"),
+            "ERR:profile requires IPv6 capability"
+        );
+    }
 
     #[test]
     fn pool_cidr_prefix_is_pushed_without_a_24_fallback() {

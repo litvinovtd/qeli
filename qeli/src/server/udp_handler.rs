@@ -147,7 +147,7 @@ fn set_probe_df(socket: &socket2::Socket, peer_is_ipv6: bool) -> std::io::Result
     } else {
         (libc::IPPROTO_IP, libc::IP_MTU_DISCOVER)
     };
-    let value: libc::c_int = libc::IP_PMTUDISC_PROBE;
+    let value: libc::c_int = crate::protocol::data_frag::ACTIVE_PMTUDISC_MODE;
     let result = unsafe {
         libc::setsockopt(
             socket.as_raw_fd(),
@@ -1105,6 +1105,17 @@ fn build_auth_ok_datagrams(
         .collect())
 }
 
+fn build_auth_error_datagrams(
+    tx_codec: &mut PacketCodec,
+    reason: &str,
+    quic_enabled: bool,
+    connection_id: &[u8; 4],
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    let message = handler::build_auth_error(reason);
+    let record = tx_codec.encrypt_packet(message.as_bytes(), &[])?;
+    build_auth_ok_datagrams(&record, quic_enabled, connection_id).map_err(anyhow::Error::msg)
+}
+
 #[allow(clippy::too_many_arguments)] // datagram dispatch threads the shared UDP state
 async fn handle_udp_datagram(
     server_state: &Arc<ServerState>,
@@ -1243,12 +1254,12 @@ async fn handle_udp_datagram(
             // the note on `amp_received` for what the two counters do and do not include.
             client.amp_received = client.amp_received.saturating_add(data.len() as u64);
 
-            let reemit_hello = matches!(client.state, UdpSessionState::AwaitingAuth)
+            let reemit_auth_response =
+                !client.auth_ok.is_empty() && payload == client.auth_request.as_slice();
+            let reemit_hello = !reemit_auth_response
+                && matches!(client.state, UdpSessionState::AwaitingAuth)
                 && crate::protocol::udp_frag::is_fragment(payload);
-            let reemit_authok = matches!(client.state, UdpSessionState::Authenticated { .. })
-                && !client.auth_ok.is_empty()
-                && payload == client.auth_request.as_slice();
-            if reemit_hello || reemit_authok {
+            if reemit_hello || reemit_auth_response {
                 // NOTE: `last_activity` is deliberately NOT touched here — see below.
                 let hello = client.server_hello.clone();
                 let cid = client.connection_id;
@@ -1831,11 +1842,58 @@ async fn handle_udp_auth(
     ) {
         Ok(mode) => mode,
         Err(error) => {
+            let reason = error.to_string();
+            let response_result: anyhow::Result<Vec<Vec<u8>>> = {
+                let mut sessions_guard = sessions.write().await;
+                let Some(client) = sessions_guard.get_mut(&addr) else {
+                    return;
+                };
+                let packets = {
+                    let mut tx = lock_or_recover(&client.tx_codec, "udp::auth_error");
+                    build_auth_error_datagrams(
+                        &mut tx,
+                        &reason,
+                        client.quic_enabled,
+                        &client.connection_id,
+                    )
+                };
+                match packets {
+                    Ok(packets) => {
+                        client.auth_request = raw_request.to_vec();
+                        client.auth_ok = packets.clone();
+                        client.server_hello.clear();
+                        client.hello_frag_mode = false;
+                        client.packet_counter.fetch_max(
+                            AUTH_OK_FIRST_PN + packets.len() as u32,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        let response_len: u64 =
+                            packets.iter().map(|packet| packet.len() as u64).sum();
+                        client.amp_sent = client.amp_sent.saturating_add(response_len);
+                        Ok(packets)
+                    }
+                    Err(send_error) => Err(send_error),
+                }
+            };
+            let response_pkts = match response_result {
+                Ok(packets) => packets,
+                Err(send_error) => {
+                    log::warn!(
+                        "UDP: cannot build negotiation error for {addr} on profile '{}': \
+                         {send_error}",
+                        profile.name
+                    );
+                    sessions.write().await.remove(&addr);
+                    return;
+                }
+            };
+            for packet in &response_pkts {
+                let _ = socket.send_to(packet, addr).await;
+            }
             log::warn!(
                 "UDP: client {addr} cannot use profile '{}': {error}",
                 profile.name
             );
-            sessions.write().await.remove(&addr);
             return;
         }
     };
@@ -1955,12 +2013,21 @@ async fn handle_udp_auth(
     // different device, or a dynamic user who took it while the owner was offline) from
     // BOTH the shared session map and the per-source-addr UDP map, then steal it below —
     // so a reconnect from a new source IP always lands on the same tunnel address.
-    let (fixed_ip, fixed_ipv6) = {
+    let fixed_addresses = {
         let db = server_state.users_db.read().await;
-        (
-            handler::resolve_static_ip(&db, pcfg, &username),
-            handler::resolve_static_ipv6(&db, pcfg, &username),
-        )
+        handler::resolve_static_addresses(&db, pcfg, &username, negotiated_ip_mode)
+    };
+    let (fixed_ip, fixed_ipv6) = match fixed_addresses {
+        Ok(addresses) => addresses,
+        Err(error) => {
+            log::error!(
+                "UDP: refusing user '{}' on profile '{}': {error}",
+                crate::util::log_sanitize(&username),
+                profile.name
+            );
+            sessions.write().await.remove(&addr);
+            return;
+        }
     };
     if negotiated_ip_mode != crate::config::server::IpMode::Ipv6 {
         if let Some(ip) = fixed_ip {
@@ -2078,38 +2145,14 @@ async fn handle_udp_auth(
         for k in &deferred_release {
             pool.release(k);
         }
-        let result = if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
-            pool.retain_mode_leases(&dkey, negotiated_ip_mode);
-            let allocated = match fixed_ip {
-                Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
-                    log::warn!(
-                        "UDP: static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
-                        want, username, profile.name
-                    );
-                    pool.allocate(&dkey)
-                }),
-                None => pool.allocate(&dkey),
-            };
-            allocated
-                .map(|ipv4| crate::server::pool::AssignedAddresses {
-                    ipv4: Some(ipv4),
-                    ipv6: None,
-                })
-                .ok_or_else(|| {
-                    format!(
-                        "no IP available for {} on profile '{}'",
-                        username, profile.name
-                    )
-                })
-        } else {
-            pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
-                .map_err(|error| {
-                    format!(
-                        "cannot allocate {} address set for '{}' on profile '{}': {}",
-                        negotiated_ip_mode, username, profile.name, error
-                    )
-                })
-        };
+        let result = pool
+            .allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
+            .map_err(|error| {
+                format!(
+                    "cannot allocate {} address set for '{}' on profile '{}': {}",
+                    negotiated_ip_mode, username, profile.name, error
+                )
+            });
         // The old UDP ownership was already evicted under the profile admission lock. If
         // allocation restored an earlier lease and then failed, no live session would own it;
         // release it before publishing the error so the pool cannot shrink on failed mode
@@ -2997,11 +3040,39 @@ async fn handle_new_udp_client(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_auth_ok_datagrams, build_downlink_mtu_probe, max_useful_udp_payload_budget,
-        sanitized_udp_payload_budget, udp_reap_window, AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
+        build_auth_error_datagrams, build_auth_ok_datagrams, build_downlink_mtu_probe,
+        max_useful_udp_payload_budget, sanitized_udp_payload_budget, udp_reap_window,
+        AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
     };
     use crate::protocol::udp_frag;
     use std::time::Duration;
+
+    #[test]
+    fn negotiation_error_uses_the_authenticated_record_and_quic_framing() {
+        let key = [0x5au8; 32];
+        let cid = [9u8, 8, 7, 6];
+        for quic_enabled in [false, true] {
+            let mut tx = crate::protocol::PacketCodec::new(key);
+            let mut rx = crate::protocol::PacketCodec::new(key);
+            let packets = build_auth_error_datagrams(
+                &mut tx,
+                "profile requires IPv6 capability",
+                quic_enabled,
+                &cid,
+            )
+            .expect("ERR response builds");
+            assert_eq!(packets.len(), 1);
+            let record = if quic_enabled {
+                crate::protocol::quic::unwrap_quic(&packets[0])
+                    .expect("QUIC response")
+                    .payload
+            } else {
+                packets[0].clone()
+            };
+            let response = String::from_utf8(rx.decrypt_packet(&record).unwrap()).unwrap();
+            assert_eq!(response, "ERR:profile requires IPv6 capability");
+        }
+    }
 
     /// A small AuthOK must go out EXACTLY as it always did.
     ///

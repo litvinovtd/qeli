@@ -28,6 +28,15 @@ pub const IPV6_MIN_UDP_PAYLOAD: usize = 1280 - 40 - 8;
 /// Supported conservative IPv4 floor: 576-byte path minus IPv4 and UDP headers.
 pub const IPV4_MIN_UDP_PAYLOAD: usize = 576 - 20 - 8;
 
+/// Linux PMTU discovery mode used while sending active QELI MTU probes.
+///
+/// `IP_PMTUDISC_PROBE` deliberately ignores the route/cached PMTU and therefore
+/// can report a payload size that the normal data path (`IP_PMTUDISC_DO`) cannot
+/// send. Active probes still need DF, but must obey the kernel path-MTU view so
+/// that the discovered budget is valid for subsequent DATA/DATA_FRAG packets.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) const ACTIVE_PMTUDISC_MODE: libc::c_int = libc::IP_PMTUDISC_DO;
+
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -362,6 +371,13 @@ mod tests {
     use super::*;
 
     const KEY: [u8; 32] = [0x42; 32];
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn active_pmtu_probes_use_the_normal_df_mode() {
+        assert_eq!(ACTIVE_PMTUDISC_MODE, libc::IP_PMTUDISC_DO);
+        assert_ne!(ACTIVE_PMTUDISC_MODE, libc::IP_PMTUDISC_PROBE);
+    }
 
     #[test]
     fn reorder_reassembles_exact_encrypted_record() {

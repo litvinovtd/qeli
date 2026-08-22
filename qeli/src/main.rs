@@ -1153,26 +1153,50 @@ fn add_client(
     // copy loaded earlier and writing the whole thing back raced a RUNNING server: the
     // worker holds its own copy and rewrites the file on any control-socket change, so a
     // client added here could be silently reverted minutes later (seen in the lab).
-    qeli::config::users::UsersDb::update_locked(&users_file, |fresh| {
+    let (_, added) = qeli::config::users::UsersDb::update_locked(&users_file, |fresh| {
         // Re-check on the just-read state: the name may have appeared since.
         if fresh.users.iter().any(|u| u.username == entry.username) {
-            return false;
+            return Ok(false);
         }
         fresh.users.push(entry);
-        true
-    })
-    .map_err(|e| anyhow::anyhow!("cannot write users file {}: {}", users_file, e))
-    .and_then(|(_, added)| {
-        if added {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "user '{}' already exists in {} (added concurrently)",
-                username,
-                users_file
-            ))
+
+        // Validate the exact effective file+inline union while the cross-process lock is
+        // held. This prevents a concurrent add from creating a duplicate fixed address and
+        // keeps CLI, panel, check-config and runtime startup on the same gate.
+        let mut effective = fresh.clone();
+        let file_users: std::collections::HashSet<String> = effective
+            .users
+            .iter()
+            .map(|user| user.username.clone())
+            .collect();
+        for inline in &server_cfg.auth.users {
+            if !file_users.contains(&inline.username) {
+                effective.users.push(inline.clone());
+            }
         }
+        for (name, group) in &server_cfg.auth.groups {
+            effective
+                .groups
+                .entry(name.clone())
+                .or_insert_with(|| group.clone());
+        }
+        if let Err(error) = qeli::server::validate_static_address_sources(&server_cfg, &effective) {
+            fresh.users.pop();
+            return Err(error);
+        }
+        Ok(true)
+    })
+    .map_err(|e| anyhow::anyhow!("cannot write users file {}: {}", users_file, e))?;
+    let added: bool = added.map_err(|error| {
+        anyhow::anyhow!("client address validation failed; users file was not changed: {error}")
     })?;
+    if !added {
+        anyhow::bail!(
+            "user '{}' already exists in {} (added concurrently)",
+            username,
+            users_file
+        );
+    }
 
     println!("Added client '{}' to {}", username, users_file);
     if generated {

@@ -133,14 +133,41 @@ pub(crate) fn present(path: &str, args: &[&str]) -> bool {
     ipt(path, args).map(|o| o.status.success()).unwrap_or(false)
 }
 
-fn absent_check(status: &std::process::ExitStatus, stderr: &str) -> bool {
+fn expected_qeli_chain<'a>(args: &'a [&'a str]) -> Option<&'a str> {
+    let candidate = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "-j").then_some(pair[1]))
+        .or_else(|| {
+            if args.first() == Some(&"-S") {
+                args.get(1).copied()
+            } else {
+                None
+            }
+        });
+    candidate.filter(|chain| *chain == LEGACY_CHAIN || chain.starts_with("QELI_KS_"))
+}
+
+fn absent_check(
+    status: &std::process::ExitStatus,
+    stderr: &str,
+    expected_chain: Option<&str>,
+) -> bool {
     if status.code() == Some(1) {
         return true;
     }
     let stderr = stderr.to_ascii_lowercase();
-    stderr.contains("no chain/target/match by that name")
+    if stderr.contains("no chain/target/match by that name")
         || stderr.contains("does a matching rule exist")
         || stderr.contains("rule does not exist")
+    {
+        return true;
+    }
+    expected_chain.is_some_and(|chain| {
+        let chain = chain.to_ascii_lowercase();
+        stderr.contains("couldn't load target")
+            && stderr.contains("no such file or directory")
+            && stderr.contains(&chain)
+    })
 }
 
 /// Presence check for teardown paths, where "absent" and "could not inspect the
@@ -152,7 +179,7 @@ pub(crate) fn present_checked(path: &str, args: &[&str]) -> anyhow::Result<bool>
         return Ok(true);
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if absent_check(&output.status, &stderr) {
+    if absent_check(&output.status, &stderr, expected_qeli_chain(args)) {
         Ok(false)
     } else {
         anyhow::bail!(
@@ -182,7 +209,7 @@ fn chain_exists(path: &str, chain: &str) -> anyhow::Result<bool> {
         return Ok(true);
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if absent_check(&output.status, &stderr) {
+    if absent_check(&output.status, &stderr, Some(chain)) {
         Ok(false)
     } else {
         anyhow::bail!(
@@ -929,6 +956,26 @@ mod fault_injection {
         let path = ipt.dir.join("iptables");
         let path = path.to_string_lossy().into_owned();
         engage_family(&path, tun_if, &["203.0.113.7".to_string()], guard_forward)
+    }
+
+    #[test]
+    fn iptables_legacy_missing_qeli_target_is_absent_not_fatal() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let status = std::process::ExitStatus::from_raw(2 << 8);
+        let stderr = "iptables v1.8.9 (legacy): Couldn't load target \
+                      'QELI_KS_qtest':No such file or directory";
+        assert!(absent_check(&status, stderr, Some("QELI_KS_qtest")));
+        assert!(!absent_check(&status, stderr, Some("QELI_KS_other")));
+
+        let unrelated = "iptables v1.8.9 (legacy): Couldn't load match \
+                         'owner':No such file or directory";
+        assert!(!absent_check(&status, unrelated, Some("QELI_KS_qtest")));
+        assert_eq!(
+            expected_qeli_chain(&["-C", "OUTPUT", "-j", "QELI_KS_qtest"]),
+            Some("QELI_KS_qtest")
+        );
+        assert_eq!(expected_qeli_chain(&["-C", "OUTPUT", "-j", "MARK"]), None);
     }
 
     /// The port-53 allowance must be scoped to real upstream resolvers.

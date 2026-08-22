@@ -1156,12 +1156,17 @@ login.
 > the profile capacity even if their `max_sessions` is larger.
 
 > **`static_ip` (a user's fixed tun IP).** Set in `[user:<name>]` (`static_ip = 10.9.0.50`,
-> must be inside the profile's `pool.cidr`) or via `qeli add-client --static-ip` / the web UI.
-> The address **always wins**: a new connection/device takes it, **evicting** whoever holds
-> it — so a `static_ip` user has effectively **one** active session, and a reconnect from a
-> new source IP always lands on the same tunnel address (effectively `max_sessions = 1`). An
-> invalid / out-of-pool address → fall back to a dynamic address + a log warning. Profile
-> `pool.reservation.<user>` entries behave the same. Read from the LIVE user db at auth time,
+> or via `qeli add-client --static-ip` / the web UI. It must be a usable host inside the
+> profile's `pool.cidr`, must not equal `tun.address` / `pool.exclude`, and must be unique
+> among enabled users allowed on that profile. `static_ipv6` has the same contract relative to
+> `pool.ipv6.cidr`, `tun.ipv6_address`, and `pool.ipv6.exclude`. `check-config`, the panel and
+> `add-client` reject violations before startup/write; runtime never substitutes a dynamic
+> lease for an invalid fixed address. A valid address **always wins**: a new connection/device
+> takes it, **evicting** whoever holds it — so a fixed-address user effectively has **one**
+> active session, and a reconnect from a new source IP lands on the same tunnel address
+> (effectively `max_sessions = 1`). Profile `pool.reservation.<user>` and
+> `pool.ipv6.reservation.<user>` entries use the same strict contract. Values are read from
+> the LIVE user database at authentication time,
 > so a panel edit + reload applies at once.
 
 ## Users & groups (`[user:*]` / `[group:*]`)
@@ -1178,8 +1183,8 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 | `password_hash` | — | Argon2id hash of the password (`$argon2id$...`). Set by `add-client` / the panel. Never returned over the API |
 | `password_enc` | — | reversibly-encrypted (ChaCha20-Poly1305 under the panel key, base64) copy of the plaintext, so the panel can re-issue a `qeli://` link/QR without knowing the password. Absent for legacy hash-only users. Never returned over the API |
 | `enabled` | `true` | whether the account may log in. `false` = disabled (rejected at auth) without deleting it |
-| `static_ip` | — | fixed tun IP (must be inside the profile's `pool.cidr`); the address always wins and evicts whoever holds it (see the `static_ip` note above) |
-| `static_ipv6` | — | fixed IPv6 lease inside `pool.ipv6.cidr`; collision and ownership semantics mirror `static_ip` |
+| `static_ip` | — | strict fixed tun IPv4: usable host inside `pool.cidr`, not `tun.address` / `pool.exclude`, unique among enabled users on the profile; invalid values are rejected without dynamic fallback |
+| `static_ipv6` | — | strict fixed IPv6 lease inside `pool.ipv6.cidr`, not `tun.ipv6_address` / `pool.ipv6.exclude`, unique among enabled users on the profile; no dynamic fallback |
 | `max_sessions` | `0` | per-user simultaneous-device cap (`0` = from the group, else unlimited); see "`max_sessions`" above |
 | `profiles` | `[]` (all) | comma-separated list of profiles the user may connect to; empty = all (interface isolation, see above) |
 | `group` | — | name of a `[group:<name>]` to inherit `bandwidth`/`max_sessions`/`allowed_networks` from |

@@ -3327,7 +3327,7 @@ fn set_pmtudisc(socket: &crate::protocol::obfs::ObfsUdp, mode: libc::c_int) -> b
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
-    set_pmtudisc(socket, libc::IP_PMTUDISC_PROBE)
+    set_pmtudisc(socket, crate::protocol::data_frag::ACTIVE_PMTUDISC_MODE)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

@@ -2584,6 +2584,97 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn validate_fixed_ipv4_address(
+    profile: &crate::config::server::ProfileConfig,
+    field: &str,
+    address: std::net::Ipv4Addr,
+) -> anyhow::Result<()> {
+    let subnet = crate::config::server::pool_subnet(&profile.pool.cidr)
+        .map_err(|error| anyhow::anyhow!("profile '{}': {error}", profile.name))?;
+    let tunnel = profile
+        .tun
+        .address
+        .parse::<std::net::Ipv4Addr>()
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "profile '{}': invalid tun.address '{}': {error}",
+                profile.name,
+                profile.tun.address
+            )
+        })?;
+    let excluded = profile
+        .pool
+        .exclude
+        .iter()
+        .map(|raw| {
+            raw.parse::<std::net::Ipv4Addr>().map_err(|error| {
+                anyhow::anyhow!(
+                    "profile '{}': invalid pool.exclude entry '{}': {error}",
+                    profile.name,
+                    raw
+                )
+            })
+        })
+        .collect::<anyhow::Result<std::collections::HashSet<_>>>()?;
+    if !subnet.contains_usable_host(address) || address == tunnel || excluded.contains(&address) {
+        anyhow::bail!(
+            "profile '{}': {field} = {address} is not assignable in pool.cidr {} \
+             (outside the usable range, the server TUN address, or pool.exclude)",
+            profile.name,
+            profile.pool.cidr
+        );
+    }
+    Ok(())
+}
+
+fn validate_fixed_ipv6_address(
+    profile: &crate::config::server::ProfileConfig,
+    field: &str,
+    address: std::net::Ipv6Addr,
+) -> anyhow::Result<()> {
+    crate::config::server::validate_tunnel_ipv6_address(field, address)
+        .map_err(|error| anyhow::anyhow!("profile '{}': {error}", profile.name))?;
+    let subnet = crate::config::server::ipv6_pool_subnet(&profile.pool.ipv6.cidr)
+        .map_err(|error| anyhow::anyhow!("profile '{}': {error}", profile.name))?;
+    let tunnel_raw = profile.tun.ipv6_address.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "profile '{}': tun.ipv6_address is required for {field}",
+            profile.name
+        )
+    })?;
+    let tunnel = tunnel_raw.parse::<std::net::Ipv6Addr>().map_err(|error| {
+        anyhow::anyhow!(
+            "profile '{}': invalid tun.ipv6_address '{}': {error}",
+            profile.name,
+            tunnel_raw
+        )
+    })?;
+    let excluded = profile
+        .pool
+        .ipv6
+        .exclude
+        .iter()
+        .map(|raw| {
+            raw.parse::<std::net::Ipv6Addr>().map_err(|error| {
+                anyhow::anyhow!(
+                    "profile '{}': invalid pool.ipv6.exclude entry '{}': {error}",
+                    profile.name,
+                    raw
+                )
+            })
+        })
+        .collect::<anyhow::Result<std::collections::HashSet<_>>>()?;
+    if !subnet.contains_assignable(address) || address == tunnel || excluded.contains(&address) {
+        anyhow::bail!(
+            "profile '{}': {field} = {address} is not assignable in pool.ipv6.cidr {} \
+             (outside the assignable range, the server TUN address, or pool.ipv6.exclude)",
+            profile.name,
+            profile.pool.ipv6.cidr
+        );
+    }
+    Ok(())
+}
+
 /// Validate the effective address assignment after the profile config and users database
 /// have been combined. Each source is valid in isolation, but the runtime gives a user's
 /// `static_ip`/`static_ipv6` precedence over `pool.*.reservation.<user>`. Without a joint
@@ -2601,17 +2692,21 @@ pub fn validate_static_address_sources(config: &ServerConfig, db: &UsersDb) -> a
                 .static_reservations
                 .iter()
                 .map(|(username, raw)| {
-                    raw.parse::<Ipv4Addr>()
-                        .map(|address| (address, username.as_str()))
-                        .map_err(|error| {
-                            anyhow::anyhow!(
-                                "profile '{}': pool.reservation.{} = '{}' is invalid: {}",
-                                profile.name,
-                                username,
-                                raw,
-                                error
-                            )
-                        })
+                    let address = raw.parse::<Ipv4Addr>().map_err(|error| {
+                        anyhow::anyhow!(
+                            "profile '{}': pool.reservation.{} = '{}' is invalid: {}",
+                            profile.name,
+                            username,
+                            raw,
+                            error
+                        )
+                    })?;
+                    validate_fixed_ipv4_address(
+                        profile,
+                        &format!("pool.reservation.{username}"),
+                        address,
+                    )?;
+                    Ok((address, username.as_str()))
                 })
                 .collect::<anyhow::Result<_>>()?
         } else {
@@ -2624,27 +2719,33 @@ pub fn validate_static_address_sources(config: &ServerConfig, db: &UsersDb) -> a
                 .static_reservations
                 .iter()
                 .map(|(username, raw)| {
-                    raw.parse::<Ipv6Addr>()
-                        .map(|address| (address, username.as_str()))
-                        .map_err(|error| {
-                            anyhow::anyhow!(
-                                "profile '{}': pool.ipv6.reservation.{} = '{}' is invalid: {}",
-                                profile.name,
-                                username,
-                                raw,
-                                error
-                            )
-                        })
+                    let address = raw.parse::<Ipv6Addr>().map_err(|error| {
+                        anyhow::anyhow!(
+                            "profile '{}': pool.ipv6.reservation.{} = '{}' is invalid: {}",
+                            profile.name,
+                            username,
+                            raw,
+                            error
+                        )
+                    })?;
+                    validate_fixed_ipv6_address(
+                        profile,
+                        &format!("pool.ipv6.reservation.{username}"),
+                        address,
+                    )?;
+                    Ok((address, username.as_str()))
                 })
                 .collect::<anyhow::Result<_>>()?
         } else {
             HashMap::new()
         };
+        let mut ipv4_user_assignments: HashMap<Ipv4Addr, &str> = HashMap::new();
+        let mut ipv6_user_assignments: HashMap<Ipv6Addr, &str> = HashMap::new();
 
         for user in db
             .users
             .iter()
-            .filter(|user| user.allowed_on_profile(&profile.name))
+            .filter(|user| user.enabled && user.allowed_on_profile(&profile.name))
         {
             if let Some(raw) = user
                 .static_ip
@@ -2659,6 +2760,20 @@ pub fn validate_static_address_sources(config: &ServerConfig, db: &UsersDb) -> a
                         error
                     )
                 })?;
+                validate_fixed_ipv4_address(
+                    profile,
+                    &format!("user '{}' static_ip", user.username),
+                    address,
+                )?;
+                if let Some(other) = ipv4_user_assignments.insert(address, user.username.as_str()) {
+                    anyhow::bail!(
+                        "profile '{}': users '{}' and '{}' both request static_ip {}",
+                        profile.name,
+                        other,
+                        user.username,
+                        address
+                    );
+                }
                 if let Some(owner) = ipv4_reservations.get(&address) {
                     if *owner != user.username {
                         anyhow::bail!(
@@ -2689,6 +2804,20 @@ pub fn validate_static_address_sources(config: &ServerConfig, db: &UsersDb) -> a
                         error
                     )
                 })?;
+                validate_fixed_ipv6_address(
+                    profile,
+                    &format!("user '{}' static_ipv6", user.username),
+                    address,
+                )?;
+                if let Some(other) = ipv6_user_assignments.insert(address, user.username.as_str()) {
+                    anyhow::bail!(
+                        "profile '{}': users '{}' and '{}' both request static_ipv6 {}",
+                        profile.name,
+                        other,
+                        user.username,
+                        address
+                    );
+                }
                 if let Some(owner) = ipv6_reservations.get(&address) {
                     if *owner != user.username {
                         anyhow::bail!(
@@ -7381,6 +7510,8 @@ pool.cidr = 10.{net}.0.0/24
             ..Default::default()
         };
         profile.tun.ip_mode = IpMode::Dual;
+        profile.tun.ipv6_address = Some("fd71:e1:1234:1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1:1234:1::/64".into();
         profile
             .pool
             .static_reservations
@@ -7407,6 +7538,7 @@ pool.cidr = 10.{net}.0.0/24
         let same_owner_same_address = UsersDb {
             users: vec![UserEntry {
                 username: "alice".into(),
+                enabled: true,
                 static_ip: Some("10.9.0.50".into()),
                 static_ipv6: Some("fd71:e1:1234:1::50".into()),
                 ..Default::default()
@@ -7419,6 +7551,7 @@ pool.cidr = 10.{net}.0.0/24
         let overrides_own_reservation = UsersDb {
             users: vec![UserEntry {
                 username: "alice".into(),
+                enabled: true,
                 static_ip: Some("10.9.0.60".into()),
                 ..Default::default()
             }],
@@ -7432,6 +7565,7 @@ pool.cidr = 10.{net}.0.0/24
         let steals_another_reservation = UsersDb {
             users: vec![UserEntry {
                 username: "alice".into(),
+                enabled: true,
                 static_ipv6: Some("fd71:e1:1234:1::51".into()),
                 ..Default::default()
             }],
@@ -7446,5 +7580,105 @@ pool.cidr = 10.{net}.0.0/24
         restricted.users[0].profiles = vec!["other-profile".into()];
         validate_static_address_sources(&config, &restricted)
             .expect("a user forbidden on this profile cannot consume its reservations");
+
+        let duplicate_ipv4 = UsersDb {
+            users: vec![
+                UserEntry {
+                    username: "charlie".into(),
+                    enabled: true,
+                    static_ip: Some("10.9.0.80".into()),
+                    ..Default::default()
+                },
+                UserEntry {
+                    username: "dave".into(),
+                    enabled: true,
+                    static_ip: Some("10.9.0.80".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &duplicate_ipv4)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("both request static_ip"), "{error}");
+
+        let duplicate_ipv6 = UsersDb {
+            users: vec![
+                UserEntry {
+                    username: "charlie".into(),
+                    enabled: true,
+                    static_ipv6: Some("fd71:e1:1234:1::80".into()),
+                    ..Default::default()
+                },
+                UserEntry {
+                    username: "dave".into(),
+                    enabled: true,
+                    static_ipv6: Some("fd71:e1:1234:1::80".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &duplicate_ipv6)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("both request static_ipv6"), "{error}");
+
+        let outside_pool = UsersDb {
+            users: vec![UserEntry {
+                username: "charlie".into(),
+                enabled: true,
+                static_ip: Some("10.10.0.7".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &outside_pool)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not assignable in pool.cidr"), "{error}");
+
+        let outside_ipv6_pool = UsersDb {
+            users: vec![UserEntry {
+                username: "charlie".into(),
+                enabled: true,
+                static_ipv6: Some("fd71:e1:9999::7".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&config, &outside_ipv6_pool)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("not assignable in pool.ipv6.cidr"),
+            "{error}"
+        );
+
+        let mut excluded_config = config.clone();
+        excluded_config.profiles[0]
+            .pool
+            .exclude
+            .push("10.9.0.70".into());
+        excluded_config.profiles[0]
+            .pool
+            .ipv6
+            .exclude
+            .push("fd71:e1:1234:1::70".into());
+        let excluded = UsersDb {
+            users: vec![UserEntry {
+                username: "charlie".into(),
+                enabled: true,
+                static_ip: Some("10.9.0.70".into()),
+                static_ipv6: Some("fd71:e1:1234:1::70".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let error = validate_static_address_sources(&excluded_config, &excluded)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("pool.exclude"), "{error}");
     }
 }

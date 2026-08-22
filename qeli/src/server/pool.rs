@@ -49,10 +49,14 @@ pub struct AssignedAddresses {
 pub enum AddressAllocationError {
     #[error("IPv4 address pool is exhausted")]
     Ipv4Exhausted,
+    #[error("fixed IPv4 address {0} is outside the pool or excluded")]
+    InvalidFixedIpv4(Ipv4Addr),
     #[error("IPv6 address pool is not configured")]
     Ipv6Unavailable,
     #[error("IPv6 address pool is exhausted")]
     Ipv6Exhausted,
+    #[error("fixed IPv6 address {0} is outside the pool or excluded")]
+    InvalidFixedIpv6(Ipv6Addr),
 }
 
 impl Ipv6Pool {
@@ -141,9 +145,7 @@ impl Ipv6Pool {
             .find(|(username, _)| username == key)
             .map(|(_, address)| *address);
         if let Some(address) = reserved {
-            if let Some(address) = self.allocate_fixed(key, Ipv6Addr::from(address)) {
-                return Some(address);
-            }
+            return self.allocate_fixed(key, Ipv6Addr::from(address));
         }
         while let Some(value) = self.freed.pop() {
             if self.assign_dynamic(key, value) {
@@ -264,60 +266,33 @@ impl IpPool {
 
         excluded.insert(tun_ip);
 
-        // Reserved addresses go in their OWN set, NOT in `excluded`. They must be kept out
-        // of DYNAMIC allocation (nobody else may be handed them), but `allocate_fixed` has
-        // to be able to assign them to their owner. Putting them in `excluded` made
-        // allocate_fixed refuse the very address it was reserving, so every
-        // `pool.reservation.<user>` silently fell back to a dynamic address.
+        // A configured reservation is a contract, not a preference. Refuse invalid,
+        // unusable and duplicate values at pool construction so check-config/startup never
+        // report success for an address that will later turn into a dynamic lease.
+        let mut configured_reservations: HashMap<u32, &str> = HashMap::new();
         let mut reserved = HashSet::new();
         let mut static_reservations: Vec<(String, u32)> = Vec::new();
-        for (username, ip_str) in &config.static_reservations {
-            let Ok(ip) = ip_str.parse::<Ipv4Addr>() else {
-                log::warn!(
-                    "pool.reservation.{} = '{}' is not a valid IPv4 address — reservation \
-                     ignored; this user will get a dynamic address",
-                    username,
-                    ip_str
-                );
-                continue;
-            };
-            let ip_val = u32_from_ip(ip);
-            // Diagnose the unusable cases HERE, at startup, where the operator can act on
-            // them. A reservation that is out of range or excluded otherwise surfaces only
-            // as a per-connect "static IP … outside profile pool" warning, and a duplicate
-            // surfaces not at all — the two users just evict each other's address on every
-            // reconnect. The reservation is still recorded either way: `allocate_fixed`
-            // applies the same range/excluded rules and the caller falls back to dynamic.
-            if (ip_val as u64) < start_ip as u64 || (ip_val as u64) > end_ip as u64 {
-                log::warn!(
-                    "pool.reservation.{} = {} is outside the pool range {}–{} — it can never \
-                     be assigned; this user will get a dynamic address",
-                    username,
-                    ip,
-                    ip_from_u32(start_ip),
-                    ip_from_u32(end_ip)
-                );
-            } else if excluded.contains(&ip_val) {
-                log::warn!(
-                    "pool.reservation.{} = {} is an excluded address (network / gateway / \
-                     broadcast / pool.exclude) — it can never be assigned; this user will \
-                     get a dynamic address",
-                    username,
-                    ip
+        for (username, raw) in &config.static_reservations {
+            let address = raw.parse::<Ipv4Addr>().map_err(|error| {
+                anyhow::anyhow!(
+                    "pool.reservation.{username} = '{raw}' is not a valid IPv4 address: {error}"
+                )
+            })?;
+            let value = u32_from_ip(address);
+            if value < start_ip || value > end_ip || excluded.contains(&value) {
+                anyhow::bail!(
+                    "pool.reservation.{username} = {address} is not assignable in {} \
+                     (outside the usable range, the server TUN address, or pool.exclude)",
+                    config.cidr
                 );
             }
-            if let Some((other, _)) = static_reservations.iter().find(|(_, v)| *v == ip_val) {
-                log::warn!(
-                    "pool.reservation.{} = {} collides with pool.reservation.{} — two users \
-                     cannot hold the same address, so they will evict each other on every \
-                     reconnect. Give each user a distinct address.",
-                    username,
-                    ip,
-                    other
+            if let Some(other) = configured_reservations.insert(value, username.as_str()) {
+                anyhow::bail!(
+                    "pool.reservation.{other} and pool.reservation.{username} both use {address}"
                 );
             }
-            reserved.insert(ip_val);
-            static_reservations.push((username.clone(), ip_val));
+            reserved.insert(value);
+            static_reservations.push((username.clone(), value));
         }
 
         Ok(IpPool {
@@ -424,12 +399,14 @@ impl IpPool {
     ) -> Result<AssignedAddresses, AddressAllocationError> {
         self.retain_mode_leases(key, mode);
         let ipv4 = if matches!(mode, IpMode::Ipv4 | IpMode::Dual) {
-            Some(
-                fixed_ipv4
-                    .and_then(|address| self.allocate_fixed(key, address))
-                    .or_else(|| self.allocate(key))
+            Some(match fixed_ipv4 {
+                Some(address) => self
+                    .allocate_fixed(key, address)
+                    .ok_or(AddressAllocationError::InvalidFixedIpv4(address))?,
+                None => self
+                    .allocate(key)
                     .ok_or(AddressAllocationError::Ipv4Exhausted)?,
-            )
+            })
         } else {
             None
         };
@@ -438,12 +415,14 @@ impl IpPool {
                 .ipv6
                 .as_mut()
                 .ok_or(AddressAllocationError::Ipv6Unavailable)?;
-            Some(
-                fixed_ipv6
-                    .and_then(|address| pool.allocate_fixed(key, address))
-                    .or_else(|| pool.allocate(key))
+            Some(match fixed_ipv6 {
+                Some(address) => pool
+                    .allocate_fixed(key, address)
+                    .ok_or(AddressAllocationError::InvalidFixedIpv6(address))?,
+                None => pool
+                    .allocate(key)
                     .ok_or(AddressAllocationError::Ipv6Exhausted)?,
-            )
+            })
         } else {
             None
         };
@@ -456,18 +435,9 @@ impl IpPool {
             return Some(ip_from_u32(*ip_val));
         }
 
-        // Static reservation — through allocate_fixed, so it passes the SAME gate as
-        // every other fixed assignment.
-        //
-        // This branch used to `allocated.insert(ip)` directly: no range check, no
-        // `excluded` check, no collision check. A reservation pointing at the tunnel
-        // gateway or the broadcast address (both in `excluded`) was refused by
-        // `allocate_fixed` — and then handed out anyway right here, because the caller
-        // falls back to `allocate()` when `allocate_fixed` returns None. Startup only
-        // logged a warning about it. Routing through `allocate_fixed` makes the two paths
-        // agree, and a reservation it rejects now falls through to a dynamic address
-        // (with a warning) instead of silently assigning an unusable one.
-        //
+        // Static reservation — through allocate_fixed, so it passes the same assignment
+        // gate as every other fixed address. Construction already proved it assignable;
+        // never turn an invariant violation into a silent dynamic lease.
         // NOTE on the key: `username` here is the caller's *device key*
         // (`user` or `user:hex(device_id)`), while `static_reservations` is keyed by plain
         // username — so this only matches a client without a device id. That is not the
@@ -481,15 +451,7 @@ impl IpPool {
             .find(|(uname, _)| uname == username)
             .map(|(_, ip_val)| *ip_val);
         if let Some(ip_val) = reserved {
-            let want = ip_from_u32(ip_val);
-            if let Some(ip) = self.allocate_fixed(username, want) {
-                return Some(ip);
-            }
-            log::warn!(
-                "pool: reservation {want} for '{username}' is outside the usable range or \
-                 excluded (network / gateway / broadcast / pool.exclude) — assigning a \
-                 dynamic address instead"
-            );
+            return self.allocate_fixed(username, ip_from_u32(ip_val));
         }
 
         // Dynamic allocation: reuse a released address first (compact + O(1)), else
@@ -762,6 +724,39 @@ mod tests {
     }
 
     #[test]
+    fn invalid_fixed_addresses_never_fall_back_to_dynamic() {
+        let mut pool =
+            IpPool::new_with_tun(&pool_config("10.8.0.0/29"), "10.8.0.1".parse().unwrap()).unwrap();
+        pool.enable_ipv6(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap())
+            .unwrap();
+
+        let bad_ipv4 = "10.99.0.7".parse().unwrap();
+        assert_eq!(
+            pool.allocate_for_mode("bad-v4", IpMode::Ipv4, Some(bad_ipv4), None),
+            Err(AddressAllocationError::InvalidFixedIpv4(bad_ipv4))
+        );
+        assert_eq!(pool.get_ip_by_username("bad-v4"), None);
+        assert_eq!(
+            pool.allocate("after-v4"),
+            Some("10.8.0.2".parse().unwrap()),
+            "the failed fixed request must not consume a dynamic lease"
+        );
+
+        let bad_ipv6 = "fd99::7".parse().unwrap();
+        assert_eq!(
+            pool.allocate_for_mode("bad-v6", IpMode::Dual, None, Some(bad_ipv6)),
+            Err(AddressAllocationError::InvalidFixedIpv6(bad_ipv6))
+        );
+        assert_eq!(pool.get_ip_by_username("bad-v6"), None);
+        assert_eq!(pool.get_ipv6_by_username("bad-v6"), None);
+        assert_eq!(
+            pool.allocate("after-v6"),
+            Some("10.8.0.3".parse().unwrap()),
+            "a failed dual-stack transaction must roll its IPv4 lease back"
+        );
+    }
+
+    #[test]
     fn failed_mode_upgrade_can_release_the_restored_old_lease() {
         let mut pool =
             IpPool::new_with_tun(&pool_config("10.8.0.0/29"), "10.8.0.1".parse().unwrap()).unwrap();
@@ -1029,7 +1024,7 @@ mod tests {
     /// every check, so an unusable address (here: the tunnel gateway, which is always in
     /// `excluded`) was assigned anyway. (Audit 2026-07-27, C3.)
     #[test]
-    fn unusable_static_reservation_falls_back_to_dynamic() {
+    fn unusable_static_reservation_is_rejected() {
         let gateway = "10.0.0.1".parse::<Ipv4Addr>().unwrap();
         let outside = "10.9.9.9".parse::<Ipv4Addr>().unwrap();
 
@@ -1037,23 +1032,8 @@ mod tests {
             let mut cfg = pool_config("10.0.0.0/24");
             cfg.static_reservations
                 .insert("bob".into(), bad.to_string());
-            let mut pool = IpPool::new(&cfg).unwrap();
-
-            // allocate_fixed refuses it...
-            assert_eq!(
-                pool.allocate_fixed("someone-else", bad),
-                None,
-                "allocate_fixed must refuse {bad}"
-            );
-            // ...so allocate must not hand it out through the reservation branch.
-            let got = pool
-                .allocate("bob")
-                .expect("a dynamic address is available");
-            assert_ne!(got, bad, "allocate honoured a reservation of {bad}");
-            assert!(
-                got != gateway,
-                "the dynamic fallback must not land on the gateway either"
-            );
+            let error = IpPool::new(&cfg).err().expect("reservation must fail");
+            assert!(error.to_string().contains("not assignable"), "{error}");
         }
     }
 
