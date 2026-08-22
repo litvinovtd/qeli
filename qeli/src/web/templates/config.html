@@ -567,10 +567,10 @@
             </div>
             <div>
               <label class="field-label">Device type</label>
-              <p class="field-desc">TUN — IP-level (L3, the usual choice). TAP — Ethernet-level (L2, for bridging Ethernet frames).</p>
+              <p class="field-desc">TUN — IP-level (L3, the usual choice). TAP — local Ethernet framing for IPv4/IPv6 and ARP/NDP. The qeli wire remains L3; TAP is not a transparent Ethernet bridge and does not carry VLAN/STP/LLDP or arbitrary EtherTypes.</p>
               <select class="inp" x-model="cfg.profiles[activeTab].tun.device_type" @change="markDirty()">
                 <option value="tun">TUN (IP)</option>
-                <option value="tap">TAP (Ethernet)</option>
+                <option value="tap">TAP (IP over Ethernet)</option>
               </select>
             </div>
             <div>
@@ -902,10 +902,10 @@
 
         <!-- ── DHCP ── -->
         <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor">
-          <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for TAP/bridged mode)</span></div>
+          <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for a local server-side TAP segment)</span></div>
           <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
             <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span>In normal <strong class="text-white">TUN</strong> mode client IPs are assigned by the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">VPN subnet (CIDR)</span> / static reservations), <strong>not</strong> by DHCP. This DHCP server is only needed for <strong class="text-white">TAP / bridged</strong> setups. Leave it off for TUN — addresses are still assigned.</span>
+            <span>qeli sessions receive their authenticated addresses from the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">VPN subnet (CIDR)</span> / static reservations), <strong>not</strong> from DHCP. Enable this DHCPv4 server only for other devices on a local server-side TAP segment. It does not turn qeli into a transparent Ethernet bridge between sessions. Leave it off for normal TUN and qeli-client TAP profiles.</span>
           </div>
           <div class="field-toggle mb-2">
             <div class="toggle-wrap" @click="cfg.profiles[activeTab].dhcp.enabled = !cfg.profiles[activeTab].dhcp.enabled; markDirty()">

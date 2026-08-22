@@ -95,8 +95,14 @@ fn is_supported_inner_packet(
 #[cfg(target_os = "linux")]
 fn tap_gateway_facts(
     addresses: &[crate::transport_core::NetworkAddress],
-) -> (Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>, u8) {
+) -> (
+    Option<std::net::Ipv4Addr>,
+    u8,
+    Option<std::net::Ipv6Addr>,
+    u8,
+) {
     let mut ipv4 = None;
+    let mut ipv4_prefix_len = 0;
     let mut ipv6 = None;
     let mut ipv6_prefix_len = 0;
     for address in addresses {
@@ -106,6 +112,7 @@ fn tap_gateway_facts(
                     .gateway
                     .as_deref()
                     .and_then(|value| value.parse().ok());
+                ipv4_prefix_len = address.on_link_prefix_len;
             }
             crate::transport_core::NetworkAddressFamily::Ipv6 if ipv6.is_none() => {
                 ipv6 = address
@@ -117,7 +124,7 @@ fn tap_gateway_facts(
             _ => {}
         }
     }
-    (ipv4, ipv6, ipv6_prefix_len)
+    (ipv4, ipv4_prefix_len, ipv6, ipv6_prefix_len)
 }
 
 /// The address the data-plane socket is ACTUALLY connected to.
@@ -264,9 +271,9 @@ fn pin_target(config: &crate::config::client::ClientConfig) -> String {
 #[cfg(target_os = "linux")]
 use crate::transport::tcp::set_tcp_keepalive;
 #[cfg(target_os = "linux")]
-use crate::tun::iface::TunInterface;
+use crate::tun::iface::{DeviceType, TunInterface};
 #[cfg(target_os = "linux")]
-use crate::tun::{is_tap_mode, mac_from_ip, tap_interface_name};
+use crate::tun::{is_tap_mode, mac_from_ip};
 use rand::prelude::*;
 #[cfg(any(
     target_os = "linux",
@@ -897,7 +904,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // gw_on: exit uses its own engage/disengage, so both can be off, one on, or (unusually)
     // both.
     let exit_on = config.routing.exit_node;
-    let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
+    let tun_if = config.tun.name.clone();
     let lan_subnet = config.routing.lan_subnet.clone();
     let lan_subnet_ipv6 = config.routing.lan_subnet_ipv6.clone();
     // Config validation already rejects exit_node + every full-tunnel spelling. Its own
@@ -2163,10 +2170,11 @@ where
     }
     let negotiated_family_mode = plan.family_mode;
     #[cfg(target_os = "linux")]
-    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+    let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
         tap_gateway_facts(&plan.addresses);
     #[cfg(any(target_os = "android", target_os = "macos"))]
-    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) = (None, None, 0);
+    let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+        (None, 0, None, 0);
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
     run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -2245,6 +2253,7 @@ where
                     client_mac: tap_mac,
                     gateway_mac,
                     gateway_ipv4: tap_gateway_ipv4,
+                    ipv4_prefix_len: tap_ipv4_prefix_len,
                     gateway_ipv6: tap_gateway_ipv6,
                     ipv6_prefix_len: tap_ipv6_prefix_len,
                 })
@@ -4037,7 +4046,7 @@ fn setup_tunnel(
     let client_ip = plan.tunnel_address.as_str();
     let mtu = i32::from(plan.mtu);
     let is_tap = is_tap_mode(&config.tun.device_type);
-    let if_name = tap_interface_name(&config.tun.name, &config.tun.device_type);
+    let if_name = config.tun.name.clone();
     let attach = config.tun.attach_existing;
     let dev_label = if is_tap { "TAP" } else { "TUN" };
     let planned_tap_mac = if is_tap && !attach {
@@ -4079,9 +4088,17 @@ fn setup_tunnel(
         log::info!("Creating {} interface {}", dev_label, if_name);
     }
 
-    // `TUNSETIFF` creates the device when absent and ATTACHES to it when it already
-    // exists — so the same call serves both the create and the (attach) path.
-    let tun_res = if is_tap {
+    // Attach mode must mirror the existing device's IFF_MULTI_QUEUE flag. Opening a
+    // multi-queue TUN/TAP without it fails with EINVAL, while adding it to a single-queue
+    // device is equally invalid. The attach helper also verifies TUN vs TAP and IFF_NO_PI.
+    let device_type = if is_tap {
+        DeviceType::Tap
+    } else {
+        DeviceType::Tun
+    };
+    let tun_res = if attach {
+        TunInterface::attach(&if_name, mtu, device_type)
+    } else if is_tap {
         TunInterface::create_tap(&if_name, mtu)
     } else {
         TunInterface::create(&if_name, mtu)
@@ -5019,10 +5036,11 @@ pub(crate) async fn run_udp_tunnel(
     }
     let negotiated_family_mode = plan.family_mode;
     #[cfg(target_os = "linux")]
-    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+    let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
         tap_gateway_facts(&plan.addresses);
     #[cfg(any(target_os = "android", target_os = "macos"))]
-    let (tap_gateway_ipv4, tap_gateway_ipv6, tap_ipv6_prefix_len) = (None, None, 0);
+    let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
+        (None, 0, None, 0);
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
     run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -5090,6 +5108,7 @@ pub(crate) async fn run_udp_tunnel(
                     client_mac: tap_mac,
                     gateway_mac,
                     gateway_ipv4: tap_gateway_ipv4,
+                    ipv4_prefix_len: tap_ipv4_prefix_len,
                     gateway_ipv6: tap_gateway_ipv6,
                     ipv6_prefix_len: tap_ipv6_prefix_len,
                 })

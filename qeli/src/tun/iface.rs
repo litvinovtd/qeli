@@ -1,5 +1,4 @@
-// Device-introspection helpers (name/mtu fields, device_type/is_tap) are API
-// surface kept for completeness — not all are wired into the current paths.
+// Device-introspection fields are kept as API surface even when one path does not read them.
 #![allow(dead_code)]
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -47,6 +46,44 @@ impl TunInterface {
 
     pub fn create_tap(name: &str, mtu: i32) -> io::Result<Self> {
         Self::create_device(name, mtu, DeviceType::Tap)
+    }
+
+    /// Attach one fd to an externally-owned TUN/TAP without guessing its queue mode from
+    /// the configured name. Linux requires IFF_MULTI_QUEUE to match the existing device;
+    /// TUNSETIFF otherwise fails with EINVAL. qeli's packet pump also requires IFF_NO_PI.
+    pub fn attach(name: &str, mtu: i32, device_type: DeviceType) -> io::Result<Self> {
+        let flags_path = format!("/sys/class/net/{name}/tun_flags");
+        let flags_text = std::fs::read_to_string(&flags_path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("could not inspect existing TUN/TAP '{name}' via {flags_path}: {error}"),
+            )
+        })?;
+        let flags = parse_tun_flags(&flags_text)?;
+        let expected_kind = match device_type {
+            DeviceType::Tun => IFF_TUN,
+            DeviceType::Tap => IFF_TAP,
+        };
+        let actual_kind = flags & (IFF_TUN | IFF_TAP);
+        if actual_kind != expected_kind {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "existing interface '{name}' has tun_flags {:#x}, which does not match device_type = {}",
+                    flags,
+                    if device_type == DeviceType::Tap { "tap" } else { "tun" }
+                ),
+            ));
+        }
+        if flags & IFF_NO_PI == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "existing interface '{name}' includes a packet-information header; qeli dev_attach requires IFF_NO_PI"
+                ),
+            ));
+        }
+        Self::open_device(name, mtu, device_type, flags & IFF_MULTI_QUEUE != 0)
     }
 
     fn create_device(name: &str, mtu: i32, device_type: DeviceType) -> io::Result<Self> {
@@ -255,14 +292,6 @@ impl TunInterface {
         }
     }
 
-    pub fn device_type(name: &str) -> DeviceType {
-        if name.starts_with("tap") {
-            DeviceType::Tap
-        } else {
-            DeviceType::Tun
-        }
-    }
-
     pub fn set_nonblocking(&self) -> io::Result<()> {
         let flags = unsafe { libc::fcntl(self.fd.as_raw_fd(), libc::F_GETFL, 0) };
         if flags < 0 {
@@ -275,10 +304,25 @@ impl TunInterface {
         }
         Ok(())
     }
+}
 
-    pub fn is_tap(&self) -> bool {
-        self.name.starts_with("tap")
+fn parse_tun_flags(value: &str) -> io::Result<libc::c_short> {
+    let value = value.trim();
+    let parsed = if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        u16::from_str_radix(hex, 16)
+    } else {
+        value.parse::<u16>()
     }
+    .map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid tun_flags value '{value}': {error}"),
+        )
+    })?;
+    Ok(parsed as libc::c_short)
 }
 
 impl Read for TunInterface {
@@ -299,5 +343,19 @@ impl Write for TunInterface {
 impl AsRawFd for TunInterface {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tun_flags_parser_accepts_kernel_hex_and_decimal_forms() {
+        assert_eq!(
+            parse_tun_flags("0x1102\n").unwrap(),
+            IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE
+        );
+        assert_eq!(parse_tun_flags("4097").unwrap(), IFF_TUN | IFF_NO_PI);
+        assert!(parse_tun_flags("not-flags").is_err());
     }
 }

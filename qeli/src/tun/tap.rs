@@ -7,6 +7,7 @@ const ETHERTYPE_ARP: [u8; 2] = [0x08, 0x06];
 pub struct TapGateway {
     pub mac: [u8; 6],
     pub ipv4: Option<std::net::Ipv4Addr>,
+    pub ipv4_prefix_len: u8,
     pub ipv6: Option<std::net::Ipv6Addr>,
     pub ipv6_prefix_len: u8,
 }
@@ -87,11 +88,21 @@ pub fn destination_mac_for_ip(packet: &[u8]) -> Option<[u8; 6]> {
 /// encrypted L3 data plane.
 pub fn client_tap_control_reply(frame: &[u8], gateway: TapGateway) -> Option<Vec<u8>> {
     if let Some(target) = arp_request_target(frame) {
-        return (Some(target) == gateway.ipv4).then(|| arp_reply(frame, gateway.mac, target));
+        return gateway
+            .ipv4
+            .filter(|address| same_ipv4_prefix(*address, target, gateway.ipv4_prefix_len))
+            .map(|_| arp_reply(frame, gateway.mac, target));
     }
     if let Some(target) = neighbor_solicitation_target(frame) {
-        return (Some(target) == gateway.ipv6)
-            .then(|| neighbor_advertisement(frame, gateway.mac, target));
+        // A source of :: is Duplicate Address Detection, not neighbour resolution. Never
+        // manufacture a conflict for an address Linux is assigning to this TAP.
+        if frame[22..38].iter().all(|byte| *byte == 0) {
+            return None;
+        }
+        return gateway
+            .ipv6
+            .filter(|address| same_ipv6_prefix(*address, target, gateway.ipv6_prefix_len))
+            .map(|_| neighbor_advertisement(frame, gateway.mac, target));
     }
     if is_router_solicitation(frame) {
         return gateway.ipv6.map(|address| {
@@ -101,6 +112,16 @@ pub fn client_tap_control_reply(frame: &[u8], gateway: TapGateway) -> Option<Vec
     None
 }
 
+/// Whether this Ethernet frame is local neighbour/router control traffic. A caller must
+/// consume it even when [`client_tap_control_reply`] deliberately returns no reply (DAD or a
+/// target outside the authenticated on-link prefix); otherwise the L2-only solicitation is
+/// stripped and leaks into qeli's encrypted L3 data plane.
+pub fn is_client_tap_control_frame(frame: &[u8]) -> bool {
+    arp_request_target(frame).is_some()
+        || neighbor_solicitation_target(frame).is_some()
+        || is_router_solicitation(frame)
+}
+
 /// Answer a server TAP's attempt to resolve a client address. The session map remains the
 /// authority for forwarding: replying only lets the kernel emit the IP packet, and the
 /// normal exact-address/iroute lookup still drops traffic for an unassigned target.
@@ -108,9 +129,10 @@ pub fn server_tap_control_reply(
     frame: &[u8],
     server_ipv4: Option<std::net::Ipv4Addr>,
     server_ipv6: Option<std::net::Ipv6Addr>,
+    target_is_routed: impl Fn(std::net::IpAddr) -> bool,
 ) -> Option<Vec<u8>> {
     if let Some(target) = arp_request_target(frame) {
-        if Some(target) == server_ipv4 {
+        if Some(target) == server_ipv4 || !target_is_routed(std::net::IpAddr::V4(target)) {
             return None;
         }
         return Some(arp_reply(
@@ -120,7 +142,14 @@ pub fn server_tap_control_reply(
         ));
     }
     if let Some(target) = neighbor_solicitation_target(frame) {
-        if Some(target) == server_ipv6 {
+        // A source of :: marks Duplicate Address Detection, not neighbour
+        // resolution. Answering DAD makes Linux conclude that its own TAP
+        // address is already in use. In particular, the server's automatic
+        // EUI-64 link-local address then remains `dadfailed tentative`.
+        if frame[22..38].iter().all(|byte| *byte == 0) {
+            return None;
+        }
+        if Some(target) == server_ipv6 || !target_is_routed(std::net::IpAddr::V6(target)) {
             return None;
         }
         return Some(neighbor_advertisement(
@@ -130,6 +159,30 @@ pub fn server_tap_control_reply(
         ));
     }
     None
+}
+
+fn same_ipv4_prefix(left: std::net::Ipv4Addr, right: std::net::Ipv4Addr, prefix_len: u8) -> bool {
+    if prefix_len > 32 {
+        return false;
+    }
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix_len)
+    };
+    (u32::from(left) & mask) == (u32::from(right) & mask)
+}
+
+fn same_ipv6_prefix(left: std::net::Ipv6Addr, right: std::net::Ipv6Addr, prefix_len: u8) -> bool {
+    if prefix_len > 128 {
+        return false;
+    }
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix_len)
+    };
+    (u128::from(left) & mask) == (u128::from(right) & mask)
 }
 
 fn arp_request_target(frame: &[u8]) -> Option<std::net::Ipv4Addr> {
@@ -243,7 +296,12 @@ fn router_advertisement(
     write_ipv6_header(&mut reply[14..54], source, destination, 56);
     reply[54] = 134;
     reply[58] = 64; // Cur Hop Limit
-    reply[60..62].copy_from_slice(&1800u16.to_be_bytes());
+
+    // qeli installs every split/full route explicitly from the authenticated NetworkPlan.
+    // Advertising a non-zero router lifetime here creates a second, implicit IPv6 default
+    // route even for split-tunnel profiles and can leave it behind on an externally-owned
+    // `dev_attach` TAP. The RA supplies only on-link prefix/L2 facts, never route policy.
+    reply[60..62].copy_from_slice(&0u16.to_be_bytes());
     reply[70] = 1; // Source Link-Layer Address
     reply[71] = 1;
     reply[72..78].copy_from_slice(&gateway_mac);
@@ -356,18 +414,6 @@ pub fn is_tap_mode(device_type: &str) -> bool {
     device_type.eq_ignore_ascii_case("tap")
 }
 
-pub fn tap_interface_name(config_name: &str, device_type: &str) -> String {
-    if is_tap_mode(device_type) && !config_name.starts_with("tap") {
-        let suffix = config_name
-            .trim_start_matches("tun")
-            .trim_start_matches("vpn")
-            .trim_start_matches("tap");
-        format!("tap{}", suffix)
-    } else {
-        config_name.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +507,7 @@ mod tests {
         let gateway = TapGateway {
             mac: [0x02, 0, 0, 0, 0, 1],
             ipv4: Some("10.9.0.1".parse().unwrap()),
+            ipv4_prefix_len: 24,
             ipv6: Some("fd71:e1:1234:1::1".parse().unwrap()),
             ipv6_prefix_len: 64,
         };
@@ -477,6 +524,17 @@ mod tests {
         assert_eq!(&arp_reply[6..12], &gateway.mac);
         assert_eq!(&arp_reply[20..22], &[0, 2]);
         assert_eq!(&arp_reply[28..32], &[10, 9, 0, 1]);
+
+        // A peer in the authenticated pool resolves to the synthetic gateway MAC. The
+        // resulting IP packet then follows the server's exact session lookup and
+        // client_to_client policy instead of stalling in local ARP.
+        arp[38..42].copy_from_slice(&[10, 9, 0, 50]);
+        let peer_arp_reply = client_tap_control_reply(&arp, gateway).unwrap();
+        assert_eq!(&peer_arp_reply[6..12], &gateway.mac);
+        assert_eq!(&peer_arp_reply[28..32], &[10, 9, 0, 50]);
+        arp[38..42].copy_from_slice(&[10, 10, 0, 50]);
+        assert!(client_tap_control_reply(&arp, gateway).is_none());
+        assert!(is_client_tap_control_frame(&arp));
 
         let source: std::net::Ipv6Addr = "fe80::2".parse().unwrap();
         let target = gateway.ipv6.unwrap();
@@ -497,6 +555,20 @@ mod tests {
         assert_eq!(&na[62..78], &target.octets());
         assert_eq!(&na[80..86], &gateway.mac);
 
+        let peer: std::net::Ipv6Addr = "fd71:e1:1234:1::50".parse().unwrap();
+        ns[62..78].copy_from_slice(&peer.octets());
+        assert!(client_tap_control_reply(&ns, gateway).is_some());
+        let outside: std::net::Ipv6Addr = "fd71:e1:1234:2::50".parse().unwrap();
+        ns[62..78].copy_from_slice(&outside.octets());
+        assert!(client_tap_control_reply(&ns, gateway).is_none());
+        assert!(is_client_tap_control_frame(&ns));
+
+        let mut dad = ns.clone();
+        dad[22..38].fill(0);
+        dad[62..78].copy_from_slice(&peer.octets());
+        assert!(client_tap_control_reply(&dad, gateway).is_none());
+        assert!(is_client_tap_control_frame(&dad));
+
         let mut rs = vec![0u8; 14 + 40 + 8];
         rs[..6].copy_from_slice(&[0x33, 0x33, 0, 0, 0, 2]);
         rs[6..12].copy_from_slice(&client_mac);
@@ -505,6 +577,7 @@ mod tests {
         rs[54] = 133;
         let ra = client_tap_control_reply(&rs, gateway).unwrap();
         assert_eq!(ra[54], 134);
+        assert_eq!(&ra[60..62], &[0, 0], "RA must not install a default route");
         assert_eq!(ra[80], 64);
         assert_eq!(
             ra[81] & 0x40,
@@ -534,8 +607,31 @@ mod tests {
         );
         ns[54] = 135;
         ns[62..78].copy_from_slice(&client.octets());
-        assert!(server_tap_control_reply(&ns, None, Some(server)).is_some());
+        assert!(server_tap_control_reply(&ns, None, Some(server), |target| {
+            target == std::net::IpAddr::V6(client)
+        })
+        .is_some());
         ns[62..78].copy_from_slice(&server.octets());
-        assert!(server_tap_control_reply(&ns, None, Some(server)).is_none());
+        assert!(server_tap_control_reply(&ns, None, Some(server), |_| true).is_none());
+        ns[62..78].copy_from_slice(&client.octets());
+        assert!(server_tap_control_reply(&ns, None, Some(server), |_| false).is_none());
+    }
+
+    #[test]
+    fn server_never_answers_duplicate_address_detection() {
+        let server = "fd71::1".parse().unwrap();
+        let server_link_local = link_local_from_mac([0x02, 0, 0, 0, 0, 1]);
+        let mut ns = vec![0u8; 14 + 40 + 24];
+        ns[12..14].copy_from_slice(&ETHERTYPE_IPV6);
+        write_ipv6_header(
+            &mut ns[14..54],
+            std::net::Ipv6Addr::UNSPECIFIED,
+            "ff02::1:ff00:1".parse().unwrap(),
+            24,
+        );
+        ns[54] = 135;
+        ns[62..78].copy_from_slice(&server_link_local.octets());
+
+        assert!(server_tap_control_reply(&ns, None, Some(server), |_| true).is_none());
     }
 }

@@ -6,7 +6,8 @@
 
 use super::buffer_pool::{BufferPool, PooledBuffer};
 use crate::tun::{
-    client_tap_control_reply, destination_mac_for_ip, strip_ethernet_header, TapGateway,
+    client_tap_control_reply, destination_mac_for_ip, is_client_tap_control_frame,
+    strip_ethernet_header, TapGateway,
 };
 use std::io;
 use std::ops::{Deref, Range};
@@ -72,6 +73,7 @@ pub struct TapHeaders {
     pub client_mac: [u8; 6],
     pub gateway_mac: [u8; 6],
     pub gateway_ipv4: Option<std::net::Ipv4Addr>,
+    pub ipv4_prefix_len: u8,
     pub gateway_ipv6: Option<std::net::Ipv6Addr>,
     pub ipv6_prefix_len: u8,
 }
@@ -470,6 +472,7 @@ fn reader_loop(
                     TapGateway {
                         mac: headers.gateway_mac,
                         ipv4: headers.gateway_ipv4,
+                        ipv4_prefix_len: headers.ipv4_prefix_len,
                         ipv6: headers.gateway_ipv6,
                         ipv6_prefix_len: headers.ipv6_prefix_len,
                     },
@@ -481,6 +484,10 @@ fn reader_loop(
                             reply.len(),
                         )
                     };
+                    let _ = recycle.try_send(buffer);
+                    continue;
+                }
+                if is_client_tap_control_frame(raw) {
                     let _ = recycle.try_send(buffer);
                     continue;
                 }
@@ -777,6 +784,7 @@ mod tests {
             client_mac: [2, 0, 0, 0, 0, 2],
             gateway_mac: [2, 0, 0, 0, 0, 1],
             gateway_ipv4: Some("10.0.0.1".parse().unwrap()),
+            ipv4_prefix_len: 24,
             gateway_ipv6: Some("fd71::1".parse().unwrap()),
             ipv6_prefix_len: 64,
         };

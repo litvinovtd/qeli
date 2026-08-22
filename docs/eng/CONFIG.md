@@ -1495,7 +1495,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `lan_subnet` / `lan_subnet_ipv6` | restrict `gateway_nat`/`forward` to one source CIDR per family; empty = apply to all traffic of that family leaving the tun |
 | `forward` (default `false`) | site-to-site **without NAT**: forward traffic between the tun and the LAN behind the client while preserving the original source IP (unlike `gateway_nat`, which masquerades it). Use it when a routed network sits behind the client and its addresses must stay visible on the server. See "Routing networks behind nodes WITHOUT NAT" below |
 | `exit_node` (default `false`) | **mirror of `gateway_nat`.** `gateway_nat` masquerades a LAN behind the client INTO the tunnel; `exit_node` masquerades traffic that arrived FROM the tunnel out the physical WAN — so other clients reach the internet under THIS host's IP (e.g. behind a grey/NAT'd line). See "Exit node (`exit_node`)" below. Linux/router-only |
-| `dev_attach = <name>` | **attach to a pre-existing** interface instead of creating one. qeli only opens it for packet IO: it does **not** create, address, route, or delete it — an external manager (router firmware, your own script) owns all of that. The assigned tunnel IP is written to `$QELI_TUNIP_FILE` (if set in the environment) so the external script can bring up the address/routes itself |
+| `dev = <name>` + `dev_attach = true` | **attach to a pre-existing** interface instead of creating one. `dev` is literal: qeli does not rename TAP devices. The existing kind must match `device_type`, it must use `IFF_NO_PI`, and qeli detects its single/multi-queue mode automatically. qeli only opens it for packet IO: it does **not** create, address, route, or delete it — an external manager (router firmware, your own script) owns all of that. The assigned tunnel IP is written to `$QELI_TUNIP_FILE` (if set in the environment) so the external script can bring up the address/routes itself |
 | `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
 | `dns` | client DNS mode. `tunnel` (default) = route DNS through the tunnel: the client **rewrites `/etc/resolv.conf`** (Linux) to the tunnel resolver to prevent DNS leaks. `off` = **leave the system resolver untouched**, use the host's DNS as-is (for routers and any Linux host that already has DNS configured and shouldn't have `resolv.conf` touched). File-only; emitted to INI only when `!= tunnel` |
 | `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
@@ -2206,8 +2206,11 @@ IPv4 may carry dual-stack traffic, and an IPv6 carrier may serve an IPv4-only pr
 
 For an L3 TUN, clients receive host routes (`/32` and `/128`) while the NetworkPlan carries
 the separate pool/on-link prefix. This avoids IPv6 neighbor discovery on a point-to-point TUN.
-TAP keeps the pool prefix because Ethernet NDP/RA is available. IPv6 requires
-`tun.mtu >= 1280`; `dhcp.*` remains DHCPv4 and must be disabled in an IPv6-only profile.
+TAP keeps the pool prefix because Ethernet ARP/NDP/RA is available locally. The qeli wire
+transport is still **L3**: it removes the Ethernet header and carries only an IPv4/IPv6 packet.
+It is not a transparent Ethernet bridge; VLAN, STP, LLDP, unknown EtherTypes, and arbitrary L2
+broadcast/multicast are not distributed between qeli sessions. IPv6 requires `tun.mtu >= 1280`;
+`dhcp.*` remains DHCPv4 and must be disabled in an IPv6-only profile.
 In `tun.ip_mode = ipv6`, the legacy IPv4 shadow fields `tun.address`, `pool.cidr`, and
 `dns.listen` are not parsed or used. `routing.nat.enabled` is NAT44 and is rejected in this
 mode; `routing.forward_private` is also IPv4-only. Configure IPv6 egress explicitly through

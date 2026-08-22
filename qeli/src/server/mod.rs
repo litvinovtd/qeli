@@ -5030,6 +5030,7 @@ async fn run_profile_generation(
             let mut pool_stop = reader_pool_stop.subscribe();
             let fatal = tun_fatal_tx.clone();
             let runtime = tokio::runtime::Handle::current();
+            let tap_sessions = profile.sessions.clone();
             #[cfg(target_os = "linux")]
             let tids = reader_tids.clone();
             // A DEDICATED thread, not `spawn_blocking`: this loop blocks for the whole life of
@@ -5156,9 +5157,22 @@ async fn run_profile_generation(
                         // (see the PERFORMANCE-CRITICAL block above before changing either).
                         debug_assert_eq!(packet.len(), n as usize);
                         if is_tap_reader {
-                            if let Some(reply) =
-                                server_tap_control_reply(&packet, tap_server_ipv4, tap_server_ipv6)
-                            {
+                            if let Some(reply) = server_tap_control_reply(
+                                &packet,
+                                tap_server_ipv4,
+                                tap_server_ipv6,
+                                |target| {
+                                    // A real bridge may ask about arbitrary LAN addresses.
+                                    // Claim only an address or iroute currently owned by an
+                                    // authenticated session; the old unconditional reply
+                                    // poisoned neighbour caches outside qeli's authority.
+                                    let Ok(sessions) = tap_sessions.try_read() else {
+                                        return false;
+                                    };
+                                    sessions.get_by_address(target).is_some()
+                                        || sessions.route_lookup(target).is_some()
+                                },
+                            ) {
                                 let _ = unsafe {
                                     libc::write(
                                         reader_fd.as_raw_fd(),
@@ -5479,14 +5493,39 @@ async fn run_profile_generation(
                         // derived from the client src-IP for ARP attribution); TUN writes the
                         // raw IP packet as-is.
                         let tap_frame = if is_tap_writer {
-                            let src_ip_mac = crate::protocol::ip::parse_ip_packet(&packet)
-                                .map(|meta| mac_from_ip(meta.source))
-                                .unwrap_or([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-                            prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac)
+                            let meta = match crate::protocol::ip::parse_ip_packet(&packet) {
+                                Ok(meta) => meta,
+                                Err(error) => {
+                                    // A TAP fd accepts complete Ethernet frames only. Never
+                                    // fall back to writing an invalid raw L3 packet here: that
+                                    // silently turns a malformed ingress record into a TAP
+                                    // data-plane black hole.
+                                    log::debug!(
+                                        "TUN writer q{} '{}': dropped packet that cannot be \
+                                         encapsulated for TAP: {}",
+                                        qi,
+                                        name_w,
+                                        error
+                                    );
+                                    continue 'writer;
+                                }
+                            };
+                            let src_ip_mac = mac_from_ip(meta.source);
+                            let Some(frame) =
+                                prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac)
+                            else {
+                                log::debug!(
+                                    "TUN writer q{} '{}': dropped packet with no TAP ethertype",
+                                    qi,
+                                    name_w
+                                );
+                                continue 'writer;
+                            };
+                            frame
                         } else {
-                            None
+                            Vec::new()
                         };
-                        let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
+                        let buf: &[u8] = if is_tap_writer { &tap_frame } else { &packet };
                         loop {
                             let n = unsafe {
                                 libc::write(

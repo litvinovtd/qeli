@@ -1188,6 +1188,29 @@ impl ClientConfig {
                  provides an L3 TUN interface"
             );
         }
+        #[cfg(target_os = "linux")]
+        {
+            // TUNSETIFF accepts at most IFNAMSIZ-1 bytes and writes back the truncated name.
+            // Every later `ip ... dev <configured-name>` call uses this exact string, so a
+            // truncation or path-like value creates/configures two different names.
+            const MAX_IFNAME_LEN: usize = 15;
+            let name = self.tun.name.as_str();
+            if name.is_empty()
+                || name.len() > MAX_IFNAME_LEN
+                || name == "."
+                || name == ".."
+                || name.contains('/')
+                || name.contains('\\')
+                || name.contains('\0')
+                || name.contains(char::is_whitespace)
+            {
+                anyhow::bail!(
+                    "'dev = {}' is not a valid Linux interface name (use 1..={} bytes without whitespace, '/', '\\' or NUL)",
+                    name,
+                    MAX_IFNAME_LEN
+                );
+            }
+        }
         if self.routing.ipv6 == ClientIpv6Policy::Required
             && self.tun.mtu > 0
             && self.tun.mtu < 1280
@@ -1983,6 +2006,35 @@ sni    = www.cloudflare.com
         assert_eq!(c.tun.name, "vpn7");
         let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
         assert_eq!(back.tun.name, "vpn7");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_dev_name_validation_prevents_tunsetiff_truncation_and_path_names() {
+        for invalid in ["", "abcdefghijklmnop", ".", "..", "bad/name", "bad name"] {
+            let mut config = ClientConfig::from_ini(
+                &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
+            )
+            .unwrap();
+            config.tun.name = invalid.to_string();
+            let error = config.validate().unwrap_err().to_string();
+            assert!(
+                error.contains("not a valid Linux interface name"),
+                "{invalid}: {error}"
+            );
+        }
+
+        let mut valid = ClientConfig::from_ini(
+            &IniDoc::parse(
+                "[qeli]\nserver = h:443\nuser = u\npass = p\ndev = ext0\ndevice_type = tap\ndev_attach = true\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        // The configured external TAP name is literal; its type is a separate fact.
+        valid.tun.name = "ext0".into();
+        valid.validate().unwrap();
+        assert_eq!(valid.tun.name, "ext0");
     }
 
     #[test]
