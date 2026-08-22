@@ -19,13 +19,39 @@ fn packet_ethertype(packet: &[u8]) -> Option<[u8; 2]> {
     }
 }
 
+fn declared_ip_packet_len(packet: &[u8]) -> Option<usize> {
+    match packet.first().map(|byte| byte >> 4) {
+        Some(4) if packet.len() >= 20 => {
+            let ihl = usize::from(packet[0] & 0x0f) * 4;
+            let total_len = usize::from(u16::from_be_bytes([packet[2], packet[3]]));
+            (ihl >= 20 && total_len >= ihl && total_len <= packet.len()).then_some(total_len)
+        }
+        Some(6) if packet.len() >= 40 => {
+            let payload_len = usize::from(u16::from_be_bytes([packet[4], packet[5]]));
+            if payload_len == 0 {
+                // A zero payload length with a Hop-by-Hop header may be an unsupported
+                // jumbogram, not Ethernet padding. Only trim an actually header-only packet
+                // or the unambiguous No Next Header form.
+                return (packet[6] == 59).then_some(40);
+            }
+            let total_len = 40usize.checked_add(payload_len)?;
+            (total_len <= packet.len()).then_some(total_len)
+        }
+        _ => None,
+    }
+}
+
 pub fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
     if frame.len() < ETHERNET_HEADER_LEN {
         return None;
     }
     let packet = &frame[ETHERNET_HEADER_LEN..];
     let expected = packet_ethertype(packet)?;
-    (frame[12..14] == expected).then_some(packet)
+    if frame[12..14] != expected {
+        return None;
+    }
+    let packet_len = declared_ip_packet_len(packet)?;
+    Some(&packet[..packet_len])
 }
 
 pub fn prepend_ethernet_header(
@@ -348,8 +374,12 @@ mod tests {
 
     #[test]
     fn ipv4_and_ipv6_frames_round_trip_with_matching_ethertypes() {
-        let v4 = [0x45; 20];
-        let v6 = [0x60; 40];
+        let mut v4 = [0u8; 20];
+        v4[0] = 0x45;
+        v4[2..4].copy_from_slice(&20u16.to_be_bytes());
+        let mut v6 = [0u8; 40];
+        v6[0] = 0x60;
+        v6[6] = 59;
         let dst = [2, 0, 0, 0, 0, 1];
         let src = [2, 0, 0, 0, 0, 2];
         for (packet, ethertype) in [(&v4[..], ETHERTYPE_IPV4), (&v6[..], ETHERTYPE_IPV6)] {
@@ -361,10 +391,48 @@ mod tests {
 
     #[test]
     fn mismatched_or_non_ip_frames_are_rejected() {
-        let mut frame = prepend_ethernet_header(&[0x45; 20], &[0; 6], &[0; 6]).unwrap();
+        let mut ipv4 = [0u8; 20];
+        ipv4[0] = 0x45;
+        ipv4[2..4].copy_from_slice(&20u16.to_be_bytes());
+        let mut frame = prepend_ethernet_header(&ipv4, &[0; 6], &[0; 6]).unwrap();
         frame[12..14].copy_from_slice(&ETHERTYPE_IPV6);
         assert!(strip_ethernet_header(&frame).is_none());
         assert!(prepend_ethernet_header(&[0; 40], &[0; 6], &[0; 6]).is_none());
+    }
+
+    #[test]
+    fn standard_ethernet_padding_is_not_forwarded_into_the_l3_tunnel() {
+        let dst = [2, 0, 0, 0, 0, 1];
+        let src = [2, 0, 0, 0, 0, 2];
+
+        let ipv4 = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
+        ];
+        let mut padded_ipv4 = prepend_ethernet_header(&ipv4, &dst, &src).unwrap();
+        padded_ipv4.resize(60, 0);
+        assert_eq!(strip_ethernet_header(&padded_ipv4), Some(&ipv4[..]));
+
+        let mut ipv6 = [0u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[6] = 59;
+        let mut padded_ipv6 = prepend_ethernet_header(&ipv6, &dst, &src).unwrap();
+        padded_ipv6.resize(60, 0);
+        assert_eq!(strip_ethernet_header(&padded_ipv6), Some(&ipv6[..]));
+    }
+
+    #[test]
+    fn invalid_declared_ip_lengths_are_not_mistaken_for_padding() {
+        let mut ipv4 = [0u8; 20];
+        ipv4[0] = 0x45;
+        ipv4[2..4].copy_from_slice(&40u16.to_be_bytes());
+        let frame = prepend_ethernet_header(&ipv4, &[0; 6], &[0; 6]).unwrap();
+        assert!(strip_ethernet_header(&frame).is_none());
+
+        let mut jumbogram_like = [0u8; 48];
+        jumbogram_like[0] = 0x60;
+        jumbogram_like[6] = 0;
+        let frame = prepend_ethernet_header(&jumbogram_like, &[0; 6], &[0; 6]).unwrap();
+        assert!(strip_ethernet_header(&frame).is_none());
     }
 
     #[test]

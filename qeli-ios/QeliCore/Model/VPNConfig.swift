@@ -78,7 +78,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     static let carriedINIKeys: Set<String> = [
         // Not edited by the iOS model. Foreign platform/lifecycle fields survive a round trip;
         // transport-owned socket settings are consumed by Rust at the native boundary.
-        "autostart", "dev", "dev_attach", "dev_node", "exit_node", "forward",
+        "autostart", "dev", "dev_attach", "device_type", "dev_node", "exit_node", "forward",
         "gateway_nat", "keepalive", "lan_subnet", "lan_subnet_ipv6", "post_down", "post_up", "tcp_nodelay",
         "kill_switch", "local", "lport", "metric", "name", "persist_tun", "route_file",
         // Socket settings plus headless-only password sources.

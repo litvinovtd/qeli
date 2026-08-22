@@ -205,7 +205,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x0001000A
+qeli_client_abi_version()                                      -> 0x0001000B
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -215,14 +215,15 @@ qeli_client_stop(handle)                                       -> rc
 qeli_client_set_device_id(handle, id, 16)                      -> rc  // ABI 1.3
 qeli_client_publish_handshake_network(handle, json, len, *gen) -> rc  // ABI 1.5
 qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
+qeli_client_set_wintun_adapter(handle, generation, name, len)  -> rc  // ABI 1.9
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
 qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.2
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
-qeli_client_tun_push(handle, generation, bytes, lengths, count, *accepted) -> rc // ABI 1.7
-qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, ...) -> rc // ABI 1.7
+qeli_client_tun_push(handle, generation, bytes, bytes_len, lengths, count, *accepted) -> rc // ABI 1.7
+qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, *count, *bytes) -> rc // ABI 1.7
 qeli_client_free(handle)                                       -> rc
 ```
 
@@ -395,15 +396,17 @@ inline/pipeline и UDP сохраняют владение им через оч�
 только после записи или сброса. При исчерпании TCP создаёт backpressure до следующего чтения,
 UDP сбрасывает datagram без блокировки heartbeat/liveness loop, и ни один путь не создаёт
 fallback allocation. Поэтому формат провода не изменён.
-`qeli_client_set_tun` и data-plane функции C ABI появятся только вместе с реальным владением
-TUN, чтобы не публиковать «успешные» заглушки.
+Generation-scoped data-plane уже реализован с реальным владением: Unix fd-backed клиенты
+передают ядру дубликат дескриптора, Windows подключает созданный платформой Wintun-адаптер,
+а packetFlow/compatibility-клиенты используют ограниченные push/pull batch-очереди.
 
-### 5.2. Целевая data-plane поверхность
+### 5.2. Реализованная data-plane поверхность
 
 ```text
-qeli_client_set_tun(handle, fd | ring)       -> rc  // Android/macOS/Windows
-qeli_client_tun_push(handle, pkts, lens, n)  -> rc  // iOS packetFlow → ядро
-qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFlow
+qeli_client_set_tun_fd(handle, generation, fd)                    -> rc
+qeli_client_set_wintun_adapter(handle, generation, name, name_len)-> rc
+qeli_client_tun_push(handle, generation, pkts, bytes, lens, n, *accepted) -> rc
+qeli_client_tun_pull(handle, generation, buf, cap, lens, lens_cap, *n, *bytes) -> rc
 ```
 
 Требования к контракту, вытекающие из §4.1:

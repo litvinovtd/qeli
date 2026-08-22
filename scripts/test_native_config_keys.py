@@ -164,7 +164,7 @@ class ClientConfigKeyContractTests(unittest.TestCase):
         # plus all generated/maintained mirrors must not make the equality checks vacuous.
         # Full IPv6 adds ipv6/leak controls/lan_subnet_ipv6 and the shared REALITY core adds
         # its three transport-owned settings to the former 73-key surface.
-        self.assertEqual(len(expected), 79)
+        self.assertEqual(len(expected), 80)
 
     def test_android_has_no_silently_unsupported_shared_security_keys(self):
         _recognized, unsupported = android_contract()

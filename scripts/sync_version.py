@@ -148,6 +148,17 @@ def dev_version() -> str | None:
     )
     return m.group(1) if m else None
 
+def tagged_file(version: str, path: str) -> str | None:
+    """Read one tracked file from a release tag without checking it out."""
+    out = subprocess.run(
+        ["git", "show", f"v{version}:{path}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return out.stdout if out.returncode == 0 else None
+
 
 def apply(targets: list[tuple[str, str, str]], want: str, write: bool,
           also_ok: str | None = None) -> None:
@@ -258,6 +269,45 @@ def main() -> int:
     if gradle.exists():
         vc = re.search(r"versionCode\s*=\s*(\d+)", gradle.read_text(encoding="utf-8"))
         if vc:
+            # Keeping Android and iOS equal is insufficient: both counters must also remain
+            # strictly above the package already published by the latest release tag.
+            android_build = int(vc.group(1))
+            released_gradle = tagged_file(rel, "qeli-android/app/build.gradle.kts")
+            released_vc = (
+                re.search(r"versionCode\s*=\s*(\d+)", released_gradle)
+                if released_gradle is not None
+                else None
+            )
+            minimum_build: int | None = None
+            if released_vc is None:
+                problems.append(
+                    f"v{rel}: cannot read Android versionCode from the latest release tag"
+                )
+            else:
+                released_build = int(released_vc.group(1))
+                minimum_build = released_build + int(dev != rel)
+            if minimum_build is not None and android_build < minimum_build:
+                if args.write:
+                    next_build = str(minimum_build)
+                    apply(
+                        [
+                            (
+                                "qeli-android/app/build.gradle.kts",
+                                r"versionCode\s*=\s*(\d+)",
+                                "Android monotonic versionCode",
+                            )
+                        ],
+                        next_build,
+                        True,
+                    )
+                    android_build = int(next_build)
+                else:
+                    relation = "greater than" if dev != rel else "at least"
+                    problems.append(
+                        "qeli-android/app/build.gradle.kts: versionCode "
+                        f"{android_build} must be {relation} released v{rel} build "
+                        f"{released_vc.group(1)}"
+                    )
             apply(
                 [
                     ("qeli-ios/project.yml", r"CURRENT_PROJECT_VERSION:\s*(\S+)", "iOS build number"),
@@ -269,7 +319,7 @@ def main() -> int:
                         "iOS fallback build",
                     ),
                 ],
-                vc.group(1),
+                str(android_build),
                 args.write,
             )
     banners = [

@@ -5168,14 +5168,13 @@ async fn run_profile_generation(
                                 };
                                 continue;
                             }
-                            let Some(ip_offset) = strip_ethernet_header(&packet)
-                                .map(|ip| packet.len().saturating_sub(ip.len()))
-                            else {
+                            let Some(ip_packet) = strip_ethernet_header(&packet) else {
                                 continue;
                             };
-                            let ip_len = packet.len() - ip_offset;
+                            let ip_offset = ip_packet.as_ptr() as usize - packet.as_ptr() as usize;
+                            let ip_len = ip_packet.len();
                             let packet_buffer = packet.as_vec_mut();
-                            packet_buffer.copy_within(ip_offset.., 0);
+                            packet_buffer.copy_within(ip_offset..ip_offset + ip_len, 0);
                             packet_buffer.truncate(ip_len);
                         }
                         if out_tx

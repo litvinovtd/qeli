@@ -6,6 +6,27 @@
 
 ## [0.7.17] — не выпущен
 
+- TAP ingress теперь удаляет стандартный Ethernet padding по объявленной длине IPv4/IPv6
+  до передачи пакета в L3-туннель. Некорректные total/payload length и неоднозначные IPv6
+  jumbogram-пакеты отклоняются; server TAP и общий Linux transport-core используют единый parser.
+- Linux client TAP снова активируется из актуального flat-INI: `[qeli] device_type = tap`
+  теперь читается, валидируется и сохраняется при round-trip вместо отказа как неизвестный ключ
+  и скрытого продолжения с TUN. Windows, macOS, Android и iOS сохраняют этот переносимый
+  Linux-only ключ, но fail-closed отклоняют попытку запустить TAP на системном L3-интерфейсе.
+  Устанавливаемый `client.conf`, справочник и межклиентская матрица синхронизированы с этим
+  контрактом.
+- IPv6 Quick Start включает NAT66 только при наличии готового global-unicast адреса на рабочем
+  default-route интерфейсе. `tentative`, `dadfailed`, `deprecated`, `dead` и `linkdown` больше не
+  создают ложную готовность; имена `eth0@ifN` нормализуются, а полный список адресов сохраняется
+  отдельно для строгого поиска коллизий. Документационные, benchmark, ORCHID и переходные
+  Teredo/6to4 диапазоны не считаются нативным публичным IPv6 egress.
+- Android `versionCode` и iOS `CURRENT_PROJECT_VERSION`/fallback build подняты до `720`.
+  `scripts/sync_version.py` сверяет счётчик с последним release-тегом и не позволяет повторно
+  выпустить или откатить уже использованный mobile build-number.
+- Документация transport-core синхронизирована с ABI 1.11 (`0x0001000B`) и фактически
+  реализованными `set_tun_fd`, `set_wintun_adapter`, `tun_push` и `tun_pull`; удалено устаревшее
+  описание этих функций как будущего API.
+
 - Активный UDP PMTU probe на Linux/Android теперь использует тот же DF-режим, что и data path,
   и учитывает route/cached PMTU вместо `IP_PMTUDISC_PROBE`, который намеренно его обходил.
   Исправление симметрично применено к client→server и reverse server→client probe: обнаруженный

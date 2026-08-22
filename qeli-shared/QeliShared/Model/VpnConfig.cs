@@ -228,7 +228,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // by this port now — see FromIni/ToIni — so it moved to KnownIniKeys below. Leaving it
         // here as well would have made it both carried and modelled, and `ToIni` would emit it
         // twice: once from CarriedKeys, once from the DNS block. (Audit 2026-08-03, D2.)
-        "autostart", "dev_attach", "exit_node",
+        "autostart", "dev_attach", "device_type", "exit_node",
         "gateway_nat", "keepalive", "lan_subnet", "lan_subnet_ipv6", "post_down", "post_up", "tcp_nodelay",
         // Socket settings plus headless-only password sources.
         "password_command", "password_file", "reality_compact", "reality_split",

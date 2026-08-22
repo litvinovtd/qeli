@@ -5,7 +5,9 @@
 //! so reconnect teardown has one implementation independent of the selected wire mode.
 
 use super::buffer_pool::{BufferPool, PooledBuffer};
-use crate::tun::{client_tap_control_reply, destination_mac_for_ip, TapGateway};
+use crate::tun::{
+    client_tap_control_reply, destination_mac_for_ip, strip_ethernet_header, TapGateway,
+};
 use std::io;
 use std::ops::{Deref, Range};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -51,12 +53,6 @@ fn packet_family(packet: &[u8]) -> Option<(u32, [u8; 2])> {
         Some(6) if packet.len() >= 40 => Some((DARWIN_AF_INET6, ETHERTYPE_IPV6)),
         _ => None,
     }
-}
-
-fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
-    let packet = frame.get(ETHERNET_HEADER_LEN..)?;
-    let (_, ethertype) = packet_family(packet)?;
-    (frame[12..14] == ethertype).then_some(packet)
 }
 
 fn ethernet_header(
@@ -801,6 +797,7 @@ mod tests {
         let mut frame =
             ethernet_header(&headers.gateway_mac, &headers.client_mac, ETHERTYPE_IPV4).to_vec();
         frame.extend_from_slice(&ip_packet);
+        frame.resize(60, 0); // Standard Ethernet padding must stay outside the L3 packet.
         reader_test.send(&frame).unwrap();
         let received = tokio::time::timeout(Duration::from_secs(1), pump.recv_from_tun())
             .await
@@ -825,6 +822,7 @@ mod tests {
         let mut frame =
             ethernet_header(&headers.gateway_mac, &headers.client_mac, ETHERTYPE_IPV6).to_vec();
         frame.extend_from_slice(&ipv6_packet);
+        frame.resize(60, 0);
         reader_test.send(&frame).unwrap();
         let outbound_ipv6 = pump.recv_from_tun().await.unwrap();
         assert_eq!(&*outbound_ipv6, ipv6_packet);

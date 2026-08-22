@@ -24,7 +24,7 @@ android {
         applicationId = "com.qeli"
         minSdk = 28
         targetSdk = 37
-        versionCode = 718
+        versionCode = 720
         versionName = "0.7.17"
     }
 

@@ -205,7 +205,7 @@ in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits 
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x0001000A
+qeli_client_abi_version()                                      -> 0x0001000B
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -215,14 +215,15 @@ qeli_client_stop(handle)                                       -> rc
 qeli_client_set_device_id(handle, id, 16)                      -> rc  // ABI 1.3
 qeli_client_publish_handshake_network(handle, json, len, *gen) -> rc  // ABI 1.5
 qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
+qeli_client_set_wintun_adapter(handle, generation, name, len)  -> rc  // ABI 1.9
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
 qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.2
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
-qeli_client_tun_push(handle, generation, bytes, lengths, count, *accepted) -> rc // ABI 1.7
-qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, ...) -> rc // ABI 1.7
+qeli_client_tun_push(handle, generation, bytes, bytes_len, lengths, count, *accepted) -> rc // ABI 1.7
+qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, *count, *bytes) -> rc // ABI 1.7
 qeli_client_free(handle)                                       -> rc
 ```
 
@@ -399,15 +400,17 @@ allocation; TCP inline/pipeline and UDP retain ownership through the TUN-writer 
 `Drop` returns the slot only after write or discard. Exhausted TCP readers apply backpressure
 before the next read, while UDP drops the datagram without blocking heartbeat/liveness timers;
 neither path creates a fallback allocation. Wire format is therefore unchanged.
-`qeli_client_set_tun` and C-ABI data-plane calls arrive only with real TUN ownership, avoiding
-exported stubs that report false success.
+The generation-scoped data-plane seam is implemented with real ownership: Unix fd-backed
+frontends attach a duplicated descriptor, Windows attaches the platform-created Wintun adapter,
+and packetFlow/compatibility frontends use bounded push/pull batches.
 
-### 5.2. Target data-plane surface
+### 5.2. Implemented data-plane surface
 
 ```text
-qeli_client_set_tun(handle, fd | ring)       -> rc  // Android/macOS/Windows
-qeli_client_tun_push(handle, pkts, lens, n)  -> rc  // iOS packetFlow into the core
-qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // core into iOS packetFlow
+qeli_client_set_tun_fd(handle, generation, fd)                    -> rc
+qeli_client_set_wintun_adapter(handle, generation, name, name_len)-> rc
+qeli_client_tun_push(handle, generation, pkts, bytes, lens, n, *accepted) -> rc
+qeli_client_tun_pull(handle, generation, buf, cap, lens, lens_cap, *n, *bytes) -> rc
 ```
 
 Contract requirements that follow from §4.1:

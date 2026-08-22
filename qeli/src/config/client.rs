@@ -654,6 +654,12 @@ impl ClientConfig {
         if let Some(d) = q.get("dev").filter(|s| !s.is_empty()) {
             cfg.tun.name = d.to_string();
         }
+        // Linux can create either an L3 TUN or an emulated L2 TAP. This field already
+        // drives NetworkPlan prefixes, interface creation and packet framing; failing to
+        // read it made every flat-INI client silently stay in the default TUN mode.
+        if let Some(device_type) = q.get("device_type").filter(|value| !value.is_empty()) {
+            cfg.tun.device_type = device_type.to_string();
+        }
         // Attach to an existing, externally-owned interface named `dev` instead of
         // creating our own. See ClientTunConfig::attach_existing.
         cfg.tun.attach_existing = q.bool_or("dev_attach", cfg.tun.attach_existing);
@@ -1175,6 +1181,13 @@ impl ClientConfig {
             &self.tun.device_type.to_ascii_lowercase(),
             &["tun", "tap"],
         )?;
+        #[cfg(not(target_os = "linux"))]
+        if self.tun.device_type.eq_ignore_ascii_case("tap") {
+            anyhow::bail!(
+                "'device_type = tap' is supported only by the Linux client; this platform \
+                 provides an L3 TUN interface"
+            );
+        }
         if self.routing.ipv6 == ClientIpv6Policy::Required
             && self.tun.mtu > 0
             && self.tun.mtu < 1280
@@ -1486,6 +1499,11 @@ impl ClientConfig {
         }
         if self.tun.name != "vpn0" {
             q.set("dev", &self.tun.name);
+        }
+        // Sparse default: Linux TUN is implicit. Canonicalize case so a value accepted by
+        // the case-insensitive runtime does not produce multiple serialized spellings.
+        if !self.tun.device_type.eq_ignore_ascii_case("tun") {
+            q.set("device_type", self.tun.device_type.to_ascii_lowercase());
         }
         // Emit only when enabled (default false = own the interface).
         if self.tun.attach_existing {
@@ -1968,6 +1986,38 @@ sni    = www.cloudflare.com
     }
 
     #[test]
+    fn device_type_tap_parses_validates_per_platform_and_round_trips() {
+        let defaults = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(defaults.tun.device_type, "tun");
+        assert!(!defaults.to_ini_string().contains("device_type"));
+
+        let tap = ClientConfig::from_ini(
+            &IniDoc::parse(
+                "[qeli]\nserver = h:443\nuser = u\npass = p\ndev = qstun0\ndevice_type = TAP\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tap.tun.device_type, "TAP");
+        #[cfg(target_os = "linux")]
+        tap.validate().unwrap();
+        #[cfg(not(target_os = "linux"))]
+        assert!(tap
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("supported only by the Linux client"));
+
+        let output = tap.to_ini_string();
+        assert!(output.contains("device_type = tap"));
+        let reparsed = ClientConfig::from_ini(&IniDoc::parse(&output).unwrap()).unwrap();
+        assert_eq!(reparsed.tun.device_type, "tap");
+    }
+
+    #[test]
     fn dev_attach_parses_and_round_trips() {
         // Absent -> default false (own the interface).
         let def = ClientConfig::from_ini(
@@ -2394,6 +2444,7 @@ post_down = echo down
 dns = off
 dns_servers = 9.9.9.9, 149.112.112.112
 dev = mytun0
+device_type = tap
 dev_attach = true
 mtu = 1380
 mtu_probe = false
@@ -2470,6 +2521,7 @@ file = /tmp/client.log
             "dns = off",
             "dns_servers = 9.9.9.9, 149.112.112.112",
             "dev = mytun0",
+            "device_type = tap",
             "dev_attach = true",
             "mtu = 1380",
             "mtu_probe = false",

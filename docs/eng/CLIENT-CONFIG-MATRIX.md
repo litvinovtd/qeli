@@ -30,6 +30,7 @@ can apply it.
 | `password_file` `password_command` | A→A | C→C | C→C | C→C | C→C | Password sources remain headless-only; GUIs never execute commands or read arbitrary files. |
 | `local` `lport` | R→A | A→A | A→A | D→C | D→C | Linux and Windows/macOS apply the primary TCP/UDP carrier bind. Secondary bonded TCP sockets retain `local` with an ephemeral port and intentionally do not claim the same fixed `lport`. A bind failure blocks the connection instead of silently using another source address/port. Phones preserve the desktop keys. |
 | `dev` | A→A | A→A | C→C | D→C | D→C | The interface name applies on Linux/Windows; macOS receives `utunN` from the kernel and phones use their system TUN. |
+| `device_type` | R→A | C→C | C→C | C→C | C→C | Linux can select `tun` or `tap`; other clients preserve the portable key and reject TAP at connect time because their system VPN devices are L3-only. |
 | `dev_attach` | A→A | C→C | C→C | C→C | C→C | Attaching an existing TUN remains CLI-only; every editor preserves the key. |
 | `dev_node` `metric` | R→R | A→A | C→C | D→C | D→C | Only Windows applies the Wintun fields; other GUIs preserve them. |
 | `persist_tun` `route_file` | R→R | A→A | A→A | D→C | D→C | Desktop lifecycle/routes do not apply to phones, but no longer vanish after a mobile round trip. |

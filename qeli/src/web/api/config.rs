@@ -598,13 +598,34 @@ fn place_quickstart_network(
     Ok(profile)
 }
 
+fn is_public_native_ipv6_address(address: &std::net::Ipv6Addr) -> bool {
+    if (address.segments()[0] & 0xe000) != 0x2000 {
+        return false;
+    }
+    // These ranges are inside 2000::/3 but are not evidence of native public egress.
+    const NON_NATIVE_OR_NON_ROUTABLE: &[&str] = &[
+        "2001::/32",     // Teredo
+        "2001:2::/48",   // benchmarking
+        "2001:10::/28",  // ORCHID (deprecated)
+        "2001:20::/28",  // ORCHIDv2
+        "2001:db8::/32", // documentation
+        "2002::/16",     // 6to4 (deprecated)
+        "3fff::/20",     // documentation
+    ];
+    !NON_NATIVE_OR_NON_ROUTABLE.iter().any(|prefix| {
+        prefix
+            .parse::<ipnet::Ipv6Net>()
+            .expect("static IPv6 exclusion prefix must parse")
+            .contains(address)
+    })
+}
+
 fn host_has_native_ipv6_egress(host: Option<&crate::server::preflight::HostNet>) -> bool {
     let Some(host) = host else { return false };
-    host.ipv6_addrs.iter().any(|(interface, address)| {
+    host.ipv6_egress_addrs.iter().any(|(interface, address)| {
         // Internet-assigned global unicast space. ULA or link-local plus a default route
         // is not evidence that NAT66 can reach the public IPv6 Internet.
-        (address.segments()[0] & 0xe000) == 0x2000
-            && host.ipv6_default_interfaces.contains(interface)
+        is_public_native_ipv6_address(address) && host.ipv6_default_interfaces.contains(interface)
     })
 }
 
@@ -2418,15 +2439,48 @@ mod raw_secret_tests {
     }
 
     fn native_ipv6_host() -> crate::server::preflight::HostNet {
+        let address = "2606:4700:4700::1111"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap();
         crate::server::preflight::HostNet {
-            ipv6_addrs: vec![(
-                "eth0".into(),
-                "2001:db8::10".parse::<std::net::Ipv6Addr>().unwrap(),
-            )],
+            ipv6_addrs: vec![("eth0".into(), address)],
+            ipv6_egress_addrs: vec![("eth0".into(), address)],
             ipv6_gateways: vec!["fe80::1".parse().unwrap()],
             ipv6_default_interfaces: vec!["eth0".into()],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn native_ipv6_detection_requires_ready_routable_address_on_the_default_interface() {
+        let public = "2606:4700:4700::1111"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap();
+        let documentation = "2001:db8::10".parse().unwrap();
+
+        let host = crate::server::preflight::HostNet {
+            ipv6_addrs: vec![("eth0".into(), public)],
+            ipv6_default_interfaces: vec!["eth0".into()],
+            ..Default::default()
+        };
+        assert!(!host_has_native_ipv6_egress(Some(&host)));
+
+        let host = crate::server::preflight::HostNet {
+            ipv6_addrs: vec![("eth0".into(), documentation)],
+            ipv6_egress_addrs: vec![("eth0".into(), documentation)],
+            ipv6_default_interfaces: vec!["eth0".into()],
+            ..Default::default()
+        };
+        assert!(!host_has_native_ipv6_egress(Some(&host)));
+
+        let host = crate::server::preflight::HostNet {
+            ipv6_addrs: vec![("eth0".into(), public)],
+            ipv6_egress_addrs: vec![("eth0".into(), public)],
+            ipv6_default_interfaces: vec!["eth1".into()],
+            ..Default::default()
+        };
+        assert!(!host_has_native_ipv6_egress(Some(&host)));
+        assert!(host_has_native_ipv6_egress(Some(&native_ipv6_host())));
     }
 
     #[test]

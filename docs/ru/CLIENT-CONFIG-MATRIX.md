@@ -30,6 +30,7 @@ fail-closed. GUI-клиенты 0.7.15 сохраняют любой извес�
 | `password_file` `password_command` | A→A | C→C | C→C | C→C | C→C | Источники пароля остаются headless-функцией; GUI не выполняют команды и не читают произвольные файлы. |
 | `local` `lport` | R→A | A→A | A→A | D→C | D→C | Linux и Windows/macOS применяют привязку первичного TCP/UDP carrier. Вторичные bonded TCP-сокеты сохраняют `local`, но используют ephemeral-порт и намеренно не занимают тот же фиксированный `lport`. Ошибка bind блокирует подключение вместо скрытого продолжения с другим source address/port. Телефоны сохраняют ключи для desktop-профиля. |
 | `dev` | A→A | A→A | C→C | D→C | D→C | Имя интерфейса применимо Linux/Windows; macOS получает `utunN` от ядра, телефоны — системный TUN. |
+| `device_type` | R→A | C→C | C→C | C→C | C→C | Linux выбирает `tun` или `tap`; остальные клиенты сохраняют переносимый ключ и отклоняют TAP при подключении, потому что их системные VPN-интерфейсы работают только на L3. |
 | `dev_attach` | A→A | C→C | C→C | C→C | C→C | Подключение к готовому TUN остаётся функцией CLI; остальные редакторы не теряют ключ. |
 | `dev_node` `metric` | R→R | A→A | C→C | D→C | D→C | Wintun-ключи применяет только Windows, остальные GUI сохраняют их. |
 | `persist_tun` `route_file` | R→R | A→A | A→A | D→C | D→C | Desktop lifecycle/маршруты не применимы телефоном, но больше не исчезают после mobile round-trip. |

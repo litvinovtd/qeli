@@ -1294,6 +1294,7 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 | Key | Default | CLI | Win | mac | And | iOS | Purpose |
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `dev` | `vpn0` | ✓ | ✓ | — | — | — | interface name (mac: `utun` is kernel-assigned; Android: VpnService) |
+| `device_type` | `tun` | ✓ | — | — | — | — | Linux interface kind: `tun` (L3) or `tap` (local L2 emulation); non-Linux clients preserve the key but reject TAP at connect time |
 | `dev_attach` | `false` | ✓ | — | — | — | — | attach to a pre-existing interface (don't create one) |
 | `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | ✓ | tunnel MTU; `0` = adopt the server push |
 | `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | active path-MTU probe — **UDP with `mtu=0` only** |

@@ -1014,7 +1014,7 @@ data class VpnConfig(
             // NB: `allow_unpinned_tofu` used to live here — carried through saves but read by
             // nothing. It is a modelled field now (see VpnConfig.allowUnpinnedTofu), so it
             // must NOT also be carried or toIni would emit it twice. (Audit 2026-08-04, M-20.)
-            "autostart", "dev", "dev_attach", "dev_node", "exit_node", "forward",
+            "autostart", "dev", "dev_attach", "device_type", "dev_node", "exit_node", "forward",
             "gateway_nat", "keepalive", "lan_subnet", "lan_subnet_ipv6", "post_down", "post_up", "tcp_nodelay",
             "local", "lport", "metric", "name", "persist_tun", "route_file",
             // Password sources remain headless-only. Buffer values, when present, reach the

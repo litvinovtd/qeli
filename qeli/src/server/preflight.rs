@@ -39,6 +39,9 @@ pub struct HostNet {
     pub routes: Vec<(String, Ipv4Net)>,
     /// (interface, address) for every non-loopback IPv6 address on the host.
     pub ipv6_addrs: Vec<(String, Ipv6Addr)>,
+    /// IPv6 addresses ready for new egress traffic (not tentative, DAD-failed or
+    /// deprecated). Kept separate because every address still matters for collision checks.
+    pub ipv6_egress_addrs: Vec<(String, Ipv6Addr)>,
     /// IPv6 next hops of default routes. A directly connected default has no next hop.
     pub ipv6_gateways: Vec<Ipv6Addr>,
     /// Interfaces carrying an IPv6 default route, including directly connected defaults.
@@ -57,6 +60,15 @@ fn overlaps_ipv6(a: &Ipv6Net, b: &Ipv6Net) -> bool {
     a.contains(&b.network()) || b.contains(&a.network())
 }
 
+fn normalize_interface_name(value: &str) -> String {
+    value
+        .trim_end_matches(':')
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
 /// Parse `ip -4 -o addr show`:
 /// `2: net0    inet 62.60.248.39/32 brd 62.60.248.39 scope global net0`
 pub fn parse_addr_lines(out: &str) -> Vec<(String, Ipv4Addr)> {
@@ -70,7 +82,7 @@ pub fn parse_addr_lines(out: &str) -> Vec<(String, Ipv4Addr)> {
         let Some(cidr) = t.get(i + 1) else { continue };
         if let Ok(addr) = cidr.split('/').next().unwrap_or("").parse::<Ipv4Addr>() {
             if !addr.is_loopback() {
-                v.push((ifname.trim_end_matches(':').to_string(), addr));
+                v.push((normalize_interface_name(ifname), addr));
             }
         }
     }
@@ -81,9 +93,24 @@ pub fn parse_addr_lines(out: &str) -> Vec<(String, Ipv4Addr)> {
 /// configured tunnel address may not use them, but their prefixes still matter when
 /// checking a proposed pool against the host's live network state.
 pub fn parse_ipv6_addr_lines(out: &str) -> Vec<(String, Ipv6Addr)> {
+    parse_ipv6_addr_lines_filtered(out, false)
+}
+
+fn parse_usable_ipv6_addr_lines(out: &str) -> Vec<(String, Ipv6Addr)> {
+    parse_ipv6_addr_lines_filtered(out, true)
+}
+
+fn parse_ipv6_addr_lines_filtered(out: &str, require_usable: bool) -> Vec<(String, Ipv6Addr)> {
     let mut addresses = Vec::new();
     for line in out.lines() {
         let tokens: Vec<&str> = line.split_whitespace().collect();
+        if require_usable
+            && tokens
+                .iter()
+                .any(|item| matches!(*item, "tentative" | "dadfailed" | "deprecated"))
+        {
+            continue;
+        }
         let (Some(interface), Some(index)) = (
             tokens.get(1),
             tokens.iter().position(|&item| item == "inet6"),
@@ -95,7 +122,7 @@ pub fn parse_ipv6_addr_lines(out: &str) -> Vec<(String, Ipv6Addr)> {
         };
         if let Ok(address) = cidr.split('/').next().unwrap_or("").parse::<Ipv6Addr>() {
             if !address.is_loopback() {
-                addresses.push((interface.trim_end_matches(':').to_string(), address));
+                addresses.push((normalize_interface_name(interface), address));
             }
         }
     }
@@ -137,7 +164,7 @@ pub fn parse_route_lines(out: &str) -> (Vec<Ipv4Addr>, Vec<(String, Ipv4Net)>) {
             .iter()
             .position(|&x| x == "dev")
             .and_then(|i| t.get(i + 1))
-            .map(|s| s.to_string())
+            .map(|s| normalize_interface_name(s))
             .unwrap_or_default();
         if destination == "default" {
             if let Some(gw) = t
@@ -190,20 +217,54 @@ pub fn parse_ipv6_route_lines(out: &str) -> (Vec<Ipv6Addr>, Vec<String>, Vec<(St
             .iter()
             .position(|&item| item == "dev")
             .and_then(|index| tokens.get(index + 1))
-            .map(|value| value.to_string())
+            .map(|value| normalize_interface_name(value))
             .unwrap_or_default();
         if first == "default" {
-            if !interface.is_empty() && !default_interfaces.contains(&interface) {
-                default_interfaces.push(interface);
-            }
-            if let Some(gateway) = tokens
+            // A multipath default may carry several nexthops on one line. Health flags
+            // belong to one nexthop, not the whole route: a dead first path must not hide
+            // a later usable path from Quick Start's native-IPv6 readiness check.
+            let nexthop_starts: Vec<usize> = tokens
                 .iter()
-                .position(|&item| item == "via")
-                .and_then(|index| tokens.get(index + 1))
-                .and_then(|value| value.split('%').next())
-                .and_then(|value| value.parse::<Ipv6Addr>().ok())
-            {
-                gateways.push(gateway);
+                .enumerate()
+                .filter_map(|(index, token)| (*token == "nexthop").then_some(index + 1))
+                .collect();
+            let mut groups: Vec<&[&str]> = Vec::new();
+            if nexthop_starts.is_empty() {
+                groups.push(&tokens);
+            } else {
+                for (position, start) in nexthop_starts.iter().copied().enumerate() {
+                    let end = nexthop_starts
+                        .get(position + 1)
+                        .map(|next| next - 1)
+                        .unwrap_or(tokens.len());
+                    groups.push(&tokens[start..end]);
+                }
+            }
+            for group in groups {
+                if group
+                    .iter()
+                    .any(|item| matches!(*item, "dead" | "linkdown"))
+                {
+                    continue;
+                }
+                for pair in group.windows(2) {
+                    if pair[0] == "dev" {
+                        let candidate = normalize_interface_name(pair[1]);
+                        if !candidate.is_empty() && !default_interfaces.contains(&candidate) {
+                            default_interfaces.push(candidate);
+                        }
+                    } else if pair[0] == "via" {
+                        if let Some(gateway) = pair[1]
+                            .split('%')
+                            .next()
+                            .and_then(|value| value.parse::<Ipv6Addr>().ok())
+                        {
+                            if !gateways.contains(&gateway) {
+                                gateways.push(gateway);
+                            }
+                        }
+                    }
+                }
             }
             continue;
         }
@@ -250,10 +311,17 @@ pub fn gather_host_net() -> Option<HostNet> {
         .args(["-6", "route", "show"])
         .output()
         .ok();
-    let ipv6_addrs = ipv6_addr_out
+    let ipv6_addr_text = ipv6_addr_out
         .as_ref()
         .filter(|output| output.status.success())
-        .map(|output| parse_ipv6_addr_lines(&String::from_utf8_lossy(&output.stdout)))
+        .map(|output| String::from_utf8_lossy(&output.stdout));
+    let ipv6_addrs = ipv6_addr_text
+        .as_deref()
+        .map(parse_ipv6_addr_lines)
+        .unwrap_or_default();
+    let ipv6_egress_addrs = ipv6_addr_text
+        .as_deref()
+        .map(parse_usable_ipv6_addr_lines)
         .unwrap_or_default();
     let (ipv6_gateways, ipv6_default_interfaces, ipv6_routes) = ipv6_route_out
         .as_ref()
@@ -265,6 +333,7 @@ pub fn gather_host_net() -> Option<HostNet> {
         gateways,
         routes,
         ipv6_addrs,
+        ipv6_egress_addrs,
         ipv6_gateways,
         ipv6_default_interfaces,
         ipv6_routes,
@@ -696,6 +765,46 @@ mod tests {
         assert_eq!(interfaces, vec!["eth0", "wwan0"]);
         assert_eq!(routes[0].1, "2001:db8:100::/48".parse().unwrap());
         assert_eq!(routes[1].1, "2001:db8::50/128".parse().unwrap());
+    }
+
+    #[test]
+    fn ipv6_egress_parser_excludes_unusable_addresses_without_hiding_collisions() {
+        let input = "2: eth0@if7 inet6 2606:4700:4700::1111/64 scope global dynamic\n\
+                     2: eth0@if7 inet6 2606:4700:4700::2222/64 scope global tentative\n\
+                     2: eth0@if7 inet6 2606:4700:4700::3333/64 scope global dadfailed\n\
+                     2: eth0@if7 inet6 2606:4700:4700::4444/64 scope global deprecated\n";
+
+        let all = parse_ipv6_addr_lines(input);
+        let usable = parse_usable_ipv6_addr_lines(input);
+        assert_eq!(all.len(), 4, "collision snapshot must retain every address");
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].0, "eth0");
+        assert_eq!(
+            usable[0].1,
+            "2606:4700:4700::1111".parse::<Ipv6Addr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn ipv6_route_parser_normalizes_interfaces_and_skips_down_defaults() {
+        let (gateways, interfaces, routes) = parse_ipv6_route_lines(
+            "default via fe80::1 dev eth0@if7 proto ra\n\
+             default dev wwan0 linkdown metric 2048\n\
+             default proto static metric 100 \
+                 nexthop via fe80::dead dev eth2 dead weight 1 \
+                 nexthop via fe80::2 dev eth3@if11 weight 1\n\
+             2001:db8:100::/48 dev eth1@if9\n",
+        );
+
+        assert_eq!(
+            gateways,
+            vec![
+                "fe80::1".parse::<Ipv6Addr>().unwrap(),
+                "fe80::2".parse::<Ipv6Addr>().unwrap()
+            ]
+        );
+        assert_eq!(interfaces, vec!["eth0", "eth3"]);
+        assert_eq!(routes[0].0, "eth1");
     }
 
     #[test]
