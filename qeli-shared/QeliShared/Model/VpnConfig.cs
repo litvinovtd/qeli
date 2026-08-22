@@ -417,7 +417,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         string? appsMode = null, List<string>? apps = null,
         long? connectionTimeoutSecs = null, bool? reconnectEnabled = null,
         int? reconnectMaxRetries = null, bool? persistTun = null,
-        bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null) => new()
+        bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null,
+        string? ipv6Policy = null, bool? allowIpv4Leak = null, bool? allowIpv6Leak = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -448,10 +449,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        Ipv6Policy = Ipv6Policy,
+        Ipv6Policy = ipv6Policy ?? Ipv6Policy,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
-        AllowIpv4Leak = AllowIpv4Leak,
-        AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
+        AllowIpv4Leak = allowIpv4Leak ?? AllowIpv4Leak,
+        AllowIpv6Leak = allowIpv6Leak ?? AllowIpv6Leak, Forward = Forward,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         HeartbeatDataSize = HeartbeatDataSize,
         ShapingEnabled = ShapingEnabled, ShapingGapMeanMs = ShapingGapMeanMs, ShapingGapMinMs = ShapingGapMinMs,

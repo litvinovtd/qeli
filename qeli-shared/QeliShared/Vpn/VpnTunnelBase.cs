@@ -39,6 +39,9 @@ public abstract class VpnTunnelBase
     // Kept separately for status/logging; reuse is gated by the complete applied-plan
     // fingerprint below, not by the address alone.
     private string? _persistedClientIp;
+    // Display projection of every authenticated inner assignment. The legacy primary IP is
+    // still kept separately because persist-tun fingerprints and older status consumers use it.
+    private string? _persistedTunnelAddresses;
     // Canonical fingerprint of every NetworkPlan/config value that the desktop platform
     // adapter applied to the host: address/prefix, effective MTU and DNS, routes (including
     // route_file), carrier pin and platform routing policy. A new authenticated generation
@@ -667,6 +670,7 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedTunnelAddresses = null;
         _persistedNetSig = null;
     }
 
@@ -719,6 +723,7 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedTunnelAddresses = null;
         _persistedNetSig = null;
         return false;
     }
@@ -1265,6 +1270,8 @@ public abstract class VpnTunnelBase
                                 SetupTun(config, session, carrier, carrierCandidates);
                                 EnforceDnsPolicy(config);
                                 _persistedClientIp = plan.TunnelAddress;
+                                _persistedTunnelAddresses = string.Join(", ",
+                                    addresses.Select(address => $"{address.Address}/{address.PrefixLength}"));
                                 _persistedNetSig = PhysicalNetSignature();
                                 _persistedPlanFingerprint =
                                     NetworkPlanFingerprint(config, session, carrier);
@@ -1325,8 +1332,8 @@ public abstract class VpnTunnelBase
                                     "new tunnel is ready, but the temporary replacement firewall guard could not be restored");
                             _wasConnected = true;
                             ConnectedSince = DateTime.Now;
-                            string clientIp = _persistedClientIp ?? "";
-                            Status(VpnStatus.Connected, DescribeConnected(clientIp));
+                            string tunnelAddresses = _persistedTunnelAddresses ?? _persistedClientIp ?? "";
+                            Status(VpnStatus.Connected, DescribeConnected(tunnelAddresses));
                             Log("TUN ready; Rust owns the complete transport data plane (ABI 1.11)");
                             break;
 

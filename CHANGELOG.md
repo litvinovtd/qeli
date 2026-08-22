@@ -6,6 +6,21 @@
 
 ## [0.7.17] — не выпущен
 
+- IPv6-настройки доведены до всех операторских интерфейсов: Users управляет и показывает
+  `static_ipv6`; web Client Manager редактирует `ipv6=auto|required|off` и оба fail-closed
+  leak-исключения, а диагностика отображает `family_mode` и весь `NetworkPlan.addresses[]`.
+  Windows/macOS получили те же управляемые поля в локализованном редакторе профиля.
+  Android/iOS сохраняют полный raw INI-контракт; шаблоны нового профиля теперь явно показывают
+  `ipv6 = auto` и оба безопасно выключенных leak-исключения.
+- Статусы Windows, macOS, Android и iOS больше не скрывают второе назначение dual-stack:
+  детали соединения сохраняют и показывают полный список IPv4/IPv6 адресов с префиксами,
+  сохраняя legacy primary IP только для компактного статуса и обратной совместимости.
+- Публичный C header синхронизирован с NetworkPlan ABI 1.11: задокументированы
+  `family_mode`, typed `addresses[]`, `carrier_address`, leak policy и `connection_log`.
+  Добавлены подробные RU/EN руководства `IPV6.md`, исправлено описание Quick Start,
+  локализованы IPv6-поля панели, а карта и 80-key клиентская матрица приведены к текущему
+  контракту.
+
 - TAP ingress теперь удаляет стандартный Ethernet padding по объявленной длине IPv4/IPv6
   до передачи пакета в L3-туннель. Некорректные total/payload length и неоднозначные IPv6
   jumbogram-пакеты отклоняются; server TAP и общий Linux transport-core используют единый parser.

@@ -273,7 +273,7 @@ perf.connection.idle_timeout_secs = 300
 ```
 
 (Полный, исчерпывающе прокомментированный пример — [server.conf](../../qeli/config/server.conf);
-готовый dual-stack deployment — [server-ipv6.conf](../../qeli/config/server-ipv6.conf).)
+готовый dual-stack deployment — [server-ipv6.conf](../../qeli/config/server-ipv6.conf)).
 
 ## Многоядерность сервера (`tun.queues`)
 
@@ -2145,6 +2145,9 @@ ip route add default dev "$QELI_TUN" table 100
 | `obf.awg.jmin` / `jmax` | `40` / `300` | диапазон размера junk-пакета в байтах (`jmin ≤ jmax ≤ 1400`; на UDP каждая junk-датаграмма дополнительно зажата до 1200, чтобы никогда не IP-фрагментироваться) |
 
 ## Внутренняя IPv4/IPv6-адресация
+
+Пошаговые сценарии dual-stack, IPv6-only, NAT66, routed GUA, Quick Start и проверки
+собраны отдельно в [руководстве по IPv6](IPV6.md).
 
 Семейство внешнего listener и семейство внутри туннеля независимы. Профиль, доступный по
 IPv4, может нести dual-stack, а IPv6 carrier — обслуживать IPv4-only профиль.

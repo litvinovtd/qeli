@@ -273,7 +273,7 @@ perf.connection.idle_timeout_secs = 300
 ```
 
 (A full, exhaustively commented example — [server.conf](../../qeli/config/server.conf); a
-runnable dual-stack deployment — [server-ipv6.conf](../../qeli/config/server-ipv6.conf).)
+runnable dual-stack deployment — [server-ipv6.conf](../../qeli/config/server-ipv6.conf)).
 
 ## Server multi-core (`tun.queues`)
 
@@ -2190,6 +2190,9 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`; on UDP each junk datagram is additionally capped at 1200 so it never IP-fragments) |
 
 ## Inner IPv4/IPv6 addressing
+
+Step-by-step dual-stack, IPv6-only, NAT66, routed GUA, Quick Start and verification
+workflows are collected in the separate [IPv6 guide](IPV6.md).
 
 The outer listener family and inner tunnel family are independent. A profile reached over
 IPv4 may carry dual-stack traffic, and an IPv6 carrier may serve an IPv4-only profile.

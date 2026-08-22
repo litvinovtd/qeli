@@ -209,7 +209,8 @@ Most used:
 
 - **[GETTING-STARTED.md](GETTING-STARTED.md)** — install and first run, step by step.
 - **[CONFIG.md](CONFIG.md)** — configuration (flat-INI), every parameter.
-- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — all 73 client keys before/after the refactor.
+- **[IPV6.md](IPV6.md)** — complete dual-stack/IPv6-only, NAT66/route setup and troubleshooting.
+- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — the current 80 client keys and refactor history.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — diagnostics and error reference.
 - **[PANEL.md](PANEL.md)** — web panel: installation and usage.
 

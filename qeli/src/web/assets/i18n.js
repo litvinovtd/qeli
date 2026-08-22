@@ -315,6 +315,48 @@
       'Auto is resolved once and stored; relaunching an existing profile preserves its current mode.':
         'Автоматический режим определяется один раз и сохраняется; повторный запуск существующего профиля сохраняет его текущий режим.',
       'Inner IP mode: ': 'Режим IP внутри туннеля: ',
+      'Address families carried inside the tunnel; independent of the outer listener address.':
+        'Семейства адресов внутри туннеля; не зависят от адреса внешнего listener.',
+      'IPv4 gateway (server address)': 'IPv4-шлюз (адрес сервера)',
+      'IPv4 address of this server inside the VPN': 'IPv4-адрес этого сервера внутри VPN',
+      'IPv6 gateway (server address)': 'IPv6-шлюз (адрес сервера)',
+      'IPv6 address of this server inside the VPN allocation prefix':
+        'IPv6-адрес этого сервера внутри префикса адресов VPN',
+      'IPv6 allocation prefix (CIDR)': 'Префикс распределения IPv6 (CIDR)',
+      'Unique per profile; /64 is recommended. Must contain the IPv6 gateway.':
+        'Должен быть уникальным для профиля; рекомендуется /64. Обязан содержать IPv6-шлюз.',
+      'Excluded IPv6 addresses': 'Исключённые IPv6-адреса',
+      'IPv6 addresses inside the allocation prefix that will never be assigned':
+        'IPv6-адреса внутри префикса, которые никогда не будут выдаваться',
+      'Static IPv6 reservations': 'Статические резервации IPv6',
+      'Always assign a specific IPv6 address to a username':
+        'Всегда назначать пользователю определённый IPv6-адрес',
+      'IPv6 forwarding / NAT66': 'Маршрутизация IPv6 / NAT66',
+      'route preserves client source addresses; nat66 masquerades them on the selected IPv6 uplink':
+        'route сохраняет исходные адреса клиентов; nat66 маскарадует их на выбранном IPv6-интерфейсе',
+      'IPv6 listen address': 'IPv6-адрес прослушивания',
+      'Should match the IPv6 VPN gateway': 'Должен совпадать с IPv6-шлюзом VPN',
+      'Tunnel addresses': 'Адреса туннеля',
+      'Static IPv6': 'Статический IPv6',
+      'Address family': 'Семейство адресов',
+      'Primary tunnel address': 'Основной адрес туннеля',
+      'Allow native IPv4 outside tunnel': 'Разрешён нативный IPv4 вне туннеля',
+      'Allow native IPv6 outside tunnel': 'Разрешён нативный IPv6 вне туннеля',
+      'Inner IPv6 policy': 'Политика IPv6 внутри туннеля',
+      "auto — accept the server's IPv4/dual/IPv6 plan":
+        'auto — принимать IPv4/dual/IPv6-план сервера',
+      'required — refuse a plan without IPv6': 'required — отклонять план без IPv6',
+      'off — refuse IPv6 inside the tunnel': 'off — запрещать IPv6 внутри туннеля',
+      'Advanced escape hatches: leave both disabled to block a missing address family fail-closed.':
+        'Дополнительные исключения: оставьте оба выключенными, чтобы отсутствующее семейство блокировалось fail-closed.',
+      'Allow native IPv4 outside an IPv6-only full tunnel':
+        'Разрешить нативный IPv4 вне IPv6-only full-tunnel',
+      'Allow native IPv6 outside an IPv4-only full tunnel':
+        'Разрешить нативный IPv6 вне IPv4-only full-tunnel',
+      'Need MTU, DNS, kill switch, routes or logging? Switch to Raw INI for advanced settings; form-managed and raw-only keys round-trip together.':
+        'Нужны MTU, DNS, kill switch, маршруты или журналирование? Переключитесь в Raw INI; поля формы и raw-only ключи сохраняются вместе.',
+      'Raw INI accepts the complete client schema, including ipv6, allow_ipv4_leak, allow_ipv6_leak, device_type, dev_attach, routes, DNS, MTU, kill switch and [logging]. See client.conf and the IPv6 guide.':
+        'Raw INI принимает полную схему клиента, включая ipv6, allow_ipv4_leak, allow_ipv6_leak, device_type, dev_attach, маршруты, DNS, MTU, kill switch и [logging]. См. client.conf и руководство по IPv6.',
       'This profile already exists. Quick Start will keep its credentials, IP mode and manual settings, enable it and restart the server.':
         'Этот профиль уже существует. Быстрый старт сохранит его учётные данные, IP-режим и ручные настройки, включит его и перезапустит сервер.',
       'This profile already exists. Quick Start will keep its credentials and manual settings, explicitly switch its inner IP mode, enable it and restart the server.':

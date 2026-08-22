@@ -153,6 +153,9 @@ fn profile_summary(name: &str) -> Value {
             "gateway": c.routing.add_default_gateway,
             "dev": c.tun.name,
             "autostart": c.autostart,
+            "ipv6": c.routing.ipv6.to_string(),
+            "allow_ipv4_leak": c.routing.allow_ipv4_leak,
+            "allow_ipv6_leak": c.routing.allow_ipv6_leak,
         }),
         None => json!({ "name": name, "server": "?", "invalid": true }),
     }
@@ -277,6 +280,19 @@ fn ini_from_fields(b: &Value) -> String {
             .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
     {
         s.push_str(&format!("dev = {dev}\n"));
+    }
+    // Inner-family policy is independent of the outer carrier. Keep the supplied value in
+    // the INI so ClientConfig performs the canonical auto|required|off validation instead of
+    // silently coercing a malformed API request to the default.
+    let ipv6 = g("ipv6");
+    if !ipv6.is_empty() {
+        s.push_str(&format!("ipv6 = {ipv6}\n"));
+    }
+    if flag("allow_ipv4_leak") {
+        s.push_str("allow_ipv4_leak = true\n");
+    }
+    if flag("allow_ipv6_leak") {
+        s.push_str("allow_ipv6_leak = true\n");
     }
     // Routing (file-only; not in a qeli:// link). gateway defaults OFF (split-tunnel).
     if flag("gateway") {
@@ -645,5 +661,28 @@ mod diagnostic_tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn field_form_serializes_ipv6_policy_and_fail_closed_exceptions() {
+        let ini = ini_from_fields(&json!({
+            "server": "vpn.example.com:443",
+            "user": "alice",
+            "pass": "secret",
+            "ipv6": "required",
+            "gateway": true,
+            "allow_ipv4_leak": true,
+            "allow_ipv6_leak": true
+        }));
+        let doc = IniDoc::parse(&ini).expect("generated INI must parse");
+        let config = ClientConfig::from_ini(&doc).expect("generated profile must validate");
+
+        assert_eq!(config.routing.ipv6.to_string(), "required");
+        assert!(config.routing.add_default_gateway);
+        assert!(config.routing.allow_ipv4_leak);
+        assert!(config.routing.allow_ipv6_leak);
+        assert!(ini.contains("ipv6 = required\n"));
+        assert!(ini.contains("allow_ipv4_leak = true\n"));
+        assert!(ini.contains("allow_ipv6_leak = true\n"));
     }
 }

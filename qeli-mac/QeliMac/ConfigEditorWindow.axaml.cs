@@ -40,6 +40,7 @@ public partial class ConfigEditorWindow : Window
             HeaderText.Text = Loc.T("NewProfileTitle");
             SelectByTag(ModeBox, "faketls");
             SelectByTag(RoutingBox, "full-tunnel");
+            SelectByTag(Ipv6PolicyBox, "auto");
             SelectByTag(AppsModeBox, "all");
             SelectByTag(DnsModeBox, "tunnel");
             SelectByTag(ReconnectRetriesBox, "-1");
@@ -54,6 +55,8 @@ public partial class ConfigEditorWindow : Window
             PersistTunBox.IsChecked = false;
             MtuProbeBox.IsChecked = true;
             KillSwitchBox.IsChecked = false;
+            AllowIpv4LeakBox.IsChecked = false;
+            AllowIpv6LeakBox.IsChecked = false;
         }
         else
         {
@@ -62,6 +65,7 @@ public partial class ConfigEditorWindow : Window
             AddrBox.Text = existing.ServerAddress;
             PortBox.Text = existing.Port.ToString();
             SelectByTag(ModeBox, PresetIdOf(existing));
+            SelectByTag(Ipv6PolicyBox, existing.Ipv6Policy);
             SelectByTag(RoutingBox, existing.IsFullTunnel ? "full-tunnel" : "split-tunnel");
             SelectByTag(AppsModeBox, NormalizeAppsMode(existing.AppsMode));
             SelectByTag(DnsModeBox, NormalizeDnsMode(existing.DnsMode));
@@ -81,6 +85,8 @@ public partial class ConfigEditorWindow : Window
             ReconnectBox.IsChecked = existing.ReconnectEnabled;
             PersistTunBox.IsChecked = existing.PersistTun;
             MtuProbeBox.IsChecked = existing.MtuProbe;
+            AllowIpv4LeakBox.IsChecked = existing.AllowIpv4Leak;
+            AllowIpv6LeakBox.IsChecked = existing.AllowIpv6Leak;
             KillSwitchBox.IsChecked = existing.KillSwitch;
             AppsBox.Text = string.Join(", ", existing.Apps);
         }
@@ -127,10 +133,12 @@ public partial class ConfigEditorWindow : Window
 
     private void UpdateRoutingUi()
     {
-        if (KillSwitchBox == null) return;
+        if (KillSwitchBox == null || FamilyLeakPanel == null) return;
         bool enabled = TagOf(RoutingBox) == "full-tunnel";
         KillSwitchBox.IsEnabled = enabled;
         KillSwitchBox.Opacity = enabled ? 1.0 : 0.45;
+        FamilyLeakPanel.IsEnabled = enabled;
+        FamilyLeakPanel.Opacity = enabled ? 1.0 : 0.45;
     }
 
     private void UpdateAppsUi()
@@ -284,7 +292,10 @@ public partial class ConfigEditorWindow : Window
             persistTun: PersistTunBox.IsChecked == true,
             mtuProbe: MtuProbeBox.IsChecked == true,
             killSwitch: KillSwitchBox.IsChecked == true,
-            dnsMode: TagOf(DnsModeBox) ?? "tunnel");
+            dnsMode: TagOf(DnsModeBox) ?? "tunnel",
+            ipv6Policy: TagOf(Ipv6PolicyBox) ?? "auto",
+            allowIpv4Leak: AllowIpv4LeakBox.IsChecked == true,
+            allowIpv6Leak: AllowIpv6LeakBox.IsChecked == true);
     }
 
     // ── manual text editing of the config (INI / qeli://) ─────────────────────────
@@ -315,6 +326,7 @@ public partial class ConfigEditorWindow : Window
         SelectByTag(ModeBox, PresetIdOf(parsed));
         SelectByTag(RoutingBox, parsed.IsFullTunnel ? "full-tunnel" : "split-tunnel");
         SelectByTag(DnsModeBox, NormalizeDnsMode(parsed.DnsMode));
+        SelectByTag(Ipv6PolicyBox, parsed.Ipv6Policy);
         SelectRetryCount(parsed.ReconnectMaxRetries);
         SelectPadding(parsed);
         SelectHeartbeat(parsed);
@@ -333,6 +345,8 @@ public partial class ConfigEditorWindow : Window
         MtuProbeBox.IsChecked = parsed.MtuProbe;
         KillSwitchBox.IsChecked = parsed.KillSwitch;
         SelectByTag(AppsModeBox, NormalizeAppsMode(parsed.AppsMode));
+        AllowIpv4LeakBox.IsChecked = parsed.AllowIpv4Leak;
+        AllowIpv6LeakBox.IsChecked = parsed.AllowIpv6Leak;
         AppsBox.Text = string.Join(", ", parsed.Apps);
         UpdateConditionalFields();
         UpdateAppsUi();

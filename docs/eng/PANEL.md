@@ -320,13 +320,20 @@ What **Launch** does:
 1. reads the current config and **checks the port**: if that port+transport is already
    taken by a DIFFERENT profile you get a "Port already in use" popup with a link to
    Config (re-launching the SAME mode is allowed);
-2. asks for confirmation. On the **first** launch it builds a profile on top of the
-   server's canonical defaults (`/api/config/defaults`): bind `0.0.0.0:<port>`, its own
-   TUN `vpn<N>`, its own `10.9.<N>.0/24` subnet and pool, in-tunnel DNS, NAT egress and
-   the obfuscation stack for that mode. On a **repeat** launch it only enables the
-   existing profile: credentials and all manual settings are preserved, so previously
-   issued client links keep working. Use the explicit Config actions for an intentional
-   rotation or reset;
+2. asks for confirmation and the IP mode **inside** the tunnel: `auto`, `ipv4`, `dual`, or
+   `ipv6`. The first launch builds from canonical defaults (`/api/config/defaults`) and
+   assigns `0.0.0.0:<port>`, its own `vpn<N>` TUN, collision-free addressing, DNS/NAT,
+   and the selected obfuscation stack.
+   - `auto` chooses `dual` only when a public GUA is observed on an IPv6 default-route
+     interface and `ip6tables` is available; otherwise it stores a fully usable `ipv4`;
+   - explicit `dual`/`ipv6` refuses to launch without those prerequisites or with MTU <1280;
+   - IPv6 receives a unique RFC4193 `/64`, the `::1` gateway, an IPv6 DNS listener and
+     NAT66; `dual` retains NAT44 while `ipv6` disables IPv4 NAT/forwarding;
+   - `auto` resolves once. Re-launching an existing profile preserves its concrete IP mode,
+     credentials and manual settings. Explicitly choosing another mode intentionally
+     switches and normalizes the complete egress contract without rotating credentials.
+   Existing client links therefore keep working; use explicit Config actions for rotation
+   or reset;
 3. sends the expected config revision to `POST /api/config/quickstart/{mode}`. The server holds
    the config writer lock while it re-reads, builds, validates, snapshots and atomically writes
    the profile; a concurrent panel/SSH edit produces a conflict instead of being overwritten.
@@ -343,13 +350,18 @@ The modes are independent — each gets its own interface, subnet and port — s
 several at once is the recommended production layout (a client connects on whichever port
 gets through its network).
 
+The complete selection rules, routed GUA, NAT66/off, client `ipv6=auto|required|off`, and
+leak verification are documented in the [IPv6 guide](IPV6.md).
+
 ### Config
 - **Top tabs** — `Global` + one per profile (+ add). A profile's settings are
   **all on one page** (no inner tabs); a **sticky jump nav** (Bind / TUN / Pool /
   Routing / DNS / DHCP / Obfuscation / Performance) is pinned under the header.
 - **Profile** — an `enabled` toggle and sections with **every** field: transport/
-  bind/identity path, TUN (incl. multi-queue `queues`), IP pool + reservations,
-  routing + NAT + pushed routes, DNS + blocklist, DHCP (TAP only — see below),
+  bind/identity path, TUN (including `ip_mode`, IPv4/IPv6 gateways, MTU and multi-queue
+  `queues`), separate IPv4/IPv6 pools, exclusions and reservations, routing with NAT44 +
+  `off|route|nat66` + pushed routes, dual-family DNS + blocklist,
+  DHCP (TAP only — see below),
   obfuscation (mode/cipher/fronting, TLS masking + SNI pool, REALITY +
   `handrolled`/`peek`, padding, heartbeat, fragmentation, http2, traffic-norm,
   anti-fingerprint, QUIC, **multipath**), performance (limits, rate-limit/

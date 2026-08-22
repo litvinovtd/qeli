@@ -1053,6 +1053,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             )
             stateLock.withLock {
                 snapshot.clientAddress = plan.tunnelAddress
+                snapshot.tunnelAddresses = plan.addresses.map { "\($0.address)/\($0.prefixLen)" }
                 snapshot.tunnelGateway = plan.tunnelGateway
                 snapshot.pushedDNS = plan.dnsServers.first?.address
                 snapshot.appliedMTU = plan.mtu
@@ -1141,6 +1142,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.message = "Connected — Rust transport core"
             snapshot.error = nil
             snapshot.clientAddress = plan.tunnelAddress
+            snapshot.tunnelAddresses = plan.addresses.map { "\($0.address)/\($0.prefixLen)" }
             snapshot.tunnelGateway = plan.tunnelGateway
             if snapshot.connectedAt == nil { snapshot.connectedAt = Date() }
             snapshot.updatedAt = Date()
@@ -1271,6 +1273,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.message = message
             snapshot.error = error
             snapshot.clientAddress = nil
+            snapshot.tunnelAddresses = nil
             snapshot.tunnelGateway = nil
             snapshot.connectedAt = nil
             snapshot.bytesUploaded = 0

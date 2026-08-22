@@ -178,6 +178,9 @@ class VpnServiceImpl : VpnService() {
         var liveIp: String = ""
         @Volatile
         @JvmField
+        var liveAddresses: String = ""
+        @Volatile
+        @JvmField
         var liveTrustedSsid: String = ""
         @Volatile
         @JvmField
@@ -628,6 +631,7 @@ class VpnServiceImpl : VpnService() {
             try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
             wakeLock = null
             liveIp = ""
+            liveAddresses = ""
             liveConnectedAt = 0L
             liveDns = ""
             liveMtu = 0
@@ -1090,7 +1094,11 @@ class VpnServiceImpl : VpnService() {
                     "pushed_routes=$pushedRoutesInstalled/${plan.pushedRoutes.size} " +
                     "plan_routes=${plan.routes.size}; Rust owns the TUN payload"
             )
-            announceConnected(plan.tunnelAddress, plan.tunnelGateway)
+            announceConnected(
+                plan.tunnelAddress,
+                plan.tunnelGateway,
+                plan.addresses.joinToString { "${it.address}/${it.prefixLength}" },
+            )
         } catch (error: Throwable) {
             if (!acknowledged) {
                 pushedRoutesInstalled = previousPushedRoutesInstalled
@@ -1906,6 +1914,7 @@ class VpnServiceImpl : VpnService() {
             // reset in startVpn() on the next explicit Connect.
             liveIp = ""
             liveGateway = ""
+            liveAddresses = ""
             liveConnectedAt = 0L
             // Clear the negotiated snapshot only after native teardown; until then the
             // system still owns a live VPN generation and its routes/DNS snapshot.
@@ -2506,7 +2515,7 @@ class VpnServiceImpl : VpnService() {
             ?: throw IllegalArgumentException("subnet has no textual address")
     }
 
-    private fun announceConnected(clientIp: String, tunnelGateway: String) {
+    private fun announceConnected(clientIp: String, tunnelGateway: String, tunnelAddresses: String) {
         // activeConfig is the immutable config handed to this native generation. The profile
         // editor may already contain different text by the time the Activity receives this.
         val globalAllowLan = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
@@ -2524,6 +2533,7 @@ class VpnServiceImpl : VpnService() {
         liveIp = clientIp
         liveGateway = tunnelGateway
         liveConnectedAt = System.currentTimeMillis()
+        liveAddresses = tunnelAddresses
         liveBytesUp = 0L
         liveBytesDown = 0L
         sendBroadcast(Intent(BROADCAST_STATUS).apply {

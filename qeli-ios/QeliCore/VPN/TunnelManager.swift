@@ -366,6 +366,7 @@ final class TunnelManager: NSObject, ObservableObject {
 
     private func clearConnectionFields(_ value: inout TunnelSnapshot) {
         value.clientAddress = nil
+        value.tunnelAddresses = nil
         value.tunnelGateway = nil
         value.connectedAt = nil
         value.bytesUploaded = 0

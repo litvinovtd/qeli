@@ -11,6 +11,7 @@
 
 > Справочники, на которые опирается этот гайд:
 > [CONFIG.md](CONFIG.md) — все ключи конфига · [PANEL.md](PANEL.md) — веб-панель ·
+> [IPV6.md](IPV6.md) — IPv4/IPv6/dual-stack, NAT66/route и диагностика ·
 > примеры конфигов: [`server.conf`](../../qeli/config/server.conf) ·
 > [`server-ipv6.conf`](../../qeli/config/server-ipv6.conf) ·
 > [`users.conf`](../../qeli/config/users.conf) · [`client.conf`](../../qeli/config/client.conf).

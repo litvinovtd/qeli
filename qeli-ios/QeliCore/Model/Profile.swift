@@ -33,6 +33,9 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
         key =
         mode = fake-tls
         sni = www.microsoft.com
+        ipv6 = auto
+        # allow_ipv4_leak = false ; full-tunnel exception for an IPv6-only plan
+        # allow_ipv6_leak = false ; full-tunnel exception for an IPv4-only plan
         """
     )
 

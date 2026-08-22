@@ -186,7 +186,9 @@ struct ConnectionView: View {
                     )
                 }
                 if live {
-                    if let address = snapshot.clientAddress {
+                    if let addresses = snapshot.tunnelAddresses, !addresses.isEmpty {
+                        detailRow("Tunnel addresses", addresses.joined(separator: ", "))
+                    } else if let address = snapshot.clientAddress {
                         detailRow("Tunnel IP", address)
                     }
                     // `pushedDNS` is the resolver the tunnel ACTUALLY programmed, and `nil` is

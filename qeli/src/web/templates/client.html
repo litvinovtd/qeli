@@ -110,16 +110,23 @@
           <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Negotiated network plan</div>
           <dl class="diag-grid">
             <dt>Carrier address</dt><dd x-text="diagValue('plan.carrier_address', '—')"></dd>
-            <dt>Tunnel address</dt><dd x-text="diagValue('plan.tunnel_address', '—') + '/' + diagValue('plan.prefix_len', '—')"></dd>
+            <dt>Address family</dt><dd x-text="diagValue('plan.family_mode', '—')"></dd>
+            <dt>Primary tunnel address</dt><dd x-text="diagValue('plan.tunnel_address', '—') + '/' + diagValue('plan.prefix_len', '—')"></dd>
             <dt>Gateway</dt><dd x-text="diagValue('plan.tunnel_gateway', '—')"></dd>
             <dt>MTU</dt><dd x-text="diagValue('plan.mtu', '—')"></dd>
             <dt>Full tunnel</dt><dd x-text="qeliT(diagValue('plan.full_tunnel', false) ? 'Enabled' : 'Disabled')"></dd>
             <dt>Kill switch</dt><dd x-text="qeliT(diagValue('plan.kill_switch', false) ? 'Enabled' : 'Disabled')"></dd>
+            <dt>Allow native IPv4 outside tunnel</dt><dd x-text="qeliT(diagValue('plan.allow_ipv4_leak', false) ? 'Enabled' : 'Disabled')"></dd>
+            <dt>Allow native IPv6 outside tunnel</dt><dd x-text="qeliT(diagValue('plan.allow_ipv6_leak', false) ? 'Enabled' : 'Disabled')"></dd>
             <dt>Multipath</dt><dd x-text="diagValue('plan.max_streams', 1) + (diagValue('plan.adaptive', false) ? ' · ' + qeliT('Automatic') : '')"></dd>
             <dt>UDP kernel drops</dt><dd x-text="diagValue('stats.udp_kernel_drops', 0)"></dd>
             <dt>UDP internal drops</dt><dd x-text="diagValue('stats.udp_internal_drops', 0)"></dd>
             <dt>UDP receive buffer</dt><dd x-text="fmt(diagValue('stats.udp_recv_buffer_bytes', 0))"></dd>
           </dl>
+        <section x-show="diagList('plan.addresses').length">
+          <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Tunnel addresses</div>
+          <div class="flex flex-wrap gap-1.5"><template x-for="address in diagList('plan.addresses')"><span class="badge font-mono" x-text="address.family.toUpperCase() + ' ' + address.address + '/' + address.prefix_len + (address.gateway ? ' via ' + address.gateway : '')"></span></template></div>
+        </section>
         </section>
         <section x-show="diagList('plan.dns_servers').length">
           <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">DNS servers</div>
@@ -240,16 +247,29 @@
                   <div><label class="block text-[11px] text-slate-500 mb-1">jmax</label><input type="number" min="0" max="1400" x-model.number="form.jmax" class="inp"></div>
                 </div>
               </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">Inner IPv6 policy</label>
+                <select x-model="form.ipv6" class="inp">
+                  <option value="auto">auto — accept the server's IPv4/dual/IPv6 plan</option>
+                  <option value="required">required — refuse a plan without IPv6</option>
+                  <option value="off">off — refuse IPv6 inside the tunnel</option>
+                </select>
+              </div>
             </div>
 
             <div class="space-y-2.5">
               <label x-show="form.proto==='udp'" class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.quic"> QUIC masking (UDP only) — mask the handshake as QUIC</label>
+              <div x-show="form.gateway" class="ml-5 space-y-2 rounded-lg p-3" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2)">
+                <p class="text-[11px]" style="color:var(--amber)">Advanced escape hatches: leave both disabled to block a missing address family fail-closed.</p>
+                <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.allow_ipv4_leak"> Allow native IPv4 outside an IPv6-only full tunnel</label>
+                <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.allow_ipv6_leak"> Allow native IPv6 outside an IPv4-only full tunnel</label>
+              </div>
               <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.autostart"> Auto-connect this profile when the server/panel starts</label>
               <label class="flex items-center gap-2 text-xs text-slate-300" title="Only the broad RFC1918 blanket (10/8, 172.16/12, 192.168/16). Routes the server advertises are applied anyway."><input type="checkbox" x-model="form.route_local"> Route ALL private ranges (RFC1918) through the tunnel — server-pushed routes apply regardless</label>
               <label class="flex items-center gap-2 text-xs"><input type="checkbox" x-model="form.gateway"><span style="color:var(--amber)">Full-tunnel (route ALL traffic) — can cut off this panel / SSH on a server box.</span></label>
             </div>
 
-            <p class="text-[11px] text-slate-500">Need mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.</p>
+            <p class="text-[11px] text-slate-500">Need MTU, DNS, kill switch, routes or logging? Switch to Raw INI for advanced settings; form-managed and raw-only keys round-trip together.</p>
           </div>
         </template>
 
@@ -258,8 +278,8 @@
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Client config (INI)</label>
             <textarea x-model="form.raw" rows="14" class="inp font-mono text-xs" spellcheck="false"
-              placeholder="[qeli]&#10;server = vpn.example.com:443&#10;proto = tcp&#10;user = alice&#10;pass = ...&#10;key = ...&#10;mode = reality-tls&#10;sni = www.microsoft.com&#10;reality_sid = ...&#10;# dev = vpn0 / mtu = 0 / gateway = false / route_local / kill_switch / dns = tunnel&#10;[logging]&#10;level = info"></textarea>
-            <p class="text-[11px] text-slate-500 mt-1.5">Every client key: server, proto, user, pass, key, bind_static, mode, sni, reality_sid, obfs_key, front, quic, dev, mtu, gateway, route_local, kill_switch, dns, autostart and [logging]. See client.conf.</p>
+              placeholder="[qeli]&#10;server = vpn.example.com:443&#10;proto = tcp&#10;user = alice&#10;pass = ...&#10;key = ...&#10;mode = reality-tls&#10;ipv6 = auto&#10;# allow_ipv4_leak = false&#10;# allow_ipv6_leak = false&#10;# dev = vpn0 / mtu = 0 / gateway = false / route_local / kill_switch / dns = tunnel&#10;[logging]&#10;level = info"></textarea>
+            <p class="text-[11px] text-slate-500 mt-1.5">Raw INI accepts the complete client schema, including ipv6, allow_ipv4_leak, allow_ipv6_leak, device_type, dev_attach, routes, DNS, MTU, kill switch and [logging]. See client.conf and the IPv6 guide.</p>
           </div>
         </template>
       </div>
@@ -279,8 +299,8 @@ function clientPage() {
     importOpen: false, importLink: '', importName: '',
     diagOpen: false, diagProfile: null,
     formOpen: false,
-    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false },
-    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false }; },
+    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
 
     async load() { this.loading = true; await this.refresh(); this.loading = false; },
     async refresh() {
@@ -332,7 +352,7 @@ function clientPage() {
       // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
       // bind_static/…) and every other section is preserved verbatim so a Field-view
       // save round-trips losslessly instead of silently dropping them.
-      const managed = new Set([...Object.keys(map), 'awg','jc','jmin','jmax','quic','gateway','route_local','autostart']);
+      const managed = new Set([...Object.keys(map), 'awg','jc','jmin','jmax','quic','ipv6','allow_ipv4_leak','allow_ipv6_leak','gateway','route_local','autostart']);
       f._extraQeli = []; f._extraSections = [];
       let afterQeli = false;
       (raw||'').split('\n').forEach(line => {
@@ -353,6 +373,9 @@ function clientPage() {
         else if (k==='jmax') f.jmax = parseInt(v)||0;
         else if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
         else if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
+        else if (k==='ipv6') f.ipv6 = v;
+        else if (k==='allow_ipv4_leak') f.allow_ipv4_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
+        else if (k==='allow_ipv6_leak') f.allow_ipv6_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
         else if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
         else if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
         else if (!managed.has(k)) f._extraQeli.push(line);
@@ -376,9 +399,12 @@ function clientPage() {
       if (f.dev) s += `dev = ${f.dev}\n`;
       if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
       if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
+      if (f.ipv6) s += `ipv6 = ${f.ipv6}\n`;
       // QUIC is UDP-only (its checkbox is x-show'd for proto=udp); gate the emit on proto so
       // enabling it then switching udp→tcp doesn't leave a stale quic=true on a TCP profile.
       if (f.quic && f.proto==='udp') s += 'quic = true\n';
+      if (f.allow_ipv4_leak) s += 'allow_ipv4_leak = true\n';
+      if (f.allow_ipv6_leak) s += 'allow_ipv6_leak = true\n';
       if (f.route_local) s += 'route_local = true\n';
       if (f.gateway) s += 'gateway = true\n';
       if (f.autostart) s += 'autostart = true\n';
@@ -396,7 +422,7 @@ function clientPage() {
     openCreate() { this.form = this.blankForm(); this.formOpen = true; },
     openRaw() {
       this.form = this.blankForm(); this.form.rawMode = true;
-      this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\n# dev = vpn0\n# mtu = 0\n# gateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
+      this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\nipv6 = auto\n# allow_ipv4_leak = false\n# allow_ipv6_leak = false\n# dev = vpn0\n# mtu = 0\n# gateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
       this.formOpen = true;
     },
     async openEdit(n) {

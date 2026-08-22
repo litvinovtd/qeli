@@ -63,6 +63,9 @@ struct TunnelSnapshot: Codable, Equatable, Sendable {
     var message = ""
     var error: String?
     var clientAddress: String?
+    /// Every authenticated inner assignment with its prefix. Optional keeps snapshots from
+    /// older extension builds decodable during an app upgrade.
+    var tunnelAddresses: [String]?
     /// Exact authenticated in-tunnel server endpoint. Optional keeps snapshots written by
     /// older app/extension builds decodable during an upgrade.
     var tunnelGateway: String?

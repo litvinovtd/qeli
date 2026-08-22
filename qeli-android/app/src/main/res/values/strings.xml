@@ -234,7 +234,7 @@
     <string name="detail_reconnect">Auto-reconnect</string>
     <string name="detail_on">On</string>
     <string name="detail_off">Off</string>
-    <string name="detail_tunnel_ip">Tunnel IP</string>
+    <string name="detail_tunnel_ip">Tunnel addresses</string>
     <string name="detail_adaptive">adaptive</string>
     <string name="detail_padding">Padding</string>
     <string name="detail_heartbeat">Heartbeat</string>

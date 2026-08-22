@@ -233,7 +233,7 @@
     <string name="detail_reconnect">Автопереподключение</string>
     <string name="detail_on">Включено</string>
     <string name="detail_off">Выключено</string>
-    <string name="detail_tunnel_ip">IP в туннеле</string>
+    <string name="detail_tunnel_ip">Адреса туннеля</string>
     <string name="detail_adaptive">адаптивно</string>
     <string name="detail_padding">Padding</string>
     <string name="detail_heartbeat">Heartbeat</string>

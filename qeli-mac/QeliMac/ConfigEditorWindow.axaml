@@ -144,6 +144,15 @@
                                                      HorizontalAlignment="Stretch"/>
                                 </StackPanel>
                             </Grid>
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="{l:Loc FieldIpv6Policy}" Classes="label"/>
+                                <ComboBox x:Name="Ipv6PolicyBox" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="{l:Loc Ipv6Auto}" Tag="auto"/>
+                                    <ComboBoxItem Content="{l:Loc Ipv6Required}" Tag="required"/>
+                                    <ComboBoxItem Content="{l:Loc Ipv6Off}" Tag="off"/>
+                                </ComboBox>
+                                <TextBlock Text="{l:Loc Ipv6PolicyHint}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,5,0,0"/>
+                            </StackPanel>
                             <CheckBox x:Name="MtuProbeBox" Content="{l:Loc MtuProbe}" Margin="0,0,0,16"/>
 
                             <Grid Margin="0,0,0,8" ColumnDefinitions="190,14,*">
@@ -166,6 +175,11 @@
 
                             <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,0,0,12"/>
                             <CheckBox x:Name="KillSwitchBox" Content="{l:Loc KillSwitch}" Margin="0,0,0,18"/>
+                            <StackPanel x:Name="FamilyLeakPanel" Margin="0,0,0,18">
+                                <TextBlock Text="{l:Loc FamilyLeakHint}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowIpv4LeakBox" Content="{l:Loc AllowIpv4Leak}" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="AllowIpv6LeakBox" Content="{l:Loc AllowIpv6Leak}"/>
+                            </StackPanel>
 
                             <TextBlock Text="{l:Loc SectionApplications}" Classes="sectionHeader" Margin="0,28,0,14"/>
                             <StackPanel>

@@ -11,6 +11,7 @@ run as root (or via `sudo`).
 
 > References this guide builds on:
 > [CONFIG.md](CONFIG.md) — every config key · [PANEL.md](PANEL.md) — web panel ·
+> [IPV6.md](IPV6.md) — IPv4/IPv6/dual-stack, NAT66/route and troubleshooting ·
 > example configs: [`server.conf`](../../qeli/config/server.conf) ·
 > [`server-ipv6.conf`](../../qeli/config/server-ipv6.conf) ·
 > [`users.conf`](../../qeli/config/users.conf) · [`client.conf`](../../qeli/config/client.conf).

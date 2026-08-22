@@ -73,7 +73,7 @@
           <th class="tbl-th" style="width:2rem"><input type="checkbox" :checked="allSel" @change="toggleAll()"></th>
           <th class="tbl-th">Username</th>
           <th class="tbl-th">Status</th>
-          <th class="tbl-th">Static IP</th>
+          <th class="tbl-th">Tunnel addresses</th>
           <th class="tbl-th">Bandwidth</th>
           <th class="tbl-th">Data usage</th>
           <th class="tbl-th">Group</th>
@@ -97,7 +97,10 @@
                       x-text="u.enabled ? 'Enabled' : 'Disabled'"></span>
               </div>
             </td>
-            <td class="tbl-td font-mono text-slate-300 text-xs" x-text="u.static_ip || '—'"></td>
+            <td class="tbl-td font-mono text-slate-300 text-xs">
+              <div x-text="u.static_ip || '—'"></div>
+              <div x-show="u.static_ipv6" class="mt-1 text-slate-400" x-text="u.static_ipv6"></div>
+            </td>
             <td class="tbl-td text-xs">
               <span class="text-slate-500" x-show="!u.bandwidth || (!u.bandwidth.limit_mbps && !u.bandwidth.burst_mbps)">Unlimited</span>
               <span class="text-slate-300" x-show="u.bandwidth && u.bandwidth.limit_mbps > 0">
@@ -258,10 +261,14 @@
             <input class="inp" type="number" min="0" x-model.number="form.bandwidth_burst" placeholder="0 = same as limit">
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Static IP <span class="text-slate-600">(optional)</span></label>
             <input class="inp font-mono" type="text" x-model="form.static_ip" placeholder="10.8.0.X">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Static IPv6 <span class="text-slate-600">(optional)</span></label>
+            <input class="inp font-mono" type="text" x-model="form.static_ipv6" placeholder="fd71:e1:1234:1::2">
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Group <span class="text-slate-600">(optional)</span></label>
@@ -561,7 +568,7 @@ function usersPage() {
         if (this.statusFilter === 'enabled' && !u.enabled) return false;
         if (this.statusFilter === 'disabled' && u.enabled) return false;
         if (!q) return true;
-        return [u.username, u.static_ip, u.group, ...(u.profiles || [])]
+        return [u.username, u.static_ip, u.static_ipv6, u.group, ...(u.profiles || [])]
           .some(v => String(v || '').toLowerCase().includes(q));
       });
       const [key, dir] = this.sortMode.split('_');
@@ -806,7 +813,7 @@ function usersPage() {
       this.form = {
         username: '', plainPassword: '',
         bandwidth_limit: 0, bandwidth_burst: 0,
-        static_ip: '', group: '', max_sessions: 0,
+        static_ip: '', static_ipv6: '', group: '', max_sessions: 0,
         profiles: [], allowed_networks: [], routes: [], client_subnets: [],
       };
       this.modalError = '';
@@ -821,6 +828,7 @@ function usersPage() {
         bandwidth_limit: u.bandwidth?.limit_mbps || 0,
         bandwidth_burst: u.bandwidth?.burst_mbps || 0,
         static_ip: u.static_ip || '',
+        static_ipv6: u.static_ipv6 || '',
         group: u.group || '',
         max_sessions: u.max_sessions || 0,
         profiles: Array.isArray(u.profiles) ? [...u.profiles] : [],
@@ -856,6 +864,7 @@ function usersPage() {
             password: this.form.plainPassword,
             enabled: true,
             static_ip: this.form.static_ip.trim() || null,
+            static_ipv6: this.form.static_ipv6.trim() || null,
             group: this.form.group.trim() || null,
             max_sessions: this.form.max_sessions || 0,
             bandwidth: { limit_mbps: this.form.bandwidth_limit || 0, burst_mbps: this.form.bandwidth_burst || 0 },
@@ -885,6 +894,7 @@ function usersPage() {
       try {
         const body = {
           static_ip: this.form.static_ip.trim() || null,
+          static_ipv6: this.form.static_ipv6.trim() || null,
           group: this.form.group.trim() || null,
           max_sessions: this.form.max_sessions || 0,
           bandwidth: { limit_mbps: this.form.bandwidth_limit || 0, burst_mbps: this.form.bandwidth_burst || 0 },

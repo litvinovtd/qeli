@@ -57,7 +57,7 @@ public static class Loc
         ["Profile"] = ("Profile", "Профиль"),
         ["NoProfilesMenu"] = ("No profiles", "Нет профилей"),
         ["SelectProfile"] = ("Select a profile", "Выберите профиль"),
-        ["TunnelIp"] = ("Tunnel IP: {0}", "IP в туннеле: {0}"),
+        ["TunnelIp"] = ("Tunnel addresses: {0}", "Адреса туннеля: {0}"),
         ["NoProfilesHint"] = ("No profiles yet.\nClick “Import” or “New”.", "Нет профилей.\nНажмите «Импорт» или «Новый»."),
 
         // ── statuses ──
@@ -179,6 +179,18 @@ public static class Loc
         ["FieldObfsKey"] = ("Obfs key (PSK)", "Ключ obfs (PSK)"),
         ["FieldServerKey"] = ("Server key (pinning)", "Ключ сервера (пиннинг)"),
         ["FieldRouting"] = ("Routing", "Маршрутизация"),
+        ["FieldIpv6Policy"] = ("Inner IPv6 policy", "Политика IPv6 внутри туннеля"),
+        ["Ipv6Auto"] = ("Automatic (accept server plan)", "Авто (принять план сервера)"),
+        ["Ipv6Required"] = ("Required", "Обязателен"),
+        ["Ipv6Off"] = ("Disabled inside tunnel", "Отключён внутри туннеля"),
+        ["Ipv6PolicyHint"] = (
+            "Auto accepts IPv4, dual-stack or IPv6-only. Required refuses a plan without IPv6; Off refuses tunneled IPv6.",
+            "Авто принимает IPv4, dual-stack или IPv6-only. «Обязателен» отклоняет план без IPv6; «Отключён» запрещает IPv6 в туннеле."),
+        ["FamilyLeakHint"] = (
+            "Advanced full-tunnel exceptions. Keep both off to block a missing address family fail-closed.",
+            "Дополнительные исключения full-tunnel. Оставьте оба выключенными, чтобы отсутствующее семейство блокировалось fail-closed."),
+        ["AllowIpv4Leak"] = ("Allow native IPv4 outside an IPv6-only tunnel", "Разрешить нативный IPv4 вне IPv6-only туннеля"),
+        ["AllowIpv6Leak"] = ("Allow native IPv6 outside an IPv4-only tunnel", "Разрешить нативный IPv6 вне IPv4-only туннеля"),
         ["FieldDns"] = ("DNS servers", "DNS-серверы"),
         ["FieldMtu"] = ("MTU (0 = automatic)", "MTU (0 = автоматически)"),
         ["FieldDnsMode"] = ("DNS mode", "Режим DNS"),
@@ -253,7 +265,7 @@ public static class Loc
         ["StatDownload"] = ("Download", "Приём"),
         ["StatUpload"] = ("Upload", "Отдача"),
         ["StatSession"] = ("Session", "Сессия"),
-        ["StatTunnelIp"] = ("Tunnel IP", "IP туннеля"),
+        ["StatTunnelIp"] = ("Tunnel addresses", "Адреса туннеля"),
         ["StatTotal"] = ("total {0}", "всего {0}"),
         ["StatSince"] = ("since {0}", "с {0}"),
         ["LogCopy"] = ("Copy log", "Копировать лог"),

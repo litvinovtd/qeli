@@ -286,6 +286,19 @@ int32_t qeli_client_server_identity_result(uint64_t handle,
  * ABI 1.6 additive fields: max_streams, adaptive.
  * ABI 1.8 additive fields: pushed_routes and data_plane (effective padding, heartbeat and
  * shaping facts for platform status UI; Rust already applies them).
+ * ABI 1.11 additive fields:
+ *   family_mode: "ipv4" | "dual" | "ipv6",
+ *   addresses: [{family, address, prefix_len, on_link_prefix_len, gateway}],
+ *   carrier_address,
+ *   allow_ipv4_leak, allow_ipv6_leak,
+ *   connection_log: [string].
+ * `addresses` is the authoritative inner-address set. `tunnel_address`, `prefix_len` and
+ * `tunnel_gateway` remain a legacy projection of its primary entry for older platforms;
+ * an ABI 1.11 platform must apply every supported family in `addresses`, routes and DNS as
+ * one generation. `carrier_address` is the already-resolved outer server address that must
+ * remain outside a full tunnel. The leak flags are authenticated exceptions used only when
+ * a full-tunnel plan omits that address family; false means the platform must capture or
+ * block the missing family fail-closed.
  * A platform must apply or reject the complete generation before packet flow starts.
  * Unknown additive fields must be ignored; changing an existing field's meaning requires
  * a new ABI major version.

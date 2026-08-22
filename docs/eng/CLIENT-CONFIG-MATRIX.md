@@ -1,8 +1,9 @@
-# Client config: 0.7.14 → 0.7.15
+# Client config: current contract and the 0.7.14 → 0.7.15 migration
 
-This table records the contract of the accepted `[qeli]` keys for all five clients.
-“Before” is the released 0.7.14 behavior; “after” is the final 0.7.15 contract following the
-move of transport into the shared Rust core.
+This table records the **current 80-key `[qeli]` contract** for all five clients while
+retaining the refactor history. “Before” is released 0.7.14 behaviour; “after” began as
+the 0.7.15 shared-core contract and is extended here with current code, including
+NetworkPlan v2 and complete IPv6.
 
 Legend:
 
@@ -11,13 +12,13 @@ Legend:
 - **R** — recognized as valid, but neither applied nor re-saved by this client (the headless
   CLI has no profile editor);
 - **D** — accepted but lost when a GUI saved the profile; this was a 0.7.14 defect;
-- `X→Y` — state in 0.7.14 and in 0.7.15.
+- `X→Y` — historical state in 0.7.14 and the current state on the right.
 
 `C` and `R` do not mean “misspelled”. A name unknown to every qeli client is still rejected
-fail-closed. In 0.7.15 every GUI preserves every known key even when only another platform
-can apply it.
+fail-closed. Current GUI clients preserve every known key even when only another platform
+can apply it; separately exposed controls are identified in the notes.
 
-| Keys | CLI | Windows | macOS | Android | iOS | 0.7.15 change |
+| Keys | CLI | Windows | macOS | Android | iOS | Current contract / change |
 |---|:-:|:-:|:-:|:-:|:-:|---|
 | `server` `proto` `user` `pass` `key` `bind_static` `mode` `sni` `obfs_key` `front` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `route_local` `include` `exclude` `dns` `ipv6` `allow_ipv6_leak` `allow_ipv4_leak` | A→A | A→A | A→A | A→A | A→A | IPv6 is negotiated inside authenticated capabilities/NetworkPlan v2. The `auto`, `required`, and `off` modes and symmetric leak controls are shared across all adapters. GUI→Rust boundaries make platform `gateway` defaults explicit. |
 | `reality_compact` `reality_split` `reality_split_delay` | R→A | C→A | C→A | C→A | C→A | The shared Rust core now owns REALITY ClientHello sizing and split-write evasion for every app. Editors that do not expose controls preserve the exact values. |

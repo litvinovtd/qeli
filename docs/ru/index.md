@@ -22,7 +22,8 @@
 | Документ | О чём |
 |---|---|
 | [CONFIG.md](CONFIG.md) | Конфигурация (flat-INI): все параметры сервера и клиента |
-| [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | Все 73 клиентских ключа по платформам: 0.7.14 → 0.7.15 |
+| [IPV6.md](IPV6.md) | Полная настройка IPv4/IPv6/dual-stack, NAT66/route, Quick Start и диагностика |
+| [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | Актуальный контракт 80 клиентских ключей по платформам и история миграции |
 | [PANEL.md](PANEL.md) | Веб-панель: установка и использование |
 | [OPERATIONS.md](OPERATIONS.md) | Эксплуатация: совместимость, обновления и откат, бэкап, firewall |
 

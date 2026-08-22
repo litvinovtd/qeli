@@ -75,7 +75,9 @@ Then install a client from Releases and paste or scan the link.
 1. Install the server and create the first user — **[Getting started (EN)](docs/eng/GETTING-STARTED.md)** ·
    **[Установка с нуля (RU)](docs/ru/GETTING-STARTED.md)**.
 2. Configure it — **[CONFIG (EN)](docs/eng/CONFIG.md)** · **[CONFIG (RU)](docs/ru/CONFIG.md)**.
-3. Issue a `qeli://` link or QR from the web panel and import it into a client —
+3. Enable and verify dual-stack or IPv6-only operation — **[IPv6 guide (EN)](docs/eng/IPV6.md)** ·
+   **[Руководство по IPv6 (RU)](docs/ru/IPV6.md)**.
+4. Issue a `qeli://` link or QR from the web panel and import it into a client —
    **[PANEL (EN)](docs/eng/PANEL.md)** · **[PANEL (RU)](docs/ru/PANEL.md)**.
 
 Something went wrong? → **[Troubleshooting (EN)](docs/eng/TROUBLESHOOTING.md)** ·

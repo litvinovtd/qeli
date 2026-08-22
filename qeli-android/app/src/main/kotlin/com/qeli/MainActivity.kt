@@ -180,6 +180,9 @@ pass = changeme
 key =
 mode = fake-tls
 sni = www.microsoft.com
+ipv6 = auto
+# allow_ipv4_leak = false ; full-tunnel exception for an IPv6-only plan
+# allow_ipv6_leak = false ; full-tunnel exception for an IPv4-only plan
 # kill_switch = true       ; requires Android Always-on VPN + Block without VPN
 # route_local = false      ; route LAN/RFC1918 through the tunnel
 # dns_servers = 1.1.1.1, 8.8.8.8 ; resolvers reached via the tunnel
@@ -1282,7 +1285,7 @@ sni = www.microsoft.com
         }
         if (live) {
             val pushed = VpnServiceImpl.livePushed
-            rows += R.string.detail_tunnel_ip to VpnServiceImpl.liveIp
+            rows += R.string.detail_tunnel_ip to VpnServiceImpl.liveAddresses.ifEmpty { VpnServiceImpl.liveIp }
             // `liveDns` is the resolver the tunnel ACTUALLY programmed, and empty is a real
             // answer: it means none was installed and the device keeps its own.
             //
