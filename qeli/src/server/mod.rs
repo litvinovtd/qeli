@@ -7505,10 +7505,8 @@ pool.cidr = 10.{net}.0.0/24
         use crate::config::server::{IpMode, ProfileConfig};
         use crate::config::users::UserEntry;
 
-        let mut profile = ProfileConfig {
-            name: "edge".into(),
-            ..Default::default()
-        };
+        let mut profile = ProfileConfig::baseline();
+        profile.name = "edge".into();
         profile.tun.ip_mode = IpMode::Dual;
         profile.tun.ipv6_address = Some("fd71:e1:1234:1::1".into());
         profile.pool.ipv6.cidr = "fd71:e1:1234:1::/64".into();

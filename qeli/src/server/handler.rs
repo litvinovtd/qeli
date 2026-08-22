@@ -2489,6 +2489,7 @@ mod auth_ok_prefix_tests {
         let ipv4_db = UsersDb {
             users: vec![UserEntry {
                 username: "alice".into(),
+                enabled: true,
                 static_ip: Some("10.8.0.7".into()),
                 static_ipv6: Some("not-an-ipv6-address".into()),
                 ..Default::default()
@@ -2503,6 +2504,7 @@ mod auth_ok_prefix_tests {
         let ipv6_db = UsersDb {
             users: vec![UserEntry {
                 username: "alice".into(),
+                enabled: true,
                 static_ip: Some("not-an-ipv4-address".into()),
                 static_ipv6: Some("fd71:e1::7".into()),
                 ..Default::default()
