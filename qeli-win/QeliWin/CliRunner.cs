@@ -133,7 +133,6 @@ public static class CliRunner
             cfg.ServerPublicKeyHex == "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057" &&
             cfg.Name == "Client 1");
 
-
         // Cross-implementation conformance: the same fixtures the Rust/Kotlin/Swift suites
         // run, so a divergence between the four qeli:// parsers fails here instead of
         // surfacing as "the link works on my phone but not on my laptop". (conformance/)
@@ -197,10 +196,14 @@ public static class CliRunner
             Apps = new List<string> { @"C:\Program Files\Browser\browser.exe", "com.example.mobile" },
         };
         var appsIniBack = VpnConfig.FromIni(appsRt.ToIni());
-        var appsLinkBack = VpnConfig.FromQeliUri(appsRt.ToQeliUri());
-        Check("per-app INI/qeli:// round-trip",
+        string appsLink = appsRt.ToQeliUri();
+        var appsLinkBack = VpnConfig.FromQeliUri(appsLink);
+        Check("per-app policy stays in flat INI, not qeli://",
             appsIniBack.AppsMode == "include" && appsIniBack.Apps.SequenceEqual(appsRt.Apps)
-            && appsLinkBack.AppsMode == "include" && appsLinkBack.Apps.SequenceEqual(appsRt.Apps));
+            && !appsLink.Contains("apps_mode=", StringComparison.Ordinal)
+            && !appsLink.Contains("apps=", StringComparison.Ordinal)
+            && appsLinkBack.AppsMode == "all" && appsLinkBack.Apps.Count == 0);
+
 
         WinDivertSelfTest.RunUnit(Check);
         NetworkConfigurator.RunDnsLifecycleSelfTest(Check);

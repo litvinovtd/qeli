@@ -113,6 +113,29 @@ fn validate_static_ipv6(ip: &str) -> Result<(), String> {
     crate::config::server::validate_tunnel_ipv6_address("static_ipv6", address)
 }
 
+/// Read a nullable string field from a partial JSON update.
+///
+/// The three states are intentionally distinct:
+/// - missing key => leave the stored value unchanged;
+/// - `null` or a blank string => clear the stored value;
+/// - non-empty string => store its trimmed value.
+///
+/// Treating `null` like a missing key made the Users form report success while retaining
+/// `static_ip`, `static_ipv6` and `group`, because the browser uses `null` for an emptied
+/// optional input. Reject other JSON types instead of silently turning a malformed update
+/// into a no-op.
+fn nullable_trimmed_string(body: &Value, key: &str) -> Result<Option<Option<String>>, String> {
+    match body.get(key) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(value)) => {
+            let value = value.trim();
+            Ok(Some((!value.is_empty()).then(|| value.to_string())))
+        }
+        Some(value) => Err(format!("{key} must be a string or null (got {value})")),
+    }
+}
+
 /// The other user already holding `ip` as their static address, if any.
 ///
 /// Two users cannot share one static address: `IpPool::allocate_fixed` hands it to
@@ -300,6 +323,18 @@ pub async fn create_user(
     if username.is_empty() {
         return Ok(Json(super::err_json("username required")));
     }
+    let static_ip = match nullable_trimmed_string(&body, "static_ip") {
+        Ok(value) => value.flatten(),
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let static_ipv6 = match nullable_trimmed_string(&body, "static_ipv6") {
+        Ok(value) => value.flatten(),
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let group = match nullable_trimmed_string(&body, "group") {
+        Ok(value) => value.flatten(),
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     // Restrict to a safe charset (alnum + . _ -) and a sane length so a username can't
     // break the INI users file / control-channel JSON / downstream find() matching.
     if username.len() > 64
@@ -342,7 +377,7 @@ pub async fn create_user(
             username
         ))));
     }
-    if let Some(ip) = body["static_ip"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(ip) = static_ip.as_deref() {
         if let Err(e) = validate_static_ip(ip) {
             return Ok(Json(super::err_json(e)));
         }
@@ -354,7 +389,7 @@ pub async fn create_user(
             ))));
         }
     }
-    if let Some(ip) = body["static_ipv6"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(ip) = static_ipv6.as_deref() {
         if let Err(error) = validate_static_ipv6(ip) {
             return Ok(Json(super::err_json(error)));
         }
@@ -394,21 +429,13 @@ pub async fn create_user(
         password_hash,
         password_enc,
         enabled: body["enabled"].as_bool().unwrap_or(true),
-        static_ip: body["static_ip"]
-            .as_str()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-        static_ipv6: body["static_ipv6"]
-            .as_str()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
+        static_ip,
+        static_ipv6,
         bandwidth: crate::config::users::BandwidthLimit {
             limit_mbps,
             burst_mbps,
         },
-        group: body["group"].as_str().map(|s| s.to_string()),
+        group,
         allowed_networks: allowed_networks_new,
         max_sessions,
         profiles: strings_from_json(&body["profiles"]),
@@ -531,10 +558,22 @@ pub async fn update_user(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    let static_ip_update = match nullable_trimmed_string(&body, "static_ip") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let static_ipv6_update = match nullable_trimmed_string(&body, "static_ipv6") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let group_update = match nullable_trimmed_string(&body, "group") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut users = state.users_db.write().await;
     // Check the static-IP collision BEFORE taking the mutable borrow below (and before
     // any mutation): two users sharing one static address evict each other forever.
-    if let Some(ip) = body["static_ip"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(ip) = static_ip_update.as_ref().and_then(|value| value.as_deref()) {
         if let Err(e) = validate_static_ip(ip) {
             return Ok(Json(super::err_json(e)));
         }
@@ -546,7 +585,10 @@ pub async fn update_user(
             ))));
         }
     }
-    if let Some(ip) = body["static_ipv6"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(ip) = static_ipv6_update
+        .as_ref()
+        .and_then(|value| value.as_deref())
+    {
         if let Err(error) = validate_static_ipv6(ip) {
             return Ok(Json(super::err_json(error)));
         }
@@ -588,26 +630,14 @@ pub async fn update_user(
             if let Some(v) = body["enabled"].as_bool() {
                 edited.enabled = v;
             }
-            if let Some(static_ip) = body["static_ip"].as_str() {
-                edited.static_ip = if static_ip.is_empty() {
-                    None
-                } else {
-                    Some(static_ip.to_string())
-                };
+            if let Some(static_ip) = static_ip_update {
+                edited.static_ip = static_ip;
             }
-            if let Some(static_ipv6) = body["static_ipv6"].as_str() {
-                edited.static_ipv6 = if static_ipv6.is_empty() {
-                    None
-                } else {
-                    Some(static_ipv6.to_string())
-                };
+            if let Some(static_ipv6) = static_ipv6_update {
+                edited.static_ipv6 = static_ipv6;
             }
-            if let Some(group) = body["group"].as_str() {
-                edited.group = if group.is_empty() {
-                    None
-                } else {
-                    Some(group.to_string())
-                };
+            if let Some(group) = group_update {
+                edited.group = group;
             }
             // An INVALID value is now an error, not a silent no-op: `as_u64()` returns
             // None for "-5"/"1.5"/"abc" exactly as for a missing key, so the old
@@ -1017,7 +1047,7 @@ mod merge_tests {
     //! panel edits a user from a snapshot that may already be stale — the worker changes
     //! bandwidth/limits/expiry over the control socket — so writing the whole entry back
     //! reverted whatever it had not seen. These pin that only the edited fields travel.
-    use super::{merge_changed_fields, routes_from_json};
+    use super::{merge_changed_fields, nullable_trimmed_string, routes_from_json};
     use crate::config::users::UserEntry;
 
     fn user(name: &str) -> UserEntry {
@@ -1025,6 +1055,55 @@ mod merge_tests {
             username: name.to_string(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn nullable_optional_fields_distinguish_missing_clear_and_value() {
+        let missing = serde_json::json!({});
+        assert_eq!(
+            nullable_trimmed_string(&missing, "static_ipv6").unwrap(),
+            None
+        );
+
+        let clear_null = serde_json::json!({"static_ipv6": null});
+        assert_eq!(
+            nullable_trimmed_string(&clear_null, "static_ipv6").unwrap(),
+            Some(None)
+        );
+
+        let clear_blank = serde_json::json!({"static_ipv6": "  "});
+        assert_eq!(
+            nullable_trimmed_string(&clear_blank, "static_ipv6").unwrap(),
+            Some(None)
+        );
+
+        let value = serde_json::json!({"static_ipv6": "  fd71:e1:1234:1::50  "});
+        assert_eq!(
+            nullable_trimmed_string(&value, "static_ipv6").unwrap(),
+            Some(Some("fd71:e1:1234:1::50".into()))
+        );
+
+        let wrong_type = serde_json::json!({"static_ipv6": 6});
+        assert!(nullable_trimmed_string(&wrong_type, "static_ipv6").is_err());
+    }
+
+    #[test]
+    fn clearing_optional_user_fields_reaches_the_fresh_slot() {
+        let mut before = user("clear-me");
+        before.static_ip = Some("10.9.0.50".into());
+        before.static_ipv6 = Some("fd71:e1:1234:1::50".into());
+        before.group = Some("limited".into());
+        let mut after = before.clone();
+        after.static_ip = None;
+        after.static_ipv6 = None;
+        after.group = None;
+        let mut slot = before.clone();
+
+        merge_changed_fields(&before, &after, &mut slot);
+
+        assert_eq!(slot.static_ip, None);
+        assert_eq!(slot.static_ipv6, None);
+        assert_eq!(slot.group, None);
     }
 
     #[test]

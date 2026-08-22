@@ -539,6 +539,26 @@ fn quickstart_pool_is_free(
     })
 }
 
+fn existing_quickstart_ipv4_plan_is_usable(
+    profile: &crate::config::server::ProfileConfig,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> bool {
+    // Validate the complete post-transition profile, not only its CIDR. IPv6-only mode leaves
+    // every legacy IPv4 field dormant, so a stale tun address, DNS listener, exclusion,
+    // reservation or DHCP range can all become invalid at the same instant as the pool.
+    let mut candidate = current.clone();
+    candidate.profiles.retain(|item| item.name != profile.name);
+    candidate.profiles.push(profile.clone());
+    if crate::server::validate_profiles(&candidate).is_err() {
+        return false;
+    }
+    match host {
+        Some(snapshot) => crate::server::preflight::check(&candidate, snapshot).is_ok(),
+        None => true,
+    }
+}
+
 fn place_quickstart_network(
     mut profile: crate::config::server::ProfileConfig,
     current: &crate::config::server::ServerConfig,
@@ -563,6 +583,8 @@ fn place_quickstart_network(
         .profiles
         .iter()
         .filter(|item| item.enabled && item.name != profile.name)
+        // IPv6-only profiles do not install or allocate their dormant IPv4 pool.
+        .filter(|item| item.tun.ip_mode != crate::config::server::IpMode::Ipv6)
         .filter_map(|item| item.pool.cidr.trim().parse().ok())
         .collect();
     let mut own_interfaces: std::collections::HashSet<&str> = current
@@ -588,6 +610,15 @@ fn place_quickstart_network(
     profile.tun.address = format!("{first}.{second}.{third}.1");
     profile.pool.cidr = format!("{first}.{second}.{third}.0/24");
     profile.dns.listen = profile.tun.address.clone();
+    // These values are addresses inside the old subnet; preserving them after re-homing would
+    // either make the generated config fail startup or hand clients unreachable addresses.
+    // There is no safe one-to-one translation for arbitrary reservations, so reset only the
+    // dependent IPv4 allocation state. Credentials, routes and all non-address settings stay.
+    profile.pool.exclude.clear();
+    profile.pool.static_reservations.clear();
+    profile.dhcp.listen.clear();
+    profile.dhcp.pool_start = None;
+    profile.dhcp.pool_end = None;
     let mut candidate = current.clone();
     candidate.profiles.retain(|item| item.name != profile.name);
     candidate.profiles.push(profile.clone());
@@ -839,11 +870,10 @@ fn resolve_new_quickstart_ip_mode(
     }
 }
 
-/// Build a profile only on the first Quick Start launch.  Re-launching a mode is an
-/// operational "make sure this profile is up" action, not an implicit credential rotation or
-/// factory reset: preserve the complete existing profile and merely re-enable it.  Rotation is
-/// deliberately left to the explicit config controls where the operator can see the impact on
-/// already-issued clients.
+/// Build a profile only on the first Quick Start launch. Re-launching without an explicit
+/// address-family choice merely re-enables the complete existing profile; an explicit choice
+/// reconciles only the requested IPv4/IPv6 network plan. Credentials are never rotated here —
+/// rotation stays in the config controls where the operator can see the impact on issued links.
 fn quickstart_profile_for_current(
     mode: &str,
     current: &crate::config::server::ServerConfig,
@@ -880,6 +910,8 @@ fn quickstart_profile_for_current(
             // equal: a manually edited dual profile may still have IPv6 mode=off or no DNS
             // listener, and Launch must repair that dormant state instead of returning a
             // profile that cannot deliver the Internet mode the panel just promised.
+            let activates_ipv4 = existing.tun.ip_mode == crate::config::server::IpMode::Ipv6
+                && desired != crate::config::server::IpMode::Ipv6;
             configure_quickstart_ip_mode(
                 &mut profile,
                 desired,
@@ -888,6 +920,14 @@ fn quickstart_profile_for_current(
                 host,
                 ipv6_firewall_available,
             )?;
+            // An IPv6-only profile may safely retain dormant IPv4 fields even when every
+            // RFC1918 route is occupied. Once an explicit switch activates IPv4 those fields
+            // become operational. Preserve a valid, collision-free manual subnet exactly;
+            // otherwise run the same selector used at creation instead of failing later on
+            // the stale baseline pool.
+            if activates_ipv4 && !existing_quickstart_ipv4_plan_is_usable(&profile, current, host) {
+                profile = place_quickstart_network(profile, current, host)?;
+            }
         }
         let short_id = spec
             .needs_short_id
@@ -1092,7 +1132,7 @@ pub async fn apply_quickstart_profile(
         "revision": config_revision(&next_raw),
         "snapshot": snapshot,
         "message": if reused {
-            "Existing profile enabled; credentials and manual settings preserved."
+            "Existing profile enabled; credentials preserved and requested IP mode applied."
         } else {
             "Quick Start profile created."
         },
@@ -2358,6 +2398,7 @@ mod raw_secret_tests {
         let mut occupied = target.clone();
         occupied.name = "occupied".into();
         occupied.bind.port = 9443;
+        occupied.bind.listen.clear();
         occupied.tun.name = "vpn200".into();
         let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
         current.profiles = vec![occupied];
@@ -2434,6 +2475,131 @@ mod raw_secret_tests {
         assert!(!reused);
         assert_eq!(profile.tun.ip_mode, crate::config::server::IpMode::Ipv6);
         current.profiles.push(profile);
+        crate::server::validate_profiles(&current).unwrap();
+        crate::server::preflight::check(&current, &host).unwrap();
+    }
+
+    #[test]
+    fn ipv6_only_to_dual_rehomes_the_complete_stale_ipv4_plan() {
+        use crate::config::server::{IpMode, Ipv6RoutingMode};
+
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (mut target, _, _, _) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap();
+        let old_pool = target.pool.cidr.clone();
+        let old_tun = target.tun.address.clone();
+
+        // This second active profile legitimately owns the same IPv4 subnet while the target
+        // is IPv6-only. Its IPv4 shadow becomes a collision only when dual mode activates it.
+        let mut occupied = target.clone();
+        occupied.name = "occupied-ipv4".into();
+        occupied.bind.port = 9443;
+        occupied.bind.listen.clear();
+        occupied.tun.name = "vpn200".into();
+        occupied.tun.ip_mode = IpMode::Ipv4;
+        occupied.tun.ipv6_address = None;
+        occupied.pool.ipv6 = Default::default();
+        occupied.routing.ipv6.mode = Ipv6RoutingMode::Off;
+        occupied.dns.listen_ipv6 = None;
+        occupied.routing.nat.enabled = true;
+        occupied.routing.forward_private = true;
+
+        // All of these fields are dormant in IPv6-only mode and tied to the old subnet.
+        target.pool.exclude = vec!["10.9.0.200".into()];
+        target
+            .pool
+            .static_reservations
+            .insert("legacy".into(), "10.9.0.201".into());
+        target.dhcp.listen = old_tun.clone();
+        target.dhcp.pool_start = Some("10.9.0.20".into());
+        target.dhcp.pool_end = Some("10.9.0.30".into());
+        current.profiles = vec![occupied, target];
+        crate::server::validate_profiles(&current).unwrap();
+
+        let (reused, _, _, was_reused) = quickstart_profile_for_current(
+            "reality-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Dual),
+        )
+        .unwrap();
+
+        assert!(was_reused);
+        assert_eq!(reused.tun.ip_mode, IpMode::Dual);
+        assert_ne!(reused.pool.cidr, old_pool);
+        assert_ne!(reused.tun.address, old_tun);
+        assert_eq!(reused.dns.listen, reused.tun.address);
+        assert!(reused.pool.exclude.is_empty());
+        assert!(reused.pool.static_reservations.is_empty());
+        assert!(reused.dhcp.listen.is_empty());
+        assert!(reused.dhcp.pool_start.is_none());
+        assert!(reused.dhcp.pool_end.is_none());
+
+        current
+            .profiles
+            .retain(|profile| profile.name != reused.name);
+        current.profiles.push(reused);
+        crate::server::validate_profiles(&current).unwrap();
+        crate::server::preflight::check(&current, &host).unwrap();
+    }
+
+    #[test]
+    fn ipv6_only_to_dual_preserves_a_valid_manual_ipv4_plan() {
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = native_ipv6_host();
+        let (mut profile, _, _, _) = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Ipv6),
+        )
+        .unwrap();
+        profile.pool.cidr = "10.77.12.0/25".into();
+        profile.tun.address = "10.77.12.7".into();
+        profile.dns.listen = "10.77.12.7".into();
+        profile.pool.exclude = vec!["10.77.12.9".into()];
+        profile
+            .pool
+            .static_reservations
+            .insert("kept".into(), "10.77.12.10".into());
+        current.profiles.push(profile);
+
+        let (reused, _, _, was_reused) = quickstart_profile_for_current(
+            "fake-tls",
+            &current,
+            Some(&host),
+            true,
+            Some(QuickStartIpMode::Dual),
+        )
+        .unwrap();
+
+        assert!(was_reused);
+        assert_eq!(reused.pool.cidr, "10.77.12.0/25");
+        assert_eq!(reused.tun.address, "10.77.12.7");
+        assert_eq!(reused.dns.listen, "10.77.12.7");
+        assert_eq!(reused.pool.exclude, vec!["10.77.12.9"]);
+        assert_eq!(
+            reused
+                .pool
+                .static_reservations
+                .get("kept")
+                .map(String::as_str),
+            Some("10.77.12.10")
+        );
+
+        current.profiles.clear();
+        current.profiles.push(reused);
         crate::server::validate_profiles(&current).unwrap();
         crate::server::preflight::check(&current, &host).unwrap();
     }

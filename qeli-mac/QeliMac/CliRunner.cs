@@ -156,7 +156,6 @@ public static class CliRunner
             NetworkConfigurator.AddressRemovalArguments("utun7", IPAddress.Parse("fd71:e1::2")) ==
                 "utun7 inet6 fd71:e1::2 -alias");
 
-
         // Flat-INI client config parses to the expected fields.
         var ini = "[qeli]\nserver = YOUR_PROD_HOST:443\nproto = tcp\nuser = client1\n" +
                   "pass = secret\nmode = obfs\nobfs_key = psk123\nsni = www.apple.com\nroute_local = true\n" +
@@ -210,10 +209,13 @@ public static class CliRunner
             Apps = new List<string> { "com.apple.Safari", @"C:\Program Files\Browser\browser.exe" },
         };
         var appsIniBack = VpnConfig.FromIni(appsRt.ToIni());
-        var appsLinkBack = VpnConfig.FromQeliUri(appsRt.ToQeliUri());
-        Check("per-app INI/qeli:// round-trip",
+        string appsLink = appsRt.ToQeliUri();
+        var appsLinkBack = VpnConfig.FromQeliUri(appsLink);
+        Check("per-app policy stays in flat INI, not qeli://",
             appsIniBack.AppsMode == "include" && appsIniBack.Apps.SequenceEqual(appsRt.Apps)
-            && appsLinkBack.AppsMode == "include" && appsLinkBack.Apps.SequenceEqual(appsRt.Apps));
+            && !appsLink.Contains("apps_mode=", StringComparison.Ordinal)
+            && !appsLink.Contains("apps=", StringComparison.Ordinal)
+            && appsLinkBack.AppsMode == "all" && appsLinkBack.Apps.Count == 0);
 
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);

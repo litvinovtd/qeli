@@ -73,6 +73,12 @@ links with `proto` and `mode` spelled out separately.
 > `bind_static` silently back to `true` — which demands a pinned `key`. From 0.7.13 Android
 > no longer emits them, but still **parses** them so links it issued earlier import as
 > intended.
+>
+> **`apps_mode` and `apps` are also file-only.** Application identifiers are
+> platform-owned (Windows executable paths, Apple signing identifiers, Android package
+> names), so forwarding them in a portable QR can silently change scope on another device.
+> All clients preserve and apply their local flat-INI policy; qeli:// serializers omit it and
+> importers ignore legacy `apps*` query parameters.
 
 **About `quic`.** The server **mirrors the client's choice per-connection** — it validates
 the complete qeli QUIC envelope on the first datagram (including its declared Length), so
@@ -515,7 +521,7 @@ These are **client-side file-only** keys — they are in neither the push nor th
 are set in the client's own file (or in the panel's **Client manager** tab, which edits those files):
 `dev`, `gateway` (full-tunnel), `route_local`, `kill_switch`, `include`/`exclude`,
 `dns` (the client's resolver-management **mode**), `persist_tun`, `local`/`lport`, `metric`,
-`gateway_nat`/`lan_subnet`, `post_up`/`post_down`, `autostart`.
+`gateway_nat`/`lan_subnet`, `post_up`/`post_down`, `autostart`, `apps_mode`/`apps`.
 
 Exactly what a `qeli://` link carries — parameter by parameter — is in
 [What a `qeli://` link carries](#what-a-qeli-link-carries). In short: the address, the

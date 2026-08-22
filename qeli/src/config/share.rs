@@ -7,17 +7,17 @@
 //! qeli://<user>:<pass>@<host>:<port>?proto=tcp&mode=fake-tls&key=<hex>&sni=<host>&obfs=<key>#<label>
 //! ```
 //!
-//! Everything in [`ClientLink`] is exactly the set of fields the client cannot
-//! derive or receive from the server at handshake time — credentials, where to
-//! connect, the pinned server key, and the wire mode that must match the
-//! server's profile. Routes, DNS, MTU and the obfuscation *parameters* are
-//! pushed by the server after auth, so they deliberately do not appear here.
+//! Everything in [`ClientLink`] is the connection descriptor needed before the
+//! authenticated server push: credentials, endpoint, pinned key and the wire/framing
+//! settings that must already match. NetworkPlan supplies tunnel addresses, routes, DNS
+//! and the automatic inner MTU after auth; an explicit client MTU may appear here as an
+//! override. Device-local policy such as per-app routing deliberately stays in flat INI.
 //!
 //! Pure `std` (manual percent-encoding, no `url` crate), so it builds and is
 //! tested on every platform.
 
-/// The minimal, QR-encodable client connection descriptor. Maps 1:1 onto the
-/// `[qeli]` section of a client config and onto a `qeli://` URI.
+/// The minimal, QR-encodable client connection descriptor. It is the portable
+/// connection-bearing subset of the larger flat-INI `[qeli]` section.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClientLink {
     pub host: String,

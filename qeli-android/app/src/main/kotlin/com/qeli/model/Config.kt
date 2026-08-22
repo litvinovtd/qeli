@@ -1169,8 +1169,9 @@ data class VpnConfig(
          * Shape:
          * `qeli://<user>:<pass>@<host>:<port>?proto=tcp&mode=fake-tls&key=<hex>&sni=<host>&obfs=<key>#<label>`
          *
-         * Everything not carried by the link is defaulted here and overwritten by
-         * the server at handshake time (routes, DNS, MTU, obfuscation params).
+         * Server-pushed network state and device-local policy are defaulted here. An
+         * explicit MTU and every pre-auth wire/framing value carried by the link are
+         * parsed below; per-app routing remains a flat-INI-only device policy.
          */
         fun fromQeliUri(uri: String): VpnConfig {
             val trimmed = uri.trim()

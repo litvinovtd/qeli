@@ -2528,14 +2528,15 @@ class VpnServiceImpl : VpnService() {
             LiveConnectionProperties.of(it, globalAllowLan)
         }
         // Publish CONNECTED only after all generation-owned facts are visible. A recreated
-        // Activity can read these fields as soon as it observes liveStatus.
-        liveStatus = STATUS_CONNECTED
+        // Activity can read these fields as soon as it observes liveStatus; the volatile
+        // status write is therefore the publication barrier for this complete snapshot.
         liveIp = clientIp
         liveGateway = tunnelGateway
         liveConnectedAt = System.currentTimeMillis()
         liveAddresses = tunnelAddresses
         liveBytesUp = 0L
         liveBytesDown = 0L
+        liveStatus = STATUS_CONNECTED
         sendBroadcast(Intent(BROADCAST_STATUS).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATUS, STATUS_CONNECTED)

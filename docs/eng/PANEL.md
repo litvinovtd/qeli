@@ -466,8 +466,10 @@ config/link to all of that profile's clients, so don't do it "just in case".
 ### Users & groups
 - **Create/edit:** enter the password in **plaintext** — the server hashes it
   (argon2id) and stores a reversibly-encrypted copy (for config re-issue, below).
-  Fields: bandwidth/burst, static IP, group, max sessions, **allowed profiles**
-  (interface isolation), allowed networks, **per-user routes**.
+  Fields: bandwidth/burst, optional static IPv4 and IPv6 addresses, group, max sessions,
+  **allowed profiles** (interface isolation), allowed networks and **per-user routes**.
+  Clearing either static-address field or the group really removes the stored value; the API
+  distinguishes an omitted field (leave unchanged) from `null`/blank (clear it).
 - **Groups** (`/api/groups`) — named templates kept in the same users file next to the
   users (a `[group:<name>]` section) carrying three fields: `bandwidth_limit_mbps`,
   `max_sessions`, `allowed_networks`. A member inherits whichever field it does not set

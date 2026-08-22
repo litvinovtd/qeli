@@ -36,7 +36,8 @@
 - Swift owns only Apple platform operations: Keychain device/trust state,
   `NEPacketTunnelNetworkSettings`, lifecycle/status and bounded packet batches between
   `NEPacketTunnelFlow` and `qeli_client_tun_push/pull`. It ACKs a `NetworkPlan` only after
-  all IPv4 routes and supported DNS settings have been applied; unsupported plans fail closed.
+  all active-family IPv4/IPv6 routes and supported DNS settings have been applied;
+  unsupported plans fail closed.
 - Authenticated `NetworkPlan` UI facts keep server-pushed routes distinct from local/client
   routes and report effective post-push padding, heartbeat and shaping values without Swift
   parsing handshake payloads.

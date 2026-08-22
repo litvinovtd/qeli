@@ -63,8 +63,10 @@ dns.listen_ipv6 = fd71:e1:19::1
 dns.push_servers = 10.19.0.1, fd71:e1:19::1
 ```
 
-The complete runtime-validated example is installed as
-[`server-ipv6.conf`](../../qeli/config/server-ipv6.conf). Do not copy one ULA prefix to
+The complete runtime-validated source example is
+[`qeli/config/server-ipv6.conf`](../../qeli/config/server-ipv6.conf). Both the DEB package
+and `install-qeli-server.sh` install it as `/etc/qeli/server-ipv6.conf.example`; copy or
+adapt that example into the active `/etc/qeli/server.conf`. Do not copy one ULA prefix to
 independent sites: give each site a unique RFC4193 `/48` and each profile its own `/64`.
 
 ## 3. Client `ipv6` policy

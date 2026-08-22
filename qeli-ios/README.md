@@ -39,8 +39,8 @@ every other client, not because a build of it was released.
   generation, X25519+ML-KEM, authentication, packet crypto, heartbeat/shaping, MTU and
   fixed/adaptive bonding. Swift owns only the lifecycle decision to start the next generation
   under the shared reconnect policy; no Swift wire implementation is on the production path.
-- `NetworkPlan` application is fail-closed: unsupported DNS ports or routes that cannot be
-  installed by the IPv4 Packet Tunnel adapter are rejected before the core receives ACK.
+- `NetworkPlan` application is fail-closed for IPv4, IPv6 and dual-stack plans: unsupported
+  DNS ports, addresses or routes are rejected before the shared core receives ACK.
 - The status bridge reports server-pushed routes separately from client/local routes and
   uses effective post-push padding, heartbeat and shaping facts supplied by Rust.
 - Rust iOS XCFramework build script for the complete `transport-core-ffi` static library,
