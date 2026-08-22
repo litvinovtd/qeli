@@ -1594,6 +1594,11 @@ A fail-closed firewall on the client, **full-tunnel only**: while the tunnel is 
 egress except loopback / tun / DHCP / the server IP is blocked, so a drop can't leak onto
 the physical interface. Enabled with `kill_switch = true` in `[qeli]`.
 
+With `kill_switch = true`, full-tunnel `exclude` entries remain fail-closed: the firewall
+blocks non-tunnel egress, so those networks are **unreachable/blackholed**, not routed directly
+over the physical interface. Clients log an explicit warning. Disable `kill_switch` if direct
+access to an excluded network is required.
+
 The implementation is **different on every OS** — not one cross-platform layer but three
 independent mechanisms plus the system one on mobile. Summary:
 
@@ -1697,8 +1702,10 @@ tool's pf rules. If the host's main ruleset carries the stock `anchor "com.apple
 reference, the child anchor `com.apple/qeli` is used instead — it is already evaluated by
 that existing reference, so the main ruleset need not be touched at all. The reason for this
 design: `pfctl -f /etc/pf.conf` reloads the **file**, not whatever the host actually had
-loaded, so "restoring" through it discarded other tools' dynamic rules. The utun name is
-unknown before the device exists, so the rules cover `utun0..15`.
+loaded, so "restoring" through it discarded other tools' dynamic rules. The system-TUN path
+reserves the real utun device before loading pf and permits only that exact interface. During
+an atomic persisted-plan replacement, the old and replacement utun names are allowed together
+only until the swap completes.
 
 Manual teardown — flush the anchor, **not** `pfctl -f /etc/pf.conf`:
 ```bash

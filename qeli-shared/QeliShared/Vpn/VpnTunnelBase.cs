@@ -191,12 +191,30 @@ public abstract class VpnTunnelBase
                       + "— it only applies when the tunnel carries the default route. "
                       + "Set gateway = true if you want fail-closed protection.");
 
+            if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter
+                && config.ExcludeRoutes.Count != 0)
+                Log($"WARNING: exclude + kill_switch: {config.ExcludeRoutes.Count} excluded "
+                    + "subnet(s) will be BLACKHOLED, not sent direct — the kill-switch blocks "
+                    + "all non-tunnel egress. Disable kill_switch if those networks must be "
+                    + "reached through the physical interface.");
+
             if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
             {
                 try { KillSwitchEngage(config); Interlocked.Exchange(ref _ksEngaged, 1); }
                 catch (Exception e)
                 {
-                    Log($"[SECURITY] kill-switch could not be engaged: {e.Message} — not connecting unprotected");
+                    bool egressRestored = true;
+                    if (KillSwitchEngageFailureRetainsOwnership(e))
+                    {
+                        // Engage changed the host firewall and its own rollback failed. Record
+                        // ownership before retrying cleanup so Stop/the next Start cannot forget it.
+                        Interlocked.Exchange(ref _ksEngaged, 1);
+                        egressRestored = KillSwitchLift();
+                    }
+                    Log($"[SECURITY] kill-switch could not be engaged: {e.Message} — "
+                        + (egressRestored
+                            ? "not connecting unprotected; egress was restored"
+                            : "egress remains fail-closed and cleanup ownership was retained"));
                     // Carry the REASON into the status detail, not just "it failed". This is a
                     // refusal to connect, so the status line is the only thing many users will
                     // ever see — and a bare "kill-switch failed" says nothing about what to do,
@@ -204,7 +222,9 @@ public abstract class VpnTunnelBase
                     // messages here are written to be actionable (macOS names the missing pf
                     // anchor and the pfctl command that fixes it), so the first sentence is
                     // worth surfacing verbatim.
-                    Status(VpnStatus.Error, $"kill-switch failed — {FirstSentence(e.Message)}");
+                    Status(VpnStatus.Error, egressRestored
+                        ? $"kill-switch failed — {FirstSentence(e.Message)}"
+                        : "kill-switch failed; egress remains fail-closed — retry Disconnect");
                     return false;
                 }
             }
@@ -507,6 +527,12 @@ public abstract class VpnTunnelBase
     /// Default no-op (platforms without an implementation simply don't gate).</summary>
     protected virtual void KillSwitchEngage(VpnConfig config) { }
 
+    /// <summary>True only when a failed engage still owns a possibly active platform
+    /// firewall because its internal rollback also failed. Implementations must never
+    /// return true for a conflict with another process: this process must not tear down
+    /// somebody else's guard.</summary>
+    protected virtual bool KillSwitchEngageFailureRetainsOwnership(Exception error) => false;
+
     /// <summary>Platform hook invoked before a refreshed DDNS address set replaces the
     /// last-known carrier set. An engaged firewall kill-switch must allow the new server
     /// addresses before the native transport tries them; throwing keeps the previous set.</summary>
@@ -556,6 +582,18 @@ public abstract class VpnTunnelBase
         }
         catch (Exception error)
         {
+            if (KillSwitchEngageFailureRetainsOwnership(error))
+            {
+                // A partial engage is cleanup ownership, not proof of a sound guard. Stop
+                // retries so the next attempt cannot destroy the old TUN under this state.
+                Interlocked.Exchange(ref _planReplacementGuardEngaged, 1);
+                _stoppedForSecurityReason = true;
+                _cts?.Cancel();
+                bool restored = PlanReplacementGuardLift();
+                Status(VpnStatus.Error, restored
+                    ? "network-plan firewall guard failed; egress was restored"
+                    : "network-plan firewall guard failed; egress remains fail-closed");
+            }
             throw new InvalidOperationException(
                 "refusing to rebuild the persisted TUN without a fail-closed firewall guard", error);
         }

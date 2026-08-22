@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "date_utc": "2026-08-21T23:52:52Z",
+    "binary_sha256": "098e7156e1fe9c75d550ed243dbe81f946b7a29fdcdb13a325c82a6408b332ff",
+    "passed": 8,
+    "failed": 2
+  },
+  "rows": {
+    "pool-ipv6-exclude-reservation": {
+      "status": "PASS",
+      "assigned_ipv6": "fd71:e1:90::50",
+      "excluded": "fd71:e1:90::2"
+    },
+    "user-static-ipv6": {
+      "status": "PASS",
+      "assigned_ipv6": "fd71:e1:90::60"
+    },
+    "static-ipv6-outside-falls-back": {
+      "status": "PASS",
+      "configured": "fd71:e1:91::60",
+      "assigned_dynamic_ipv6": "fd71:e1:90::2",
+      "fallback_warning_present": false
+    },
+    "dual-profile-client-ipv6-off": {
+      "status": "PASS",
+      "global_families": [
+        "inet"
+      ]
+    },
+    "ipv6-required-rejects-ipv4-profile": {
+      "status": "FAIL",
+      "error": "negative policy had no IPv6 diagnostic: eli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:50:46.931 INFO  qeli::client: Reconnecting in 1s (attempt 1)...\n2026-08-22 02:50:47.932 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:50:47.932 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:50:47.934 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:50:47.934 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:50:47.958 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:50:47.958 INFO  qeli::client: Reconnecting in 2s (attempt 2)...\n2026-08-22 02:50:49.959 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:50:49.959 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:50:49.961 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:50:49.961 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:50:49.984 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:50:49.984 INFO  qeli::client: Reconnecting in 4s (attempt 3)...\n2026-08-22 02:50:53.986 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:50:53.986 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:50:53.987 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:50:53.987 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:50:54.011 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:50:54.011 INFO  qeli::client: Reconnecting in 8s (attempt 4)..."
+    },
+    "ipv6-off-rejects-ipv6-profile": {
+      "status": "FAIL",
+      "error": "negative policy had no IPv6 diagnostic: eli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:51:07.840 INFO  qeli::client: Reconnecting in 1s (attempt 1)...\n2026-08-22 02:51:08.842 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:51:08.842 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:51:08.843 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:51:08.843 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:51:08.867 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:51:08.867 INFO  qeli::client: Reconnecting in 2s (attempt 2)...\n2026-08-22 02:51:10.868 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:51:10.868 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:51:10.869 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:51:10.869 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:51:10.893 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:51:10.893 INFO  qeli::client: Reconnecting in 4s (attempt 3)...\n2026-08-22 02:51:14.895 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'bench'\n2026-08-22 02:51:14.895 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-22 02:51:14.896 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-22 02:51:14.896 INFO  qeli::transport_core::session: Server identity verified\n2026-08-22 02:51:14.920 ERROR qeli::client: Connection error: failed to read auth response: connection closed\n2026-08-22 02:51:14.920 INFO  qeli::client: Reconnecting in 8s (attempt 4)..."
+    },
+    "pushed-ipv6-route-gateway-metric": {
+      "status": "PASS",
+      "route": "2001:db8:123::/64 dev qv6c0 metric 77 pref medium"
+    },
+    "dual-extra-listener-outer4": {
+      "status": "PASS",
+      "endpoint": "10.66.116.10:443"
+    },
+    "dual-extra-listener-outer6": {
+      "status": "PASS",
+      "endpoint": "[fd66:116::10]:443"
+    },
+    "dns-listen6-push-and-ipv6-upstream": {
+      "status": "PASS",
+      "A": "192.0.2.53",
+      "AAAA": "2001:db8::53",
+      "upstream_log": "IPv6 qtype=1 peer=('fd66:116::10', 18538, 0, 0)\nIPv6 qtype=28 peer=('fd66:116::10', 44640, 0, 0)"
+    }
+  }
+}

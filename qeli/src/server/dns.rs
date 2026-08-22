@@ -1164,7 +1164,7 @@ fn first_question_name(query: &[u8]) -> Option<String> {
             return None;
         }
         if len == 0 {
-            let mut domain = String::from_utf8(labels.join(&[b'.'])).ok()?;
+            let mut domain = String::from_utf8(labels.join(&b"."[..])).ok()?;
             domain.make_ascii_lowercase();
             return Some(domain);
         }

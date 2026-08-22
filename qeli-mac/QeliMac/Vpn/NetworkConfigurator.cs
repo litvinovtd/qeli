@@ -20,8 +20,18 @@ public sealed class NetworkConfigurator : IDisposable
 {
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
+    private readonly List<OwnedRoute> _ownedRoutes = new();
     private readonly List<string> _degraded = new();
     private Action? _dnsRelease;
+
+    private sealed class OwnedRoute
+    {
+        public required string Network { get; init; }
+        public required int Prefix { get; init; }
+        public required string Description { get; init; }
+        public required Func<bool> Delete { get; init; }
+        public bool Active { get; set; } = true;
+    }
 
     private static readonly string DnsStatePath = Path.Combine(Paths.ServiceDir, "dns-override.json");
 
@@ -104,9 +114,11 @@ public sealed class NetworkConfigurator : IDisposable
                 var line = raw.Trim();
                 if (line.StartsWith("interface:", StringComparison.Ordinal))
                     iface = line["interface:".Length..].Trim();
-                else if (line.StartsWith("gateway:", StringComparison.Ordinal) &&
-                         IPAddress.TryParse(line["gateway:".Length..].Trim(), out var g))
-                    gw = g;
+                else if (line.StartsWith("gateway:", StringComparison.Ordinal))
+                {
+                    string literal = line["gateway:".Length..].Trim();
+                    gw = ParseRouteGateway(literal);
+                }
             }
         }
         catch (Exception e) { _log($"route get error: {e.Message}"); }
@@ -124,7 +136,7 @@ public sealed class NetworkConfigurator : IDisposable
         return PathToServer(destination);
     }
 
-    private sealed record ExistingHostRoute(string? Gateway, string? Interface);
+    private sealed record ExistingRoute(string? Gateway, string? Interface);
 
     /// <summary>
     /// Existing exact HOST (/32 or /128) route, or null when lookup resolved through a
@@ -133,31 +145,117 @@ public sealed class NetworkConfigurator : IDisposable
     /// Preserve interface routes as well as gateway routes so scoped/on-link IPv6 policy is
     /// restored byte-for-byte at disconnect.
     /// </summary>
-    private ExistingHostRoute? ExistingHostRouteFor(IPAddress ip)
+    private ExistingRoute? ExistingHostRouteFor(IPAddress ip)
+    {
+        int prefix = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+        return ExistingExactRouteFor(ip, prefix);
+    }
+
+    private ExistingRoute? ExistingExactRouteFor(IPAddress address, int prefix)
     {
         try
         {
-            bool v6 = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
-            var (outp, _) = RunOut("/sbin/route", $"-n get {(v6 ? "-inet6" : "-inet")} {ip}");
-            string? destination = null, gateway = null, iface = null;
-            foreach (var raw in outp.Split('\n'))
-            {
-                string line = raw.Trim();
-                if (line.StartsWith("destination:", StringComparison.Ordinal))
-                    destination = line["destination:".Length..].Trim();
-                else if (line.StartsWith("gateway:", StringComparison.Ordinal))
-                    gateway = line["gateway:".Length..].Trim();
-                else if (line.StartsWith("interface:", StringComparison.Ordinal))
-                    iface = line["interface:".Length..].Trim();
-            }
-            if (destination == null || !SameAddressIgnoringScope(destination, ip)) return null;
-            // link#N is a kernel interface next-hop, not a gateway accepted by route(8).
-            return gateway != null && gateway.StartsWith("link#", StringComparison.Ordinal)
-                ? new ExistingHostRoute(null, iface)
-                : new ExistingHostRoute(gateway, iface);
+            bool v6 = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+            var (outp, code) = RunOut(
+                "/sbin/route", $"-n get {(v6 ? "-inet6" : "-inet")} {address}");
+            return code == 0 ? ParseExactRoute(outp, address, prefix) : null;
         }
-        catch (Exception e) { _log($"could not read the existing host route for {ip}: {e.Message}"); }
-        return null;
+        catch (Exception e)
+        {
+            _log($"could not read the existing route {address}/{prefix}: {e.Message}");
+            return null;
+        }
+    }
+
+    private static ExistingRoute? ParseExactRoute(
+        string output, IPAddress requestedAddress, int requestedPrefix)
+    {
+        string? destination = null, mask = null, gateway = null, iface = null, flags = null;
+        foreach (var raw in output.Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.StartsWith("destination:", StringComparison.Ordinal))
+                destination = line["destination:".Length..].Trim();
+            else if (line.StartsWith("mask:", StringComparison.Ordinal))
+                mask = line["mask:".Length..].Trim();
+            else if (line.StartsWith("gateway:", StringComparison.Ordinal))
+                gateway = line["gateway:".Length..].Trim();
+            else if (line.StartsWith("interface:", StringComparison.Ordinal))
+                iface = line["interface:".Length..].Trim();
+            else if (line.StartsWith("flags:", StringComparison.Ordinal))
+                flags = line["flags:".Length..].Trim();
+        }
+        if (destination == null) return null;
+
+        int maxPrefix = requestedAddress.AddressFamily ==
+            System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+        int actualPrefix;
+        IPAddress actualAddress;
+        if (destination.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            actualAddress = requestedAddress.AddressFamily ==
+                System.Net.Sockets.AddressFamily.InterNetworkV6
+                    ? IPAddress.IPv6Any : IPAddress.Any;
+            actualPrefix = 0;
+        }
+        else
+        {
+            string literal = destination;
+            int slash = literal.IndexOf('/');
+            int? embeddedPrefix = null;
+            if (slash >= 0)
+            {
+                if (!int.TryParse(literal[(slash + 1)..], out int parsedPrefix)) return null;
+                embeddedPrefix = parsedPrefix;
+                literal = literal[..slash];
+            }
+            int zone = literal.IndexOf('%');
+            if (zone >= 0) literal = literal[..zone];
+            if (!IPAddress.TryParse(literal, out actualAddress!) ||
+                actualAddress.AddressFamily != requestedAddress.AddressFamily)
+                return null;
+            actualPrefix = embeddedPrefix
+                ?? PrefixFromMask(mask, maxPrefix)
+                ?? (flags?.Contains("HOST", StringComparison.OrdinalIgnoreCase) == true
+                    ? maxPrefix : -1);
+        }
+        if (actualPrefix != requestedPrefix || actualPrefix < 0) return null;
+        if (!NetworkAddress(actualAddress, actualPrefix).GetAddressBytes().SequenceEqual(
+                NetworkAddress(requestedAddress, requestedPrefix).GetAddressBytes()))
+            return null;
+        return gateway != null && gateway.StartsWith("link#", StringComparison.Ordinal)
+            ? new ExistingRoute(null, iface)
+            : new ExistingRoute(gateway, iface);
+    }
+
+    private static int? PrefixFromMask(string? mask, int maxPrefix)
+    {
+        if (string.IsNullOrWhiteSpace(mask)) return null;
+        if (mask.Equals("default", StringComparison.OrdinalIgnoreCase)) return 0;
+        byte[] bytes;
+        if (maxPrefix == 32 && mask.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
+            uint.TryParse(mask[2..], System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out uint value))
+            bytes = new[] { (byte)(value >> 24), (byte)(value >> 16),
+                (byte)(value >> 8), (byte)value };
+        else
+        {
+            int zone = mask.IndexOf('%');
+            string literal = zone >= 0 ? mask[..zone] : mask;
+            if (!IPAddress.TryParse(literal, out var parsed) ||
+                parsed.GetAddressBytes().Length * 8 != maxPrefix) return null;
+            bytes = parsed.GetAddressBytes();
+        }
+        int prefix = 0;
+        bool sawZero = false;
+        foreach (byte b in bytes)
+            for (int bit = 7; bit >= 0; bit--)
+            {
+                bool one = (b & (1 << bit)) != 0;
+                if (one && sawZero) return null;
+                if (one) prefix++; else sawZero = true;
+            }
+        return prefix;
     }
 
     private static bool SameAddressIgnoringScope(string literal, IPAddress expected)
@@ -169,13 +267,40 @@ public sealed class NetworkConfigurator : IDisposable
                && parsed.GetAddressBytes().SequenceEqual(expected.GetAddressBytes());
     }
 
+    private static IPAddress? ParseRouteGateway(string literal)
+    {
+        literal = literal.Trim();
+        if (IPAddress.TryParse(literal, out var parsed)) return parsed;
+        int zone = literal.IndexOf('%');
+        return zone > 0 && IPAddress.TryParse(literal[..zone], out parsed) ? parsed : null;
+    }
+
+    private static string RouteGatewayArgument(IPAddress gateway, string? physicalInterface)
+    {
+        string literal = gateway.ToString();
+        return gateway.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+               && gateway.IsIPv6LinkLocal
+               && !literal.Contains('%')
+               && !string.IsNullOrWhiteSpace(physicalInterface)
+            ? $"{literal}%{physicalInterface}"
+            : literal;
+    }
+
     /// <summary>Pin a /32 or /128 host route to the VPN server through the physical gateway so
     /// the encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
-    public void PinServerRoute(IPAddress serverIp, IPAddress gateway)
+    public void PinServerRoute(
+        IPAddress serverIp, IPAddress? gateway, string? physicalInterface)
     {
-        if (serverIp.AddressFamily != gateway.AddressFamily)
+        if (gateway != null && serverIp.AddressFamily != gateway.AddressFamily)
             throw new InvalidOperationException(
                 $"server route family mismatch: server {serverIp}, gateway {gateway}");
+        string? nextHop = gateway != null
+            ? RouteGatewayArgument(gateway, physicalInterface)
+            : !string.IsNullOrWhiteSpace(physicalInterface)
+                ? $"-interface {physicalInterface}"
+                : null;
+        if (nextHop == null)
+            throw new InvalidOperationException($"server route {serverIp} has no physical path");
         string s = serverIp.ToString();
         // Remember any PRE-EXISTING host route for this IP before we replace it. The undo
         // only ever deleted ours, so a host that had its own /32 for the server (a second
@@ -183,24 +308,70 @@ public sealed class NetworkConfigurator : IDisposable
         // below is destructive and nothing put it back. (C-18)
         bool v6 = serverIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         string family = v6 ? "-inet6" : "-inet";
-        ExistingHostRoute? previous = ExistingHostRouteFor(serverIp);
-        Run("/sbin/route", $"-n delete {family} -host {s}", optional: true);
-        Run("/sbin/route", $"-n add {family} -host {s} {gateway}");
-        _undo.Add(() =>
+        ExistingRoute? previous = ExistingHostRouteFor(serverIp);
+        bool alreadyMatches = gateway != null
+            ? previous?.Gateway != null && SameAddressIgnoringScope(previous.Gateway, gateway)
+            : previous?.Gateway == null && previous?.Interface == physicalInterface;
+        if (alreadyMatches)
         {
-            Run("/sbin/route", $"-n delete {family} -host {s}", optional: true);
+            _log($"Preserving an existing exact server route {s} via {nextHop}");
+            return;
+        }
+        void RestorePrevious()
+        {
             if (previous?.Gateway != null)
             {
-                Run("/sbin/route", $"-n add {family} -host {s} {previous.Gateway}", optional: true);
+                if (!Run("/sbin/route",
+                        $"-n add {family} -host {s} {previous.Gateway}", optional: true))
+                {
+                    var current = ExistingHostRouteFor(serverIp);
+                    var expected = ParseRouteGateway(previous.Gateway);
+                    if (expected == null || current?.Gateway == null ||
+                        !SameAddressIgnoringScope(current.Gateway, expected) ||
+                        (previous.Interface != null && current.Interface != previous.Interface))
+                        throw new InvalidOperationException($"could not restore server route {s}");
+                }
                 _log($"restored the pre-existing host route {s} via {previous.Gateway}");
             }
             else if (previous?.Interface != null)
             {
-                Run("/sbin/route", $"-n add {family} -host {s} -interface {previous.Interface}", optional: true);
+                if (!Run("/sbin/route",
+                        $"-n add {family} -host {s} -interface {previous.Interface}", optional: true))
+                {
+                    var current = ExistingHostRouteFor(serverIp);
+                    if (current?.Gateway != null || current?.Interface != previous.Interface)
+                        throw new InvalidOperationException($"could not restore on-link server route {s}");
+                }
                 _log($"restored the pre-existing host route {s} on {previous.Interface}");
             }
+        }
+
+        if (previous != null &&
+            !Run("/sbin/route", $"-n delete {family} -host {s}", optional: true))
+            throw new InvalidOperationException(
+                $"could not temporarily replace the existing server route {s}");
+        try
+        {
+            Run("/sbin/route", $"-n add {family} -host {s} {nextHop}");
+        }
+        catch (Exception addError)
+        {
+            try { RestorePrevious(); }
+            catch (Exception restoreError)
+            {
+                _undo.Add(RestorePrevious);
+                throw new AggregateException(
+                    $"server route {s} failed and its previous route was not restored",
+                    addError, restoreError);
+            }
+            throw;
+        }
+        _undo.Add(() =>
+        {
+            Run("/sbin/route", $"-n delete {family} -host {s} {nextHop}", optional: true);
+            RestorePrevious();
         });
-        _log($"Pinned server route {s} via {gateway}"
+        _log($"Pinned server route {s} via {nextHop}"
              + (previous != null ? " (temporarily replacing an existing exact host route)" : ""));
     }
 
@@ -251,9 +422,11 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetFullTunnelRoutes(string dev)
     {
         Run("/sbin/route", $"-n add -inet -net 0.0.0.0/1 -interface {dev}");
+        OwnRoute(IPAddress.Any, 1, "full-tunnel route 0.0.0.0/1",
+            () => Run("/sbin/route", $"-n delete -inet -net 0.0.0.0/1 -interface {dev}", optional: true));
         Run("/sbin/route", $"-n add -inet -net 128.0.0.0/1 -interface {dev}");
-        _undo.Add(() => Run("/sbin/route", "-n delete -inet -net 0.0.0.0/1", optional: true));
-        _undo.Add(() => Run("/sbin/route", "-n delete -inet -net 128.0.0.0/1", optional: true));
+        OwnRoute(IPAddress.Parse("128.0.0.0"), 1, "full-tunnel route 128.0.0.0/1",
+            () => Run("/sbin/route", $"-n delete -inet -net 128.0.0.0/1 -interface {dev}", optional: true));
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
@@ -263,9 +436,11 @@ public sealed class NetworkConfigurator : IDisposable
         foreach (var net in nets)
         {
             Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}");
+            var (literal, prefix) = ParseCidr(net);
             string captured = net;
-            _undo.Add(() => Run("/sbin/route",
-                $"-n delete -inet6 -net {captured}", optional: true));
+            OwnRoute(IPAddress.Parse(literal!), prefix, $"full-tunnel route {net}",
+                () => Run("/sbin/route",
+                    $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
         }
         _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
     }
@@ -284,12 +459,17 @@ public sealed class NetworkConfigurator : IDisposable
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         var failed = new List<string>();
         foreach (var net in nets)
+        {
             if (!Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}", optional: true))
                 failed.Add(net);
-        foreach (var net in nets)
-        {
-            string n = net; // capture per-iteration for the undo closure
-            _undo.Add(() => Run("/sbin/route", $"-n delete -inet6 -net {n}", optional: true));
+            else
+            {
+                var (literal, prefix) = ParseCidr(net);
+                string captured = net;
+                OwnRoute(IPAddress.Parse(literal!), prefix, $"IPv6 capture route {net}",
+                    () => Run("/sbin/route",
+                        $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
+            }
         }
         _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 -alias", optional: true));
 
@@ -341,8 +521,9 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return false; }
-        string net = $"{addr}/{prefix}";
-        string family = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        string net = $"{network}/{prefix}";
+        string family = network.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
             ? "-inet6" : "-inet";
         // Logging "via tunnel" after a failed add was simply untrue. (C-17)
         if (!Run("/sbin/route", $"-n add {family} -net {net} -interface {dev}", optional: true))
@@ -350,7 +531,9 @@ public sealed class NetworkConfigurator : IDisposable
             Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
             return false;
         }
-        _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
+        OwnRoute(network, prefix, $"tunnel route {cidr}",
+            () => Run("/sbin/route",
+                $"-n delete {family} -net {net} -interface {dev}", optional: true));
         _log($"route {cidr} via tunnel");
         return true;
     }
@@ -361,10 +544,11 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
-        string family = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
-            ? "-inet6" : "-inet";
-        Run("/sbin/route", $"-n delete {family} -net {addr}/{prefix}", optional: true);
-        _log($"exclude {cidr} from tunnel");
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        int removed = DeleteOwnedRoutes(network, prefix);
+        _log(removed == 0
+            ? $"exclude {cidr}: no Qeli-owned tunnel route existed; preserving system routes"
+            : $"exclude {cidr}: removed {removed} Qeli-owned tunnel route(s)");
     }
 
     /// <summary>Route a subnet AROUND the tunnel via the physical gateway, so an excluded
@@ -376,24 +560,35 @@ public sealed class NetworkConfigurator : IDisposable
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null)
             throw new InvalidOperationException($"invalid exclude route {cidr}");
-        string net = $"{addr}/{prefix}";
-        bool v6 = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        string net = $"{network}/{prefix}";
+        bool v6 = network.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         string family = v6 ? "-inet6" : "-inet";
         if (gateway != null && gateway.AddressFamily != (v6
                 ? System.Net.Sockets.AddressFamily.InterNetworkV6
                 : System.Net.Sockets.AddressFamily.InterNetwork))
             gateway = null;
-        Run("/sbin/route", $"-n delete {family} -net {net}", optional: true);  // clear any tunnel copy
+        DeleteOwnedRoutes(network, prefix); // never delete an operator-owned route
+        ExistingRoute? existing = ExistingExactRouteFor(network, prefix);
+        if (existing != null)
+        {
+            _log($"exclude {cidr}: preserving an existing exact route " +
+                 $"via {existing.Gateway ?? existing.Interface ?? "unknown path"}");
+            return;
+        }
         // In full-tunnel the /1 halves cover this prefix, so a failed pin leaves the
         // destination INSIDE the tunnel — the opposite of the requested exclude, and for
         // the server-IP bypass that is exactly what wedges a reconnect. (C-17)
-        string? nextHop = gateway != null ? gateway.ToString()
+        string? nextHop = gateway != null ? RouteGatewayArgument(gateway, physicalInterface)
             : !string.IsNullOrWhiteSpace(physicalInterface) ? $"-interface {physicalInterface}"
             : null;
         if (nextHop == null || !Run("/sbin/route", $"-n add {family} -net {net} {nextHop}", optional: true))
             throw new InvalidOperationException(
                 $"exclude route {cidr} has no usable physical path or was not programmed");
-        _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
+        string ownedNextHop = nextHop;
+        OwnRoute(network, prefix, $"bypass route {cidr}",
+            () => Run("/sbin/route",
+                $"-n delete {family} -net {net} {ownedNextHop}", optional: true));
         _log($"exclude {cidr} via physical path {nextHop}");
     }
 
@@ -476,6 +671,23 @@ public sealed class NetworkConfigurator : IDisposable
 
     public void Dispose()
     {
+        var failedRoutes = new List<string>();
+        for (int i = _ownedRoutes.Count - 1; i >= 0; i--)
+        {
+            var route = _ownedRoutes[i];
+            if (!route.Active) continue;
+            try
+            {
+                if (!DeleteOwnedRoute(route)) failedRoutes.Add(route.Description);
+            }
+            catch (Exception e)
+            {
+                failedRoutes.Add(route.Description);
+                _log($"route cleanup error ({route.Description}): {e.Message}");
+            }
+        }
+        _ownedRoutes.RemoveAll(route => !route.Active);
+
         // DNS was the last host-wide change during setup, so restore it first. Its release
         // keeps the on-disk journal when networksetup fails, allowing this process and the
         // next privileged start to retry. A failed restore is NOT silently converted into a
@@ -502,17 +714,32 @@ public sealed class NetworkConfigurator : IDisposable
             }
         }
 
-        // Undo the remaining changes in reverse order, best-effort.
+        // Undo the remaining changes in reverse order. Remove an action only after it
+        // succeeds so a failed restoration remains owned and a later Stop can retry it.
+        var failedUndo = new List<string>();
         for (int i = _undo.Count - 1; i >= 0; i--)
         {
-            try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
+            try
+            {
+                _undo[i]();
+                _undo.RemoveAt(i);
+            }
+            catch (Exception e)
+            {
+                failedUndo.Add(e.Message);
+                _log($"undo error: {e.Message}");
+            }
         }
-        _undo.Clear();
 
-        if (dnsError != null)
+        if (dnsError != null || failedRoutes.Count != 0 || failedUndo.Count != 0)
             throw new InvalidOperationException(
-                "Disconnect was incomplete because the original macOS DNS settings could not be restored. " +
-                $"The recovery journal was kept at {DnsStatePath} and the next privileged cleanup will retry.",
+                "Disconnect was incomplete; cleanup will be retried. " +
+                (dnsError == null ? "" :
+                    $"The original macOS DNS settings were not restored; the journal remains at {DnsStatePath}. ") +
+                (failedRoutes.Count == 0 ? "" :
+                    $"Routes still owned by Qeli: {string.Join(", ", failedRoutes)}. ") +
+                (failedUndo.Count == 0 ? "" :
+                    $"Host-network restoration still failing: {string.Join("; ", failedUndo)}."),
                 dnsError);
     }
 
@@ -683,6 +910,42 @@ public sealed class NetworkConfigurator : IDisposable
             ? (addr, prefix) : (null, 0);
     }
 
+    internal static void RunRouteLifecycleSelfTest(Action<string, bool> check)
+    {
+        const string ipv4 = "destination: 198.51.100.0\n" +
+                            "mask: 255.255.255.0\n" +
+                            "gateway: 192.0.2.1\n" +
+                            "interface: en0\n" +
+                            "flags: <UP,GATEWAY,STATIC>\n";
+        var v4 = ParseExactRoute(ipv4, IPAddress.Parse("198.51.100.77"), 24);
+        check("macOS route parser distinguishes an exact IPv4 prefix from a broader route",
+            v4?.Gateway == "192.0.2.1" && v4.Interface == "en0" &&
+            ParseExactRoute(ipv4, IPAddress.Parse("198.51.100.77"), 25) == null);
+
+        const string ipv6 = "destination: 2001:db8:20::\n" +
+                            "mask: ffff:ffff:ffff:ffff::\n" +
+                            "gateway: fe80::1%en0\n" +
+                            "interface: en0\n" +
+                            "flags: <UP,GATEWAY,STATIC>\n";
+        var v6 = ParseExactRoute(ipv6, IPAddress.Parse("2001:db8:20::beef"), 64);
+        check("macOS route parser preserves exact IPv6 gateway/interface routes",
+            v6?.Gateway == "fe80::1%en0" && v6.Interface == "en0");
+
+        var scopedGateway = ParseRouteGateway("fe80::1%en0");
+        check("macOS route commands restore a named scope on link-local IPv6 gateways",
+            scopedGateway != null &&
+            scopedGateway.ToString() == "fe80::1" &&
+            RouteGatewayArgument(scopedGateway, "en0") == "fe80::1%en0");
+
+        const string host = "destination: 203.0.113.7\n" +
+                            "gateway: link#4\n" +
+                            "interface: en0\n" +
+                            "flags: <UP,HOST,DONE,LLINFO>\n";
+        var onLink = ParseExactRoute(host, IPAddress.Parse("203.0.113.7"), 32);
+        check("macOS route parser preserves an exact on-link host route",
+            onLink?.Gateway == null && onLink?.Interface == "en0");
+    }
+
     private static bool IsStrictIp(string s)
     {
         if (string.IsNullOrEmpty(s)) return false;
@@ -690,5 +953,56 @@ public sealed class NetworkConfigurator : IDisposable
             if (!(char.IsAsciiDigit(c) || char.IsAsciiHexDigit(c) || c == ':' || c == '.'))
                 return false;
         return IPAddress.TryParse(s, out _);
+    }
+
+    private static IPAddress NetworkAddress(IPAddress address, int prefix)
+    {
+        byte[] bytes = address.GetAddressBytes();
+        if (prefix < 0 || prefix > bytes.Length * 8)
+            throw new ArgumentOutOfRangeException(nameof(prefix));
+        int whole = prefix / 8;
+        int bits = prefix % 8;
+        if (bits != 0)
+        {
+            bytes[whole] &= (byte)(0xff << (8 - bits));
+            whole++;
+        }
+        Array.Clear(bytes, whole, bytes.Length - whole);
+        return address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? new IPAddress(bytes, address.ScopeId)
+            : new IPAddress(bytes);
+    }
+
+    private void OwnRoute(IPAddress address, int prefix, string description, Func<bool> delete)
+    {
+        _ownedRoutes.Add(new OwnedRoute
+        {
+            Network = NetworkAddress(address, prefix).ToString(),
+            Prefix = prefix,
+            Description = description,
+            Delete = delete,
+        });
+    }
+
+    private bool DeleteOwnedRoute(OwnedRoute route)
+    {
+        if (!route.Active) return true;
+        if (!route.Delete()) return false;
+        route.Active = false;
+        return true;
+    }
+
+    private int DeleteOwnedRoutes(IPAddress address, int prefix)
+    {
+        string network = NetworkAddress(address, prefix).ToString();
+        int removed = 0;
+        foreach (var route in _ownedRoutes.Where(route => route.Active &&
+                     route.Prefix == prefix && route.Network == network).ToArray())
+        {
+            if (!DeleteOwnedRoute(route))
+                throw new InvalidOperationException($"could not remove Qeli-owned {route.Description}");
+            removed++;
+        }
+        return removed;
     }
 }

@@ -2276,7 +2276,7 @@ mod tests {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
-                platform_capabilities: platform_capability::SYSTEM_PLAN
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES
                     | platform_capability::SOCKET_PROTECT,
                 event_capacity: DEFAULT_EVENT_CAPACITY,
             },
@@ -2285,9 +2285,6 @@ mod tests {
         core.poll_event();
         core.start().unwrap();
         core.poll_event();
-        let initial = core.poll_event().unwrap();
-        core.ack_socket_protect(initial.sequence, true, None)
-            .unwrap();
         let (sequence, mut result) = core.request_socket_protect(7).unwrap();
         core.poll_event();
         let reason = "x".repeat(MAX_PLATFORM_ERROR_CHARS + 20);
@@ -2499,8 +2496,7 @@ mod tests {
         let mut core = ClientCore::new(
             &ini(),
             CoreOptions {
-                platform_capabilities: platform_capability::SYSTEM_PLAN
-                    | platform_capability::TUN_FD,
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES | platform_capability::TUN_FD,
                 event_capacity: DEFAULT_EVENT_CAPACITY,
             },
         )

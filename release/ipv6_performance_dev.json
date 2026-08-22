@@ -1,0 +1,1837 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:56:31Z",
+    "binary_sha256": "098e7156e1fe9c75d550ed243dbe81f946b7a29fdcdb13a325c82a6408b332ff",
+    "version": "qeli 0.7.17",
+    "tcp_seconds": 12,
+    "udp_seconds_per_rate_direction": 5,
+    "udp_rates_mbps": [
+      100,
+      200,
+      300,
+      400,
+      500,
+      600
+    ],
+    "passed": 24,
+    "failed": 0
+  },
+  "preflight": {
+    "hygiene": {
+      ".10": {
+        "emulator": "0",
+        "qeli_procs": "0",
+        "leftover_ifaces": "(none)",
+        "odd_qdisc": "(none)"
+      },
+      ".11": {
+        "emulator": "0",
+        "qeli_procs": "0",
+        "leftover_ifaces": "(none)",
+        "odd_qdisc": "(none)"
+      }
+    },
+    "server_load": "0.01 0.05 0.05 1/94 48974\n 0  0      0 1721276  31564 174776    0    0     0    40  209  321  1  2 98  0  0  0",
+    "client_load": "0.03 0.04 0.00 1/132 51457\n 0  0      0 7592208  29232 170644    0    0     0    44  418  431  1  0 99  0  0  0"
+  },
+  "baseline": {
+    "ipv4": {
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 20603.0,
+        "retransmits": 0,
+        "local_cpu_pct": 60.5,
+        "remote_cpu_pct": 97.1
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 21998.3,
+        "retransmits": 0,
+        "local_cpu_pct": 97.3,
+        "remote_cpu_pct": 75.5
+      },
+      "udp600_up": {
+        "status": "PASS",
+        "offered_mbps": 600,
+        "received_mbps": 600.0,
+        "loss_pct": 0,
+        "jitter_ms": 0.004,
+        "local_cpu_pct": 39.0,
+        "remote_cpu_pct": 19.7
+      },
+      "udp600_down": {
+        "status": "PASS",
+        "offered_mbps": 600,
+        "received_mbps": 600.0,
+        "loss_pct": 0,
+        "jitter_ms": 0.009,
+        "local_cpu_pct": 24.3,
+        "remote_cpu_pct": 63.8
+      }
+    },
+    "ipv6": {
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 20671.2,
+        "retransmits": 0,
+        "local_cpu_pct": 66.1,
+        "remote_cpu_pct": 98.9
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 22768.7,
+        "retransmits": 0,
+        "local_cpu_pct": 97.8,
+        "remote_cpu_pct": 73.7
+      },
+      "udp600_up": {
+        "status": "PASS",
+        "offered_mbps": 600,
+        "received_mbps": 600.0,
+        "loss_pct": 0,
+        "jitter_ms": 0.003,
+        "local_cpu_pct": 31.3,
+        "remote_cpu_pct": 17.0
+      },
+      "udp600_down": {
+        "status": "PASS",
+        "offered_mbps": 600,
+        "received_mbps": 600.0,
+        "loss_pct": 0,
+        "jitter_ms": 0.007,
+        "local_cpu_pct": 19.7,
+        "remote_cpu_pct": 44.4
+      }
+    }
+  },
+  "rows": {
+    "tcp-plain-raw::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1813ms",
+        "rtt min/avg/max/mdev = 0.789/0.987/1.131/0.111 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 527.6,
+        "retransmits": 0,
+        "local_cpu_pct": 1.0,
+        "remote_cpu_pct": 17.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 43.4,
+        "rss_mib": 53.2
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 715.1,
+        "retransmits": 285,
+        "local_cpu_pct": 41.9,
+        "remote_cpu_pct": 2.0
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 90.7,
+        "rss_mib": 55.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-plain-raw::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1829ms",
+        "rtt min/avg/max/mdev = 0.694/0.859/1.002/0.091 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 601.1,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 20.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 47.3,
+        "rss_mib": 53.4
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 710.1,
+        "retransmits": 144,
+        "local_cpu_pct": 41.4,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 93.3,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-faketls::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1825ms",
+        "rtt min/avg/max/mdev = 0.604/0.924/1.251/0.177 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 446.0,
+        "retransmits": 17,
+        "local_cpu_pct": 0.9,
+        "remote_cpu_pct": 15.1
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 38.0,
+        "rss_mib": 52.5
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 706.8,
+        "retransmits": 31,
+        "local_cpu_pct": 41.6,
+        "remote_cpu_pct": 2.0
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 88.0,
+        "rss_mib": 55.0
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-faketls::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1834ms",
+        "rtt min/avg/max/mdev = 0.728/0.823/0.949/0.075 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 628.5,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 19.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 48.9,
+        "rss_mib": 53.4
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 709.0,
+        "retransmits": 802,
+        "local_cpu_pct": 41.0,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 92.8,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-padding::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1823ms",
+        "rtt min/avg/max/mdev = 0.676/0.881/1.077/0.098 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 494.2,
+        "retransmits": 0,
+        "local_cpu_pct": 1.0,
+        "remote_cpu_pct": 16.8
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 40.4,
+        "rss_mib": 55.2
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 695.0,
+        "retransmits": 136,
+        "local_cpu_pct": 40.7,
+        "remote_cpu_pct": 1.8
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 87.5,
+        "rss_mib": 57.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-padding::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1833ms",
+        "rtt min/avg/max/mdev = 0.539/0.817/1.051/0.121 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 595.2,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 19.4
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 22.0
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 47.2,
+        "rss_mib": 55.3
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 708.6,
+        "retransmits": 702,
+        "local_cpu_pct": 41.0,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 22.0
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 93.1,
+        "rss_mib": 57.3
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-frag::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1820ms",
+        "rtt min/avg/max/mdev = 0.716/0.904/1.056/0.104 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 533.3,
+        "retransmits": 112,
+        "local_cpu_pct": 1.0,
+        "remote_cpu_pct": 17.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 43.3,
+        "rss_mib": 54.8
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 680.8,
+        "retransmits": 305,
+        "local_cpu_pct": 39.8,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 89.1,
+        "rss_mib": 56.8
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-frag::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1828ms",
+        "rtt min/avg/max/mdev = 0.822/0.942/1.166/0.123 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 566.7,
+        "retransmits": 19,
+        "local_cpu_pct": 1.1,
+        "remote_cpu_pct": 19.3
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 46.1,
+        "rss_mib": 53.2
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 680.1,
+        "retransmits": 485,
+        "local_cpu_pct": 40.0,
+        "remote_cpu_pct": 1.8
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 91.1,
+        "rss_mib": 55.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-obfs::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1837ms",
+        "rtt min/avg/max/mdev = 0.682/0.782/0.842/0.055 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 578.8,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 16.9
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 52.9,
+        "rss_mib": 54.6
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 599.9,
+        "retransmits": 600,
+        "local_cpu_pct": 38.1,
+        "remote_cpu_pct": 1.7
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 94.8,
+        "rss_mib": 56.5
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-obfs::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1834ms",
+        "rtt min/avg/max/mdev = 0.711/0.823/0.941/0.070 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 611.4,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 16.4
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 22.0
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 54.2,
+        "rss_mib": 53.2
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 638.6,
+        "retransmits": 189,
+        "local_cpu_pct": 38.3,
+        "remote_cpu_pct": 1.7
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 22.0
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 94.5,
+        "rss_mib": 55.0
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-reality::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1833ms",
+        "rtt min/avg/max/mdev = 0.757/0.876/1.037/0.101 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 456.9,
+        "retransmits": 20,
+        "local_cpu_pct": 0.9,
+        "remote_cpu_pct": 15.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 36.8,
+        "rss_mib": 53.2
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 687.9,
+        "retransmits": 262,
+        "local_cpu_pct": 40.8,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 86.2,
+        "rss_mib": 55.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-reality::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1839ms",
+        "rtt min/avg/max/mdev = 0.713/0.781/0.867/0.052 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 615.6,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 20.0
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 49.3,
+        "rss_mib": 53.3
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 719.7,
+        "retransmits": 141,
+        "local_cpu_pct": 41.9,
+        "remote_cpu_pct": 1.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 95.3,
+        "rss_mib": 55.3
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-reality-tls::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1838ms",
+        "rtt min/avg/max/mdev = 0.738/0.786/0.905/0.050 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 561.9,
+        "retransmits": 0,
+        "local_cpu_pct": 1.1,
+        "remote_cpu_pct": 13.6
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 23.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 47.7,
+        "rss_mib": 53.4
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 365.1,
+        "retransmits": 114,
+        "local_cpu_pct": 27.2,
+        "remote_cpu_pct": 1.0
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 23.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 77.4,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-reality-tls::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1825ms",
+        "rtt min/avg/max/mdev = 0.691/0.849/1.049/0.100 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 570.5,
+        "retransmits": 0,
+        "local_cpu_pct": 1.1,
+        "remote_cpu_pct": 12.3
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.9
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 47.2,
+        "rss_mib": 53.4
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 372.3,
+        "retransmits": 567,
+        "local_cpu_pct": 27.2,
+        "remote_cpu_pct": 0.9
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.9
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 75.9,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-faketls::outer4-inner4": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1835ms",
+        "rtt min/avg/max/mdev = 0.667/0.840/0.928/0.077 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.016,
+          "local_cpu_pct": 17.3,
+          "remote_cpu_pct": 7.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 21.7,
+          "remote_cpu_pct": 9.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.029,
+          "local_cpu_pct": 25.4,
+          "remote_cpu_pct": 14.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.021,
+          "local_cpu_pct": 30.2,
+          "remote_cpu_pct": 21.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 6.893,
+          "jitter_ms": 0.015,
+          "local_cpu_pct": 32.9,
+          "remote_cpu_pct": 21.9
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 28.646,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 44.0,
+          "remote_cpu_pct": 19.9
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.008,
+          "local_cpu_pct": 8.1,
+          "remote_cpu_pct": 21.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.009,
+          "local_cpu_pct": 9.6,
+          "remote_cpu_pct": 26.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 13.4,
+          "remote_cpu_pct": 31.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.028,
+          "local_cpu_pct": 17.4,
+          "remote_cpu_pct": 36.9
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0.087,
+          "jitter_ms": 0.037,
+          "local_cpu_pct": 18.6,
+          "remote_cpu_pct": 39.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 599.9,
+          "loss_pct": 0.703,
+          "jitter_ms": 0.05,
+          "local_cpu_pct": 22.8,
+          "remote_cpu_pct": 41.0
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 65.1,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-faketls::outer6-inner6": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1830ms",
+        "rtt min/avg/max/mdev = 0.709/0.845/0.981/0.076 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 16.3,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.005,
+          "local_cpu_pct": 20.0,
+          "remote_cpu_pct": 9.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.016,
+          "local_cpu_pct": 22.9,
+          "remote_cpu_pct": 14.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.019,
+          "local_cpu_pct": 29.6,
+          "remote_cpu_pct": 22.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 12.055,
+          "jitter_ms": 0.021,
+          "local_cpu_pct": 29.3,
+          "remote_cpu_pct": 21.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 28.109,
+          "jitter_ms": 0.023,
+          "local_cpu_pct": 30.6,
+          "remote_cpu_pct": 22.0
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.019,
+          "local_cpu_pct": 7.7,
+          "remote_cpu_pct": 19.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 10.4,
+          "remote_cpu_pct": 24.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.008,
+          "local_cpu_pct": 11.7,
+          "remote_cpu_pct": 28.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.014,
+          "local_cpu_pct": 15.7,
+          "remote_cpu_pct": 32.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.019,
+          "local_cpu_pct": 16.7,
+          "remote_cpu_pct": 35.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 0.18,
+          "jitter_ms": 0.023,
+          "local_cpu_pct": 23.9,
+          "remote_cpu_pct": 35.4
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 62.0,
+        "rss_mib": 53.6
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-padding::outer4-inner4": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1823ms",
+        "rtt min/avg/max/mdev = 0.776/0.900/1.064/0.084 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.018,
+          "local_cpu_pct": 17.2,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.011,
+          "local_cpu_pct": 21.9,
+          "remote_cpu_pct": 9.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.027,
+          "local_cpu_pct": 28.4,
+          "remote_cpu_pct": 15.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.029,
+          "local_cpu_pct": 31.1,
+          "remote_cpu_pct": 20.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 4.551,
+          "jitter_ms": 0.015,
+          "local_cpu_pct": 43.4,
+          "remote_cpu_pct": 21.5
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 27.79,
+          "jitter_ms": 0.022,
+          "local_cpu_pct": 36.7,
+          "remote_cpu_pct": 20.4
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.018,
+          "local_cpu_pct": 7.7,
+          "remote_cpu_pct": 21.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 9.7,
+          "remote_cpu_pct": 26.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 12.1,
+          "remote_cpu_pct": 31.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.024,
+          "local_cpu_pct": 15.8,
+          "remote_cpu_pct": 36.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.025,
+          "local_cpu_pct": 17.0,
+          "remote_cpu_pct": 35.9
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 14.004,
+          "jitter_ms": 0.042,
+          "local_cpu_pct": 20.0,
+          "remote_cpu_pct": 41.9
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 65.0,
+        "rss_mib": 55.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-padding::outer6-inner6": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1819ms",
+        "rtt min/avg/max/mdev = 0.613/0.889/1.054/0.133 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.011,
+          "local_cpu_pct": 16.1,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 19.5,
+          "remote_cpu_pct": 9.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.019,
+          "local_cpu_pct": 23.8,
+          "remote_cpu_pct": 14.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 27.7,
+          "remote_cpu_pct": 18.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 499.9,
+          "loss_pct": 0.168,
+          "jitter_ms": 0.015,
+          "local_cpu_pct": 33.5,
+          "remote_cpu_pct": 23.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 18.384,
+          "jitter_ms": 0.03,
+          "local_cpu_pct": 32.5,
+          "remote_cpu_pct": 23.3
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.023,
+          "local_cpu_pct": 8.1,
+          "remote_cpu_pct": 19.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.011,
+          "local_cpu_pct": 9.5,
+          "remote_cpu_pct": 24.5
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.008,
+          "local_cpu_pct": 12.2,
+          "remote_cpu_pct": 28.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 14.4,
+          "remote_cpu_pct": 32.5
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.023,
+          "local_cpu_pct": 17.3,
+          "remote_cpu_pct": 31.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 2.138,
+          "jitter_ms": 0.021,
+          "local_cpu_pct": 21.0,
+          "remote_cpu_pct": 34.4
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 60.6,
+        "rss_mib": 55.3
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-quic::outer4-inner4": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1828ms",
+        "rtt min/avg/max/mdev = 0.657/0.861/1.028/0.123 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 17.2,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 21.6,
+          "remote_cpu_pct": 9.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.014,
+          "local_cpu_pct": 25.3,
+          "remote_cpu_pct": 16.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.027,
+          "local_cpu_pct": 32.8,
+          "remote_cpu_pct": 21.5
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 8.108,
+          "jitter_ms": 0.037,
+          "local_cpu_pct": 41.7,
+          "remote_cpu_pct": 20.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 26.134,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 39.5,
+          "remote_cpu_pct": 20.3
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 8.3,
+          "remote_cpu_pct": 21.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.016,
+          "local_cpu_pct": 10.4,
+          "remote_cpu_pct": 26.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.018,
+          "local_cpu_pct": 14.8,
+          "remote_cpu_pct": 31.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.02,
+          "local_cpu_pct": 15.1,
+          "remote_cpu_pct": 36.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 11.081,
+          "jitter_ms": 0.032,
+          "local_cpu_pct": 17.6,
+          "remote_cpu_pct": 38.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 24.613,
+          "jitter_ms": 0.023,
+          "local_cpu_pct": 18.5,
+          "remote_cpu_pct": 43.6
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 64.2,
+        "rss_mib": 53.2
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-quic::outer6-inner6": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1837ms",
+        "rtt min/avg/max/mdev = 0.506/0.739/0.806/0.084 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.011,
+          "local_cpu_pct": 16.5,
+          "remote_cpu_pct": 7.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 19.9,
+          "remote_cpu_pct": 10.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 23.6,
+          "remote_cpu_pct": 14.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.033,
+          "local_cpu_pct": 30.1,
+          "remote_cpu_pct": 18.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0.531,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 36.6,
+          "remote_cpu_pct": 22.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 19.495,
+          "jitter_ms": 0.022,
+          "local_cpu_pct": 32.1,
+          "remote_cpu_pct": 23.3
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.009,
+          "local_cpu_pct": 7.7,
+          "remote_cpu_pct": 19.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 9.4,
+          "remote_cpu_pct": 24.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.009,
+          "local_cpu_pct": 12.1,
+          "remote_cpu_pct": 28.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.029,
+          "local_cpu_pct": 16.1,
+          "remote_cpu_pct": 32.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0.813,
+          "jitter_ms": 0.022,
+          "local_cpu_pct": 17.6,
+          "remote_cpu_pct": 34.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 19.686,
+          "jitter_ms": 0.024,
+          "local_cpu_pct": 18.7,
+          "remote_cpu_pct": 33.2
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.7
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 60.3,
+        "rss_mib": 55.3
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-obfs-awg::outer4-inner4": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1832ms",
+        "rtt min/avg/max/mdev = 0.712/0.806/0.962/0.068 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 578.0,
+        "retransmits": 0,
+        "local_cpu_pct": 1.2,
+        "remote_cpu_pct": 17.7
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 23.7
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 50.7,
+        "rss_mib": 53.1
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 633.0,
+        "retransmits": 357,
+        "local_cpu_pct": 39.4,
+        "remote_cpu_pct": 1.8
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 23.7
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 94.8,
+        "rss_mib": 55.0
+      },
+      "unexpected_disconnects": 0
+    },
+    "tcp-obfs-awg::outer6-inner6": {
+      "status": "PASS",
+      "transport": "tcp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1824ms",
+        "rtt min/avg/max/mdev = 0.663/0.864/1.004/0.107 ms"
+      ],
+      "tcp_up": {
+        "status": "PASS",
+        "mbps": 612.5,
+        "retransmits": 0,
+        "local_cpu_pct": 1.3,
+        "remote_cpu_pct": 16.4
+      },
+      "qeli_server_after_up": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_up": {
+        "cpu_pct_lifetime": 57.4,
+        "rss_mib": 51.1
+      },
+      "tcp_down": {
+        "status": "PASS",
+        "mbps": 646.4,
+        "retransmits": 333,
+        "local_cpu_pct": 38.8,
+        "remote_cpu_pct": 1.7
+      },
+      "qeli_server_after_down": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_down": {
+        "cpu_pct_lifetime": 98.0,
+        "rss_mib": 53.4
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-faketls-awg::outer4-inner4": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 4,
+      "inner_family": 4,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1827ms",
+        "rtt min/avg/max/mdev = 0.746/0.885/1.177/0.120 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.011,
+          "local_cpu_pct": 17.2,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.031,
+          "local_cpu_pct": 21.1,
+          "remote_cpu_pct": 9.5
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.014,
+          "local_cpu_pct": 25.7,
+          "remote_cpu_pct": 15.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.022,
+          "local_cpu_pct": 29.7,
+          "remote_cpu_pct": 22.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 19.785,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 30.8,
+          "remote_cpu_pct": 22.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 29.425,
+          "jitter_ms": 0.015,
+          "local_cpu_pct": 37.1,
+          "remote_cpu_pct": 19.6
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 7.8,
+          "remote_cpu_pct": 21.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 9.4,
+          "remote_cpu_pct": 26.6
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 12.4,
+          "remote_cpu_pct": 31.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 15.6,
+          "remote_cpu_pct": 36.2
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 17.9,
+          "remote_cpu_pct": 35.1
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 3.384,
+          "jitter_ms": 0.037,
+          "local_cpu_pct": 19.9,
+          "remote_cpu_pct": 38.2
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 23.7
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 66.3,
+        "rss_mib": 55.5
+      },
+      "unexpected_disconnects": 0
+    },
+    "udp-faketls-awg::outer6-inner6": {
+      "status": "PASS",
+      "transport": "udp",
+      "outer_family": 6,
+      "inner_family": 6,
+      "ping_status": 0,
+      "ping_summary": [
+        "10 packets transmitted, 10 received, 0% packet loss, time 1831ms",
+        "rtt min/avg/max/mdev = 0.658/0.775/0.939/0.086 ms"
+      ],
+      "udp_up": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 16.4,
+          "remote_cpu_pct": 7.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 19.8,
+          "remote_cpu_pct": 9.7
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.021,
+          "local_cpu_pct": 25.4,
+          "remote_cpu_pct": 14.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.01,
+          "local_cpu_pct": 32.5,
+          "remote_cpu_pct": 20.3
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0.261,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 38.5,
+          "remote_cpu_pct": 23.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 30.389,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 46.5,
+          "remote_cpu_pct": 20.5
+        }
+      ],
+      "udp_down": [
+        {
+          "status": "PASS",
+          "offered_mbps": 100,
+          "received_mbps": 100.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.008,
+          "local_cpu_pct": 7.8,
+          "remote_cpu_pct": 19.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 200,
+          "received_mbps": 200.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.012,
+          "local_cpu_pct": 9.6,
+          "remote_cpu_pct": 24.8
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 300,
+          "received_mbps": 300.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.019,
+          "local_cpu_pct": 12.2,
+          "remote_cpu_pct": 28.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 400,
+          "received_mbps": 400.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.015,
+          "local_cpu_pct": 16.5,
+          "remote_cpu_pct": 33.0
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 500,
+          "received_mbps": 500.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.017,
+          "local_cpu_pct": 16.6,
+          "remote_cpu_pct": 35.4
+        },
+        {
+          "status": "PASS",
+          "offered_mbps": 600,
+          "received_mbps": 600.0,
+          "loss_pct": 0,
+          "jitter_ms": 0.013,
+          "local_cpu_pct": 22.6,
+          "remote_cpu_pct": 35.5
+        }
+      ],
+      "qeli_server_after_sweep": {
+        "cpu_pct_lifetime": 0.0,
+        "rss_mib": 21.8
+      },
+      "qeli_client_after_sweep": {
+        "cpu_pct_lifetime": 61.0,
+        "rss_mib": 55.4
+      },
+      "unexpected_disconnects": 0
+    }
+  }
+}

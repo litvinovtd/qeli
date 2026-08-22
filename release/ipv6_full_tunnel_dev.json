@@ -1,0 +1,82 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:28:05Z",
+    "passed": 4,
+    "failed": 0
+  },
+  "rows": {
+    "full-tunnel-outer4-inner4": {
+      "status": "PASS",
+      "active_families": [
+        "inet"
+      ],
+      "expected_families": [
+        "inet"
+      ],
+      "ipv4_default_halves": true,
+      "ipv6_default_halves": false,
+      "ipv4_kill_switch": true,
+      "ipv6_kill_switch": true,
+      "ping4_status": 0,
+      "ping6_status": null,
+      "routes4": "0.0.0.0/1 dev qv6c0 scope link metric 1 \ndefault via 10.66.116.1 dev ens18 onlink \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \n10.66.116.10 dev ens18 scope link \n10.90.0.0/24 dev qv6c0 scope link \n128.0.0.0/1 dev qv6c0 scope link metric 1",
+      "routes6": "blackhole 2000::/4 dev lo metric 1024 pref medium\nblackhole 3000::/4 dev lo metric 1024 pref medium\nblackhole ::/1 dev lo metric 1024 pref medium\nfd66:116::/64 dev ens18 proto kernel metric 256 pref medium\nblackhole fc00::/7 dev lo metric 1024 pref medium\nfe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev qv6c0 proto kernel metric 256 pref medium\nblackhole 8000::/1 dev lo metric 1024 pref medium",
+      "rules4": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 10.66.116.10/32 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP",
+      "rules6": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP"
+    },
+    "full-tunnel-outer4-inner6": {
+      "status": "PASS",
+      "active_families": [
+        "inet6"
+      ],
+      "expected_families": [
+        "inet6"
+      ],
+      "ipv4_default_halves": false,
+      "ipv6_default_halves": true,
+      "ipv4_kill_switch": true,
+      "ipv6_kill_switch": true,
+      "ping4_status": null,
+      "ping6_status": 0,
+      "routes4": "blackhole 0.0.0.0/1 \ndefault via 10.66.116.1 dev ens18 onlink \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \n10.66.116.10 dev ens18 scope link \nblackhole 128.0.0.0/1",
+      "routes6": "2000::/4 dev qv6c0 metric 1 pref medium\n3000::/4 dev qv6c0 metric 1 pref medium\n::/1 dev qv6c0 metric 1 pref medium\nfd66:116::/64 dev ens18 proto kernel metric 256 pref medium\nfd71:e1:90::2 dev qv6c0 proto kernel metric 256 pref medium\nfd71:e1:90::/64 dev qv6c0 metric 1024 pref medium\nfc00::/7 dev qv6c0 metric 1 pref medium\nfe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev qv6c0 proto kernel metric 256 pref medium\n8000::/1 dev qv6c0 metric 1 pref medium",
+      "rules4": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 10.66.116.10/32 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP",
+      "rules6": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP"
+    },
+    "full-tunnel-outer4-dual": {
+      "status": "PASS",
+      "active_families": [
+        "inet",
+        "inet6"
+      ],
+      "expected_families": [
+        "inet",
+        "inet6"
+      ],
+      "ipv4_default_halves": true,
+      "ipv6_default_halves": true,
+      "ipv4_kill_switch": true,
+      "ipv6_kill_switch": true,
+      "ping4_status": 0,
+      "ping6_status": 0,
+      "routes4": "0.0.0.0/1 dev qv6c0 scope link metric 1 \ndefault via 10.66.116.1 dev ens18 onlink \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \n10.66.116.10 dev ens18 scope link \n10.90.0.0/24 dev qv6c0 scope link \n128.0.0.0/1 dev qv6c0 scope link metric 1",
+      "routes6": "2000::/4 dev qv6c0 metric 1 pref medium\n3000::/4 dev qv6c0 metric 1 pref medium\n::/1 dev qv6c0 metric 1 pref medium\nfd66:116::/64 dev ens18 proto kernel metric 256 pref medium\nfd71:e1:90::2 dev qv6c0 proto kernel metric 256 pref medium\nfd71:e1:90::/64 dev qv6c0 metric 1024 pref medium\nfc00::/7 dev qv6c0 metric 1 pref medium\nfe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev qv6c0 proto kernel metric 256 pref medium\n8000::/1 dev qv6c0 metric 1 pref medium",
+      "rules4": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 1.1.1.1/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p udp -m udp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 8.8.8.8/32 -p tcp -m tcp --dport 53 -j ACCEPT\n-A QELI_KS_qv6c0 -d 10.66.116.10/32 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP",
+      "rules6": "-P OUTPUT ACCEPT\n-A OUTPUT -j QELI_KS_qv6c0\n-N QELI_KS_qv6c0\n-A QELI_KS_qv6c0 -o lo -j ACCEPT\n-A QELI_KS_qv6c0 -o qv6c0 -j ACCEPT\n-A QELI_KS_qv6c0 -p udp -m udp --dport 67 -j ACCEPT\n-A QELI_KS_qv6c0 -j DROP"
+    },
+    "dual-kill-switch-no-physical-leak-and-reconnect": {
+      "status": "PASS",
+      "disconnect_detected": true,
+      "ipv4_kill_switch_persisted": true,
+      "ipv6_kill_switch_persisted": true,
+      "physical_leak_packets": [],
+      "reconnected": true,
+      "auth_count": 2,
+      "post_reconnect_ping4_status": 0,
+      "post_reconnect_ping6_status": 0,
+      "capture": "tcpdump: verbose output suppressed, use -v[v]... for full protocol decode\nlistening on ens18, link-type EN10MB (Ethernet), snapshot length 262144 bytes",
+      "ping4": "PING 10.90.0.1 (10.90.0.1) 56(84) bytes of data.\n64 bytes from 10.90.0.1: icmp_seq=1 ttl=64 time=0.920 ms\n64 bytes from 10.90.0.1: icmp_seq=2 ttl=64 time=0.790 ms\n\n--- 10.90.0.1 ping statistics ---\n2 packets transmitted, 2 received, 0% packet loss, time 1009ms\nrtt min/avg/max/mdev = 0.790/0.855/0.920/0.065 ms",
+      "ping6": "PING fd71:e1:90::1 (fd71:e1:90::1) 56 data bytes\n64 bytes from fd71:e1:90::1: icmp_seq=1 ttl=64 time=0.863 ms\n64 bytes from fd71:e1:90::1: icmp_seq=2 ttl=64 time=0.837 ms\n\n--- fd71:e1:90::1 ping statistics ---\n2 packets transmitted, 2 received, 0% packet loss, time 1008ms\nrtt min/avg/max/mdev = 0.837/0.850/0.863/0.013 ms"
+    }
+  }
+}

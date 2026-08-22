@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:04:26Z",
+    "passed": 1,
+    "failed": 1
+  },
+  "rows": {
+    "inner-ipv6-mtu-1280-boundary": {
+      "status": "PASS",
+      "tun_mtu": 1280,
+      "payload_1232": "PASS",
+      "payload_1233_rejected": true,
+      "too_big_output": "PING fd71:e1:90::1 (fd71:e1:90::1) 1233 data bytes\n\n--- fd71:e1:90::1 ping statistics ---\n1 packets transmitted, 0 received, +1 errors, 100% packet loss, time 0ms\n\nping: sendmsg: Сообщение слишком длинное"
+    },
+    "udp-data-frag-outer4-mtu576-asymmetric-reconnect": {
+      "status": "FAIL",
+      "error": "remote exit 1: timeout 15 iperf3 -6 -c fd71:e1:90::1 -R -t 2 -i 0 --json\n{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\":\t{\n\t},\n\t\"error\":\t\"unable to connect to server - server may have stopped running or use a different port, firewall issue, etc.: Network is unreachable\"\n}"
+    }
+  }
+}

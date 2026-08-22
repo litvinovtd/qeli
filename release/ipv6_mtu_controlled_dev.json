@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:11:07Z",
+    "passed": 0,
+    "failed": 2
+  },
+  "rows": {
+    "udp-quic-data-frag-asymmetric-pmtu": {
+      "status": "FAIL",
+      "routes_before": {
+        "client": {
+          "dst": "10.66.116.10",
+          "dev": "ens18",
+          "prefsrc": "10.66.116.11",
+          "flags": [],
+          "uid": 0,
+          "cache": [],
+          "metrics": [
+            {
+              "mtu": 576
+            }
+          ]
+        },
+        "server": {
+          "dst": "10.66.116.11",
+          "dev": "ens18",
+          "prefsrc": "10.66.116.10",
+          "flags": [],
+          "uid": 0,
+          "cache": [],
+          "metrics": [
+            {
+              "mtu": 1280
+            }
+          ]
+        }
+      },
+      "routes_after_start": {
+        "client": {
+          "dst": "10.66.116.10",
+          "dev": "ens18",
+          "prefsrc": "10.66.116.11",
+          "flags": [],
+          "uid": 0,
+          "cache": [],
+          "metrics": [
+            {
+              "mtu": 576
+            }
+          ]
+        },
+        "server": {
+          "dst": "10.66.116.11",
+          "dev": "ens18",
+          "prefsrc": "10.66.116.10",
+          "flags": [],
+          "uid": 0,
+          "cache": [],
+          "metrics": [
+            {
+              "mtu": 1280
+            }
+          ]
+        }
+      },
+      "ping_1232_status": 1,
+      "ping_1232_output": "PING fd71:e1:90::1 (fd71:e1:90::1) 1232 data bytes\n\n--- fd71:e1:90::1 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2028ms",
+      "up_status": 1,
+      "up_output_tail": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\":\t{\n\t},\n\t\"error\":\t\"unable to connect to server - server may have stopped running or use a different port, firewall issue, etc.: Network is unreachable\"\n}",
+      "state_after_up": {
+        "alive": true,
+        "auth_count": 3,
+        "running_count": 0,
+        "closed_count": 2,
+        "addresses": [
+          "fd71:e1:90::2"
+        ],
+        "log_tail": "_core::linux_tun: TUN reader stopped\n2026-08-22 03:09:35.071 INFO  qeli::client: UDP client disconnected\n2026-08-22 03:09:35.071 INFO  qeli::client: Connection closed, reconnecting...\n2026-08-22 03:09:35.071 INFO  qeli::client: Reconnecting in 2s (attempt 2)...\n2026-08-22 03:09:37.072 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'bench'\n2026-08-22 03:09:37.072 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-22 03:09:37.073 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:09:37.073 INFO  qeli::client: UDP: Received server response (2132 bytes)\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:09:37.098 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:09:37.099 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:09:37.099 INFO  qeli::client: NetworkPlan 3: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:09:37.099 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:09:37.099 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:09:37.102 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:09:37.105 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:09:37.107 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-22 03:09:37.107 INFO  qeli::transport_core::linux_tun: TUN writer started"
+      },
+      "down_status": 0,
+      "down_output_tail": "er\":\t{\n\t\t\t\t\t\"socket\":\t5,\n\t\t\t\t\t\"start\":\t0,\n\t\t\t\t\t\"end\":\t2.001058,\n\t\t\t\t\t\"seconds\":\t2.001058,\n\t\t\t\t\t\"bytes\":\t189530112,\n\t\t\t\t\t\"bits_per_second\":\t757719614.32402253,\n\t\t\t\t\t\"retransmits\":\t566,\n\t\t\t\t\t\"max_snd_cwnd\":\t0,\n\t\t\t\t\t\"max_snd_wnd\":\t0,\n\t\t\t\t\t\"max_rtt\":\t0,\n\t\t\t\t\t\"min_rtt\":\t0,\n\t\t\t\t\t\"mean_rtt\":\t0,\n\t\t\t\t\t\"sender\":\tfalse\n\t\t\t\t},\n\t\t\t\t\"receiver\":\t{\n\t\t\t\t\t\"socket\":\t5,\n\t\t\t\t\t\"start\":\t0,\n\t\t\t\t\t\"end\":\t2.0005,\n\t\t\t\t\t\"seconds\":\t2.0005,\n\t\t\t\t\t\"bytes\":\t185466880,\n\t\t\t\t\t\"bits_per_second\":\t741682099.475131,\n\t\t\t\t\t\"sender\":\tfalse\n\t\t\t\t}\n\t\t\t}],\n\t\t\"sum_sent\":\t{\n\t\t\t\"start\":\t0,\n\t\t\t\"end\":\t2.001058,\n\t\t\t\"seconds\":\t2.001058,\n\t\t\t\"bytes\":\t189530112,\n\t\t\t\"bits_per_second\":\t757719614.32402253,\n\t\t\t\"retransmits\":\t566,\n\t\t\t\"sender\":\tfalse\n\t\t},\n\t\t\"sum_received\":\t{\n\t\t\t\"start\":\t0,\n\t\t\t\"end\":\t2.0005,\n\t\t\t\"seconds\":\t2.0005,\n\t\t\t\"bytes\":\t185466880,\n\t\t\t\"bits_per_second\":\t741682099.475131,\n\t\t\t\"sender\":\tfalse\n\t\t},\n\t\t\"cpu_utilization_percent\":\t{\n\t\t\t\"host_total\":\t44.986748521374558,\n\t\t\t\"host_user\":\t1.3825958922911832,\n\t\t\t\"host_system\":\t43.604152629083373,\n\t\t\t\"remote_total\":\t2.24953637512562,\n\t\t\t\"remote_user\":\t0.2430688643476844,\n\t\t\t\"remote_system\":\t2.0064675107779353\n\t\t},\n\t\t\"sender_tcp_congestion\":\t\"cubic\",\n\t\t\"receiver_tcp_congestion\":\t\"bbr\"\n\t}\n}",
+      "state_after_down": {
+        "alive": true,
+        "auth_count": 3,
+        "running_count": 0,
+        "closed_count": 2,
+        "addresses": [
+          "fd71:e1:90::2"
+        ],
+        "log_tail": ":client: Reconnecting in 2s (attempt 2)...\n2026-08-22 03:09:37.072 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'bench'\n2026-08-22 03:09:37.072 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-22 03:09:37.073 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:09:37.073 INFO  qeli::client: UDP: Received server response (2132 bytes)\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:09:37.074 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:09:37.098 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:09:37.099 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:09:37.099 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:09:37.099 INFO  qeli::client: NetworkPlan 3: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:09:37.099 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:09:37.099 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:09:37.102 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:09:37.105 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:09:37.107 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-22 03:09:37.107 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-22 03:09:40.108 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive-buffer auto-grow requested 8192 KiB, granted 8192 KiB (reason: measured rate/stall budget, rate=224 Mbit/s, local kernel drops +0)"
+      },
+      "path_probe_lines": [
+        "UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)"
+      ],
+      "max_captured_udp_payload": 1457,
+      "outer_ipv4_fragment_headers": [
+        "03:09:17.139952 IP (tos 0x0, ttl 64, id 60424, offset 0, flags [+], proto UDP (17), length 572)"
+      ]
+    },
+    "udp-quic-ipv6-reconnect-normal-path": {
+      "status": "FAIL",
+      "reconnected": false,
+      "address_preserved": true,
+      "initial": {
+        "alive": true,
+        "auth_count": 1,
+        "running_count": 0,
+        "closed_count": 0,
+        "addresses": [
+          "fd71:e1:90::2"
+        ],
+        "log_tail": "2026-08-22 03:09:50.057 INFO  qeli: Starting client with config: /etc/qeli/runtime-key-client.conf\n2026-08-22 03:09:50.057 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'bench'\n2026-08-22 03:09:50.057 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-22 03:09:50.058 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:09:50.059 INFO  qeli::client: UDP: Received server response (2485 bytes)\n2026-08-22 03:09:50.059 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:09:50.059 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:09:50.059 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:09:50.085 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:09:50.086 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:09:50.086 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:09:50.086 INFO  qeli::client: NetworkPlan 1: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:09:50.086 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:09:50.086 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:09:50.090 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:09:50.093 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:09:50.096 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-22 03:09:50.096 INFO  qeli::transport_core::linux_tun: TUN writer started"
+      },
+      "after_restart": {
+        "alive": true,
+        "auth_count": 2,
+        "running_count": 0,
+        "closed_count": 1,
+        "addresses": [
+          "fd71:e1:90::2"
+        ],
+        "log_tail": "_core::linux_tun: TUN reader stopped\n2026-08-22 03:10:50.379 INFO  qeli::client: UDP client disconnected\n2026-08-22 03:10:50.379 INFO  qeli::client: Connection closed, reconnecting...\n2026-08-22 03:10:50.379 INFO  qeli::client: Reconnecting in 1s (attempt 1)...\n2026-08-22 03:10:51.380 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'bench'\n2026-08-22 03:10:51.381 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-22 03:10:51.381 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:10:51.382 INFO  qeli::client: UDP: Received server response (2349 bytes)\n2026-08-22 03:10:51.382 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:10:51.382 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:10:51.382 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:10:51.409 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:10:51.410 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:10:51.410 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:10:51.410 INFO  qeli::client: NetworkPlan 2: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:10:51.410 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:10:51.410 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:10:51.413 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:10:51.416 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:10:51.417 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-22 03:10:51.418 INFO  qeli::transport_core::linux_tun: TUN reader started"
+      },
+      "ping_status": 0,
+      "ping_output": "PING fd71:e1:90::1 (fd71:e1:90::1) 56 data bytes\n64 bytes from fd71:e1:90::1: icmp_seq=1 ttl=64 time=0.810 ms\n64 bytes from fd71:e1:90::1: icmp_seq=2 ttl=64 time=1.02 ms\n64 bytes from fd71:e1:90::1: icmp_seq=3 ttl=64 time=0.779 ms\n\n--- fd71:e1:90::1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2015ms\nrtt min/avg/max/mdev = 0.779/0.870/1.022/0.107 ms"
+    }
+  }
+}

@@ -145,6 +145,8 @@ public static class CliRunner
         // crash/restart journal with a fake network backend so the regression is covered on
         // every build host without root or a Mac.
         DnsJournal.RunSelfTests(Check);
+        NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
+        KillSwitch.RunSelfTests(Check);
 
         // Per-app reconnect keeps the utun descriptor alive, so both address families need
         // explicit transaction undo commands before a different NetworkPlan is applied.

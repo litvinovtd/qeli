@@ -18,9 +18,10 @@ namespace QeliMac.Vpn;
 /// <c>sudo pfctl -a com.apple/qeli -F rules ; sudo pfctl -a qeli -F rules</c>
 /// (and <c>sudo pfctl -d</c> if pf was off before).
 ///
-/// REQUIRES root (the tunnel already does). The utun name is dynamic and unknown
-/// before the device is created, so we pass utun0..15 (mirrors the Linux `oifname`
-/// matching once the device appears). RUNTIME-UNVERIFIED in this build — exercise on
+/// REQUIRES root (the tunnel already does). Before loading the fail-closed rules, the
+/// system-TUN path reserves the real utun device and passes that exact name here. During
+/// an atomic persisted-plan replacement both the old and replacement names are allowed;
+/// after the swap only the live device remains. RUNTIME-UNVERIFIED in this build — exercise on
 /// a real Mac before shipping, since a bug here can block the machine's outbound.
 /// </summary>
 public static class KillSwitch
@@ -43,11 +44,17 @@ public static class KillSwitch
     private static readonly string StatePath = Path.Combine(Dir, "killswitch.state");
     private static readonly string RulesPath = Path.Combine(Dir, "killswitch.pf.conf");
     private static readonly string OperationLockPath = Path.Combine(Dir, "killswitch.lock");
+    // Access is serialized by OperationLockPath. These are the exact live ownership set
+    // reused when DDNS or a persisted-plan replacement atomically reloads the anchor.
+    private static IReadOnlyList<string> _activeTunnelInterfaces = Array.Empty<string>();
+    private static IReadOnlyList<string> _activeServerIps = Array.Empty<string>();
 
     /// <summary>Raise the kill-switch. Throws if the server can't be resolved, so the
     /// caller fails closed rather than locking the host out with no path to it.</summary>
-    public static void Engage(string serverAddress, Action<string> log)
+    public static void Engage(
+        string serverAddress, IReadOnlyList<string> tunnelInterfaces, Action<string> log)
     {
+        var tunnels = NormalizeTunnelInterfaces(tunnelInterfaces);
         var ips = ResolveIps(serverAddress);
         if (ips.Count == 0)
             throw new InvalidOperationException(
@@ -86,7 +93,7 @@ public static class KillSwitch
             // Residual (accepted): an app querying those same resolvers still leaks its query
             // metadata; removing that entirely would break server re-resolution while down.
             var dnsResolvers = ResolveSystemDnsServers();
-            File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
+            File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers, tunnels));
 
             // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
             // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
@@ -101,8 +108,11 @@ public static class KillSwitch
             // Calling -e only when needed avoids pfctl's already-enabled warning. A failure
             // here is critical: a loaded anchor in disabled pf provides no protection.
             if (!wasEnabled) Pf("-e", critical: true);
+            _activeTunnelInterfaces = tunnels;
+            _activeServerIps = ips.ToArray();
 
-            log($"Kill-switch ENGAGED (pf anchor '{anchor}'): egress restricted to lo0, utun0..15, " +
+            log($"Kill-switch ENGAGED (pf anchor '{anchor}'): egress restricted to lo0, " +
+                $"{string.Join(", ", tunnels)}, " +
                 $"{string.Join(", ", ips)}, DHCP, and DNS to {(dnsResolvers.Count > 0 ? string.Join(", ", dnsResolvers) : "<none — physical DNS blocked>")}. " +
                 $"Other pf rules on this host are left intact. " +
                 $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
@@ -122,6 +132,8 @@ public static class KillSwitch
                     Pf("-d", critical: true);
                 if (File.Exists(StatePath)) File.Delete(StatePath);
                 if (File.Exists(RulesPath)) File.Delete(RulesPath);
+                _activeTunnelInterfaces = Array.Empty<string>();
+                _activeServerIps = Array.Empty<string>();
             }
             catch (Exception restoreError)
             {
@@ -144,29 +156,55 @@ public static class KillSwitch
             throw new InvalidOperationException("kill-switch: refusing an empty server allowlist");
         if (!File.Exists(StatePath))
             throw new InvalidOperationException("kill-switch: cannot refresh an allowlist that is not engaged");
+        if (_activeTunnelInterfaces.Count == 0)
+            throw new InvalidOperationException("kill-switch: no owned utun interface is recorded");
 
         var dnsResolvers = ResolveSystemDnsServers();
-        File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
+        File.WriteAllText(RulesPath,
+            BuildRules(ips, dnsResolvers, _activeTunnelInterfaces));
         string anchor = ResolveAnchorPath(log);
         // pfctl parses the complete file before replacing the anchor; a parse/load failure
         // leaves the already active fail-closed rules available to the caller's fallback.
         Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
+        _activeServerIps = ips.ToArray();
         log($"Kill-switch server allowlist refreshed in '{anchor}': {string.Join(", ", ips)}");
     }
 
+    /// <summary>Atomically change only the exact utun ownership set while preserving the
+    /// current carrier allowlist. A system-plan replacement moves the allowlist to the
+    /// reserved new interface before releasing the old descriptor.</summary>
+    public static void UpdateTunnelInterfaces(
+        IReadOnlyList<string> tunnelInterfaces, Action<string> log)
+    {
+        using var operation = AcquireOperation();
+        if (!File.Exists(StatePath) || _activeServerIps.Count == 0)
+            throw new InvalidOperationException(
+                "kill-switch: cannot refresh tunnel interfaces before engage");
+        var tunnels = NormalizeTunnelInterfaces(tunnelInterfaces);
+        if (_activeTunnelInterfaces.SequenceEqual(tunnels))
+            return;
+        var dnsResolvers = ResolveSystemDnsServers();
+        File.WriteAllText(RulesPath,
+            BuildRules(_activeServerIps, dnsResolvers, tunnels));
+        string anchor = ResolveAnchorPath(log);
+        Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
+        _activeTunnelInterfaces = tunnels;
+        log($"Kill-switch tunnel allowlist refreshed in '{anchor}': " +
+            string.Join(", ", tunnels));
+    }
+
     private static string BuildRules(
-        IReadOnlyList<string> ips, IReadOnlyList<string> dnsResolvers)
+        IReadOnlyList<string> ips,
+        IReadOnlyList<string> dnsResolvers,
+        IReadOnlyList<string> tunnelInterfaces)
     {
         // Rules for OUR ANCHOR only — no `set block-policy`, no global directives: an
         // anchor ruleset may not carry them, and they belong to the main ruleset anyway.
         var sb = new StringBuilder();
         sb.AppendLine("block drop out all");
         sb.AppendLine("pass out quick on lo0 all");
-        // utun is dynamic; cover the usual range so the tunnel's interface is allowed
-        // once it appears on (re)connect.
-        sb.Append("pass out quick on {");
-        for (int i = 0; i <= 15; i++) sb.Append($" utun{i}");
-        sb.AppendLine(" } all");
+        foreach (string tunnelInterface in tunnelInterfaces)
+            sb.AppendLine($"pass out quick on {tunnelInterface} all");
         foreach (var resolver in dnsResolvers)
         {
             sb.AppendLine($"pass out quick proto udp to {resolver} port 53");
@@ -176,6 +214,36 @@ public static class KillSwitch
         foreach (var ip in ips)
             sb.AppendLine($"pass out quick to {ip} all");
         return sb.ToString();
+    }
+
+    private static IReadOnlyList<string> NormalizeTunnelInterfaces(
+        IReadOnlyList<string> tunnelInterfaces)
+    {
+        var result = tunnelInterfaces
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (result.Length == 0 || result.Any(name =>
+                !name.StartsWith("utun", StringComparison.Ordinal) ||
+                !int.TryParse(name.AsSpan(4), out int index) || index < 0))
+            throw new InvalidOperationException(
+                "kill-switch: tunnel allowlist must contain only actual utunN interface names");
+        return result;
+    }
+
+    internal static void RunSelfTests(Action<string, bool> check)
+    {
+        string rules = BuildRules(
+            new[] { "203.0.113.7" }, new[] { "1.1.1.1" }, new[] { "utun27" });
+        check("macOS kill-switch allows only the actual utun interface",
+            rules.Contains("pass out quick on utun27 all", StringComparison.Ordinal) &&
+            !rules.Contains("utun0", StringComparison.Ordinal) &&
+            !rules.Contains("utun15", StringComparison.Ordinal));
+        bool rejected = false;
+        try { NormalizeTunnelInterfaces(new[] { "en0" }); }
+        catch (InvalidOperationException) { rejected = true; }
+        check("macOS kill-switch rejects non-utun interface aliases", rejected);
     }
 
     /// <summary>Restore pf to its pre-engage state (flush our anchors, and disable pf
@@ -211,6 +279,8 @@ public static class KillSwitch
             Pf("-d", critical: true); // pf was off before us -> turn it back off
         if (File.Exists(StatePath)) File.Delete(StatePath);
         if (File.Exists(RulesPath)) File.Delete(RulesPath);
+        _activeTunnelInterfaces = Array.Empty<string>();
+        _activeServerIps = Array.Empty<string>();
         log?.Invoke("Kill-switch disengaged (pf restored)");
     }
 

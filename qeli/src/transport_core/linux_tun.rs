@@ -705,7 +705,9 @@ mod tests {
             .expect("TUN reader stopped unexpectedly");
         assert_eq!(&*received, &uplink);
 
-        let downlink = vec![0x60, 0, 0, 0, 5, 6, 7, 8];
+        let mut downlink = vec![0u8; 40];
+        downlink[0] = 0x60;
+        downlink[6] = 59; // No Next Header
         let tun_writer = pump.sender_to_tun();
         let mut packet = tun_writer.acquire().await.unwrap();
         packet.as_vec_mut().extend_from_slice(&downlink);
@@ -740,7 +742,10 @@ mod tests {
         // protocol maximum: the two differ by an order of magnitude now.
         let pool_count = reusable_downlink_buffer_count(2048);
         let mut packet = writer.acquire().await.unwrap();
-        packet.as_vec_mut().extend_from_slice(&[0x45, 0, 0, 20]);
+        let mut ipv4 = vec![0u8; 20];
+        ipv4[0] = 0x45;
+        ipv4[2..4].copy_from_slice(&20u16.to_be_bytes());
+        packet.as_vec_mut().extend_from_slice(&ipv4);
         let allocation = packet.as_ptr();
         let mut held = Vec::with_capacity(pool_count - 1);
         for _ in 1..pool_count {
@@ -750,7 +755,7 @@ mod tests {
 
         writer.try_send(packet).unwrap();
         let mut received = [0u8; 64];
-        assert_eq!(writer_test.recv(&mut received).unwrap(), 4);
+        assert_eq!(writer_test.recv(&mut received).unwrap(), ipv4.len());
         let reused = tokio::time::timeout(Duration::from_secs(1), writer.acquire())
             .await
             .expect("TUN writer did not return its completed allocation")

@@ -19,7 +19,17 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly List<string> _degraded = new();
     private readonly Func<string, string, bool, bool>? _runOverride;
     private readonly HashSet<string> _dnsFamilies = new(StringComparer.Ordinal);
+    private readonly List<OwnedRoute> _ownedRoutes = new();
     private string? _dnsAlias;
+
+    private sealed class OwnedRoute
+    {
+        public required string Network { get; init; }
+        public required int Prefix { get; init; }
+        public required string Description { get; init; }
+        public required Func<bool> Delete { get; init; }
+        public bool Active { get; set; } = true;
+    }
 
     /// <summary>
     /// Network setup steps that FAILED but did not abort the connect. These used to be
@@ -59,35 +69,15 @@ public sealed class NetworkConfigurator : IDisposable
     [DllImport("iphlpapi.dll")]
     private static extern int ConvertInterfaceLuidToIndex(ref ulong luid, out uint index);
 
-    // GetBestInterfaceEx takes a full SOCKADDR, so it resolves the outgoing interface for
-    // BOTH IPv4 and IPv6 destinations — unlike the IPv4-only GetBestInterface(uint) it
-    // replaces. This is the groundwork for reaching an IPv6 server (issue #69).
     [DllImport("iphlpapi.dll")]
-    private static extern int GetBestInterfaceEx(byte[] pDestAddr, out uint bestIfIndex);
-
-    /// <summary>Marshal an IPAddress into a Winsock SOCKADDR (sockaddr_in / sockaddr_in6)
-    /// for the dual-stack iphlpapi calls.</summary>
-    private static byte[] BuildSockaddr(IPAddress ip)
-    {
-        byte[] addr = ip.GetAddressBytes();
-        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            var sa = new byte[28];              // sockaddr_in6
-            sa[0] = 23;                         // AF_INET6 (sin6_family, LE u16)
-            Array.Copy(addr, 0, sa, 8, 16);     // sin6_addr (after family+port+flowinfo)
-            BitConverter.GetBytes((uint)ip.ScopeId).CopyTo(sa, 24); // sin6_scope_id
-            return sa;
-        }
-        var s4 = new byte[16];                  // sockaddr_in
-        s4[0] = 2;                              // AF_INET
-        Array.Copy(addr, 0, s4, 4, 4);          // sin_addr
-        return s4;
-    }
-
-    /// <summary>Best outgoing interface index to reach <paramref name="ip"/> (0 on failure).
-    /// Works for IPv4 and IPv6.</summary>
-    private static uint BestInterfaceIndex(IPAddress ip) =>
-        GetBestInterfaceEx(BuildSockaddr(ip), out uint ifIndex) == 0 ? ifIndex : 0;
+    private static extern int GetBestRoute2(
+        IntPtr interfaceLuid,
+        uint interfaceIndex,
+        IntPtr sourceAddress,
+        IntPtr destinationAddress,
+        uint addressSortOptions,
+        IntPtr bestRoute,
+        IntPtr bestSourceAddress);
 
     [DllImport("iphlpapi.dll")]
     private static extern void InitializeIpForwardEntry(IntPtr row);
@@ -119,111 +109,110 @@ public sealed class NetworkConfigurator : IDisposable
     {
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
+            var properties = ni.GetIPProperties();
             try
             {
-                var p = ni.GetIPProperties().GetIPv4Properties();
-                if (p != null && (uint)p.Index == index) return ni.Name;
+                var ipv4 = properties.GetIPv4Properties();
+                if (ipv4 != null && (uint)ipv4.Index == index) return ni.Name;
             }
             catch { /* interface without IPv4 props */ }
+            try
+            {
+                var ipv6 = properties.GetIPv6Properties();
+                if (ipv6 != null && (uint)ipv6.Index == index) return ni.Name;
+            }
+            catch { /* interface without IPv6 props */ }
         }
         return null;
     }
 
-    /// <summary>Find the physical default gateway used to reach <paramref name="serverIp"/>.
-    /// Family-aware: returns the IPv4 gateway for an IPv4 server, the IPv6 gateway for an
-    /// IPv6 server.</summary>
-    public IPAddress? FindGatewayFor(IPAddress serverIp)
+    private sealed record RoutePath(uint InterfaceIndex, IPAddress? Gateway, IPAddress? Source);
+
+    /// <summary>Ask the Windows routing stack for the complete selected path. Unlike
+    /// GetBestInterfaceEx + "first gateway on that NIC", GetBestRoute2 returns the actual
+    /// next-hop chosen for this destination and correctly represents on-link routes with an
+    /// unspecified next-hop.</summary>
+    private static RoutePath? BestRouteFor(IPAddress destination, IPAddress? source = null)
     {
-        uint ifIndex = BestInterfaceIndex(serverIp);
-        if (ifIndex == 0) return null;
-        bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
-        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        IntPtr dst = Marshal.AllocHGlobal(SockaddrInetSize);
+        IntPtr src = source == null ? IntPtr.Zero : Marshal.AllocHGlobal(SockaddrInetSize);
+        IntPtr bestSource = Marshal.AllocHGlobal(SockaddrInetSize);
+        IntPtr row = Marshal.AllocHGlobal(Row2Size);
+        try
         {
-            try
+            Clear(dst, SockaddrInetSize);
+            Clear(bestSource, SockaddrInetSize);
+            Clear(row, Row2Size);
+            WriteSockaddr(dst, 0, destination);
+            if (source != null)
             {
-                var p = ni.GetIPProperties();
-                uint idx = v6 ? (uint)p.GetIPv6Properties().Index : (uint)p.GetIPv4Properties().Index;
-                if (idx != ifIndex) continue;
-                var want = v6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
-                var any = v6 ? IPAddress.IPv6Any : IPAddress.Any;
-                foreach (var gw in p.GatewayAddresses)
-                    if (gw.Address.AddressFamily == want && !gw.Address.Equals(any))
-                        return gw.Address;
+                Clear(src, SockaddrInetSize);
+                WriteSockaddr(src, 0, source);
             }
-            catch { /* interface without the requested family */ }
+            if (GetBestRoute2(IntPtr.Zero, 0, src, dst, 0, row, bestSource) != 0)
+                return null;
+            uint ifIndex = unchecked((uint)Marshal.ReadInt32(row, OffIfIndex));
+            IPAddress? nextHop = ReadSockaddr(row, OffNextHopFamily);
+            if (nextHop != null && IsUnspecified(nextHop)) nextHop = null;
+            IPAddress? selectedSource = ReadSockaddr(bestSource, 0);
+            return ifIndex == 0 ? null : new RoutePath(ifIndex, nextHop, selectedSource);
         }
-        return null;
+        catch { return null; }
+        finally
+        {
+            Marshal.FreeHGlobal(row);
+            Marshal.FreeHGlobal(bestSource);
+            if (src != IntPtr.Zero) Marshal.FreeHGlobal(src);
+            Marshal.FreeHGlobal(dst);
+        }
+    }
+
+    public (IPAddress? gateway, uint ifIndex) PhysicalPathFor(IPAddress destination)
+    {
+        var path = BestRouteFor(destination);
+        return path == null
+            ? (null, 0)
+            : (path.Gateway, path.InterfaceIndex);
     }
 
     /// <summary>Pin a /32 or /128 host route to the VPN server through the physical gateway so
     /// the encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
-    public void PinServerRoute(IPAddress serverIp, IPAddress gateway, uint physicalIfIndex)
+    public void PinServerRoute(IPAddress serverIp, IPAddress? gateway, uint physicalIfIndex)
     {
-        if (serverIp.AddressFamily != gateway.AddressFamily)
+        if (physicalIfIndex == 0)
+            throw new InvalidOperationException($"server route {serverIp} has no physical interface");
+        if (gateway != null && serverIp.AddressFamily != gateway.AddressFamily)
             throw new InvalidOperationException(
                 $"server route family mismatch: server {serverIp}, gateway {gateway}");
         string s = serverIp.ToString();
         bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
-        Run("route", v6
-            ? $"-6 add {s}/128 {gateway} metric 1 if {physicalIfIndex}"
-            : $"add {s} mask 255.255.255.255 {gateway} metric 1 if {physicalIfIndex}");
-        _undo.Add(() => Run("route", v6
-            ? $"-6 delete {s}/128"
-            : $"delete {s} mask 255.255.255.255", optional: true));
-        _log($"Pinned server route {s} via {gateway}");
-    }
-
-    /// <summary>True when <paramref name="serverIp"/> is directly reachable (on-link) on the
-    /// physical interface toward it — i.e. it shares that interface's subnet. Then the
-    /// connected-subnet route already keeps the carrier off the tunnel (its /24 beats the
-    /// full-tunnel <c>0.0.0.0/1</c> + <c>128.0.0.0/1</c> halves, and there is nothing to override
-    /// in split-tunnel), so pinning a /32 via the gateway is not only unnecessary but BREAKS
-    /// same-LAN setups: routing an on-link server through the gateway makes the path asymmetric
-    /// (out via the gateway, replies come back directly) and the gateway drops the sustained data
-    /// plane — the handshake squeaks through, the tunnel then stalls. Same subnet ⇒ skip the pin.</summary>
-    public bool IsServerOnLink(IPAddress serverIp)
-    {
-        uint ifIndex = BestInterfaceIndex(serverIp);
-        if (ifIndex == 0) return false;
-        byte[] srv = serverIp.GetAddressBytes();
-        bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
-        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        int prefix = v6 ? 128 : 32;
+        var (result, row) = TryCreateRouteApi(serverIp, prefix, physicalIfIndex, gateway);
+        if (result == RouteApiResult.Created)
+            OwnRoute(serverIp, prefix, $"server route {s}", () => TryDeleteRouteApi(row!));
+        else if (result == RouteApiResult.Failed)
         {
-            try
-            {
-                var p = ni.GetIPProperties();
-                uint index = v6
-                    ? (uint)p.GetIPv6Properties().Index
-                    : (uint)p.GetIPv4Properties().Index;
-                if (index != ifIndex) continue;
-                foreach (var ua in p.UnicastAddresses)
-                {
-                    if (ua.Address.AddressFamily != serverIp.AddressFamily) continue;
-                    int prefix = ua.PrefixLength;
-                    int maxPrefix = v6 ? 128 : 32;
-                    if (prefix is < 1 || prefix > maxPrefix) continue;
-                    if (SamePrefix(ua.Address.GetAddressBytes(), srv, prefix)) return true;
-                }
-            }
-            catch { /* interface without the requested family */ }
+            if (gateway == null)
+                throw new InvalidOperationException(
+                    $"on-link server route {s} on interface {physicalIfIndex} was not programmed");
+            string add = v6
+                ? $"-6 add {s}/128 {gateway} metric 1 if {physicalIfIndex}"
+                : $"add {s} mask 255.255.255.255 {gateway} metric 1 if {physicalIfIndex}";
+            Run("route", add);
+            OwnRoute(serverIp, prefix, $"server route {s}", () => Run("route", v6
+                ? $"-6 delete {s}/128 {gateway} if {physicalIfIndex}"
+                : $"delete {s} mask 255.255.255.255 {gateway} if {physicalIfIndex}", optional: true));
         }
-        return false;
+        _log(result == RouteApiResult.AlreadyExists
+            ? $"Preserving an existing exact server route {s} on interface {physicalIfIndex}"
+            : $"Pinned server route {s} " + (gateway == null
+                ? $"on-link on interface {physicalIfIndex}"
+                : $"via {gateway}"));
     }
 
-    private static bool SamePrefix(byte[] a, byte[] b, int prefix)
-    {
-        if (a.Length != b.Length || prefix < 0 || prefix > a.Length * 8) return false;
-        int wholeBytes = prefix / 8;
-        for (int i = 0; i < wholeBytes; i++)
-            if (a[i] != b[i]) return false;
-        int remaining = prefix % 8;
-        if (remaining == 0) return true;
-        int mask = 0xFF << (8 - remaining);
-        return (a[wholeBytes] & mask) == (b[wholeBytes] & mask);
-    }
-
-    public uint PhysicalIfIndexFor(IPAddress serverIp) => BestInterfaceIndex(serverIp);
-
+    /// <summary>An on-link carrier has no gateway, but still needs an exact route bound to
+    /// the selected physical interface before full-tunnel routes are installed. Do not invent
+    /// the interface's default gateway: that breaks same-LAN carrier paths.</summary>
     /// <summary>Resolve an exclude prefix through the routing table before full-tunnel
     /// routes are installed. IPv4 and IPv6 can use different NICs and gateways.</summary>
     public (IPAddress? gateway, uint ifIndex) PhysicalPathForRoute(string cidr)
@@ -233,7 +222,8 @@ public sealed class NetworkConfigurator : IDisposable
         if (destination.Equals(IPAddress.Any)) destination = IPAddress.Parse("1.1.1.1");
         else if (destination.Equals(IPAddress.IPv6Any))
             destination = IPAddress.Parse("2606:4700:4700::1111");
-        return (FindGatewayFor(destination), PhysicalIfIndexFor(destination));
+        var path = BestRouteFor(destination);
+        return path == null ? (null, 0) : (path.Gateway, path.InterfaceIndex);
     }
 
     /// <summary>Assign the client IP to the tun adapter with the server-pushed subnet prefix.</summary>
@@ -321,10 +311,21 @@ public sealed class NetworkConfigurator : IDisposable
     /// which beat the existing 0.0.0.0/0 without deleting it.</summary>
     public void SetFullTunnelRoutes(string clientIp, uint tunIndex)
     {
-        Run("route", $"add 0.0.0.0 mask 128.0.0.0 {clientIp} metric 1 if {tunIndex}");
-        Run("route", $"add 128.0.0.0 mask 128.0.0.0 {clientIp} metric 1 if {tunIndex}");
-        _undo.Add(() => Run("route", "delete 0.0.0.0 mask 128.0.0.0", optional: true));
-        _undo.Add(() => Run("route", "delete 128.0.0.0 mask 128.0.0.0", optional: true));
+        if (!IPAddress.TryParse(clientIp, out var gateway) ||
+            gateway.AddressFamily != AddressFamily.InterNetwork)
+            throw new InvalidOperationException($"invalid IPv4 tunnel gateway {clientIp}");
+        foreach (string cidr in new[] { "0.0.0.0/1", "128.0.0.0/1" })
+        {
+            var (literal, prefix) = ParseCidr(cidr);
+            var network = IPAddress.Parse(literal!);
+            string mask = PrefixToMask(prefix);
+            var result = InstallOwnedRoute(
+                network, prefix, tunIndex, null, $"full-tunnel route {cidr}",
+                $"add {network} mask {mask} {gateway} metric 1 if {tunIndex}",
+                $"delete {network} mask {mask} {gateway} if {tunIndex}");
+            if (result == RouteApiResult.Failed)
+                throw new InvalidOperationException($"full-tunnel route {cidr} was not programmed");
+        }
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
@@ -417,39 +418,30 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return false; }
-        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        bool v6 = network.AddressFamily == AddressFamily.InterNetworkV6;
         // Program the route in-process via CreateIpForwardEntry2 (iphlpapi) instead of
         // spawning route.exe. A large split-tunnel list (e.g. 12k blocked-hosting
         // prefixes) otherwise costs one CreateProcess+wait per prefix — minutes of
         // startup. Each qeli tunnel is its own adapter/index, so there is none of the
         // OpenVPN-3 single-tunnel limitation. Falls back to route.exe on any API error.
-        if (TryRouteApi(create: true, addr!, prefix, tunIndex))
+        IPAddress? nextHop = null; // Wintun route is on-link; clientIp is only route.exe fallback syntax
+        string mask = v6 ? "" : PrefixToMask(prefix);
+        string add = v6
+            ? $"-6 add {network}/{prefix} metric 1 if {tunIndex}"
+            : $"add {network} mask {mask} {clientIp} metric 1 if {tunIndex}";
+        string delete = v6
+            ? $"-6 delete {network}/{prefix} if {tunIndex}"
+            : $"delete {network} mask {mask} {clientIp} if {tunIndex}";
+        var result = InstallOwnedRoute(
+            network, prefix, tunIndex, nextHop, $"tunnel route {cidr}", add, delete);
+        if (result == RouteApiResult.Failed)
         {
-            _undo.Add(() =>
-            {
-                if (!TryRouteApi(create: false, addr!, prefix, tunIndex))
-                    Run("route", v6
-                        ? $"-6 delete {addr}/{prefix}"
-                        : $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
-            });
+            Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
+            return false;
         }
-        else
-        {
-            string mask = v6 ? "" : PrefixToMask(prefix);
-            // Both the API and route.exe failed → this destination is NOT in the tunnel.
-            // Saying "via tunnel" here was a plain lie in the log. (C-17)
-            string args = v6
-                ? $"-6 add {addr}/{prefix} metric 1 if {tunIndex}"
-                : $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}";
-            if (!Run("route", args, optional: true))
-            {
-                Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
-                return false;
-            }
-            _undo.Add(() => Run("route", v6
-                ? $"-6 delete {addr}/{prefix}"
-                : $"delete {addr} mask {mask}", optional: true));
-        }
+        if (result == RouteApiResult.AlreadyExists)
+            _log($"route {cidr} already exists on this tunnel interface; preserving it");
         _log($"route {cidr} via tunnel");
         return true;
     }
@@ -460,44 +452,47 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
-        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
-        Run("route", v6
-            ? $"-6 delete {addr}/{prefix}"
-            : $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
-        _log($"exclude {cidr} from tunnel");
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        int removed = DeleteOwnedRoutes(network, prefix);
+        _log(removed == 0
+            ? $"exclude {cidr}: no Qeli-owned tunnel route existed; preserving system routes"
+            : $"exclude {cidr}: removed {removed} Qeli-owned tunnel route(s)");
     }
 
     /// <summary>Route a subnet AROUND the tunnel via the physical gateway, so an excluded
     /// destination reaches the network directly even in full-tunnel (where a plain
     /// DeleteRoute is a no-op — the 0.0.0.0/1 + 128.0.0.0/1 splits still cover it). The
     /// specific prefix beats the /1 halves by longest-prefix match. Undone on disconnect.</summary>
-    public void PinBypassRoute(string cidr, IPAddress gateway, uint physicalIfIndex)
+    public void PinBypassRoute(string cidr, IPAddress? gateway, uint physicalIfIndex)
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null)
             throw new InvalidOperationException($"invalid exclude route {cidr}");
-        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
-        if (gateway.AddressFamily != (v6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork))
+        IPAddress network = NetworkAddress(IPAddress.Parse(addr), prefix);
+        bool v6 = network.AddressFamily == AddressFamily.InterNetworkV6;
+        if (physicalIfIndex == 0)
+            throw new InvalidOperationException($"exclude route {cidr} has no physical interface");
+        if (gateway != null && gateway.AddressFamily != network.AddressFamily)
             throw new InvalidOperationException(
                 $"exclude route {cidr} has no physical gateway of the same address family");
+        DeleteOwnedRoutes(network, prefix); // remove only a route this transaction created
         string mask = PrefixToMask(prefix);
-        Run("route", v6
-            ? $"-6 delete {addr}/{prefix}"
-            : $"delete {addr} mask {mask}", optional: true);  // clear any tunnel copy first
-        // In full-tunnel the /1 halves already cover this prefix, so a failed pin means the
-        // destination stays INSIDE the tunnel — the opposite of the requested exclude, and
-        // for a kill-switch bypass (e.g. the server's own IP) that is what wedges a
-        // reconnect. Not silent any more. (C-17)
-        string addArgs = v6
-            ? $"-6 add {addr}/{prefix} {gateway} metric 1 if {physicalIfIndex}"
-            : $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}";
-        if (!Run("route", addArgs, optional: true))
+        string? add = gateway == null ? null : v6
+            ? $"-6 add {network}/{prefix} {gateway} metric 1 if {physicalIfIndex}"
+            : $"add {network} mask {mask} {gateway} metric 1 if {physicalIfIndex}";
+        string? delete = gateway == null ? null : v6
+            ? $"-6 delete {network}/{prefix} {gateway} if {physicalIfIndex}"
+            : $"delete {network} mask {mask} {gateway} if {physicalIfIndex}";
+        var result = InstallOwnedRoute(
+            network, prefix, physicalIfIndex, gateway, $"bypass route {cidr}", add, delete);
+        if (result == RouteApiResult.Failed)
             throw new InvalidOperationException(
-                $"exclude route {cidr} via {gateway} was not programmed");
-        _undo.Add(() => Run("route", v6
-            ? $"-6 delete {addr}/{prefix}"
-            : $"delete {addr} mask {mask}", optional: true));
-        _log($"exclude {cidr} via physical gateway {gateway}");
+                $"exclude route {cidr} via physical interface {physicalIfIndex} was not programmed");
+        _log(result == RouteApiResult.AlreadyExists
+            ? $"exclude {cidr}: preserving an existing matching physical route"
+            : $"exclude {cidr} via " + (gateway == null
+                ? $"on-link interface {physicalIfIndex}"
+                : $"physical gateway {gateway}"));
     }
 
     // MIB_IPFORWARD_ROW2 is 104 bytes on x64; we write only the fields we need at
@@ -505,42 +500,170 @@ public sealed class NetworkConfigurator : IDisposable
     // lifetimes, protocol, …). The SOCKADDR_INET unions below are populated for either
     // IPv4 or IPv6; the next hop is unspecified/on-link for tunnel-interface routes.
     private const int Row2Size = 104;
+    private const int SockaddrInetSize = 28;
     private const int OffIfIndex = 8;
     private const int OffDstFamily = 12;
-    private const int OffDstAddr = 16;
-    private const int OffDstV6Addr = 20;
     private const int OffDstPrefixLen = 40;
     private const int OffNextHopFamily = 44;
     private const int OffMetric = 84;
     private const short AfInet = 2;
     private const short AfInet6 = 23;
 
-    private static bool TryRouteApi(bool create, string addr, int prefix, uint ifIndex)
+    private enum RouteApiResult { Created, AlreadyExists, Failed }
+
+    private RouteApiResult InstallOwnedRoute(
+        IPAddress address,
+        int prefix,
+        uint ifIndex,
+        IPAddress? nextHop,
+        string description,
+        string? fallbackAdd,
+        string? fallbackDelete)
     {
-        if (!IPAddress.TryParse(addr, out var ip)) return false;
-        bool v6 = ip.AddressFamily == AddressFamily.InterNetworkV6;
-        int maxPrefix = v6 ? 128 : 32;
-        if (prefix < 0 || prefix > maxPrefix) return false;
+        var (result, row) = TryCreateRouteApi(address, prefix, ifIndex, nextHop);
+        if (result == RouteApiResult.Created)
+            OwnRoute(address, prefix, description, () => TryDeleteRouteApi(row!));
+        else if (result == RouteApiResult.Failed && fallbackAdd != null && fallbackDelete != null &&
+                 Run("route", fallbackAdd, optional: true))
+        {
+            OwnRoute(address, prefix, description,
+                () => Run("route", fallbackDelete, optional: true));
+            result = RouteApiResult.Created;
+        }
+        return result;
+    }
+
+    private static (RouteApiResult result, byte[]? row) TryCreateRouteApi(
+        IPAddress address, int prefix, uint ifIndex, IPAddress? nextHop)
+    {
+        try
+        {
+            byte[] row = BuildRouteRow(address, prefix, ifIndex, nextHop);
+            int rc = InvokeRouteApi(create: true, row);
+            return rc switch
+            {
+                0 => (RouteApiResult.Created, row),
+                5010 => (RouteApiResult.AlreadyExists, row),
+                _ => (RouteApiResult.Failed, null),
+            };
+        }
+        catch { return (RouteApiResult.Failed, null); }
+    }
+
+    private static bool TryDeleteRouteApi(byte[] row)
+    {
+        try
+        {
+            int rc = InvokeRouteApi(create: false, row);
+            return rc is 0 or 1168;
+        }
+        catch { return false; }
+    }
+
+    private static int InvokeRouteApi(bool create, byte[] rowBytes)
+    {
         IntPtr row = Marshal.AllocHGlobal(Row2Size);
         try
         {
-            InitializeIpForwardEntry(row);
-            Marshal.WriteInt32(row, OffIfIndex, (int)ifIndex);
-            short family = v6 ? AfInet6 : AfInet;
-            Marshal.WriteInt16(row, OffDstFamily, family);
-            byte[] bytes = ip.GetAddressBytes();
-            Marshal.Copy(bytes, 0, row + (v6 ? OffDstV6Addr : OffDstAddr), bytes.Length);
-            Marshal.WriteByte(row, OffDstPrefixLen, (byte)prefix);
-            // Unspecified next hop = on-link via ifIndex.
-            Marshal.WriteInt16(row, OffNextHopFamily, family);
-            Marshal.WriteInt32(row, OffMetric, 1);
-            int rc = create ? CreateIpForwardEntry2(row) : DeleteIpForwardEntry2(row);
-            // 0 = NO_ERROR; 5010 = ERROR_OBJECT_ALREADY_EXISTS (create is idempotent);
-            // 1168 = ERROR_NOT_FOUND (delete of an absent route is fine).
-            return rc == 0 || (create && rc == 5010) || (!create && rc == 1168);
+            Marshal.Copy(rowBytes, 0, row, Row2Size);
+            return create ? CreateIpForwardEntry2(row) : DeleteIpForwardEntry2(row);
         }
-        catch { return false; }
         finally { Marshal.FreeHGlobal(row); }
+    }
+
+    private static byte[] BuildRouteRow(
+        IPAddress address, int prefix, uint ifIndex, IPAddress? nextHop, uint metric = 1)
+    {
+        bool v6 = address.AddressFamily == AddressFamily.InterNetworkV6;
+        int maxPrefix = v6 ? 128 : 32;
+        if (prefix < 0 || prefix > maxPrefix || ifIndex == 0)
+            throw new ArgumentOutOfRangeException(nameof(prefix));
+        if (nextHop != null && nextHop.AddressFamily != address.AddressFamily)
+            throw new ArgumentException("route next-hop family mismatch", nameof(nextHop));
+        address = NetworkAddress(address, prefix);
+        IntPtr row = Marshal.AllocHGlobal(Row2Size);
+        try
+        {
+            Clear(row, Row2Size);
+            InitializeIpForwardEntry(row);
+            Marshal.WriteInt32(row, OffIfIndex, unchecked((int)ifIndex));
+            WriteSockaddr(row, OffDstFamily, address);
+            Marshal.WriteByte(row, OffDstPrefixLen, (byte)prefix);
+            WriteSockaddr(row, OffNextHopFamily,
+                nextHop ?? (v6 ? IPAddress.IPv6Any : IPAddress.Any));
+            Marshal.WriteInt32(row, OffMetric, unchecked((int)metric));
+            var bytes = new byte[Row2Size];
+            Marshal.Copy(row, bytes, 0, bytes.Length);
+            return bytes;
+        }
+        finally { Marshal.FreeHGlobal(row); }
+    }
+
+    private static void Clear(IntPtr pointer, int length) =>
+        Marshal.Copy(new byte[length], 0, pointer, length);
+
+    private static void WriteSockaddr(IntPtr pointer, int offset, IPAddress address)
+    {
+        bool v6 = address.AddressFamily == AddressFamily.InterNetworkV6;
+        Marshal.WriteInt16(pointer, offset, v6 ? AfInet6 : AfInet);
+        byte[] bytes = address.GetAddressBytes();
+        Marshal.Copy(bytes, 0, pointer + offset + (v6 ? 8 : 4), bytes.Length);
+        if (v6) Marshal.WriteInt32(pointer, offset + 24, unchecked((int)address.ScopeId));
+    }
+
+    private static IPAddress? ReadSockaddr(IntPtr pointer, int offset)
+    {
+        short family = Marshal.ReadInt16(pointer, offset);
+        if (family == AfInet)
+        {
+            var bytes = new byte[4];
+            Marshal.Copy(pointer + offset + 4, bytes, 0, bytes.Length);
+            return new IPAddress(bytes);
+        }
+        if (family == AfInet6)
+        {
+            var bytes = new byte[16];
+            Marshal.Copy(pointer + offset + 8, bytes, 0, bytes.Length);
+            uint scope = unchecked((uint)Marshal.ReadInt32(pointer, offset + 24));
+            return new IPAddress(bytes, scope);
+        }
+        return null;
+    }
+
+    private static bool IsUnspecified(IPAddress address) =>
+        address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any);
+
+    private void OwnRoute(IPAddress address, int prefix, string description, Func<bool> delete)
+    {
+        _ownedRoutes.Add(new OwnedRoute
+        {
+            Network = NetworkAddress(address, prefix).ToString(),
+            Prefix = prefix,
+            Description = description,
+            Delete = delete,
+        });
+    }
+
+    private bool DeleteOwnedRoute(OwnedRoute route)
+    {
+        if (!route.Active) return true;
+        if (!route.Delete()) return false;
+        route.Active = false;
+        return true;
+    }
+
+    private int DeleteOwnedRoutes(IPAddress address, int prefix)
+    {
+        string network = NetworkAddress(address, prefix).ToString();
+        int removed = 0;
+        foreach (var route in _ownedRoutes.Where(route => route.Active &&
+                     route.Prefix == prefix && route.Network == network).ToArray())
+        {
+            if (!DeleteOwnedRoute(route))
+                throw new InvalidOperationException($"could not remove Qeli-owned {route.Description}");
+            removed++;
+        }
+        return removed;
     }
 
     /// <summary>
@@ -558,23 +681,46 @@ public sealed class NetworkConfigurator : IDisposable
     /// resolves to the exact TUN index is definitive and fatal: ACKing that plan would start
     /// a carrier whose packets are routed back into itself.
     /// </remarks>
-    public void VerifyCarrierPath(IPAddress serverIp, uint tunIndex)
+    public void VerifyCarrierPath(
+        IPAddress serverIp,
+        uint tunIndex,
+        uint expectedPhysicalIfIndex,
+        IPAddress? expectedGateway)
     {
-        uint best = BestInterfaceIndex(serverIp);
-        if (best == 0)
+        var actual = BestRouteFor(serverIp);
+        if (actual == null)
         {
-            Degrade($"could not resolve the outgoing interface for {serverIp} after applying " +
+            Degrade($"could not resolve the outgoing route for {serverIp} after applying " +
                     "routes — cannot confirm the carrier bypasses the tunnel");
             return;
         }
-        if (best == tunIndex)
+        if (actual.InterfaceIndex == tunIndex)
         {
             throw new InvalidOperationException(
                 $"the route to the server {serverIp} resolves to the TUNNEL adapter " +
                 $"(if {tunIndex}); the encrypted carrier would loop back into itself. " +
                 "The server-route pin did not take effect");
         }
-        _log($"carrier path verified: {serverIp} leaves via interface {best} (tunnel is if {tunIndex})");
+        if (expectedPhysicalIfIndex != 0 && actual.InterfaceIndex != expectedPhysicalIfIndex)
+            throw new InvalidOperationException(
+                $"carrier {serverIp} moved from physical interface {expectedPhysicalIfIndex} " +
+                $"to {actual.InterfaceIndex} while the network plan was being applied");
+        if (!SameNextHop(actual.Gateway, expectedGateway))
+            throw new InvalidOperationException(
+                $"carrier {serverIp} next-hop changed while applying the network plan " +
+                $"({expectedGateway?.ToString() ?? "on-link"} -> " +
+                $"{actual.Gateway?.ToString() ?? "on-link"})");
+        _log($"carrier path verified: {serverIp} leaves via interface {actual.InterfaceIndex}, " +
+             $"next-hop {actual.Gateway?.ToString() ?? "on-link"} (tunnel is if {tunIndex})");
+    }
+
+    private static bool SameNextHop(IPAddress? left, IPAddress? right)
+    {
+        if (left == null || right == null) return left == null && right == null;
+        return left.AddressFamily == right.AddressFamily &&
+               left.GetAddressBytes().SequenceEqual(right.GetAddressBytes()) &&
+               (left.AddressFamily != AddressFamily.InterNetworkV6 ||
+                left.ScopeId == 0 || right.ScopeId == 0 || left.ScopeId == right.ScopeId);
     }
 
     public void SetDns(string alias, IReadOnlyList<string> servers)
@@ -606,6 +752,23 @@ public sealed class NetworkConfigurator : IDisposable
 
     public void Dispose()
     {
+        var failedRoutes = new List<string>();
+        for (int i = _ownedRoutes.Count - 1; i >= 0; i--)
+        {
+            var route = _ownedRoutes[i];
+            if (!route.Active) continue;
+            try
+            {
+                if (!DeleteOwnedRoute(route)) failedRoutes.Add(route.Description);
+            }
+            catch (Exception e)
+            {
+                failedRoutes.Add(route.Description);
+                _log($"route cleanup error ({route.Description}): {e.Message}");
+            }
+        }
+        _ownedRoutes.RemoveAll(route => !route.Active);
+
         // Restore DNS while the Wintun adapter still exists. Unlike route cleanup, silently
         // forgetting a failed resolver reset gives the lifecycle layer no chance to retry.
         var failedDnsFamilies = new List<string>();
@@ -640,10 +803,13 @@ public sealed class NetworkConfigurator : IDisposable
             try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
         }
         _undo.Clear();
-        if (failedDnsFamilies.Count != 0)
+        if (failedDnsFamilies.Count != 0 || failedRoutes.Count != 0)
             throw new InvalidOperationException(
-                $"could not reset {string.Join("/", failedDnsFamilies)} DNS on tunnel adapter " +
-                $"\"{alias}\"; cleanup will be retried");
+                "platform cleanup will be retried: " +
+                (failedDnsFamilies.Count == 0 ? "" :
+                    $"could not reset {string.Join("/", failedDnsFamilies)} DNS on \"{alias}\"; ") +
+                (failedRoutes.Count == 0 ? "" :
+                    $"could not remove routes: {string.Join(", ", failedRoutes)}"));
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -759,6 +925,39 @@ public sealed class NetworkConfigurator : IDisposable
                 command.EndsWith("dhcp", StringComparison.Ordinal)));
     }
 
+    internal static void RunRouteLifecycleSelfTest(Action<string, bool> check)
+    {
+        byte[] row = BuildRouteRow(
+            IPAddress.Parse("2001:db8:20::beef"), 64, 37,
+            new IPAddress(IPAddress.Parse("fe80::1").GetAddressBytes(), 37));
+        IntPtr native = Marshal.AllocHGlobal(Row2Size);
+        try
+        {
+            Marshal.Copy(row, 0, native, row.Length);
+            var destination = ReadSockaddr(native, OffDstFamily);
+            var nextHop = ReadSockaddr(native, OffNextHopFamily);
+            check("Windows route row preserves IPv6 prefix/interface/next-hop scope",
+                destination?.ToString() == "2001:db8:20::" &&
+                Marshal.ReadByte(native, OffDstPrefixLen) == 64 &&
+                unchecked((uint)Marshal.ReadInt32(native, OffIfIndex)) == 37 &&
+                nextHop?.ToString() == "fe80::1%37");
+        }
+        finally { Marshal.FreeHGlobal(native); }
+
+        row = BuildRouteRow(IPAddress.Parse("198.51.100.99"), 24, 9, null);
+        native = Marshal.AllocHGlobal(Row2Size);
+        try
+        {
+            Marshal.Copy(row, 0, native, row.Length);
+            var destination = ReadSockaddr(native, OffDstFamily);
+            var nextHop = ReadSockaddr(native, OffNextHopFamily);
+            check("Windows route row normalizes IPv4 and represents on-link next-hop",
+                destination?.ToString() == "198.51.100.0" &&
+                nextHop != null && IsUnspecified(nextHop));
+        }
+        finally { Marshal.FreeHGlobal(native); }
+    }
+
     /// <summary>Collect an already-exited child's pipe text without ever blocking
     /// indefinitely (the process is gone, so EOF is imminent; the bound is paranoia).</summary>
     private static string Drain(Task<string> t)
@@ -784,6 +983,25 @@ public sealed class NetworkConfigurator : IDisposable
         int maxPrefix = parsed.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32;
         return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix >= 0 && prefix <= maxPrefix
             ? (addr, prefix) : (null, 0);
+    }
+
+    private static IPAddress NetworkAddress(IPAddress address, int prefix)
+    {
+        byte[] bytes = address.GetAddressBytes();
+        int maxPrefix = bytes.Length * 8;
+        if (prefix < 0 || prefix > maxPrefix)
+            throw new ArgumentOutOfRangeException(nameof(prefix));
+        int whole = prefix / 8;
+        int bits = prefix % 8;
+        if (bits != 0)
+        {
+            bytes[whole] &= (byte)(0xff << (8 - bits));
+            whole++;
+        }
+        Array.Clear(bytes, whole, bytes.Length - whole);
+        return address.AddressFamily == AddressFamily.InterNetworkV6
+            ? new IPAddress(bytes, address.ScopeId)
+            : new IPAddress(bytes);
     }
 
     /// <summary>True only if <paramref name="s"/> is a bare IP literal safe to splice into a

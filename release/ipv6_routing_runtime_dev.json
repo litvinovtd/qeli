@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:00:26Z",
+    "passed": 3,
+    "failed": 0
+  },
+  "rows": {
+    "routing-ipv6-route": {
+      "status": "PASS",
+      "route": "2001:db8:feed::/64 dev qv6c0 metric 90 pref medium",
+      "capture": "tcpdump: verbose output suppressed, use -v[v]... for full protocol decode\nlistening on qv6peer, link-type EN10MB (Ethernet), snapshot length 262144 bytes\n02:59:16.189321 IP6 fd71:e1:90::2 > 2001:db8:feed::2: ICMP6, echo request, id 105, seq 1, length 64\n1 packet captured\n1 packet received by filter\n0 packets dropped by kernel",
+      "tcp_mbps": 464.8,
+      "rules": "-A FORWARD ! -i vpn0 -o vpn0 -m comment --comment \"qeli-nat:bench\" -j ACCEPT\n-A FORWARD -i vpn0 ! -o vpn0 -m comment --comment \"qeli-nat:bench\" -j ACCEPT\n# Warning: ip6tables-legacy tables present, use ip6tables-legacy to see them"
+    },
+    "routing-ipv6-nat66": {
+      "status": "PASS",
+      "capture": "tcpdump: verbose output suppressed, use -v[v]... for full protocol decode\nlistening on qv6peer, link-type EN10MB (Ethernet), snapshot length 262144 bytes\n02:59:46.977011 IP6 2001:db8:feed::1 > 2001:db8:feed::2: ICMP6, echo request, id 106, seq 1, length 64\n1 packet captured\n1 packet received by filter\n0 packets dropped by kernel",
+      "tcp_mbps": 597.9,
+      "nat_rules": "-A POSTROUTING -s fd71:e1:90::/64 -o qv6wan -m comment --comment \"qeli-nat:bench\" -j MASQUERADE\n# Warning: ip6tables-legacy tables present, use ip6tables-legacy to see them"
+    },
+    "ipv6-client-subnet-forward-lan-subnet-ipv6": {
+      "status": "PASS",
+      "server_route": "2001:db8:cafe::/64 dev vpn0 metric 42760 pref medium",
+      "capture": "tcpdump: verbose output suppressed, use -v[v]... for full protocol decode\nlistening on qv6lpeer, link-type EN10MB (Ethernet), snapshot length 262144 bytes\n03:00:17.932931 IP6 fd71:e1:90::1 > 2001:db8:cafe::2: ICMP6, echo request, id 5, seq 1, length 64\n1 packet captured\n1 packet received by filter\n0 packets dropped by kernel",
+      "tcp_mbps": 704.2,
+      "client_rules": ""
+    }
+  }
+}

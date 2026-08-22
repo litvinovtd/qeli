@@ -926,8 +926,9 @@ mod fault_injection {
     // An IP literal so `resolve_ips` needs no DNS; allow_ipv6_leak keeps the v6 leg from
     // failing closed on a host that happens to have global IPv6.
     fn engage_test(ipt: &Ipt, tun_if: &str, guard_forward: bool) -> anyhow::Result<()> {
-        let _ = ipt;
-        engage("203.0.113.7", 443, tun_if, true, true, guard_forward)
+        let path = ipt.dir.join("iptables");
+        let path = path.to_string_lossy().into_owned();
+        engage_family(&path, tun_if, &["203.0.113.7".to_string()], guard_forward)
     }
 
     /// The port-53 allowance must be scoped to real upstream resolvers.

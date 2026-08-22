@@ -204,6 +204,7 @@ public static class CliRunner
 
         WinDivertSelfTest.RunUnit(Check);
         NetworkConfigurator.RunDnsLifecycleSelfTest(Check);
+        NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
 
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);

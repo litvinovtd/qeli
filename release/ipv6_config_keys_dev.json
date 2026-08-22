@@ -1,0 +1,282 @@
+{
+  "meta": {
+    "date_utc": "2026-08-21T23:44:23Z",
+    "binary_sha256": "098e7156e1fe9c75d550ed243dbe81f946b7a29fdcdb13a325c82a6408b332ff",
+    "passed": 32,
+    "failed": 2
+  },
+  "rows": {
+    "valid-all-server-ipv6-keys": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": true,
+      "exit_code": 0,
+      "expected_marker": "OK",
+      "output": "/etc/qeli/ipv6-key-server.conf: OK\n2026-08-22 02:43:52.946 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks."
+    },
+    "default-ipv4-backward-compatible": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": true,
+      "exit_code": 0,
+      "expected_marker": "OK",
+      "output": "/etc/qeli/ipv6-key-server.conf: OK\n2026-08-22 02:43:53.909 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks."
+    },
+    "bad-ip-mode": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "ip_mode",
+      "output": "2026-08-22 02:43:54.861 WARN  qeli::config::format: config: key 'tun.ip_mode' has an unparsable value 'potato'; using the default\n2026-08-22 02:43:54.861 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/etc/qeli/ipv6-key-server.conf: 1 value(s) present but not understood — the default was used instead:\n  key 'tun.ip_mode' has an unparsable value 'potato' — the default was used instead"
+    },
+    "dual-missing-ipv6-address": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "tun.ipv6_address",
+      "output": "2026-08-22 02:43:55.829 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.ipv6_address is required when IPv6 addressing is configured"
+    },
+    "dual-missing-ipv6-pool": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "pool.ipv6.cidr",
+      "output": "2026-08-22 02:43:56.769 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': pool.ipv6.cidr is required when IPv6 addressing is configured"
+    },
+    "link-local-tun-address": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "link-local",
+      "output": "2026-08-22 02:43:57.751 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.ipv6_address must not be link-local — tunnel addresses need profile-wide scope"
+    },
+    "loopback-tun-address": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "loopback",
+      "output": "2026-08-22 02:43:58.697 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.ipv6_address must not be the IPv6 loopback address ::1"
+    },
+    "mapped-tun-address": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "IPv4-mapped",
+      "output": "2026-08-22 02:43:59.638 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.ipv6_address must not be an IPv4-mapped IPv6 address; configure the real family"
+    },
+    "bad-ipv6-prefix": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "pool.ipv6.cidr",
+      "output": "2026-08-22 02:44:00.581 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': invalid pool.ipv6.cidr 'fd71:e1:90::/129': prefix must be between 1 and 126"
+    },
+    "tun-address-outside-pool": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "assignable host inside",
+      "output": "2026-08-22 02:44:01.528 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.ipv6_address fd71:e1:91::1 is not an assignable host inside pool.ipv6.cidr fd71:e1:90::/64 (network fd71:e1:90:: is reserved as subnet-router anycast)"
+    },
+    "exclude-server-address": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "exclude",
+      "output": "2026-08-22 02:44:02.477 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': pool.ipv6.exclude contains tun.ipv6_address fd71:e1:90::1"
+    },
+    "exclude-outside-pool": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "outside",
+      "output": "2026-08-22 02:44:03.425 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': pool.ipv6.exclude address fd71:e1:91::10 is outside pool.ipv6.cidr fd71:e1:90::/64"
+    },
+    "reservation-collides-exclude": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "collides",
+      "output": "2026-08-22 02:44:04.366 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': pool.ipv6.reservation.bench = fd71:e1:90::50 collides with the server address or pool.ipv6.exclude"
+    },
+    "bad-routing-mode": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "routing.ipv6.mode",
+      "output": "2026-08-22 02:44:05.340 WARN  qeli::config::format: config: key 'routing.ipv6.mode' has an unparsable value 'masquerade'; using the default\n2026-08-22 02:44:05.340 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/etc/qeli/ipv6-key-server.conf: 1 value(s) present but not understood — the default was used instead:\n  key 'routing.ipv6.mode' has an unparsable value 'masquerade' — the default was used instead"
+    },
+    "ipv4-with-ipv6-routing": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "requires tun.ip_mode",
+      "output": "2026-08-22 02:44:06.293 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': routing.ipv6.mode = route requires tun.ip_mode = dual or ipv6"
+    },
+    "ipv6-mtu-below-1280": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "IPv6 minimum",
+      "output": "2026-08-22 02:44:07.278 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': tun.mtu 1279 is below the IPv6 minimum 1280 for tun.ip_mode = dual"
+    },
+    "ipv6-with-dhcpv4": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "DHCP",
+      "output": "2026-08-22 02:44:08.218 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': dhcp.enabled is DHCPv4 and cannot be enabled in an IPv6-only profile"
+    },
+    "dns-missing-listen6": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "dns.listen_ipv6",
+      "output": "2026-08-22 02:44:09.159 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6"
+    },
+    "dns-listen6-mismatch": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "must equal",
+      "output": "2026-08-22 02:44:10.115 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': dns.listen_ipv6 fd71:e1:90::53 must equal tun.ipv6_address — it is the only IPv6 address configured on the server TUN"
+    },
+    "v6-push-on-ipv4-profile": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "requires tun.ip_mode",
+      "output": "2026-08-22 02:44:11.066 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': IPv6 dns.push_servers entry 'fd71:e1:90::1' requires tun.ip_mode = dual or ipv6"
+    },
+    "ipv6-route-on-ipv4-profile": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "IPv6",
+      "output": "2026-08-22 02:44:12.019 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: profile 'bench': route 2001:db8:123::/64 is IPv6 but tun.ip_mode = ipv4"
+    },
+    "unknown-ipv6-key": {
+      "owner": "server",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "unknown",
+      "output": "2026-08-22 02:44:12.965 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/etc/qeli/ipv6-key-server.conf: 1 key(s) that nothing reads — check the spelling:\n  [profile:bench] tun.ipv_6_address\nAn unknown key is not an error: it is simply ignored, and the setting keeps its default."
+    },
+    "static-ipv6-outside-pool": {
+      "owner": "server",
+      "status": "FAIL",
+      "expected_success": false,
+      "exit_code": 0,
+      "expected_marker": "outside",
+      "output": "/etc/qeli/ipv6-key-server.conf: OK\n2026-08-22 02:44:13.914 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks."
+    },
+    "client-subnet-family-disabled": {
+      "owner": "server",
+      "status": "FAIL",
+      "expected_success": false,
+      "exit_code": 0,
+      "expected_marker": "IPv6",
+      "output": "/etc/qeli/ipv6-key-server.conf: OK\n2026-08-22 02:44:14.861 WARN  qeli::server: profile 'bench': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks."
+    },
+    "valid-all-client-ipv6-keys": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": true,
+      "exit_code": 0,
+      "expected_marker": "OK",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n/etc/qeli/ipv6-key-client.conf: OK"
+    },
+    "client-policy-auto": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": true,
+      "exit_code": 0,
+      "expected_marker": "OK",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n/etc/qeli/ipv6-key-client.conf: OK"
+    },
+    "client-policy-off": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": true,
+      "exit_code": 0,
+      "expected_marker": "OK",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n/etc/qeli/ipv6-key-client.conf: OK"
+    },
+    "bad-client-policy": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "ipv6",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n2026-08-22 02:44:18.537 WARN  qeli::config::format: config: key 'ipv6' has an unparsable value 'yes'; using the default\n/etc/qeli/ipv6-key-client.conf: 1 value(s) present but not understood — the default was used instead:\n  key 'ipv6' has an unparsable value 'yes' — the default was used instead"
+    },
+    "bare-server-ipv6": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "[host]:port",
+      "output": "Error: /etc/qeli/ipv6-key-client.conf: 'server' looks like a bare IPv6 address — wrap it as [host]:port: 'fd66:116::10'"
+    },
+    "bad-ipv6-include-hostbits": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "include",
+      "output": "Error: /etc/qeli/ipv6-key-client.conf: key 'include' contains invalid CIDR '2001:db8:123::1/64' (expected a bare address/prefix, e.g. 192.168.1.0/24 or 2001:db8::7/128)"
+    },
+    "off-with-lan-subnet6": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "cannot be used",
+      "output": "Error: /etc/qeli/ipv6-key-client.conf: 'lan_subnet_ipv6' cannot be used with ipv6 = off"
+    },
+    "bad-dns-server6": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "DNS",
+      "output": "Error: /etc/qeli/ipv6-key-client.conf: 'dns_servers' contains invalid resolver 'fe80::zz'"
+    },
+    "bad-allow-ipv6-leak-bool": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "unrecognised",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n2026-08-22 02:44:23.281 WARN  qeli::config::format: config: key 'allow_ipv6_leak' has an unrecognised boolean 'perhaps'; using the default (false). Accepted: true/false, yes/no, on/off, 1/0\n/etc/qeli/ipv6-key-client.conf: 1 value(s) present but not understood — the default was used instead:\n  key 'allow_ipv6_leak' has an unrecognised boolean 'perhaps' — the default (false) was used. Several of these are security switches whose default is OFF. Accepted: true/false, yes/no, on/off, 1/0"
+    },
+    "unknown-client-ipv6-key": {
+      "owner": "client",
+      "status": "PASS",
+      "expected_success": false,
+      "exit_code": 1,
+      "expected_marker": "unknown",
+      "output": "/etc/qeli/ipv6-key-client.conf: 1 key(s) used only by the Windows/macOS clients (ignored here):\n  [qeli] reconnect\n/etc/qeli/ipv6-key-client.conf: 1 key(s) that nothing reads — check the spelling:\n  [qeli] ip_v6\nAn unknown key is not an error: it is simply ignored, and the setting keeps its default."
+    }
+  }
+}

@@ -12,6 +12,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
     private PerAppController? _perApp;
+    private UtunDevice? _prewarmedUtun;
 
     protected override bool NativeTunFdOwnership => true;
 
@@ -81,8 +82,13 @@ public sealed class VpnTunnel : VpnTunnelBase
             .Select(route => (route, path: _net.PhysicalPathForRoute(route)))
             .ToArray();
 
-        var utun = new UtunDevice();
-        utun.Open();
+        var utun = _prewarmedUtun;
+        _prewarmedUtun = null;
+        if (utun == null)
+        {
+            utun = new UtunDevice();
+            utun.Open();
+        }
         string dev = utun.Name;
         var selectedPath = carrierPaths.First(path => path.address.Equals(serverIp));
         Log($"utun interface '{dev}' (physical path {selectedPath.physicalIf ?? "?"} via {selectedPath.gateway?.ToString() ?? "?"})");
@@ -108,16 +114,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             foreach (var (address, physicalIf, gateway) in carrierPaths)
             {
-                if (gateway != null)
-                {
-                    _net.PinServerRoute(address, gateway);
-                }
-                else if (physicalIf != null)
-                {
-                    // `route -n get` resolved an interface but no gateway: the peer is
-                    // on-link and its connected route is already the correct bypass.
-                    Log($"server {address} is on-link (same subnet) — not pinning; the connected route keeps the carrier off the tunnel");
-                }
+                if (gateway != null || physicalIf != null)
+                    _net.PinServerRoute(address, gateway, physicalIf);
                 else if (config.IsFullTunnel)
                 {
                     throw new InvalidOperationException(
@@ -129,6 +127,11 @@ public sealed class VpnTunnel : VpnTunnelBase
                 }
             }
         }
+
+        // The firewall was raised before authentication. Once this utun is the generation's
+        // actual adapter, atomically drop any old/replacement alias from the PF allowlist.
+        if (EgressGuardEngaged)
+            KillSwitch.UpdateTunnelInterfaces(new[] { dev }, Log);
 
         // Per-app mode is deliberately NOT expressed as host routes or host DNS. A signed
         // NETransparentProxyProvider classifies flows by source-app signing identifier and
@@ -406,6 +409,19 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override bool TryReconfigurePersistedTun(
         VpnConfig config, Session session, IPAddress serverIp)
     {
+        if (!config.UsesAppFilter)
+        {
+            // With a user kill-switch already engaged, the base does not engage a second
+            // replacement guard. Move PF to the reserved replacement name while the old
+            // descriptor is still alive. If the atomic reload fails, neither allowed alias
+            // has been released; only after success may the base close the old utun.
+            if (EgressGuardEngaged && _tun is UtunDevice)
+            {
+                var replacement = EnsurePrewarmedUtun();
+                KillSwitch.UpdateTunnelInterfaces(new[] { replacement.Name }, Log);
+            }
+            return false;
+        }
         if (!config.UsesAppFilter || _tun is not UtunDevice retained) return false;
 
         // The transparent proxy was put into tunnel-down mode before reconnect, so selected
@@ -433,10 +449,8 @@ public sealed class VpnTunnel : VpnTunnelBase
 
             if (!string.IsNullOrEmpty(config.LocalAddress))
                 Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
-            else if (gateway != null)
-                nextNetwork.PinServerRoute(serverIp, gateway);
-            else if (physicalIf != null)
-                Log($"server {serverIp} is on-link (same subnet) — not pinning; the connected route keeps the carrier off the tunnel");
+            else if (gateway != null || physicalIf != null)
+                nextNetwork.PinServerRoute(serverIp, gateway, physicalIf);
             else
                 Log("WARN: could not determine physical gateway; per-app carrier may loop");
 
@@ -472,10 +486,49 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void BeforeTunDispose() => _perApp?.Stop();
 
-    // Firewall kill-switch (full-tunnel only) via pf. The utun name is dynamic, so
-    // KillSwitch passes utun0..15 (the rule matches once our utun appears).
-    protected override void KillSwitchEngage(VpnConfig config) =>
-        KillSwitch.Engage(config.ServerAddress, Log);
+    // Firewall kill-switch (full-tunnel only) via pf. Create/reserve the next utun before
+    // raising PF, so the allowlist names only interfaces actually owned by this tunnel.
+    protected override bool KillSwitchEngageFailureRetainsOwnership(Exception error) =>
+        error is AggregateException;
+    protected override void KillSwitchEngage(VpnConfig config)
+    {
+        var names = new List<string>();
+        if (_tun is UtunDevice current) names.Add(current.Name);
+        names.Add(EnsurePrewarmedUtun().Name);
+        try
+        {
+            KillSwitch.Engage(config.ServerAddress, names, Log);
+        }
+        catch (AggregateException)
+        {
+            // PF rollback itself failed. Keep the named utun alive so a partially active
+            // fail-closed ruleset cannot suddenly refer to a recycled foreign interface.
+            throw;
+        }
+        catch
+        {
+            _prewarmedUtun?.Dispose();
+            _prewarmedUtun = null;
+            throw;
+        }
+    }
+
+    private UtunDevice EnsurePrewarmedUtun()
+    {
+        if (_prewarmedUtun != null) return _prewarmedUtun;
+        var device = new UtunDevice();
+        try
+        {
+            device.Open();
+            _prewarmedUtun = device;
+            return device;
+        }
+        catch
+        {
+            device.Dispose();
+            throw;
+        }
+    }
 
     protected override void CarrierAddressesChanging(
         VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
@@ -484,5 +537,12 @@ public sealed class VpnTunnel : VpnTunnelBase
             KillSwitch.UpdateServerAddresses(refreshed, Log);
     }
 
-    protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
+    protected override void KillSwitchDisengage()
+    {
+        // Remove PF rules first. If that fails, retain the reserved interface and its name;
+        // the base will keep ownership armed and retry instead of allowing alias recycling.
+        KillSwitch.Disengage(Log);
+        _prewarmedUtun?.Dispose();
+        _prewarmedUtun = null;
+    }
 }

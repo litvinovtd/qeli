@@ -1,0 +1,3756 @@
+{
+  "meta": {
+    "started_utc": "2026-08-21T22:50:30Z",
+    "sha256": "098e7156e1fe9c75d550ed243dbe81f946b7a29fdcdb13a325c82a6408b332ff",
+    "version": "qeli 0.7.17",
+    "finished_utc": "2026-08-21T23:38:42Z",
+    "passed": 72,
+    "failed": 0
+  },
+  "rows": {
+    "tcp-plain-raw__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 628.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 651.5,
+            "retransmits": 47,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:52:22.474739 IP 10.66.116.11.46562 > 10.66.116.10.443: Flags [S], seq 1075655880, win 64240, options [mss 1460,sackOK,TS val 3098688536 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.86
+    },
+    "tcp-plain-raw__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 621.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 678.7,
+            "retransmits": 109,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:52:58.875340 IP 10.66.116.11.58482 > 10.66.116.10.443: Flags [S], seq 2067290659, win 64240, options [mss 1460,sackOK,TS val 3098724936 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "tcp-plain-raw__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 490.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 668.3,
+            "retransmits": 89,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 592.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 695.5,
+            "retransmits": 778,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:53:35.345406 IP 10.66.116.11.64984 > 10.66.116.10.443: Flags [S], seq 4162855180, win 64240, options [mss 1460,sackOK,TS val 3098761406 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.62
+    },
+    "tcp-plain-raw__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 580.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 716.5,
+            "retransmits": 82,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:54:18.507816 IP6 fd66:116::11.40628 > fd66:116::10.443: Flags [S], seq 2532228088, win 64800, options [mss 1440,sackOK,TS val 2208077280 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.86
+    },
+    "tcp-plain-raw__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 638.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 707.9,
+            "retransmits": 22,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:54:54.932695 IP6 fd66:116::11.22584 > fd66:116::10.443: Flags [S], seq 2199839439, win 64800, options [mss 1440,sackOK,TS val 2208113705 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.9
+    },
+    "tcp-plain-raw__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 677.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 695.8,
+            "retransmits": 947,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 659.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 697.6,
+            "retransmits": 120,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:55:31.415484 IP6 fd66:116::11.65022 > fd66:116::10.443: Flags [S], seq 3476331246, win 64800, options [mss 1440,sackOK,TS val 2208150187 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.61
+    },
+    "tcp-faketls__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 642.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 694.6,
+            "retransmits": 190,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:56:14.554555 IP 10.66.116.11.36932 > 10.66.116.10.443: Flags [S], seq 558137275, win 64240, options [mss 1460,sackOK,TS val 3098920616 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.9
+    },
+    "tcp-faketls__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 480.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 662.0,
+            "retransmits": 268,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:56:51.043776 IP 10.66.116.11.41446 > 10.66.116.10.443: Flags [S], seq 1031185043, win 64240, options [mss 1460,sackOK,TS val 3098957105 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.87
+    },
+    "tcp-faketls__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 634.2,
+            "retransmits": 16,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 685.1,
+            "retransmits": 442,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 609.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 670.4,
+            "retransmits": 47,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:57:27.458325 IP 10.66.116.11.21286 > 10.66.116.10.443: Flags [S], seq 3555034384, win 64240, options [mss 1460,sackOK,TS val 3098993519 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.7
+    },
+    "tcp-faketls__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 648.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 728.6,
+            "retransmits": 578,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:58:10.755774 IP6 fd66:116::11.9622 > fd66:116::10.443: Flags [S], seq 3616189938, win 64800, options [mss 1440,sackOK,TS val 2208309528 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "tcp-faketls__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 671.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 688.2,
+            "retransmits": 99,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:58:47.179020 IP6 fd66:116::11.55908 > fd66:116::10.443: Flags [S], seq 898390951, win 64800, options [mss 1440,sackOK,TS val 2208345951 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.9
+    },
+    "tcp-faketls__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 697.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 701.7,
+            "retransmits": 177,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 661.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 720.7,
+            "retransmits": 116,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "01:59:23.653691 IP6 fd66:116::11.65014 > fd66:116::10.443: Flags [S], seq 1691494319, win 64800, options [mss 1440,sackOK,TS val 2208382426 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.67
+    },
+    "tcp-padding__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 648.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 656.8,
+            "retransmits": 105,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:00:06.916004 IP 10.66.116.11.22446 > 10.66.116.10.443: Flags [S], seq 3900038027, win 64240, options [mss 1460,sackOK,TS val 3099152977 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-padding__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 606.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 636.6,
+            "retransmits": 462,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:00:43.330627 IP 10.66.116.11.4254 > 10.66.116.10.443: Flags [S], seq 4101937060, win 64240, options [mss 1460,sackOK,TS val 3099189392 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.87
+    },
+    "tcp-padding__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 699.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 666.2,
+            "retransmits": 508,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 619.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 702.9,
+            "retransmits": 164,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:01:19.801960 IP 10.66.116.11.45328 > 10.66.116.10.443: Flags [S], seq 1934771765, win 64240, options [mss 1460,sackOK,TS val 3099225863 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.61
+    },
+    "tcp-padding__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 651.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 710.2,
+            "retransmits": 40,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:02:02.946259 IP6 fd66:116::11.25680 > fd66:116::10.443: Flags [S], seq 3003818092, win 64800, options [mss 1440,sackOK,TS val 2208541718 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.85
+    },
+    "tcp-padding__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 667.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 702.7,
+            "retransmits": 19,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:02:39.414925 IP6 fd66:116::11.3576 > fd66:116::10.443: Flags [S], seq 3220295827, win 64800, options [mss 1440,sackOK,TS val 2208578187 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.94
+    },
+    "tcp-padding__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 665.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 670.4,
+            "retransmits": 88,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 626.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 693.4,
+            "retransmits": 155,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:03:15.875647 IP6 fd66:116::11.44102 > fd66:116::10.443: Flags [S], seq 3269291540, win 64800, options [mss 1440,sackOK,TS val 2208614648 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.64
+    },
+    "tcp-frag__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 448.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 717.0,
+            "retransmits": 220,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:03:59.108734 IP 10.66.116.11.55476 > 10.66.116.10.443: Flags [S], seq 1799045818, win 64240, options [mss 1460,sackOK,TS val 3099385170 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "tcp-frag__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 602.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 683.0,
+            "retransmits": 60,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:04:35.543562 IP 10.66.116.11.4624 > 10.66.116.10.443: Flags [S], seq 2601418440, win 64240, options [mss 1460,sackOK,TS val 3099421605 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.86
+    },
+    "tcp-frag__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 618.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 662.0,
+            "retransmits": 107,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 495.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 670.4,
+            "retransmits": 93,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:05:11.988080 IP 10.66.116.11.30206 > 10.66.116.10.443: Flags [S], seq 1728968490, win 64240, options [mss 1460,sackOK,TS val 3099458049 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.61
+    },
+    "tcp-frag__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 660.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 733.8,
+            "retransmits": 206,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:05:55.135010 IP6 fd66:116::11.62856 > fd66:116::10.443: Flags [S], seq 2670874155, win 64800, options [mss 1440,sackOK,TS val 2208773907 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.86
+    },
+    "tcp-frag__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 670.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 750.1,
+            "retransmits": 98,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:06:31.623061 IP6 fd66:116::11.6664 > fd66:116::10.443: Flags [S], seq 2018413330, win 64800, options [mss 1440,sackOK,TS val 2208810395 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.93
+    },
+    "tcp-frag__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 637.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 709.1,
+            "retransmits": 252,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 673.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 716.5,
+            "retransmits": 742,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:07:08.065752 IP6 fd66:116::11.49216 > fd66:116::10.443: Flags [S], seq 2321074801, win 64800, options [mss 1440,sackOK,TS val 2208846838 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.61
+    },
+    "tcp-obfs__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 580.4,
+            "retransmits": 150,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 598.8,
+            "retransmits": 901,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:07:51.256097 IP 10.66.116.11.22934 > 10.66.116.10.443: Flags [S], seq 2002140735, win 64240, options [mss 1460,sackOK,TS val 3099617317 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-obfs__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 607.8,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 601.7,
+            "retransmits": 899,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:08:27.706088 IP 10.66.116.11.52990 > 10.66.116.10.443: Flags [S], seq 3972479566, win 64240, options [mss 1460,sackOK,TS val 3099653767 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-obfs__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 661.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 574.4,
+            "retransmits": 282,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 580.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 623.3,
+            "retransmits": 328,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:09:04.135469 IP 10.66.116.11.45774 > 10.66.116.10.443: Flags [S], seq 3489917782, win 64240, options [mss 1460,sackOK,TS val 3099690196 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.57
+    },
+    "tcp-obfs__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 461.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 600.1,
+            "retransmits": 150,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:09:47.301309 IP6 fd66:116::11.54432 > fd66:116::10.443: Flags [S], seq 1175334041, win 64800, options [mss 1440,sackOK,TS val 2209006073 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.87
+    },
+    "tcp-obfs__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 661.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 661.8,
+            "retransmits": 262,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:10:23.730737 IP6 fd66:116::11.53432 > fd66:116::10.443: Flags [S], seq 2491532201, win 64800, options [mss 1440,sackOK,TS val 2209042503 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "tcp-obfs__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 641.4,
+            "retransmits": 239,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 659.9,
+            "retransmits": 17,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 612.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 651.4,
+            "retransmits": 137,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:11:00.143828 IP6 fd66:116::11.12518 > fd66:116::10.443: Flags [S], seq 2675862101, win 64800, options [mss 1440,sackOK,TS val 2209078916 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.66
+    },
+    "tcp-reality__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 493.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 695.5,
+            "retransmits": 243,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:11:43.424644 IP 10.66.116.11.23288 > 10.66.116.10.443: Flags [S], seq 4147626785, win 64240, options [mss 1460,sackOK,TS val 3099849486 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-reality__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 363.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 727.0,
+            "retransmits": 86,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:12:19.859027 IP 10.66.116.11.19882 > 10.66.116.10.443: Flags [S], seq 1412908792, win 64240, options [mss 1460,sackOK,TS val 3099885920 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.95
+    },
+    "tcp-reality__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 431.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 707.0,
+            "retransmits": 272,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 508.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 677.2,
+            "retransmits": 308,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:12:56.384086 IP 10.66.116.11.19012 > 10.66.116.10.443: Flags [S], seq 360619767, win 64240, options [mss 1460,sackOK,TS val 3099922445 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.73
+    },
+    "tcp-reality__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 643.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 725.9,
+            "retransmits": 164,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:13:39.700431 IP6 fd66:116::11.25348 > fd66:116::10.443: Flags [S], seq 4294776845, win 64800, options [mss 1440,sackOK,TS val 2209238472 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "tcp-reality__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 703.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 700.8,
+            "retransmits": 217,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:14:16.166619 IP6 fd66:116::11.10664 > fd66:116::10.443: Flags [S], seq 3202418952, win 64800, options [mss 1440,sackOK,TS val 2209274939 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-reality__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 681.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 727.0,
+            "retransmits": 115,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 600.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 726.9,
+            "retransmits": 203,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:14:52.615675 IP6 fd66:116::11.4456 > fd66:116::10.443: Flags [S], seq 3454336382, win 64800, options [mss 1440,sackOK,TS val 2209311388 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.63
+    },
+    "tcp-reality-tls__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 597.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 357.2,
+            "retransmits": 109,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:15:35.766793 IP 10.66.116.11.1780 > 10.66.116.10.443: Flags [S], seq 2747558848, win 64240, options [mss 1460,sackOK,TS val 3100081828 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.93
+    },
+    "tcp-reality-tls__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 551.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 354.0,
+            "retransmits": 11,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:16:12.284275 IP 10.66.116.11.63086 > 10.66.116.10.443: Flags [S], seq 1763731175, win 64240, options [mss 1460,sackOK,TS val 3100118345 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.94
+    },
+    "tcp-reality-tls__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 584.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 352.0,
+            "retransmits": 0,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 508.7,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 331.0,
+            "retransmits": 57,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:16:48.778870 IP 10.66.116.11.64026 > 10.66.116.10.443: Flags [S], seq 1115656261, win 64240, options [mss 1460,sackOK,TS val 3100154840 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.75
+    },
+    "tcp-reality-tls__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 611.4,
+            "retransmits": 76,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 391.8,
+            "retransmits": 120,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:17:32.102635 IP6 fd66:116::11.13714 > fd66:116::10.443: Flags [S], seq 1531884034, win 64800, options [mss 1440,sackOK,TS val 2209470875 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.83
+    },
+    "tcp-reality-tls__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 544.8,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 406.4,
+            "retransmits": 98,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:18:08.521267 IP6 fd66:116::11.7026 > fd66:116::10.443: Flags [S], seq 3452276727, win 64800, options [mss 1440,sackOK,TS val 2209507293 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.87
+    },
+    "tcp-reality-tls__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 602.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 402.2,
+            "retransmits": 6,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 581.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 375.0,
+            "retransmits": 87,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:18:44.962954 IP6 fd66:116::11.3108 > fd66:116::10.443: Flags [S], seq 2371037633, win 64800, options [mss 1440,sackOK,TS val 2209543735 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.67
+    },
+    "udp-faketls__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 562.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 709.1,
+            "retransmits": 82,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:19:28.190926 IP 10.66.116.11.45766 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.9
+    },
+    "udp-faketls__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 565.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 659.9,
+            "retransmits": 8,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:20:04.646967 IP 10.66.116.11.62350 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "udp-faketls__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 586.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 653.6,
+            "retransmits": 182,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 521.0,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 635.8,
+            "retransmits": 88,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:20:41.087424 IP 10.66.116.11.30721 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.62
+    },
+    "udp-faketls__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 602.9,
+            "retransmits": 62,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 672.4,
+            "retransmits": 47,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:21:24.271735 IP6 fd66:116::11.25801 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "udp-faketls__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 569.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 649.0,
+            "retransmits": 288,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:22:00.744311 IP6 fd66:116::11.24239 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "udp-faketls__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 605.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 693.5,
+            "retransmits": 180,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 586.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 702.5,
+            "retransmits": 208,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:22:37.203837 IP6 fd66:116::11.11446 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.69
+    },
+    "udp-padding__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 573.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 613.8,
+            "retransmits": 12,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:23:20.474375 IP 10.66.116.11.35020 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "udp-padding__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 530.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 673.5,
+            "retransmits": 200,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:23:56.914715 IP 10.66.116.11.6803 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.92
+    },
+    "udp-padding__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 519.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 690.3,
+            "retransmits": 169,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 588.0,
+            "retransmits": 20,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 671.3,
+            "retransmits": 645,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:24:33.367443 IP 10.66.116.11.14798 > 10.66.116.10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.62
+    },
+    "udp-padding__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 584.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 702.9,
+            "retransmits": 102,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:25:16.573279 IP6 fd66:116::11.18542 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "udp-padding__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 550.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 697.4,
+            "retransmits": 657,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:25:53.032162 IP6 fd66:116::11.4939 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "udp-padding__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 512.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 674.6,
+            "retransmits": 43,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 570.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 729.4,
+            "retransmits": 951,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:26:29.474741 IP6 fd66:116::11.41664 > fd66:116::10.4443: UDP, length 1169",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.6
+    },
+    "udp-quic__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 471.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 697.5,
+            "retransmits": 166,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:27:12.644521 IP 10.66.116.11.24160 > 10.66.116.10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "udp-quic__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 540.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 659.9,
+            "retransmits": 166,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:27:49.086386 IP 10.66.116.11.21062 > 10.66.116.10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "udp-quic__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 575.5,
+            "retransmits": 133,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 674.5,
+            "retransmits": 424,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 550.3,
+            "retransmits": 16,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 710.2,
+            "retransmits": 385,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:28:25.547281 IP 10.66.116.11.19443 > 10.66.116.10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.54
+    },
+    "udp-quic__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 279.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 299.8,
+            "retransmits": 0,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:29:08.682322 IP6 fd66:116::11.37132 > fd66:116::10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.95
+    },
+    "udp-quic__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 275.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 329.7,
+            "retransmits": 0,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:29:45.156609 IP6 fd66:116::11.39120 > fd66:116::10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 35.0
+    },
+    "udp-quic__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 323.9,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 316.3,
+            "retransmits": 0,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 286.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 257.6,
+            "retransmits": 0,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:30:21.727421 IP6 fd66:116::11.11337 > fd66:116::10.4443: UDP, length 1187",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.76
+    },
+    "tcp-obfs-awg__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 561.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 623.6,
+            "retransmits": 277,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:31:05.041094 IP 10.66.116.11.4034 > 10.66.116.10.443: Flags [S], seq 3381571237, win 64240, options [mss 1460,sackOK,TS val 3101011102 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.92
+    },
+    "tcp-obfs-awg__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 544.4,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 623.2,
+            "retransmits": 648,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:31:41.554905 IP 10.66.116.11.51452 > 10.66.116.10.443: Flags [S], seq 3260150689, win 64240, options [mss 1460,sackOK,TS val 3101047616 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.88
+    },
+    "tcp-obfs-awg__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 634.8,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 602.3,
+            "retransmits": 408,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 614.1,
+            "retransmits": 55,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 605.7,
+            "retransmits": 333,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:32:17.995022 IP 10.66.116.11.29982 > 10.66.116.10.443: Flags [S], seq 339840732, win 64240, options [mss 1460,sackOK,TS val 3101084056 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.64
+    },
+    "tcp-obfs-awg__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 632.6,
+            "retransmits": 18,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 657.8,
+            "retransmits": 283,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:33:01.206123 IP6 fd66:116::11.46426 > fd66:116::10.443: Flags [S], seq 2715957724, win 64800, options [mss 1440,sackOK,TS val 2210399978 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.89
+    },
+    "tcp-obfs-awg__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 559.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 629.5,
+            "retransmits": 1051,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:33:37.635735 IP6 fd66:116::11.45428 > fd66:116::10.443: Flags [S], seq 399501043, win 64800, options [mss 1440,sackOK,TS val 2210436408 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.87
+    },
+    "tcp-obfs-awg__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 608.5,
+            "retransmits": 103,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 606.5,
+            "retransmits": 184,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 642.2,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 621.2,
+            "retransmits": 951,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:34:14.133533 IP6 fd66:116::11.63698 > fd66:116::10.443: Flags [S], seq 1486827492, win 64800, options [mss 1440,sackOK,TS val 2210472906 ecr 0,nop,wscale 9], length 0",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.58
+    },
+    "udp-faketls-awg__outer4-inner4": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 566.5,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 649.4,
+            "retransmits": 227,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:34:57.265624 IP 10.66.116.11.61871 > 10.66.116.10.4443: UDP, length 199",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.91
+    },
+    "udp-faketls-awg__outer4-inner6": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 495.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 677.7,
+            "retransmits": 85,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:35:33.703016 IP 10.66.116.11.21538 > 10.66.116.10.4443: UDP, length 69",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.82
+    },
+    "udp-faketls-awg__outer4-dual": {
+      "status": "PASS",
+      "outer_family": 4,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "auto",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 554.8,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 693.4,
+            "retransmits": 326,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 516.6,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 684.0,
+            "retransmits": 470,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:36:10.104309 IP 10.66.116.11.46764 > 10.66.116.10.4443: UDP, length 195",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.64
+    },
+    "udp-faketls-awg__outer6-inner4": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv4",
+      "client_ipv6_policy": "off",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": []
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 512.1,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 693.3,
+            "retransmits": 110,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:36:53.274503 IP6 fd66:116::11.37396 > fd66:116::10.4443: UDP, length 141",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.86
+    },
+    "udp-faketls-awg__outer6-inner6": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "ipv6",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv6": {
+          "up": {
+            "mbps": 556.3,
+            "retransmits": 0,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 746.9,
+            "retransmits": 62,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:37:29.707060 IP6 fd66:116::11.27467 > fd66:116::10.4443: UDP, length 174",
+      "routes": {
+        "ipv4": "",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 34.82
+    },
+    "udp-faketls-awg__outer6-dual": {
+      "status": "PASS",
+      "outer_family": 6,
+      "inner_mode": "dual",
+      "client_ipv6_policy": "required",
+      "addresses": {
+        "ipv4": [
+          {
+            "family": "inet",
+            "local": "10.90.0.2",
+            "prefixlen": 32,
+            "scope": "global",
+            "label": "qv6c0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ],
+        "ipv6": [
+          {
+            "family": "inet6",
+            "local": "fd71:e1:90::2",
+            "prefixlen": 128,
+            "scope": "global",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      },
+      "traffic": {
+        "ipv4": {
+          "up": {
+            "mbps": 519.0,
+            "retransmits": 49,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 741.6,
+            "retransmits": 738,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        },
+        "ipv6": {
+          "up": {
+            "mbps": 587.7,
+            "retransmits": 109,
+            "reverse": false
+          },
+          "down": {
+            "mbps": 707.1,
+            "retransmits": 423,
+            "reverse": true
+          },
+          "udp": {
+            "mbps": 20.0,
+            "loss_pct": 0
+          }
+        }
+      },
+      "outer_capture": "02:38:06.125127 IP6 fd66:116::11.36740 > fd66:116::10.4443: UDP, length 50",
+      "routes": {
+        "ipv4": "10.90.0.0/24 scope link",
+        "ipv6": "fd71:e1:90::2 proto kernel metric 256 pref medium\nfd71:e1:90::/64 metric 1024 pref medium\nfe80::/64 proto kernel metric 256 pref medium"
+      },
+      "elapsed_s": 41.63
+    }
+  }
+}

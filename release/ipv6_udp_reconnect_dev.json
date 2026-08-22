@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "date_utc": "2026-08-22T00:58:32Z",
+    "binary_sha256": "098e7156e1fe9c75d550ed243dbe81f946b7a29fdcdb13a325c82a6408b332ff"
+  },
+  "status": "PASS",
+  "transport": "udp-quic",
+  "inner_family": 6,
+  "initial": {
+    "alive": true,
+    "auth_count": 1,
+    "closed_count": 0,
+    "addresses": [
+      "fd71:e1:90::2"
+    ],
+    "log_tail": "iB, auto cap=16384 KiB\n2026-08-22 03:57:29.264 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:57:29.265 INFO  qeli::client: UDP: Received server response (3049 bytes)\n2026-08-22 03:57:29.266 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:57:29.266 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:57:29.266 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:57:29.292 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:57:29.293 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:57:29.293 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:57:29.293 INFO  qeli::client: NetworkPlan 1: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:57:29.293 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:57:29.293 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:57:29.296 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:57:29.300 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:57:29.302 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-22 03:57:29.303 INFO  qeli::transport_core::linux_tun: TUN writer started"
+  },
+  "after_restart": {
+    "alive": true,
+    "auth_count": 2,
+    "closed_count": 1,
+    "addresses": [
+      "fd71:e1:90::2"
+    ],
+    "log_tail": "iB, auto cap=16384 KiB\n2026-08-22 03:58:30.553 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-22 03:58:30.554 INFO  qeli::client: UDP: Received server response (2174 bytes)\n2026-08-22 03:58:30.554 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-22 03:58:30.554 INFO  qeli::client: UDP: Server identity verified\n2026-08-22 03:58:30.554 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-22 03:58:30.580 INFO  qeli::client: UDP: Auth OK, assigned IP: fd71:e1:90::2\n2026-08-22 03:58:30.581 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: ip=fd71:e1:90::2/64 gw=fd71:e1:90::1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=20)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-22 03:58:30.581 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-22 03:58:30.581 INFO  qeli::client: NetworkPlan 2: mode=split address=fd71:e1:90::2/64 gateway=fd71:e1:90::1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-22 03:58:30.581 INFO  qeli::client: TUN MTU: 1400\n2026-08-22 03:58:30.581 INFO  qeli::client: Creating TUN interface qv6c0\n2026-08-22 03:58:30.584 INFO  qeli::client: TUN qv6c0 is up (addresses: fd71:e1:90::2/128)\n2026-08-22 03:58:30.588 INFO  qeli::client: UDP: Starting tunnel\n2026-08-22 03:58:30.589 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-22 03:58:30.589 INFO  qeli::transport_core::linux_tun: TUN writer started"
+  },
+  "server_down_before_restart_s": 2.853,
+  "reconnect_after_server_restart_s": 44.773,
+  "address_preserved": true,
+  "ping_status": 0,
+  "ping_output": "PING fd71:e1:90::1 (fd71:e1:90::1) 56 data bytes\n64 bytes from fd71:e1:90::1: icmp_seq=1 ttl=64 time=1.19 ms\n64 bytes from fd71:e1:90::1: icmp_seq=2 ttl=64 time=0.760 ms\n64 bytes from fd71:e1:90::1: icmp_seq=3 ttl=64 time=0.869 ms\n\n--- fd71:e1:90::1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2032ms\nrtt min/avg/max/mdev = 0.760/0.939/1.188/0.181 ms",
+  "total_test_s": 68.949
+}

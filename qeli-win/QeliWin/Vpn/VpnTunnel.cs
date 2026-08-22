@@ -143,10 +143,13 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Wintun after DNS rotation.
         var carrierPaths = carrierCandidates
             .Distinct()
-            .Select(address => (address,
-                ifIndex: _net.PhysicalIfIndexFor(address),
-                gateway: _net.FindGatewayFor(address),
-                onLink: _net.IsServerOnLink(address)))
+            .Select(address =>
+            {
+                var path = _net.PhysicalPathFor(address);
+                return (address,
+                    ifIndex: path.ifIndex,
+                    gateway: path.gateway);
+            })
             .ToArray();
         // Resolve every bypass before installing the /1 capture routes. IPv4 and IPv6
         // commonly leave through different gateways; reusing the carrier's IPv4 path made
@@ -209,18 +212,10 @@ public sealed class VpnTunnel : VpnTunnelBase
             Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
         else
         {
-            foreach (var (address, ifIndex, gateway, onLink) in carrierPaths)
+            foreach (var (address, ifIndex, gateway) in carrierPaths)
             {
-                if (onLink)
-                {
-                    // A connected-subnet route is the correct physical path for a
-                    // same-LAN peer; forcing it through the gateway can be asymmetric.
-                    Log($"server {address} is on-link (same subnet) — not pinning via the gateway; the connected route keeps the carrier off the tunnel");
-                }
-                else if (gateway != null && ifIndex != 0)
-                {
+                if (ifIndex != 0)
                     _net.PinServerRoute(address, gateway, ifIndex);
-                }
                 else if (config.IsFullTunnel)
                 {
                     throw new InvalidOperationException(
@@ -278,7 +273,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // fall back to a delete only when the gateway is unknown (split-tunnel).
         foreach (var (r, path) in bypassPaths)
         {
-            if (path.gateway != null && path.ifIndex != 0)
+            if (path.ifIndex != 0)
                 _net.PinBypassRoute(r, path.gateway, path.ifIndex);
             else if (config.IsFullTunnel)
                 throw new InvalidOperationException(
@@ -303,8 +298,9 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Skipped when `local` binds the carrier elsewhere (e.g. through another VPN) —
         // there the user owns the path and the server route is deliberately not pinned. (C-17)
         if (string.IsNullOrEmpty(config.LocalAddress))
-            foreach (var address in carrierPaths.Select(path => path.address))
-                _net.VerifyCarrierPath(address, tunIndex);
+            foreach (var path in carrierPaths)
+                _net.VerifyCarrierPath(
+                    path.address, tunIndex, path.ifIndex, path.gateway);
     }
 
     private string? _forwardingAlias;
@@ -543,14 +539,9 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Retry here if the pre-dispose restore failed; CleanupPlatform exceptions are
         // surfaced by the shared lifecycle instead of claiming a clean disconnect.
         RestoreIpForwarding();
-        // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
-        // would otherwise leak a Wintun device — dispose it. Once consumed, _prewarm is null,
-        // so the live adapter (now _tun) is disposed by the base, not here.
-        if (_prewarm != null)
-        {
-            try { _prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
-            _prewarm = null;
-        }
+        // A firewall rule may still name an unconsumed adapter after a partial engage.
+        // Keep that alias alive until KillSwitchDisengage has removed the rule.
+        if (!EgressGuardEngaged) DisposeUnusedPrewarm();
         var network = _net;
         network?.Dispose();
         if (ReferenceEquals(_net, network)) _net = null;
@@ -568,10 +559,21 @@ public sealed class VpnTunnel : VpnTunnelBase
     // adapter did not exist yet always failed — and fail-closed then refused to start the
     // profile at all. Bringing the adapter up here costs nothing extra: SetupTun consumes
     // exactly this prewarmed adapter (same name + GUID), so nothing is created twice.
+    protected override bool KillSwitchEngageFailureRetainsOwnership(Exception error) =>
+        error is AggregateException;
     protected override void KillSwitchEngage(VpnConfig config)
     {
-        EnsureTunAdapterExists(config);
-        KillSwitch.Engage(config.ServerAddress, AdapterIdentity(config).name, Log);
+        try
+        {
+            string actualAlias = EnsureTunAdapterExists(config);
+            KillSwitch.Engage(config.ServerAddress, actualAlias, Log);
+        }
+        catch (AggregateException) { throw; }
+        catch
+        {
+            DisposeUnusedPrewarm();
+            throw;
+        }
     }
 
     protected override void CarrierAddressesChanging(
@@ -585,18 +587,36 @@ public sealed class VpnTunnel : VpnTunnelBase
     /// it. Reuses the ordinary prewarm path (idempotent — SetupTun still consumes the warmed
     /// adapter). Throws with an actionable message when it cannot be created, so the caller's
     /// fail-closed path reports the real cause instead of an opaque firewall error.</summary>
-    private void EnsureTunAdapterExists(VpnConfig config)
+    private string EnsureTunAdapterExists(VpnConfig config)
     {
-        if (_tun != null) return;   // a persisted adapter is already up — nothing to create
+        if (_tun is WintunAdapter live && !string.IsNullOrWhiteSpace(live.AdapterName))
+            return live.AdapterName;
         PrewarmTun(config);         // no-op when a warm is already in flight
         WintunAdapter? warmed = null;
         try { warmed = _prewarm?.GetAwaiter().GetResult(); } catch { /* reported just below */ }
-        if (warmed == null)
+        if (warmed == null || string.IsNullOrWhiteSpace(warmed.AdapterName))
             throw new InvalidOperationException(
                 "the Wintun adapter could not be created, so no firewall rule can name it " +
                 "(Windows rejects a rule for a missing interface). Check that the Wintun driver " +
                 "loads and that qeli is running elevated.");
+        // WintunAdapter.Open may have resolved a name/GUID collision by creating name-0,
+        // name-1, ... . Firewall and WinDivert rules must use this actual alias, never the
+        // precomputed profile identity that collided.
+        return warmed.AdapterName;
     }
 
-    protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
+    private void DisposeUnusedPrewarm()
+    {
+        var prewarm = _prewarm;
+        if (prewarm == null) return;
+        try { prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
+        if (ReferenceEquals(_prewarm, prewarm)) _prewarm = null;
+    }
+
+    protected override void KillSwitchDisengage()
+    {
+        // Remove firewall rules before releasing the adapter alias they name.
+        KillSwitch.Disengage(Log);
+        if (_tun == null) DisposeUnusedPrewarm();
+    }
 }

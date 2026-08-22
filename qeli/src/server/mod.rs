@@ -6330,15 +6330,16 @@ mod tests {
             crate::config::parse_server_config(text).expect("fixture INI must parse")
         }
         fn profile(name: &str, addr: &str, port: &str, transport: &str) -> String {
+            let net = if name == "a" { 1 } else { 2 };
             format!(
                 "[profile:{name}]
 bind.address = {addr}
 bind.port = {port}
                  bind.transport = {transport}
 tun.name = vpn{name}
-tun.address = 10.1.0.1
+tun.address = 10.{net}.0.1
 tun.mtu = 1400
-pool.cidr = 10.1.0.0/24
+pool.cidr = 10.{net}.0.0/24
                  obf.mode = fake-tls
 "
             )
@@ -6537,18 +6538,8 @@ pool.cidr = 10.1.0.0/24
                 web("4443") + &profile("a", "4443", 0, ""),
             ),
             (
-                "two resolvers on one address",
-                profile(
-                    "a",
-                    "4443",
-                    0,
-                    "dns.enabled = true\ndns.listen = 10.9.0.1\n",
-                ) + &profile(
-                    "b",
-                    "5443",
-                    1,
-                    "dns.enabled = true\ndns.listen = 10.9.0.1\n",
-                ),
+                "resolver over a profile's transport bind",
+                profile("a", "53", 0, "dns.enabled = true\ndns.listen = 10.0.0.1\n"),
             ),
             // NB: "two DHCP servers on the 0.0.0.0:67 default" used to live here. It cannot
             // happen any more: `dhcp.listen` defaults to EMPTY, which resolves to the
@@ -7385,8 +7376,10 @@ pool.cidr = 10.1.0.0/24
         use crate::config::server::{IpMode, ProfileConfig};
         use crate::config::users::UserEntry;
 
-        let mut profile = ProfileConfig::default();
-        profile.name = "edge".into();
+        let mut profile = ProfileConfig {
+            name: "edge".into(),
+            ..Default::default()
+        };
         profile.tun.ip_mode = IpMode::Dual;
         profile
             .pool
