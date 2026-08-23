@@ -60,7 +60,16 @@ pub mod trace;
 pub mod client;
 #[cfg(all(target_os = "linux", feature = "server"))]
 pub mod server;
-#[cfg(all(target_os = "linux", feature = "client"))]
+// `tun::tap` contains the platform-neutral Ethernet framing helpers consumed by the
+// fd-backed Android/macOS core. The actual TUN device implementation remains Linux-only
+// inside `tun::iface`.
+#[cfg(any(
+    all(target_os = "linux", feature = "client"),
+    all(
+        any(target_os = "android", target_os = "macos"),
+        feature = "transport-core-ffi"
+    )
+))]
 pub mod tun;
 #[cfg(all(target_os = "linux", feature = "server"))]
 pub mod web;

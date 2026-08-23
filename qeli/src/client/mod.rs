@@ -275,12 +275,7 @@ use crate::tun::iface::{DeviceType, TunInterface};
 #[cfg(target_os = "linux")]
 use crate::tun::{is_tap_mode, mac_from_ip};
 use rand::prelude::*;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "ios"
-))]
+#[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use std::os::fd::OwnedFd;

@@ -71,6 +71,7 @@ fn bind_desktop(
 /// Preserve the configured source interface on every desktop carrier while reserving a
 /// fixed `lport` for the primary connection only. Two simultaneous TCP connections to the
 /// same peer cannot share one four-tuple; the secondary therefore binds `local:0`.
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn desktop_bind_address(
     config: &ClientConfig,
     remote: IpAddr,

@@ -2,6 +2,7 @@
 pub mod iface;
 pub mod tap;
 
+#[cfg(target_os = "linux")]
 pub use iface::DeviceType;
 pub use tap::{
     client_tap_control_reply, destination_mac_for_ip, is_client_tap_control_frame, is_tap_mode,
