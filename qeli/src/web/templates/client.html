@@ -58,10 +58,10 @@
               <div x-show="p.tun_ip" class="text-[11px] font-mono mt-1">
                 <span class="text-slate-500">internal IP</span> <span class="text-white" x-text="p.tun_ip"></span>
               </div>
-              <div x-show="p.connected && p.log_tail"
-                class="text-[10px] font-mono mt-1 whitespace-pre-line max-w-md leading-snug"
-                :class="p.state==='error' ? 'text-red-400' : 'text-slate-500'"
-                x-text="p.log_tail"></div>
+              <div x-show="p.state==='error' && ((p.diagnostics && p.diagnostics.last_error) || p.log_tail)"
+                class="text-[10px] font-mono mt-1 max-w-md truncate text-red-400"
+                :title="(p.diagnostics && p.diagnostics.last_error) || lastLine(p.log_tail)"
+                x-text="(p.diagnostics && p.diagnostics.last_error) || lastLine(p.log_tail)"></div>
             </td>
             <td class="tbl-td text-right">
               <div class="flex items-center justify-end gap-1.5">

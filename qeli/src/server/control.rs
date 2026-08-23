@@ -69,7 +69,11 @@ pub struct BlockedInfo {
 pub struct ClientInfo {
     pub profile: String,
     pub username: String,
+    /// Stable primary address retained for older clients of the control API.
     pub ip: String,
+    /// Every address assigned to this session, in deterministic IPv4/IPv6 order.
+    #[serde(default)]
+    pub addresses: Vec<String>,
     /// Client's public source address (ip:port).
     pub peer: String,
     pub connected_secs: u64,
@@ -282,6 +286,10 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         profile: pname.clone(),
                         username: s.username.clone(),
                         ip: s.client_ip.to_string(),
+                        addresses: s
+                            .assigned_addresses()
+                            .map(|address| address.to_string())
+                            .collect(),
                         peer: s.peer.to_string(),
                         connected_secs: s.connected_at.elapsed().as_secs(),
                         bytes_sent: s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed),

@@ -98,8 +98,14 @@
               </div>
             </td>
             <td class="tbl-td font-mono text-slate-300 text-xs">
-              <div x-text="u.static_ip || '—'"></div>
-              <div x-show="u.static_ipv6" class="mt-1 text-slate-400" x-text="u.static_ipv6"></div>
+              <template x-for="entry in addressRows(u)" :key="entry.address">
+                <div class="flex items-center gap-1.5 mb-1 last:mb-0">
+                  <span x-text="entry.address"></span>
+                  <span x-show="entry.active" class="badge badge-on text-[9px]" x-text="qeliT('Active')"></span>
+                  <span x-show="entry.fixed" class="badge badge-off text-[9px]" x-text="qeliT('Fixed')"></span>
+                </div>
+              </template>
+              <div x-show="addressRows(u).length === 0">—</div>
             </td>
             <td class="tbl-td text-xs">
               <span class="text-slate-500" x-show="!u.bandwidth || (!u.bandwidth.limit_mbps && !u.bandwidth.burst_mbps)">Unlimited</span>
@@ -548,6 +554,7 @@ function usersPage() {
     selected: [],
     usage: [],
     usageByUser: {},
+    activeAddressesByUser: {},
     search: '',
     statusFilter: '',
     sortMode: 'online_desc',
@@ -559,6 +566,20 @@ function usersPage() {
     confirmDialog(title, message, opts = {}) { return qeliConfirm(title, message, opts); },
 
     get onlineCount() { return this.usage.filter(u => u.online).length; },
+    addressRows(user) {
+      const rows = new Map();
+      const add = (address, kind) => {
+        const value = String(address || '').trim();
+        if (!value) return;
+        const row = rows.get(value) || { address: value, active: false, fixed: false };
+        row[kind] = true;
+        rows.set(value, row);
+      };
+      for (const address of this.activeAddressesByUser[user.username] || []) add(address, 'active');
+      add(user.static_ip, 'fixed');
+      add(user.static_ipv6, 'fixed');
+      return [...rows.values()];
+    },
     refreshUserView() {
       const q = this.search.trim().toLowerCase();
       const rows = this.users.filter(u => {
@@ -568,7 +589,8 @@ function usersPage() {
         if (this.statusFilter === 'enabled' && !u.enabled) return false;
         if (this.statusFilter === 'disabled' && u.enabled) return false;
         if (!q) return true;
-        return [u.username, u.static_ip, u.static_ipv6, u.group, ...(u.profiles || [])]
+        return [u.username, u.static_ip, u.static_ipv6, u.group, ...(u.profiles || []),
+                ...this.addressRows(u).map(row => row.address)]
           .some(v => String(v || '').toLowerCase().includes(q));
       });
       const [key, dir] = this.sortMode.split('_');
@@ -628,16 +650,35 @@ function usersPage() {
       await this.load();
     },
 
-    // Per-user data usage (merged into the users table).
+    // Per-user data usage plus live tunnel addresses (merged into the users table).
     async loadUsage() {
       try {
         const u = await apiFetch('api/usage');
         if (u.ok) {
           this.usage = u.usage || [];
           this.usageByUser = Object.fromEntries(this.usage.map(row => [row.username, row]));
-          this.refreshUserView();
         }
       } catch { /* non-fatal: configured users are still manageable */ }
+      const active = {};
+      try {
+        const live = await apiFetch('api/clients');
+        if (live.ok) {
+          for (const session of live.clients || []) {
+            const username = String(session.username || '').trim();
+            if (!username) continue;
+            const addresses = Array.isArray(session.addresses) && session.addresses.length
+              ? session.addresses : [session.ip];
+            for (const rawAddress of addresses) {
+              const address = String(rawAddress || '').trim();
+              if (!address) continue;
+              active[username] ||= [];
+              if (!active[username].includes(address)) active[username].push(address);
+            }
+          }
+        }
+      } catch { /* fail closed: never retain stale addresses after a failed refresh */ }
+      this.activeAddressesByUser = active;
+      this.refreshUserView();
     },
     usageFor(name) { return this.usageByUser[name] || {}; },
     usagePct(u) { return u.data_limit_gb ? Math.min(100, ((u.used_down || 0) / (u.data_limit_gb * 1e9)) * 100) : 0; },

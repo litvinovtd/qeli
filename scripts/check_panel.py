@@ -174,6 +174,41 @@ if 'x-show="expanded===profile.name"' in transport_source:
     fail(transport_path, line_at(transport_source, transport_source.index('x-show="expanded===profile.name"')),
          "transport details must not expand inside a profile grid card")
 
+# The global counter is the number of live inbound sessions returned by /api/status, not the
+# number of configured users or outbound profiles. Keep the label and Alpine field honest.
+if "Inbound sessions:" not in layout_source or "activeInboundSessions" not in layout_source:
+    fail(layout_path, 1, "global status counter must be labelled as inbound sessions")
+if "Total clients:" in layout_source:
+    fail(layout_path, line_at(layout_source, layout_source.index("Total clients:")),
+         "ambiguous total-client label must not return")
+
+# A running client's multiline log belongs in structured diagnostics. The table may retain a
+# one-line error summary for an old process without a status sidecar, but must never expand an
+# otherwise healthy row with the raw tail.
+client_path = TEMPLATES / "client.html"
+client_source = client_path.read_text(encoding="utf-8")
+if 'p.connected && p.log_tail' in client_source or 'x-text="p.log_tail"' in client_source:
+    fail(client_path, 1, "outbound profile rows must not render the raw multiline log tail")
+if "lastLine(p.log_tail)" not in client_source:
+    fail(client_path, 1, "legacy client errors need a bounded one-line log fallback")
+
+# The Users table promises tunnel addresses, so it must merge active session IPs from the same
+# /api/clients source as the dashboard instead of displaying configured static values alone.
+users_path = TEMPLATES / "users.html"
+users_source = users_path.read_text(encoding="utf-8")
+if "apiFetch('api/clients')" not in users_source or "addressRows(u)" not in users_source:
+    fail(users_path, 1, "users table must merge live and fixed tunnel addresses")
+if "session.addresses" not in users_source or "[session.ip]" not in users_source:
+    fail(users_path, 1, "users table must support dual-stack addresses and the legacy primary IP")
+
+control_path = ROOT / "qeli" / "src" / "server" / "control.rs"
+control_source = control_path.read_text(encoding="utf-8")
+if "pub addresses: Vec<String>" not in control_source or ".assigned_addresses()" not in control_source:
+    fail(
+        control_path, 1,
+        "list-clients must expose every assigned dual-stack address alongside the legacy primary IP",
+    )
+
 if failures:
     print("panel checks FAILED:")
     for item in failures:

@@ -173,7 +173,7 @@ async function apiFetch(url, opts = {}) {
     <!-- The counters are supporting detail, not controls — dropped below md so the
          page title and the drawer toggle keep the full topbar width. -->
     <div class="hidden md:flex items-center gap-4 text-xs flex-shrink-0" style="color:var(--txt-dim)">
-      <span>Total clients: <strong class="text-white" x-text="totalClients">0</strong></span>
+      <span>Inbound sessions: <strong class="text-white" x-text="activeInboundSessions">0</strong></span>
       <span class="flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full" style="background:#16c8b6"></span>
         Auto-refresh <strong class="text-white">10s</strong>
@@ -298,7 +298,7 @@ function app() {
     hostname: '',
     page: '{{page}}',
     serverOk: true,
-    totalClients: 0,
+    activeInboundSessions: 0,
     toast: { show: false, msg: '', type: 'success', _t: null },
     confirmModal: { show: false, title: '', message: '', paragraphs: [], danger: false, label: 'Confirm', cancelLabel: 'Cancel', _resolve: null },
     sidebarOpen: false,   // drawer state; only meaningful below the md breakpoint
@@ -319,7 +319,7 @@ function app() {
       try {
         const d = await apiFetch('api/status');
         this.serverOk = d.ok;
-        this.totalClients = d.client_count || 0;
+        this.activeInboundSessions = d.client_count || 0;
         this.version = d.version || '—';
         if (typeof d.hostname === 'string' && d.hostname) {
           this.hostname = d.hostname;
