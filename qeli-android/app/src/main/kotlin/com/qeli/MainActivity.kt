@@ -162,6 +162,13 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_LOG_LEVEL = "info"
         const val PREF_AUTO_PROBE = "auto_probe_profiles"
         const val PREF_PROBE_INTERVAL_SECS = "probe_interval_secs"
+        /** True only while this process has a started Activity. The VPN service uses this
+         * to add the location foreground-service type during a user-visible transition;
+         * Android 14 rejects adding that while-in-use type to a service created in the
+         * background, even when checkSelfPermission still reports GRANTED. */
+        @Volatile
+        internal var uiVisible = false
+            private set
         private const val PREF_LAST_AUTO_PROBE_MS = "last_auto_probe_ms"
         private const val MAX_IMPORTED_FILE_BYTES = 8 * 1024 * 1024
         // QELI-ENC-1 base64-expands an otherwise valid 8 MiB plaintext archive.
@@ -343,10 +350,12 @@ ipv6 = auto
 
     override fun onStart() {
         super.onStart()
+        uiVisible = true
         configureAutoProbeTimer(runImmediately = true)
     }
 
     override fun onStop() {
+        uiVisible = false
         autoProbeJob?.cancel()
         autoProbeJob = null
         cancelAutomaticProbeJobs()

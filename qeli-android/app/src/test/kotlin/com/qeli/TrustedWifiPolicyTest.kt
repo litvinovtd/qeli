@@ -128,4 +128,36 @@ class TrustedWifiPolicyTest {
         assertTrue(TrustedWifiPolicy.shouldEvaluateCallback(isCurrentUnderlyingNetwork = true))
         assertFalse(TrustedWifiPolicy.shouldEvaluateCallback(isCurrentUnderlyingNetwork = false))
     }
+
+    @Test
+    fun locationForegroundTypeIsOnlyArmedFromVisibleTrustedWifiUi() {
+        assertTrue(
+            TrustedWifiPolicy.shouldActivateLocationForegroundType(
+                uiVisible = true,
+                trustedWifiArmed = true,
+                locationGranted = true,
+            ),
+        )
+        assertFalse(
+            TrustedWifiPolicy.shouldActivateLocationForegroundType(
+                uiVisible = false,
+                trustedWifiArmed = true,
+                locationGranted = true,
+            ),
+        )
+        assertFalse(
+            TrustedWifiPolicy.shouldActivateLocationForegroundType(
+                uiVisible = true,
+                trustedWifiArmed = false,
+                locationGranted = true,
+            ),
+        )
+        assertFalse(
+            TrustedWifiPolicy.shouldActivateLocationForegroundType(
+                uiVisible = true,
+                trustedWifiArmed = true,
+                locationGranted = false,
+            ),
+        )
+    }
 }

@@ -55,6 +55,13 @@ object TrustedWifiPolicy {
     fun shouldEvaluateCallback(isCurrentUnderlyingNetwork: Boolean): Boolean =
         isCurrentUnderlyingNetwork
 
+    /** A while-in-use location FGS may be armed only during a user-visible transition. */
+    fun shouldActivateLocationForegroundType(
+        uiVisible: Boolean,
+        trustedWifiArmed: Boolean,
+        locationGranted: Boolean,
+    ): Boolean = uiVisible && trustedWifiArmed && locationGranted
+
     fun parse(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return emptyList()
         return raw.lineSequence()

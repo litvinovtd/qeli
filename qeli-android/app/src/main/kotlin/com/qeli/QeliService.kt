@@ -1,5 +1,6 @@
 package com.qeli
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -22,6 +24,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import androidx.core.content.PermissionChecker
 import com.qeli.model.PushedFacts
 import com.qeli.model.LiveConnectionProperties
 import com.qeli.model.VpnConfig
@@ -120,6 +123,13 @@ class VpnServiceImpl : VpnService() {
     @Volatile
     private var trustedWaitConfig: VpnConfig? = null
     private var trustedResumeJob: Job? = null
+    // Once promoted from a visible Activity, the location FGS type keeps the user-granted
+    // current-SSID access alive after the task leaves Recents. Never arm it from boot,
+    // always-on, a redelivered intent, the widget, or the tile: Android 14 rejects starting a
+    // while-in-use location FGS from those background paths unless background location was
+    // granted (which Qeli deliberately does not request).
+    private var trustedWifiLocationTypeActive = false
+    private var currentNotificationText: String? = null
 
     private val CHANNEL_ID = "vpn_obfuscated_channel"
     private val NOTIFICATION_ID = 1001
@@ -315,6 +325,10 @@ class VpnServiceImpl : VpnService() {
                 stopVpn()
             }
             ACTION_REEVALUATE_TRUSTED -> {
+                // Settings can enable Trusted Wi-Fi while an existing tunnel is already up.
+                // Re-publish its current notification while the Activity is visible so the
+                // service gains the location type before that Activity disappears.
+                if (MainActivity.uiVisible) currentNotificationText?.let(::showNotification)
                 // This action can be the one Android redelivers after killing the foreground
                 // controller. In that fresh process the in-memory wait config is gone, so
                 // rebuild it from the active profile before evaluating the current network.
@@ -476,7 +490,38 @@ class VpnServiceImpl : VpnService() {
                     android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
                     s(R.string.disconnect), disconnectPending).build())
                 .build()
-            startForeground(NOTIFICATION_ID, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // A connected SSID is location-sensitive even though Qeli only compares it
+                // locally. Add the location type only during a user-visible Activity lifetime;
+                // after that first promotion it remains active while the service survives.
+                // Explicit types avoid breaking boot/always-on/background starts that cannot
+                // legally activate a while-in-use location type on Android 14+.
+                var serviceTypes = 0
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                }
+                val trusted = trustedWifiSettings()
+                val locationGranted = PermissionChecker.checkSelfPermission(
+                    this,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                ) == PermissionChecker.PERMISSION_GRANTED
+                val mayActivateLocationType = TrustedWifiPolicy.shouldActivateLocationForegroundType(
+                    uiVisible = MainActivity.uiVisible,
+                    trustedWifiArmed = trusted.enabled && trusted.ssids.isNotEmpty(),
+                    locationGranted = locationGranted,
+                )
+                if (!trustedWifiLocationTypeActive && mayActivateLocationType) {
+                    trustedWifiLocationTypeActive = true
+                }
+                if (trustedWifiLocationTypeActive && trusted.enabled &&
+                    trusted.ssids.isNotEmpty() && locationGranted) {
+                    serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
+                startForeground(NOTIFICATION_ID, notification, serviceTypes)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            currentNotificationText = text
             true
         } catch (e: Exception) {
             Log.e("VpnSvc", "startForeground failed: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -1570,69 +1615,95 @@ class VpnServiceImpl : VpnService() {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         val bestMatching = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                // Belt-and-suspenders: never react to our own VPN tun (the NOT_VPN
-                // request should already exclude it).
-                val caps = cm.getNetworkCapabilities(network)
-                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
-                val enteringTrustedWifi =
-                    classifyNetwork(caps) == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
-                networkSignatures[network] = physicalNetworkSignature(cm, network)
-                val prev = currentNetwork
-                if (bestMatching) {
-                    // Best-matching callback: every onAvailable IS a change of the best
-                    // (non-VPN, internet-capable) network — i.e. of the link we ride on.
-                    currentNetwork = network
-                    if (prev != null && prev != network && !enteringTrustedWifi) {
-                        switchedNetwork("Network changed")
-                    }
-                    reevaluateTrustedWifi(caps)
-                    return
+        fun handleAvailable(network: Network) {
+            // Belt-and-suspenders: never react to our own VPN tun (the NOT_VPN
+            // request should already exclude it).
+            val caps = cm.getNetworkCapabilities(network)
+            if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+            val enteringTrustedWifi =
+                classifyNetwork(caps) == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
+            networkSignatures[network] = physicalNetworkSignature(cm, network)
+            val prev = currentNetwork
+            if (bestMatching) {
+                // Best-matching callback: every onAvailable IS a change of the best
+                // (non-VPN, internet-capable) network — i.e. of the link we ride on.
+                currentNetwork = network
+                if (prev != null && prev != network && !enteringTrustedWifi) {
+                    switchedNetwork("Network changed")
                 }
-                // Pre-31: we hear about EVERY candidate, so adopt one only while we have
-                // none (or the one we had is gone). A second network merely showing up is
-                // not a switch — that misreading is the bug this branch exists to avoid.
-                underlyingNets.add(network)
-                if (prev == null || !underlyingNets.contains(prev)) {
-                    currentNetwork = network
-                    if (prev != null && !enteringTrustedWifi) switchedNetwork("Network changed")
-                }
-                if (network == currentNetwork) reevaluateTrustedWifi(caps)
-            }
-
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
-                if (!TrustedWifiPolicy.shouldEvaluateCallback(network == currentNetwork)) return
-                val trustedKind = classifyNetwork(caps)
                 reevaluateTrustedWifi(caps)
-                if (trustedKind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) return
-                underlyingNetworkStateChanged(cm, network, "Network capabilities changed")
+                return
             }
+            // Pre-31: we hear about EVERY candidate, so adopt one only while we have
+            // none (or the one we had is gone). A second network merely showing up is
+            // not a switch — that misreading is the bug this branch exists to avoid.
+            underlyingNets.add(network)
+            if (prev == null || !underlyingNets.contains(prev)) {
+                currentNetwork = network
+                if (prev != null && !enteringTrustedWifi) switchedNetwork("Network changed")
+            }
+            if (network == currentNetwork) reevaluateTrustedWifi(caps)
+        }
 
-            override fun onLinkPropertiesChanged(
-                network: Network,
-                linkProperties: android.net.LinkProperties,
+        fun handleCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+            if (!TrustedWifiPolicy.shouldEvaluateCallback(network == currentNetwork)) return
+            val trustedKind = classifyNetwork(caps)
+            reevaluateTrustedWifi(caps)
+            if (trustedKind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) return
+            underlyingNetworkStateChanged(cm, network, "Network capabilities changed")
+        }
+
+        fun handleLinkPropertiesChanged(network: Network) {
+            underlyingNetworkStateChanged(cm, network, "Network link properties changed")
+        }
+
+        fun handleLost(network: Network) {
+            networkSignatures.remove(network)
+            if (!bestMatching) underlyingNets.remove(network)
+            // Only the link we are actually on matters; any other one going away is
+            // none of our business.
+            if (network != currentNetwork) return
+            // Pre-31 we may already know a replacement (LTE that was up all along) —
+            // adopt it so the retry loop lands there immediately instead of waiting
+            // out rxDead. On 31+ the framework sends a fresh onAvailable for the new
+            // best match, so leave it unset.
+            currentNetwork = if (bestMatching) null
+                else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
+            switchedNetwork("Network lost")
+            currentNetwork?.let { replacement ->
+                cm.getNetworkCapabilities(replacement)?.let(::reevaluateTrustedWifi)
+            }
+        }
+
+        // Android 12+ strips location-sensitive fields (including WifiInfo.ssid) from
+        // callback capabilities unless this flag is requested explicitly. The synchronous
+        // WifiManager fallback may appear to work while MainActivity is visible, then return
+        // <unknown ssid> after the task is removed. Keep the flagged constructor behind its
+        // API gate so API 28-30 never resolve a constructor that does not exist there.
+        val cb = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            object : ConnectivityManager.NetworkCallback(
+                ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
             ) {
-                underlyingNetworkStateChanged(cm, network, "Network link properties changed")
+                override fun onAvailable(network: Network) = handleAvailable(network)
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                    handleCapabilitiesChanged(network, caps)
+                override fun onLinkPropertiesChanged(
+                    network: Network,
+                    linkProperties: android.net.LinkProperties,
+                ) = handleLinkPropertiesChanged(network)
+                override fun onLost(network: Network) = handleLost(network)
             }
-
-            override fun onLost(network: Network) {
-                networkSignatures.remove(network)
-                if (!bestMatching) underlyingNets.remove(network)
-                // Only the link we are actually on matters; any other one going away is
-                // none of our business.
-                if (network != currentNetwork) return
-                // Pre-31 we may already know a replacement (LTE that was up all along) —
-                // adopt it so the retry loop lands there immediately instead of waiting
-                // out rxDead. On 31+ the framework sends a fresh onAvailable for the new
-                // best match, so leave it unset.
-                currentNetwork = if (bestMatching) null
-                    else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
-                switchedNetwork("Network lost")
-                currentNetwork?.let { replacement ->
-                    cm.getNetworkCapabilities(replacement)?.let(::reevaluateTrustedWifi)
-                }
+        } else {
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = handleAvailable(network)
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                    handleCapabilitiesChanged(network, caps)
+                override fun onLinkPropertiesChanged(
+                    network: Network,
+                    linkProperties: android.net.LinkProperties,
+                ) = handleLinkPropertiesChanged(network)
+                override fun onLost(network: Network) = handleLost(network)
             }
         }
         currentNetwork = null

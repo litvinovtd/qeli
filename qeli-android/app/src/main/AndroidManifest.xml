@@ -5,15 +5,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- Trusted Wi-Fi needs the identity of the currently connected access point. Android
-         redacts SSID to <unknown ssid> without these runtime grants; Qeli then fails safe and
-         keeps the VPN up. FINE_LOCATION remains required on older releases and by OEM builds
-         that still treat the connected SSID as location-sensitive. -->
+    <!-- Connected SSID is location-sensitive on every supported Android release. The service
+         declares the location FGS type below so a user-granted while-in-use permission remains
+         usable after MainActivity leaves the foreground. Unknown SSID remains fail-safe. -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Auto-connect the active profile after a reboot (opt-in in Settings). -->
@@ -79,7 +79,7 @@
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|location">
             <property
                 android:name="android.foreground_service.foreground_service_type_associated_models"
                 android:value="vpn" />

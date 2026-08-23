@@ -56,7 +56,7 @@ app/src/main/kotlin/com/qeli/
 |---|---|
 | `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | сеть, выбранный физический carrier и реакция на его смену (Wi-Fi ⇄ LTE) |
 | `NEARBY_WIFI_DEVICES`, `ACCESS_FINE_LOCATION` | чтение текущего SSID для доверенного Wi-Fi; без runtime-разрешения SSID считается неизвестным и VPN остаётся включённым |
-| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | туннель как foreground-сервис |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` + `FOREGROUND_SERVICE_LOCATION` | туннель и проверка доверенного SSID продолжают работать в foreground-сервисе без открытой Activity; location-тип включается только при активной функции и выданном разрешении |
 | `POST_NOTIFICATIONS` | уведомление активного туннеля (Android 13+) |
 | `WAKE_LOCK` | не терять соединение в глубоком сне |
 | `RECEIVE_BOOT_COMPLETED` | автоподключение после перезагрузки (если включено) |
