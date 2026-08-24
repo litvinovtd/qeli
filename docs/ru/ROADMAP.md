@@ -398,8 +398,9 @@ downlink-пула во всех четырёх насосах (Linux/Android, Wi
 ([handler.rs:1592](../../qeli/src/server/handler.rs#L1592)), и поменять их можно лишь
 переподключением. Аутентифицированные типизированные внутритуннельные control-фреймы уже
 есть в [`ctrl.rs`](../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` и `CTRL_CLIENT_INFO`
-идут клиент → сервер как `[0xC1 0x9B][тип][u8 len][payload]`. Не хватает согласованного
-server → client control-plane и семантики подтверждения/ошибок.
+идут клиент → сервер как `[0xC1 0x9B][тип][u8 len][payload]`. Текущий однобайтовый размер
+не годится для крупных сообщений, а клиентскому data-plane не хватает согласованного
+server → client dispatcher и семантики подтверждения/ошибок.
 
 Существующий дискриминатор совместим с IP-пакетами, которые начинаются с ниббла 4 или 6:
 
@@ -409,19 +410,21 @@ server → client control-plane и семантики подтверждения
 0xC1 0x9B        → существующий control: [тип][u8 len][payload]
 ```
 
-- Добавить явное согласование версии/возможностей control-plane в auth-обмене. Сервер должен
-  слать новые downlink-фреймы только клиенту, объявившему соответствующую возможность, а не
-  надеяться, что старый клиент отбросит неизвестную запись.
-- Первый набор новых downlink-типов держать маленьким: `PUSH_CONFIG` (дельта routes/DNS/MTU/
-  multipath), `KICK` (с причиной), `NOTICE` (квота/срок) и при необходимости ACK/ошибка.
+- Ввести согласованный `CONTROL_V2`: magic/version/type/flags/message id, длина `u16`
+  или bounded varint, bounded fragmentation/reassembly, порядок, идемпотентность,
+  ACK и явная ошибка. Новые downlink-фреймы сервер шлёт только peer, объявившему capability.
+- Первый набор live-push типов держать маленьким: `PUSH_CONFIG` (дельта routes/DNS/MTU/
+  multipath), `KICK` (с причиной), `NOTICE` (квота/срок). Сообщения роуминга используют
+  тот же dispatcher, но имеют отдельные negotiated capabilities.
 - ⚠️ **Android:** у `VpnService` маршруты нельзя менять на живом интерфейсе — нужен новый
   `Builder` + `establish()`. Push маршрутов там = переустановка интерфейса (без
   рукопожатия, но с коротким разрывом). Закладывать в план сразу.
 - Отдача: снимается отложенный hot-reload Tier A, появляется kick с причиной и
   предупреждения о квоте.
 
-**Делать до роуминга:** роумингу нужен механизм серверных уведомлений, иначе его
-придётся переделывать.
+**Делать до роуминга:** двунаправленный CONTROL_V2 нужен как общий транспорт событий.
+Полная реализация live `PUSH_CONFIG` не блокирует первую версию роуминга, если dispatcher,
+fragmentation, ACK/error и capability negotiation уже закончены.
 
 ### Полная поддержка IPv6 (реализована для 0.7.17; сертификация не завершена)
 
@@ -441,33 +444,34 @@ server → client control-plane и семантики подтверждения
 
 ### Роуминг — бесшовная смена сети (→ 0.8.0)
 
-**План: [ROAMING.md](ROAMING.md).** Клиент переживает смену Wi-Fi↔LTE / IP без разрыва
-пользовательских соединений (сегодня это *быстрый реконнект* с повторным handshake +
-Argon2, а не роуминг). Выполнимость подтверждена по коду:
-- **UDP + QUIC** — бесшовная миграция соединения. 4-байтный CID уже в каждом upstream-
-  пакете ([client/mod.rs:1678](../../qeli/src/client/mod.rs#L1678)), но сервер его
-  выбрасывает и демультиплексирует по адресу источника
-  ([udp_handler.rs:328](../../qeli/src/server/udp_handler.rs#L328)). Запомнить клиентский CID,
-  мигрировать peer-addr сессии по AEAD+replay-валидному пакету, с **ротацией CID**
-  (HKDF) против линкуемости. В основном server-side + клиентский soft-rebind.
-- **TCP** — транспортной миграции нет (4-tuple в ядре), но **make-before-break** поверх
-  существующего multipath JOIN (открыть стрим по новой сети до смерти старой) +
-  **grace-период** сессии, чтобы JOIN-resume переподцепился **без повторного auth**
-  (сейчас teardown слишком ранний, [handler.rs:766](../../qeli/src/server/handler.rs#L766)).
-- **Фаза 1 (0.8.0):** UDP-миграция + TCP grace/JOIN-resume + ротация CID, новая секция
-  `[roaming]`. **Фаза 2:** make-before-break + per-interface binding + path-validation +
-  re-probe MTU. Ключевые риски: правки в data-plane, **nonce-reuse при кривом rebind**,
-  DoS через grace — все разобраны в плане.
-- ⚠️ **Жёсткое ограничение под resume (собственный аудит 2026-07-17):** Rust-`PacketCodec`
-  строит nonce как `seed(4) ‖ counter(8)`, где `nonce_seed` — 4 случайных байта на codec
-  ([packet.rs](../../qeli/src/protocol/packet.rs)). Сегодня это безопасно: каждый реконнект
-  даёт **свежий AEAD-ключ**, так что повтор nonce невозможен. Но если resume/роуминг начнёт
-  **переиспользовать ключ** с новым codec'ом (counter с нуля), единственной защитой останутся
-  32 бита seed → birthday-коллизия примерно на 2¹⁶ resume-ов = **катастрофический повтор nonce**
-  (полный слом AEAD). Расширить seed нельзя без урезания counter — nonce фиксирован 12 байт.
-  Значит решать НАДО В ДИЗАЙНЕ resume, а не потом: предпочтительно **ре-деривация ключа на
-  каждый resume** (HKDF от resume-счётчика), либо явный epoch в nonce. C#/Kotlin здесь
-  устойчивее — у них полностью случайный 96-битный nonce.
+**Нормативный план: [ROAMING.md](ROAMING.md).** Сегодня смена Wi-Fi↔LTE/IP — это быстрый
+reconnect с новым handshake и Argon2, а не роуминг. Полная реализация сохраняет session id,
+внутренние IPv4/IPv6, NetworkPlan, TUN/TAP, маршруты и квоту.
+
+- Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
+  `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; generation-scoped динамический
+  PathUpdate ABI и транзакция PREPARE/COMMIT/ABORT.
+- **UDP с QUIC + DATA_FRAG_V1:** отдельный восьмибайтовый CID short header, profile-wide
+  registry между всеми workers/listeners, per-session actor и dynamic egress socket.
+  PATH_CHALLENGE/PATH_RESPONSE, anti-amplification и двунаправленный PMTU reset/re-probe
+  обязательны до переключения downstream. UDP без QUIC остаётся на полном reconnect.
+- **TCP:** authenticated JOIN с новым key exchange и fresh AEAD, широкий resume epoch,
+  grace с bounded orphan limits, стабильные logical slots и make-before-break. Token
+  является locator, но не доказательством владения.
+- **Криптографический инвариант:** UDP migration сохраняет тот же `PacketCodec` и общую
+  replay-window — codec нельзя пересоздавать с тем же ключом. TCP JOIN всегда получает
+  новые направленные ключи. Поэтому сброс nonce/counter при resume конструктивно запрещён.
+- Платформы сначала атомарно подготавливают host route, kill-switch/per-app allowlist,
+  physical DNS и точный bind/protect candidate socket; после validation/JOIN выполняются
+  commit, drain и cleanup. Без этого capability не объявляется.
+- Пользовательская настройка остаётся flat INI: серверные `roaming.*` внутри профиля,
+  клиентский `[qeli] roaming = off|auto|required`. Первый rollout: server default off,
+  client default auto, rolling upgrade через capability negotiation.
+
+Порядок: спецификация/KDF/control → dynamic path ABI → TCP lifecycle/supervisor → UDP
+registry/validation/PMTU → Android/Windows/macOS/iOS/Linux/OpenWrt → конфиги/панель/docs →
+полная lab/soak-матрица. Небезопасной фазы без proof, path validation, anti-amplification
+или PMTU reset в плане нет. Оценка полной работы — 20–30 инженерных недель.
 
 1. **Настоящий REALITY** (TLS 1.3-туннель + проксирование чужих на реальный сайт) —
    уровень Xray-REALITY. **Путь A (ACME-серт своего домена) ОТВЕРГНУТ (2026-06-06):**

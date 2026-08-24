@@ -1,251 +1,595 @@
-# Роуминг клиента (бесшовная смена сети) — план реализации
+# Роуминг клиента: план полной реализации
 
-Статус: **ЗАПЛАНИРОВАНО на 0.8.0. Не начато.** Этот документ — рабочий дизайн;
-номера строк указывают на код 0.7.2.
+> Статус: проектирование завершено, реализация не начата. Целевая версия — 0.8.x.
+>
+> План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
+> на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
+> исходников намеренно не фиксируются: после рефакторинга они быстро устаревают.
 
-Цель: при смене IP/интерфейса клиента (Wi-Fi↔LTE, смена БС, новый DHCP-lease)
-**пользовательские соединения не рвутся**. Реальный трафik идёт поверх tun-IP,
-который сохраняется, поэтому внутренние потоки изоляции от смены внешнего пути не
-видят — задача в том, чтобы сохранить **внешний** туннель (или пересобрать его
-мгновенно), не теряя сессию и не проходя повторный Argon2.
+## 1. Что считается полным роумингом
 
-## 0. Уровни бесшовности по транспортам
+Роуминг — смена внешней сети или пути без создания новой VPN-сессии. При успешном
+переходе сохраняются:
 
-| Транспорт | Что достижимо | Как |
+- идентификатор сессии, пользователь и device id;
+- назначенные внутренние IPv4/IPv6-адреса;
+- TUN/TAP и применённый NetworkPlan;
+- серверные маршруты, iroute, DNS и внутренний MTU;
+- счётчики квоты и ограничения скорости;
+- криптографическое состояние UDP-сессии;
+- логические TCP-слоты multipath.
+
+Успешный роуминг не запускает Argon2 и полную AUTH повторно. Полный reconnect остаётся
+обязательным fallback, если peer не поддерживает роуминг, сервер перезапущен, grace-период
+истёк, сессия отозвана или проверка нового пути не завершилась.
+
+Роуминг должен работать независимо для следующих комбинаций:
+
+| Внутренний трафик | Внешний путь | Устройство |
 |---|---|---|
-| **UDP + QUIC-маскировка** | Полностью бесшовно (connection migration) | CID уже на проводе; сервер мигрирует peer-addr по аутентифицированному пакету |
-| **TCP** (reality-tls / fake-tls / obfs / plain) | Бесшовно при make-before-break; иначе короткий провал | Multipath JOIN по новой сети *до* смерти старой; fallback — grace + JOIN-resume |
-| **UDP plain** (без quic) | Вне области | Нет идентификатора на проводе → требуется `quic=1` для роуминга |
+| IPv4, IPv6, dual-stack | IPv4 или IPv6 | TUN или TAP |
 
-**Не-цели:** нулевая потеря байт на «жёстком» хендовере, где в момент перехода жива
-только одна сеть (это покрывает ретрансмиссия внутреннего TCP); MPTCP; буферизация
-и перешифровка непролетевших downstream-пакетов (не стоит сложности).
+Поддержка по транспортам:
 
-## 1. Базовое поведение сейчас (0.7.2)
+| Транспорт | Целевое поведение |
+|---|---|
+| TCP во всех поддерживаемых режимах | make-before-break, при жёстком обрыве — authenticated JOIN в пределах grace |
+| UDP с qeli QUIC-конвертом и DATA_FRAG_V1 | полная миграция адреса, сокета и PMTU |
+| UDP без QUIC-конверта | полный reconnect; роуминг не объявляется |
+| raw plain | только TCP; отдельного UDP plain в текущем протоколе нет |
 
-Смена сети сегодня = **быстрый реконнект, не роуминг**: клиент детектит смену
-(Android — `registerDefaultNetworkCallback` → `forceReconnect`), делает **полный
-новый handshake** (эфемерный X25519+ML-KEM + повторный Argon2-логин); сервер по
-**device-id** вытесняет свою же прошлую сессию и отдаёт тот же tun-IP (пул sticky по
-`device_key`) и маршруты. Итог — провал ~(RTT + время Argon2) и потеря пакетов в
-окне. Роуминг убирает этот хиккап.
+Не являются целью первой версии: MPTCP, downstream replay buffer, межузловая миграция
+сессии, гарантированная нулевая потеря пакетов при жёстком handover.
 
-## 2. Дизайн протокола / провода
+### Инварианты приёмки
 
-### 2.1 UDP connection-id (CID) — демультиплекс по содержимому пакета
+После успешного перехода не должны меняться session id, адреса туннеля, generation
+NetworkPlan и сам TUN/TAP. Не должны сбрасываться AEAD-счётчики или replay-window.
+Временные host routes, allowlist, CID aliases, candidate sockets и orphaned sessions
+должны удаляться ровно один раз при commit, abort, revoke или timeout.
 
-Сейчас: клиент генерит **свой стабильный 4-байтный CID** один раз
-([client/mod.rs:1678](../../qeli/src/client/mod.rs#L1678)) и кладёт в каждый upstream-пакет;
-сервер этот CID **извлекает и выбрасывает** (`_connection_id`,
-[udp_handler.rs:328](../../qeli/src/server/udp_handler.rs#L328)) и демультиплексирует сессии
-по `SocketAddr` источника ([:117](../../qeli/src/server/udp_handler.rs#L117) /
-[:342](../../qeli/src/server/udp_handler.rs#L342)). Смена адреса → промах в карте → трактуется
-как новый клиент → полный handshake.
+## 2. Совместимость и согласование возможностей
 
-Изменение: сервер **запоминает клиентский CID** на хендшейке и умеет находить сессию
-по CID, когда адрес источника незнаком. CID лежит в QUIC-short-заголовке **в
-открытую** (так и должно быть — сервер обязан опознать сессию **до** расшифровки,
-чтобы выбрать ключ).
+Новые возможности включаются только через существующий аутентифицированный capability
+trailer. Нужны раздельные биты:
 
-### 2.2 Ротация CID (анти-линкуемость) — обязательна
+- CONTROL_V2 — двунаправленный versioned control channel;
+- UDP_ROAM_V1 — CID routing и проверка нового UDP-пути;
+- TCP_RESUME_V1 — authenticated JOIN существующей сессии;
+- TCP_HANDOVER_V1 — замена логического потока make-before-break.
 
-Постоянный cleartext-CID, переживающий смену сети, — это **корреляционный tell**:
-пассивный наблюдатель связывает ваш Wi-Fi с LTE. Поэтому CID **ротируется**, как в
-QUIC. Принятый дизайн — **детерминированная ротация (Design B):**
+Сервер объявляет только возможности, реально доступные конкретному профилю. UDP_ROAM_V1
+нельзя объявлять для UDP-профиля без QUIC-конверта и DATA_FRAG_V1. Клиент в режиме
+**required** отказывает до передачи credentials/полной AUTH, если нужной capability нет.
 
-```
-roam_cid(n) = HKDF-Expand(session_secret, "qeli-roam-cid" ‖ LE32(n))[..8]
-```
+Legacy client/server продолжают использовать обычный reconnect. Поэтому обновление можно
+выполнять постепенно; синхронное обновление сервера и всех клиентов не требуется.
 
-- `session_secret` — выводится из тех же ECDH-секретов, что и ключи данных (через
-  отдельную метку HKDF), известен только сторонам.
-- `n` — эпоха пути, инкрементится при каждой миграции. На исходном пути `n=0`.
-- Клиент на миграции переходит на `roam_cid(n+1)`; сервер держит **скользящее окно**
-  предвычисленных будущих CID (`roam_cid(n+1 … n+K)`, K≈4) → сессия. Пакет с
-  незнакомого адреса, чей CID попал в окно **и** прошёл AEAD+replay, → миграция,
-  `n` сдвигается, окно пересчитывается.
+Пользовательские конфиги qeli остаются только flat INI. JSON, используемый внутри FFI/ABI
+или serde-моделей, является внутренним payload и не должен появляться в пользовательской
+документации или примерах конфигурации.
 
-Свойства: на проводе CID разный per-path (анти-линк), вывод детерминированный (без
-обмена пулом CID), серверный предвычет ограничен окном K. **Ширина 8 байт** (vs
-нынешние 4) — против коллизий; это wire-изменение маскировочного заголовка
-([protocol/quic.rs](../../qeli/src/protocol/quic.rs), `wrap_quic_short`/`unwrap_quic`),
-допустимое в 0.8.0 (реальные QUIC-CID бывают до 20 байт).
+## 3. Ключевой материал и защита resume
 
-> Альтернатива (Design A, QUIC-style «пул CID»): сервер заранее выдаёт клиенту набор
-> будущих CID (зашифрованно, после auth). Гибче, но больше состояния и протокола.
-> Отклонено в пользу детерминированной ротации как более простого и stateless.
+Текущая выработка направленных C2S/S2C ключей должна остаться побитово совместимой.
+Поверх исходного IKM для classic, hybrid и bound-режимов вводится SessionKeyMaterial,
+который domain-separated HKDF выводит:
 
-### 2.3 Триггер и валидация миграции (анти-хайджек)
+- resume secret;
+- C2S CID secret;
+- S2C CID secret;
+- при необходимости отдельный control secret.
 
-Сервер меняет сохранённый peer-addr сессии **только** если пакет: (1) совпал с
-известным/ожидаемым CID, (2) **прошёл AEAD-аутентификацию**, (3) **прошёл replay-окно**.
-Это модель WireGuard: владение ключом доказывает личность; replay-окно режет
-capture-replay с чужого адреса. Атакующий без ключа адрес не уведёт (его пакет не
-расшифруется → миграции нет).
+Требования:
 
-Опционально (Фаза 2, belt-and-suspenders) — **path-validation в стиле QUIC**: после
-миграции послать на новый адрес случайный challenge и дождаться аутентифицированного
-эха, прежде чем полностью переключить downstream.
+- секреты хранятся в zeroizing-контейнерах;
+- запрещены Debug, сериализация и логирование секретов, токенов и полных CID;
+- токен сессии служит только locator и не является доказательством владения;
+- UDP-миграция сохраняет исходные PacketCodec и единую replay-window — codec нельзя
+  клонировать или создавать заново с тем же ключом;
+- TCP JOIN всегда выполняет новый key exchange и создаёт новые AEAD-ключи;
+- proof TCP JOIN связывает resume secret, transcript hash, locator сессии, широкий
+  resume epoch, logical slot id и флаг handover;
+- повтор proof, proof для другого слота/epoch или изменённого transcript отклоняется.
 
-### 2.4 TCP: JOIN-resume + grace-период
+Resume epoch должен быть как минимум u64 и не зависеть от существующего u8 stream index.
 
-Внешний TCP-сокет мигрировать нельзя — но есть готовый примитив **JOIN-токен**
-(стрим-бондинг): новое TCP-соединение с нового IP делает свой handshake и шлёт
-`JOIN(session_token)` вместо AUTH → сервер цепляет его к живой сессии (тот же tun-IP,
-маршруты, **без повторного Argon2**). Чего не хватает:
+## 4. CONTROL_V2
 
-1. **Grace-период.** Сейчас при отвале последнего стрима сессия сносится **сразу**
-   ([handler.rs:766](../../qeli/src/server/handler.rs#L766)): `by_ip`/`by_token` чистятся, IP
-   возвращается в пул. Нужно: при отвале последнего стрима пометить сессию
-   `orphaned_at = now` и **держать** её `roaming.grace_secs` секунд; JOIN в этом окне
-   оживляет её (для `max_streams=1` проверка проходит: 0 < 1,
-   [handler.rs:411](../../qeli/src/server/handler.rs#L411)).
-2. **Усиление JOIN (Фаза 2).** Сейчас токен — bearer (16 байт,
-   [protocol/mod.rs](../../qeli/src/protocol/mod.rs) `JOIN_TOKEN_LEN`), летит только внутри
-   аутентифицированного туннеля. Привязать JOIN к доказательству над сессионным
-   материалом — `join_proof = HKDF(session_resume_secret, transcript_hash)` — чтобы
-   утечки одного токена было недостаточно.
-3. **Анти-DoS лимиты.** Orphaned-сессии **продолжают считаться** против `max_clients`
-   и per-user лимита в окне grace; потолок `roaming.max_orphaned`. Иначе churn
-   connect→drop накопит висящие сессии и выжрет пул IP/слоты (прямо против
-   уже сделанной анти-ghost работы).
+Текущий control-формат с однобайтовой длиной недостаточен для роуминга и крупных
+сообщений. Кроме того, клиентский downlink сейчас в основном ожидает IP-пакеты. До
+роуминга нужен общий двунаправленный dispatcher и versioned control frame:
 
-### 2.5 TCP make-before-break (бесшовный путь)
+- magic и версия;
+- type, flags и message id;
+- длина u16 либо bounded varint;
+- part index/part count для фрагментации больших сообщений;
+- порядок, идемпотентность, ACK и явная ошибка;
+- строгие лимиты размера, числа частей и времени сборки.
 
-Когда новая сеть появляется **до** смерти старой (типичный Wi-Fi→LTE, обе кратко
-живы), клиент **заранее** открывает JOIN-стрим **по новой сети**; шедулер
-([server/mod.rs](../../qeli/src/server/mod.rs) `pick_stream`/`flow_hash`) переносит потоки на
-него; старый стрим умирает — разрыва нет. Серверу **ничего нового** не нужно сверх
-существующего multipath + grace (на случай, если старый умрёт чуть раньше).
-Требование — **привязка сокета стрима к конкретному интерфейсу** на клиенте (см. 4.4).
+Минимальные сообщения для роуминга:
 
-## 3. Серверная реализация (Rust)
+- PATH_INIT;
+- PATH_CHALLENGE;
+- PATH_RESPONSE;
+- PATH_COMMIT;
+- PATH_ABORT;
+- CLOSE_SESSION;
+- SESSION_REVOKED/KICK.
 
-### 3.1 UDP-демультиплекс ([udp_handler.rs](../../qeli/src/server/udp_handler.rs))
-- Вторичный индекс `cid_index: HashMap<[u8;8], SocketAddr>` рядом с основным
-  `HashMap<SocketAddr, UdpClient>`. Основной — fast-path (большинство пакетов с
-  известного адреса), без изменений по стоимости.
-- `handle_udp_datagram`: (1) lookup по адресу — как сейчас; (2) промах + `quic_enabled`
-  → unwrap → CID → lookup в `cid_index` (вкл. окно ожидаемых roam-CID) → кандидат-сессия
-  → пробная расшифровка её `rx_codec` → если Ok и replay-ok → **МИГРАЦИЯ**.
-- МИГРАЦИЯ (под write-локом `sessions`): перенести `UdpClient` со старого ключа-адреса
-  на новый, обновить `cid_index`, обновить **живой** writer-addr, сдвинуть эпоху
-  roam-CID + пересчитать окно, залогировать.
-- `writer_addr` сейчас фиксируется по значению ([udp_handler.rs:671](../../qeli/src/server/udp_handler.rs#L671))
-  — сделать `Arc<Mutex<SocketAddr>>` (или упакованный `AtomicU64` для v4+port; v6 —
-  маленькая структура под Mutex), читать на каждый `send_to`.
-- **Крипто-состояние сохраняется** (codec, счётчик, replay-окно) — в этом суть
-  бесшовности.
+CONTROL_V2 передаётся только внутри аутентифицированных AEAD-записей и только после
+согласования capability. Полный live PUSH_CONFIG может использовать тот же транспорт,
+но не является обязательным условием первой версии роуминга. Обязателен сам надёжный
+двунаправленный dispatcher.
 
-### 3.2 TCP grace + JOIN-resume ([handler.rs](../../qeli/src/server/handler.rs))
-- В `run_stream` (teardown, `was_last`): вместо немедленного удаления — пометить
-  `orphaned_at = Some(now)`, оставить в картах.
-- Reaper (расширить существующий cleanup-tick) удаляет orphaned старше `grace_secs`
-  (тогда release IP/token).
-- JOIN-путь при attach: сбросить `orphaned_at` (сессия оживлена).
-- Поле в `SessionShared`: `orphaned_at: Mutex<Option<Instant>>`.
+## 5. Динамическая смена пути в едином Rust-ядре
 
-### 3.3 Конфиг ([config/server.rs](../../qeli/src/config/server.rs) + INI + панель)
-Новая секция `[roaming]`:
-```ini
-[roaming]
-# включить роуминг (UDP-миграция + TCP grace/JOIN-resume)
-enabled = true
-# сколько TCP-сессия живёт с 0 стримов под JOIN-resume
-grace_secs = 30
-# ротация UDP roam-CID (анти-линкуемость) — НЕ выключать без причины
-cid_rotation = true
-# потолок одновременно «осиротевших» сессий на профиль (анти-DoS)
-max_orphaned = 256
-# (Фаза 2) QUIC-style challenge нового адреса
-path_validation = false
-```
-Парсинг/сериализация по образцу остальных секций ([config/server_ini.rs](../../qeli/src/config/server_ini.rs)),
-поле в форму панели рядом с perf/obfs.
+Текущий runtime получает параметры соединения при запуске. Для роуминга нужен
+generation-scoped command channel от платформенного адаптера к уже работающему ядру.
 
-### 3.4 MTU после роуминга (Фаза 2)
-Новый путь (LTE) может иметь меньший MTU → блэкхол крупных пакетов. Фаза 1
-полагается на консервативный дефолт `tun.mtu=1400`; Фаза 2 — re-probe PMTUD или
-повторный push MTU на миграции.
+PathUpdate должен содержать:
 
-## 4. Клиентская реализация (все 4 клиента)
+- platform path id и причину события;
+- устойчивый token физической сети или interface index;
+- доступные локальные адреса;
+- результаты A/AAAA, полученные через нужную физическую сеть, и TTL;
+- признак смены default route, wake и same-network NAT failure.
 
-Rust ([client/mod.rs](../../qeli/src/client/mod.rs)), Android (Kotlin), Windows (C#), macOS (C#).
+Команды bounded, дедуплицируются и отменяют устаревший candidate. Команда от старой
+generation не может изменить новый runtime.
 
-### 4.1 Детект смены сети
-- **Rust** (Linux/роутер): netlink `RTM_NEWADDR`/route-monitor либо опрос дефолт-маршрута.
-- **Android**: `registerDefaultNetworkCallback` (уже используется под `forceReconnect`) —
-  переиспользовать под soft-rebind.
-- **Windows**: `NetworkChange.NetworkAddressChanged` / `NotifyAddrChange`.
-- **macOS**: `nw_path_monitor` / `SCNetworkReachability`.
+Смена пути выполняется транзакционно:
 
-### 4.2 UDP soft-rebind (бесшовный путь)
-На смене сети: создать **новый** UDP-сокет на новом интерфейсе, **сохранив**
-существующий `PacketCodec`/счётчик/CID-состояние; сдвинуть эпоху roam-CID; продолжить
-слать. **Критично: НЕ пересоздавать codec** — иначе nonce-reuse (катастрофа для AEAD).
-Архитектурно — единый объект session-state, переживающий замену сокета.
+1. **PREPARE_PATH:** платформа ставит candidate host route до сервера, расширяет kill-switch
+   и per-app allowlist, выполняет DNS через точную физическую сеть.
+2. Ядро создаёт candidate socket и требует точный bind/protect к выбранному пути.
+3. Новый UDP-путь проходит challenge/response либо TCP-путь проходит authenticated JOIN.
+4. **COMMIT_PATH:** active path меняется атомарно.
+5. Старый путь дренируется ограниченное время.
+6. Временные правила старого пути удаляются; при ошибке выполняется **ABORT_PATH**.
 
-### 4.3 TCP make-before-break
-- «Новая сеть доступна» (обе живы): открыть JOIN-стрим, привязанный к новому
-  интерфейсу; после ack — пометить старый стрим draining; смерть старого → без gap.
-- «Только новая сеть» (жёсткий хендовер): старый стрим уже мёртв → JOIN-resume на
-  новой в окне grace; grace истёк → полный реконнект (сегодняшний путь).
+При успешном роуминге состояние клиента остаётся Running, TUN/TAP и NetworkPlan не
+пересоздаются. В статистике roam и full reconnect учитываются раздельно.
 
-### 4.4 Привязка сокета к интерфейсу
-Android `Network.bindSocket`; Linux `SO_BINDTODEVICE` (клиент и так root для TUN);
-Windows `IP_UNICAST_IF` (или bind к адресу интерфейса); macOS `IP_BOUND_IF`.
+## 6. UDP: новый short header и CID
 
-## 5. Безопасность (сводно)
-- **Анти-хайджек:** миграция только после AEAD+replay; опц. path-validation.
-- **Анти-линкуемость:** ротация CID (UDP). TCP-токен — внутри туннеля, на проводе
-  tell'а нет, но **сервер** видит оба IP под одной сессией (как и сейчас через
-  device-id), а глобальный наблюдатель коррелирует по таймингу/объёму — **внести в
-  THREAT-MODEL.md**.
-- **Анти-DoS:** потолки grace/orphaned; orphaned считаются против лимитов; UDP-миграция
-  — O(1) lookups; окно roam-CID ограничено.
-- **Nonce-reuse (главный footgun):** клиент обязан переносить codec **дословно** при
-  rebind — assertion + тест.
-- **MTU-блэкхол:** re-probe/консервативный дефолт.
+Существующий четырёхбайтовый формат handshake/long header сохраняется для совместимости.
+Для согласованного UDP_ROAM_V1 вводится отдельный short-header marker и фиксированный
+восьмибайтовый CID. Marker должен позволять однозначно распознать форму до чтения CID;
+неизвестный source address не может участвовать в выборе формата.
 
-## 6. Тесты и лаба
-- **Unit:** KAT вывода/ротации roam-CID; миграция accept/reject (валидный пакет
-  мигрирует, спуфленный/реплейнутый — нет); grace-таймер; JOIN-resume attach при
-  `max_streams=1`.
-- **Fuzz:** расширить [qeli/fuzz](../../qeli/fuzz) путём CID/миграции.
-- **e2e на лабе (.10/.11):** скрипт меняет src-addr клиента на лету (netns/iptables
-  SNAT) и проверяет: UDP+QUIC → 0 реконнектов, поток продолжается; TCP →
-  make-before-break 0-gap при двух живых сетях, JOIN-resume <grace при жёстком
-  хендовере; замер gap/loss/«Argon2 пропущен».
-- **Регресс:** throughput без изменений (CID-lookup только на промахе адреса, не на
-  каждом пакете).
+CID:
 
-## 7. Фазировка
+- выводится из направленного CID secret, session id и epoch;
+- имеет не менее 64 бит locator space;
+- атомарно регистрируется с проверкой коллизии;
+- имеет ограниченное окно current/previous/future aliases;
+- удаляется при drain, timeout, kick, quota, reload и закрытии сессии;
+- проверяется клиентом и в направлении server-to-client при нескольких сокетах.
 
-- **Фаза 1 → 0.8.0:** UDP+QUIC бесшовный роуминг (серверный демультиплекс по CID +
-  миграция + живой writer-addr; клиентский soft-rebind) **сразу с ротацией CID**; TCP
-  break-before-make (grace + JOIN-resume, токен-only). Секция `[roaming]`. Тесты + лаба.
-- **Фаза 2 → 0.8.x:** TCP make-before-break (per-interface binding + хендовер на
-  multipath), усиление `join_proof`, path-validation, MTU re-probe.
-- **Фаза 3 (позже):** CID для plain-UDP (если будет спрос); пул CID (Design A), если
-  детерминированной ротации окажется мало.
+Packet number в наружном заголовке можно рандомизировать на новом пути, но это не
+разрешает сбрасывать внутренние AEAD counters. Активный путь определяется монотонным
+path epoch. Пакет со старого пути не может откатить active path после commit.
 
-## 8. Совместимость / выкатка
-Wire-изменения (8-байтный ротируемый CID, JOIN-resume-семантика) → 0.8.0 как точка
-**синхронного** апгрейда сервера и всех клиентов. Для не-роуминговых пиров поведение
-по умолчанию не меняется (роуминг под флагом `[roaming].enabled`); старые клиенты
-продолжают работать как «быстрый реконнект».
+## 7. UDP: серверная архитектура
 
-## 9. Оценка объёма (грубо)
+Текущий UDP data plane адресует клиентов исходным SocketAddr, разделён между workers и
+захватывает конкретные socket/address/family в writer. Этого недостаточно для смены
+адреса. Нужны:
 
-| Компонент | Объём | Риск |
-|---|---|---|
-| Сервер UDP-демультиплекс + миграция + roam-CID | Средний | Средний (data-plane) |
-| Сервер TCP grace + JOIN-resume | Малый-средний | Низкий |
-| Конфиг `[roaming]` + панель | Малый | Низкий |
-| Клиент: детект сети + UDP soft-rebind ×4 | Средний | Средний (nonce-reuse) |
-| Клиент: TCP make-before-break + per-iface bind ×4 (Фаза 2) | Большой | Средний |
-| Тесты + лаб-сценарии смены адреса | Средний | — |
+1. **UdpHalfOpen** для неаутентифицированного handshake.
+2. **ProfileUdpRegistry**, общий для всех SO_REUSEPORT workers и всех bind.listen одного
+   профиля.
+3. Реестр по CID, заполняемый только после успешной AUTH.
+4. Per-session actor, единолично владеющий:
+   - PacketCodec и replay-window;
+   - reassembly DATA_FRAG;
+   - active/candidate paths;
+   - PMTU state;
+   - heartbeat, cover traffic и reaper coordination;
+   - egress writer.
 
-Главные риски — правки в security-critical data-plane и **nonce-reuse при кривом
-rebind**; митигируются флагом `[roaming].enabled` (на старте можно по умолчанию off),
-лимитами grace/orphaned и обязательным тестом на перенос codec.
+ActiveUdpPath должен включать peer address, фактический receiving/egress socket, local
+listener/family, CID и epoch. Lookup CID выполняется до new-session rate limiting, иначе
+валидный migrated packet может быть ошибочно принят за новый handshake.
+
+На сессию допускается не более одного candidate; также нужны глобальный лимит и rate
+limit candidate paths. Один session actor исключает дубли heartbeat/cover/reaper при
+нескольких workers.
+
+На клиенте UDP-сессия также должна иметь единственного владельца PacketCodec, replay-window,
+active/candidate sockets и очереди TUN. Шифрование пакетов со старого и нового пути нельзя
+разнести по независимым writer-задачам: это создаёт гонку AEAD counter и порядка commit.
+Candidate socket принимает только control/probe до PATH_COMMIT; после commit новый egress
+меняется атомарно, а старый socket остаётся только на ограниченный receive drain.
+
+Межпроцессный и межузловой роуминг не поддерживается первой версией. При балансировке
+нескольких процессов требуется sticky routing либо внешний state store — это отдельный
+этап.
+
+## 8. UDP: проверка пути и PMTU
+
+Проверка владения новым обратным путём обязательна уже в первой версии:
+
+1. Клиент с candidate socket отправляет зашифрованный PATH_INIT с следующим CID и
+   монотонным path epoch.
+2. Сервер находит сессию по CID, проверяет AEAD/replay и создаёт bounded candidate.
+3. Сервер отправляет PATH_CHALLENGE, не превышая anti-amplification budget 3× от байтов,
+   полученных с непроверенного адреса.
+4. Клиент отвечает PATH_RESPONSE с challenge.
+5. Сервер атомарно фиксирует active path и подтверждает PATH_COMMIT.
+
+До корректного PATH_RESPONSE сервер не переключает downstream на новый адрес. Stale epoch,
+неверный CID, duplicate challenge и параллельный candidate отклоняются предсказуемо.
+
+После commit внешний UDP payload budget в обоих направлениях сбрасывается к безопасному
+минимуму для нового outer family. Затем запускается живой двунаправленный PMTU probe.
+Старый измеренный PMTU переносить нельзя.
+
+PMTU state machine живёт внутри session actor и не вызывает отдельный socket.recv, который
+может украсть data/control datagram у основного loop. ACK связывается с path epoch, точным
+source и egress socket. Запоздалый ACK старого пути не может увеличить бюджет нового.
+
+DATA_FRAG_V1 обязателен: внутренний MTU TUN/TAP и NetworkPlan остаются прежними, а
+зашифрованная запись режется под новый внешний бюджет. Reassembly либо сохраняется до
+ограниченного expiry при drain, либо очищается с отдельным drop reason; AEAD и replay
+при этом не сбрасываются.
+
+Нужно отдельно проверить достаточность текущего replay-window на высокоскоростном
+make-before-break с переупорядочиванием. Если окно расширяется временно, переход и
+обратное сужение должны быть bounded и покрыты тестами.
+
+## 9. TCP: lifecycle сессии на сервере
+
+Для TCP нужен lifecycle:
+
+- Active;
+- Orphaned;
+- Resuming;
+- Closing;
+- Revoked.
+
+Неожиданная потеря последнего transport stream переводит сессию в Orphaned на grace.
+Ручной CLOSE_SESSION, kick, quota, expiry, shutdown и protocol violation немедленно
+переводят её в Revoked и освобождают ресурсы.
+
+Orphaned-сессия удерживает внутренние IP, routes/iroutes, token/resume secret, лимиты,
+quota counters и считается в max_clients/per-user. Нужны max_orphaned и
+max_orphan_bytes, чтобы разрыв сети нельзя было превратить в DoS памяти.
+
+JOIN должен атомарно зарезервировать сессию и logical slot до ответа JOINOK. Reaper
+проверяет session id и generation, чтобы гонка JOIN/reap/kick/quota не освобождала
+восстановленную сессию. Любое владение ресурсом освобождается ровно один раз.
+
+Новая полная AUTH того же device id немедленно отзывает старую orphaned-сессию. Одного
+знания session token для JOIN недостаточно — требуется proof из раздела 3.
+
+## 10. TCP: стабильные потоки и клиентский supervisor
+
+Текущая работа с потоком через позицию в Vec и modulo непригодна для handover: добавление
+или удаление элемента меняет распределение пакетов. Нужна таблица стабильных логических
+слотов:
+
+~~~text
+Slot { id, generation, state: Ready | Draining, transport }
+~~~
+
+Новый transport сначала проходит KE/JOIN для того же slot id, затем атомарно становится
+Ready, а предыдущий переводится в Draining. Scheduler отправляет новые пакеты только в
+Ready-слоты и не перенумеровывает остальные.
+
+Один клиентский supervisor должен сериализовать:
+
+- adaptive ramp-up/ramp-down;
+- замену погибшего потока;
+- roaming handover;
+- полный reconnect fallback;
+- ручную остановку.
+
+При нуле живых TCP streams в пределах grace TUN/TAP и NetworkPlan сохраняются, а uplink
+имеет строгий bounded queue или fail-closed drop. Бесконечное накопление пакетов запрещено.
+Downstream replay buffer не требуется: потерянные внутренние TCP-сегменты восстановит
+внутренний транспорт.
+
+Make-before-break:
+
+1. подготовить candidate network path;
+2. открыть transport и выполнить новый KE;
+3. authenticated JOIN того же logical slot;
+4. получить подтверждение reservation;
+5. атомарно переключить scheduler;
+6. ограниченно дренировать старый stream.
+
+При жёстком обрыве выполняется JOIN в пределах grace, затем — полная AUTH fallback.
+Если **reconnect = false**, успешный roam разрешён, но после неуспешного roam клиент
+останавливается без full reconnect. **persist_tun** применяется только к полному reconnect
+fallback, а не к успешному роумингу.
+
+Ручной stop отправляет best-effort CLOSE_SESSION и отменяет candidate. Политика Trusted
+Wi-Fi имеет приоритет над автоматическим roam. После sleep дольше grace ожидается full AUTH.
+
+## 11. Платформенные адаптеры
+
+Общий порядок для всех платформ: prepare route/allowlist → DNS на нужном пути → точный
+bind/protect socket → protocol validation/JOIN → commit → drain → cleanup.
+
+### Android
+
+- сохранять точный Network/path id, а не только факт доступности сети;
+- получать A/AAAA через Network.getAllByName;
+- для initial и candidate socket выполнять Network.bindSocket(fd), затем protect(fd);
+- Connectivity callback преобразовать в PathUpdate, а не безусловный reconnect;
+- Trusted Wi-Fi остаётся policy stop;
+- детектировать same-network NAT rebinding/dead mapping без смены Network.
+
+### Windows
+
+- до connect поставить временный host route /32 или /128 до сервера;
+- одновременно разрешить old и candidate endpoint в kill switch;
+- привязать source address и interface через IP_UNICAST_IF/IPV6_UNICAST_IF;
+- WinDivert должен горячо обновлять carrier set, сохраняя flow/fragment state и tunnelUp;
+- при abort/commit атомарно удалить только правила своей generation.
+
+### macOS
+
+- временный host route к candidate endpoint;
+- old/new allowlist в kill switch на время drain;
+- IP_BOUND_IF/IPV6_BOUND_IF и DNS через физический интерфейс;
+- Network Extension не должна пересоздавать utun при успешном roam.
+
+### iOS
+
+- NWPathMonitor внутри Packet Tunnel Extension;
+- DNS и NAT64 synthesis через текущий физический path;
+- привязка к интерфейсу там, где NetworkExtension API это допускает;
+- обязательный device-lab: симулятор не подтверждает поведение cellular/Wi-Fi handover.
+
+### Linux и OpenWrt
+
+- netlink watcher RTM_NEWADDR/route вместо периодического полного reconnect;
+- bind source/interface с сохранением строгой семантики client local;
+- динамические server bypass routes и kill-switch allowlist;
+- для exit-node на commit обновлять WAN/NAT/MARK/accept_ra правила обоих семейств.
+
+## 12. Конфигурация
+
+Новые пользовательские параметры добавляются в существующий flat INI. Отдельный JSON
+конфиг не вводится.
+
+Сервер, внутри конкретного профиля:
+
+~~~ini
+[profile:mobile-udp]
+roaming.enabled = true
+roaming.grace_secs = 30
+roaming.max_orphaned = 256
+roaming.max_orphan_bytes = 67108864
+~~~
+
+Клиент:
+
+~~~ini
+[qeli]
+roaming = auto
+~~~
+
+Допустимые значения клиента:
+
+- **off** — всегда обычный reconnect;
+- **auto** — использовать согласованный roam, иначе reconnect;
+- **required** — отказать, если профиль/peer не поддерживает безопасный roam.
+
+На первом rollout серверный default — off, клиентский — auto. Не следует выводить в
+конфиг низкоуровневые переключатели crypto, path validation или CID rotation: они являются
+инвариантами протокола, а не настройками администратора.
+
+Валидация должна отклонять:
+
+- required для UDP без QUIC/DATA_FRAG;
+- required при отсутствии серверной capability;
+- невозможный cross-interface roam при жёстком client local;
+- нулевые/чрезмерные grace и memory limits.
+
+Новые ключи обязаны пройти единый round-trip во всех Rust/C#/Kotlin/Swift моделях,
+редакторах профиля, raw editor, встроенных quick-start режимах, примерах установки и
+qeli share. В share следует писать только значения, отличные от default. Внутренние
+JSON-структуры FFI/ABI также обновляются, но не становятся пользовательским форматом.
+
+## 13. Панель, API и эксплуатация
+
+Сессия больше не должна идентифицироваться внешним peer address. SessionShared и control
+API получают additive поля:
+
+- session_id и lifecycle state;
+- current_peer и outer family;
+- roam_count и last_roam_secs;
+- число ready/draining streams или active/candidate paths;
+- текущий внешний payload budget;
+- причина последнего fallback.
+
+Dashboard использует session_id как ключ строки. Успешный roam не создаёт события
+disconnect/connect и не запускает обычные пользовательские уведомления. Допустимо отдельное
+низкошумное roam event. Окончательный disconnect фиксируется только при revoke/reap.
+
+Метрики должны быть low-cardinality:
+
+- attempts/success/failure по transport и нормализованной причине;
+- orphan gauge/reap;
+- validation latency и candidate gauge;
+- CID miss/collision;
+- PMTU reset/probe;
+- reconnect fallback.
+
+В логах запрещены resume proof, session token, secrets и полный CID.
+
+## 14. Порядок реализации
+
+Ни один production-этап не допускает небезопасный роуминг без proof, path validation,
+anti-amplification и PMTU reset.
+
+### Этап 0. Протокольная спецификация
+
+- зафиксировать capability bits и wire constants;
+- KDF labels и known-answer vectors для всех auth modes;
+- CONTROL_V2 и лимиты reassembly;
+- TCP JOIN transcript/proof;
+- UDP short header/CID/path messages;
+- feature flags с default off.
+
+Результат: спецификация и тестовые векторы, но feature недоступна пользователю.
+
+### Этап 1. ABI и транзакция пути
+
+- generation-scoped PathUpdate/command channel;
+- PREPARE/COMMIT/ABORT contract;
+- platform socket binding hooks;
+- отдельная телеметрия roam/reconnect;
+- mock adapter с fault injection.
+
+Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
+текущего data plane.
+
+### Этап 2. TCP resume и handover
+
+- SessionKeyMaterial/resume secret;
+- серверный lifecycle и orphan limits;
+- authenticated JOIN с atomic reservation;
+- stable logical slots;
+- единый client supervisor;
+- make-before-break и hard-handover grace;
+- CLOSE/revoke/reaper races.
+
+Результат: TCP роуминг на mock/Linux path; остальные платформы пока за feature gate.
+
+### Этап 3. UDP migration
+
+- восьмибайтовый CID и profile-wide registry;
+- per-session actor и dynamic egress;
+- PATH_INIT/CHALLENGE/RESPONSE/COMMIT;
+- anti-amplification и candidate limits;
+- двунаправленный live PMTU reset/probe;
+- DATA_FRAG/reassembly/replay интеграция;
+- cross-worker/listener/family tests.
+
+Результат: безопасный UDP роуминг на mock/Linux path.
+
+### Этап 4. Платформы
+
+- Android;
+- Windows;
+- macOS;
+- iOS;
+- Linux/OpenWrt и exit-node.
+
+Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
+
+### Этап 5. Конфиги, приложения и панель
+
+- flat-INI parsing/defaults/validation/round-trip;
+- GUI editors и встроенные quick-start режимы;
+- API/dashboard/metrics/logging;
+- русская и английская документация;
+- install/deb/examples в /etc/qeli.
+
+### Этап 6. Лаба, soak и rollout
+
+- полный transport/family/platform matrix;
+- длительные flap, suspend/resume и NAT rebinding;
+- canary профили;
+- staged enablement;
+- проверка fallback на legacy peers.
+
+## 15. Проверки и release gates
+
+### Протокол и криптография
+
+- capability downgrade и неизвестные биты;
+- fuzz discriminator 4/8 bytes, truncation и CID collision;
+- KDF known-answer tests для classic/hybrid/bound;
+- replay/wrong transcript/wrong slot/wrong epoch TCP JOIN;
+- CONTROL_V2 больше 255 байт, reorder, duplicate, timeout и лимиты.
+
+### Гонки и ресурсы
+
+- CID lookup между SO_REUSEPORT workers, listeners и outer families;
+- registry lookup до new-session rate limit;
+- spoofed source и anti-amplification 3×;
+- параллельные candidates и stale commit;
+- reaper против JOIN/kick/quota/new AUTH/reload;
+- запрет JOINOK до atomic reservation;
+- stable slots без перенумерации;
+- adaptive multipath против roam;
+- отсутствие u8 epoch exhaustion;
+- отсутствие double free и утечек aliases/routes/sockets.
+
+### PMTU и фрагментация
+
+- live probe не забирает data datagram;
+- stale ACK не расширяет новый путь;
+- reset IPv4→IPv6 и IPv6→IPv4;
+- asymmetric C2S/S2C PMTU;
+- fragments в момент drain;
+- reorder/loss/duplicate/conflict/expiry;
+- неизменный inner TUN MTU при DATA_FRAG_V1.
+
+### End-to-end матрица
+
+- inner IPv4, IPv6, dual-stack на outer IPv4 и IPv6;
+- TUN и TAP;
+- все TCP режимы;
+- UDP fakeTLS/obfs/AWG с QUIC и DATA_FRAG;
+- max_streams 1, fixed и adaptive;
+- full/split/per-app routing;
+- kill switch, Trusted Wi-Fi и жёсткий local pin;
+- reconnect false и persist_tun;
+- NAT rebinding без смены интерфейса;
+- sleep меньше и больше grace;
+- A/AAAA reorder и DNS64/NAT64;
+- legacy peer fallback;
+- отрицательный тест multi-process/multi-node.
+
+Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
+CID aliases и orphaned sessions. Допустимая регрессия throughput/CPU на включённом
+роуминге — не более 3–5% относительно того же транспорта без него.
+
+Release запрещён, если хотя бы одна поддерживаемая платформа:
+
+- объявляет capability без точного socket binding;
+- переключает downstream до path validation;
+- переносит старый PMTU;
+- сбрасывает UDP codec/replay state;
+- оставляет bypass route/kill-switch hole после abort;
+- принимает TCP JOIN только по token;
+- пересоздаёт TUN/TAP при успешном roam.
+
+## 16. Оценка трудоёмкости и риски
+
+Полная реализация для сервера, единого ядра, пяти клиентских платформ, панели,
+документации и лаборатории: ориентировочно 20–30 инженерных недель.
+
+Практическая оценка:
+
+- server + Linux/Android MVP: 10–14 инженерных недель;
+- один разработчик: около 5–7 календарных месяцев;
+- два опытных разработчика: около 12–18 календарных недель с учётом интеграции и lab.
+
+Главные риски:
+
+1. server UDP state, общий между workers/listeners;
+2. гонки TCP orphan/reaper/JOIN;
+3. точная platform binding и атомарный kill-switch rollback;
+4. PMTU при смене outer family;
+5. iOS cellular/Wi-Fi поведение, проверяемое только на устройствах;
+6. сочетание adaptive multipath, roam и reconnect supervisor.
+
+## 17. Rollout
+
+1. Серверный default off, клиентский auto.
+2. Capability negotiation допускает rolling upgrade.
+3. Сначала canary TCP и UDP профили с отдельными метриками.
+4. Затем по одной платформе после её полной lab-матрицы.
+5. При любой неподдерживаемой или ошибочной ситуации — обычный full reconnect.
+6. После перезапуска сервера, смены node или истечения grace — только full AUTH.
+
+Feature не считается готовой, пока не пройдены все обязательные release gates, даже если
+happy-path смены Wi-Fi/cellular уже визуально работает.
