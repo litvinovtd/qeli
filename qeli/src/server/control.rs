@@ -27,6 +27,25 @@ pub fn control_socket_path() -> String {
         .unwrap_or_else(|| CONTROL_SOCKET.to_string())
 }
 
+/// Return a mutable external entry, materializing an inline user as a file override when
+/// a runtime control command needs to persist a change.
+fn external_or_inline_user<'a>(
+    db: &'a mut UsersDb,
+    config: &crate::config::server::ServerConfig,
+    username: &str,
+) -> Option<&'a mut crate::config::users::UserEntry> {
+    if db.users.iter().all(|user| user.username != username) {
+        let inline = config
+            .auth
+            .users
+            .iter()
+            .find(|user| user.username == username)
+            .cloned()?;
+        db.users.push(inline);
+    }
+    db.users.iter_mut().find(|user| user.username == username)
+}
+
 #[derive(Deserialize)]
 struct Request {
     cmd: String,
@@ -379,17 +398,20 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             let (disabled, save_err) = {
                 let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                match UsersDb::update_locked(&users_file, |db| {
-                    match db.users.iter_mut().find(|u| u.username == req.username) {
+                match UsersDb::update_locked_checked(&users_file, |db| {
+                    let found = match external_or_inline_user(db, &state.config, &req.username) {
                         Some(u) => {
                             u.enabled = false;
                             true
                         }
                         None => false,
-                    }
+                    };
+                    let effective =
+                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                    Ok((found, effective))
                 }) {
-                    Ok((fresh, found)) => {
-                        *users = fresh;
+                    Ok((_fresh, (found, effective))) => {
+                        *users = effective;
                         (found, None)
                     }
                     Err(e) => {
@@ -420,8 +442,8 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 Some(e) => Response {
                     ok: false,
                     error: Some(format!(
-                        "user '{}' disabled in memory and {} session(s) kicked, but persisting \
-                         to the users file FAILED ({}) — the change will be lost on restart",
+                        "user '{}' was NOT disabled because the users file update failed; {} \
+                         current session(s) were kicked, but reconnect remains possible ({})",
                         req.username, total_kicked, e
                     )),
                     clients: None,
@@ -451,19 +473,22 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             let (found, save_err) = {
                 let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                match UsersDb::update_locked(&users_file, |db| {
-                    match db.users.iter_mut().find(|u| u.username == req.username) {
+                match UsersDb::update_locked_checked(&users_file, |db| {
+                    let found = match external_or_inline_user(db, &state.config, &req.username) {
                         Some(u) => {
                             u.data_limit_gb = req.data_limit_gb;
                             u.expire_at = req.expire_at;
                             true
                         }
                         None => false,
-                    }
+                    };
+                    let effective =
+                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                    Ok((found, effective))
                 }) {
-                    Ok((fresh, ok)) => {
-                        *users = fresh;
-                        (ok, None)
+                    Ok((_fresh, (found, effective))) => {
+                        *users = effective;
+                        (found, None)
                     }
                     Err(e) => {
                         log::error!("Failed to save users file after set-limit: {}", e);
@@ -483,8 +508,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 Some(e) => Response {
                     ok: false,
                     error: Some(format!(
-                        "limit set in memory but persisting to the users file FAILED ({}) — \
-                         it will be lost on restart",
+                        "limit was NOT changed because the users file update failed ({})",
                         e
                     )),
                     clients: None,
@@ -540,18 +564,21 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             }
             let users_file = state.config.auth.users_file.clone();
             let mut users = state.users_db.write().await;
-            let outcome = UsersDb::update_locked(&users_file, |db| {
-                match db.users.iter_mut().find(|u| u.username == req.username) {
+            let outcome = UsersDb::update_locked_checked(&users_file, |db| {
+                let found = match external_or_inline_user(db, &state.config, &req.username) {
                     Some(u) => {
                         u.enabled = true;
                         true
                     }
                     None => false,
-                }
+                };
+                let effective =
+                    crate::server::effective_users_from_external(&state.config, db.clone())?;
+                Ok((found, effective))
             });
             let found = match &outcome {
-                Ok((fresh, found)) => {
-                    *users = fresh.clone();
+                Ok((_fresh, (found, effective))) => {
+                    *users = effective.clone();
                     *found
                 }
                 Err(_) => true, // report the save failure, not "no such user"
@@ -569,8 +596,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         Response {
                             ok: false,
                             error: Some(format!(
-                                "user '{}' enabled in memory, but persisting to the users file \
-                                 FAILED ({}) — the change will be lost on restart",
+                                "user '{}' was NOT enabled because the users file update failed ({})",
                                 req.username, e
                             )),
                             clients: None,
@@ -626,22 +652,41 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             }
             drop(profiles);
 
-            let save_err = {
+            let (found, save_err) = {
                 let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                match UsersDb::update_locked(&users_file, |db| {
-                    db.set_bandwidth(&req.username, req.mbps)
+                match UsersDb::update_locked_checked(&users_file, |db| {
+                    let found = match external_or_inline_user(db, &state.config, &req.username) {
+                        Some(user) => {
+                            user.bandwidth.limit_mbps = req.mbps;
+                            user.bandwidth.burst_mbps = req.mbps.saturating_add(req.mbps / 4);
+                            true
+                        }
+                        None => false,
+                    };
+                    let effective =
+                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                    Ok((found, effective))
                 }) {
-                    Ok((fresh, _found)) => {
-                        *users = fresh;
-                        None
+                    Ok((_fresh, (found, effective))) => {
+                        *users = effective;
+                        (found, None)
                     }
                     Err(e) => {
                         log::error!("Failed to save users file after set-bandwidth: {}", e);
-                        Some(e.to_string())
+                        (true, Some(e.to_string()))
                     }
                 }
             };
+
+            if !found {
+                return Response {
+                    ok: false,
+                    error: Some(format!("user '{}' not found", req.username)),
+                    clients: None,
+                    message: None,
+                };
+            }
 
             match save_err {
                 Some(e) => Response {
@@ -840,6 +885,31 @@ mod tests {
 
     fn parse(json: &str) -> Result<Request, serde_json::Error> {
         serde_json::from_str::<Request>(json)
+    }
+
+    #[test]
+    fn runtime_mutation_materializes_and_keeps_an_inline_user_override() {
+        let mut config = crate::config::server::ServerConfig::default();
+        config.auth.users.push(crate::config::users::UserEntry {
+            username: "inline-alice".to_string(),
+            password_hash: "hash".to_string(),
+            enabled: true,
+            ..Default::default()
+        });
+        let mut external = UsersDb::default();
+
+        let user = external_or_inline_user(&mut external, &config, "inline-alice")
+            .expect("inline user must be materialized as a file override");
+        user.enabled = false;
+        let effective = crate::server::effective_users_from_external(&config, external)
+            .expect("override union must remain valid");
+
+        assert_eq!(effective.users.len(), 1);
+        assert_eq!(effective.users[0].username, "inline-alice");
+        assert!(
+            !effective.users[0].enabled,
+            "external override must keep precedence over the inline entry"
+        );
     }
 
     #[test]

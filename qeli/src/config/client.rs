@@ -1105,9 +1105,10 @@ impl ClientConfig {
         // (Audit 2026-08-04.)
         {
             let is_tap = self.tun.device_type.eq_ignore_ascii_case("tap");
-            // TAP frames carry a 14-byte Ethernet header on top of the IP MTU. `mtu = 0`
-            // means "adopt what the server pushes", so fall back to the smallest legal MTU
-            // rather than accepting any buffer at all.
+            // TAP frames carry a 14-byte Ethernet header on top of the IP MTU. With
+            // `mtu = 0` the pushed MTU is unknown at load time, so this enforces the
+            // absolute protocol floor; the TCP/UDP runtime expands the read buffer to the
+            // negotiated MTU (plus TAP/utun framing) before starting the pump.
             let mtu = if self.tun.mtu > 0 {
                 self.tun.mtu as usize
             } else {

@@ -44,7 +44,11 @@ pub async fn get_logs(
     _guard: auth::AuthGuard,
     Query(q): Query<LogsQuery>,
 ) -> Json<Value> {
-    let log_path = state.config.logging.file.clone();
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Json(super::err_json(error)),
+    };
+    let log_path = config.logging.file.clone();
     let filter = q.filter.clone();
     let max_lines = q.lines.min(2000);
 

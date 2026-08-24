@@ -53,7 +53,22 @@
         <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 flex items-center"
           :class="activeTab === i ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
           @click="activeTab = i">
-          <span class="mr-1.5" x-text="profileIcon(p)"></span>
+          <svg x-show="p.bind?.transport !== 'udp'" data-transport-icon="tcp"
+            class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--blue-2)"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="TCP">
+            <circle cx="4" cy="12" r="2.25" stroke-width="1.8"/>
+            <circle cx="20" cy="12" r="2.25" stroke-width="1.8"/>
+            <path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+              d="M7.5 9h8m0 0-2-2m2 2-2 2M16.5 15h-8m0 0 2 2m-2-2 2-2"/>
+          </svg>
+          <svg x-show="p.bind?.transport === 'udp'" data-transport-icon="udp"
+            class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--violet)"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="UDP">
+            <path stroke-width="1.7" stroke-linecap="round" d="M3 5.25h5M3 12h2.5M3 18.75h5"/>
+            <rect x="10" y="3" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
+            <rect x="7.5" y="9.75" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
+            <rect x="10" y="16.5" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
+          </svg>
           <span x-text="p.name || ('Profile ' + (i+1))"></span>
           <span x-show="p.enabled === false" class="badge badge-off ml-1.5" style="font-size:.6rem">off</span>
         </button>
@@ -2007,10 +2022,6 @@ function configPage() {
       } finally {
         this.restarting = false;
       }
-    },
-
-    profileIcon(p) {
-      return p.bind?.transport === 'udp' ? '📡' : '🔒';
     },
 
     // Build a new profile from the server's canonical defaults (single source of

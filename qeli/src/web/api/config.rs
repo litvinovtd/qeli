@@ -154,15 +154,37 @@ pub async fn get_config(
     // Return the live on-disk config so the panel reflects Quick-Start / Apply
     // changes (the supervisor's in-memory `config` is only its startup snapshot).
     if let Some(path) = state.config_path.lock().await.clone() {
-        if let Ok(s) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = crate::config::parse_server_config(&s) {
-                return Ok(Json(json!({
-                    "ok": true,
-                    "config": cfg,
-                    "revision": config_revision(&s),
-                })));
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) => {
+                return Ok(Json(super::err_json(format!(
+                    "cannot read current server config '{}': {error}",
+                    path
+                ))))
             }
+        };
+        let (config, findings) = match crate::config::parse_server_config_reporting(&raw) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return Ok(Json(super::err_json(format!(
+                    "cannot parse current server config '{}': {error}",
+                    path
+                ))))
+            }
+        };
+        if !findings.is_empty() {
+            return Ok(Json(super::err_json(format!(
+                "current server config '{}' has {} unreadable or ambiguous value(s): {}",
+                path,
+                findings.len(),
+                findings.join("; ")
+            ))));
         }
+        return Ok(Json(json!({
+            "ok": true,
+            "config": config,
+            "revision": config_revision(&raw),
+        })));
     }
     let raw = state.config.to_ini_string();
     Ok(Json(json!({
@@ -993,13 +1015,9 @@ pub async fn get_quickstart_profile(
     Path(mode): Path<String>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let current = if let Some(path) = state.config_path.lock().await.clone() {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|text| crate::config::parse_server_config(&text).ok())
-            .unwrap_or_else(|| state.config.clone())
-    } else {
-        state.config.clone()
+    let current = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     let host = crate::server::preflight::gather_host_net();
     match quickstart_profile_for_current(
@@ -1089,10 +1107,7 @@ pub async fn apply_quickstart_profile(
             "Quick Start config would be rejected at startup: {error}"
         ))));
     }
-    if let Err(error) = {
-        let users = state.users_db.read().await;
-        crate::server::validate_static_address_sources(&reparsed, &users)
-    } {
+    if let Err(error) = super::effective_users(&reparsed) {
         return Ok(Json(super::err_json(format!(
             "Quick Start conflicts with existing static user addresses: {error}"
         ))));
@@ -1431,15 +1446,7 @@ pub async fn put_config(
         // here does NOT take effect on a worker restart, only on a full process
         // restart. Without this the panel said "applied live" while still serving on
         // the old prefix, sending the operator on a 404 hunt behind their proxy.
-        || w.base_path != cur.base_path
-        // `auth.users_file` too, even though it is not a `[web]` key. Every CRUD path in
-        // the panel resolves it from the BOOT-TIME snapshot (`state.config.auth.users_file`
-        // in api/users.rs, share.rs and usage.rs), while the worker re-reads the config on
-        // its own restart. Change the path and press the worker-restart button and the two
-        // processes end up on different files: users created in the panel do not exist for
-        // the VPN, users deleted there keep connecting, and nothing says so.
-        // (Audit 2026-07-27, D1.)
-        || parsed.auth.users_file != state.config.auth.users_file;
+        || w.base_path != cur.base_path;
 
     let config_str = parsed.to_ini_string();
     // Fail-closed defense-in-depth: never write a config we can't read back. The
@@ -1507,10 +1514,7 @@ pub async fn put_config(
             ),
         })));
     }
-    if let Err(error) = {
-        let users = state.users_db.read().await;
-        crate::server::validate_static_address_sources(&reparsed, &users)
-    } {
+    if let Err(error) = super::effective_users(&reparsed) {
         return Ok(Json(json!({
             "ok": false,
             "error": format!(
@@ -1947,10 +1951,7 @@ pub async fn put_config_raw(
             e
         ))));
     }
-    if let Err(error) = {
-        let users = state.users_db.read().await;
-        crate::server::validate_static_address_sources(&parsed, &users)
-    } {
+    if let Err(error) = super::effective_users(&parsed) {
         return Ok(Json(super::err_json(format!(
             "refusing raw config with profile reservations that conflict with existing users: {error}"
         ))));
@@ -1996,11 +1997,10 @@ pub async fn put_config_raw(
         || w.tls != cur.tls
         || w.tls_cert != cur.tls_cert
         || w.tls_key != cur.tls_key
-        || w.base_path != cur.base_path
-        || parsed.auth.users_file != state.config.auth.users_file;
+        || w.base_path != cur.base_path;
 
     let message = if needs_full_restart {
-        "raw config saved (comments preserved). This changes the PANEL socket          (web.bind/port/tls/enabled/base_path) or auth.users_file — apply it with a FULL          restart: the `Apply & Restart` button does one, or run `systemctl restart qeli`."
+        "raw config saved (comments preserved). This changes the PANEL socket (web.bind/port/tls/enabled/base_path); apply it with a FULL restart: the `Apply & Restart` button does one, or run `systemctl restart qeli`."
     } else {
         "raw config saved (comments preserved) — web/panel settings applied live; restart to apply profile/bind/tun changes"
     };
@@ -2175,10 +2175,7 @@ pub async fn restore_config_history(
             "snapshot would be rejected at startup: {error}"
         ))));
     }
-    if let Err(error) = {
-        let users = state.users_db.read().await;
-        crate::server::validate_static_address_sources(&parsed, &users)
-    } {
+    if let Err(error) = super::effective_users(&parsed) {
         return Ok(Json(super::err_json(format!(
             "snapshot conflicts with existing static user addresses: {error}"
         ))));
@@ -2215,8 +2212,7 @@ pub async fn restore_config_history(
         || web.tls != cur.tls
         || web.tls_cert != cur.tls_cert
         || web.tls_key != cur.tls_key
-        || web.base_path != cur.base_path
-        || parsed.auth.users_file != state.config.auth.users_file;
+        || web.base_path != cur.base_path;
     Ok(Json(json!({
         "ok": true,
         "message": "Configuration snapshot restored — restart to apply it.",

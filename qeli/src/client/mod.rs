@@ -2215,10 +2215,34 @@ where
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-    let tun_buf_size = config
-        .performance
-        .tun_buffer_size
-        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
+    let tun_buf_size = {
+        let configured = config
+            .performance
+            .tun_buffer_size
+            .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
+        let actual = tun_read_buffer_size(
+            config.performance.tun_buffer_size,
+            tun_mtu,
+            is_tap,
+            cfg!(target_os = "macos"),
+        );
+        if actual > configured {
+            log::warn!(
+                "TUN read buffer expanded from {} to {} bytes for negotiated MTU {} ({})",
+                configured,
+                actual,
+                tun_mtu,
+                if is_tap {
+                    "tap"
+                } else if cfg!(target_os = "macos") {
+                    "utun"
+                } else {
+                    "tun"
+                }
+            );
+        }
+        actual
+    };
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
     // Needed before the pump: the TUN writer thread owns the only place where an
     // `EAGAIN`/`ENOBUFS` drop is observable.
@@ -5073,10 +5097,34 @@ pub(crate) async fn run_udp_tunnel(
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-    let tun_buf_size = config
-        .performance
-        .tun_buffer_size
-        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
+    let tun_buf_size = {
+        let configured = config
+            .performance
+            .tun_buffer_size
+            .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
+        let actual = tun_read_buffer_size(
+            config.performance.tun_buffer_size,
+            tun_mtu,
+            is_tap,
+            cfg!(target_os = "macos"),
+        );
+        if actual > configured {
+            log::warn!(
+                "TUN read buffer expanded from {} to {} bytes for negotiated MTU {} ({})",
+                configured,
+                actual,
+                tun_mtu,
+                if is_tap {
+                    "tap"
+                } else if cfg!(target_os = "macos") {
+                    "utun"
+                } else {
+                    "tun"
+                }
+            );
+        }
+        actual
+    };
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
     // Everything below can bail out through `?`, which would skip the teardown at the
@@ -5864,6 +5912,46 @@ pub(crate) async fn run_udp_tunnel(
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("UDP client disconnected");
     Ok(())
+}
+
+/// Compute the actual read capacity after the server-selected MTU is known.
+///
+/// tun_buffer_size describes the IP-packet capacity for TUN/utun; macOS needs an
+/// additional 4-byte utun family prefix. TAP buffers already include link framing in the
+/// configured value, but must still fit the negotiated IP MTU plus its 14-byte Ethernet
+/// header. Expanding here is essential when tun.mtu = 0 because load-time validation cannot
+/// know the pushed MTU.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", test))]
+fn tun_read_buffer_size(configured: usize, tun_mtu: i32, is_tap: bool, is_utun: bool) -> usize {
+    const TAP_ETHERNET_HEADER_BYTES: usize = 14;
+    const UTUN_FAMILY_HEADER_BYTES: usize = 4;
+
+    debug_assert!(!(is_tap && is_utun));
+    let framing_bytes = if is_tap {
+        TAP_ETHERNET_HEADER_BYTES
+    } else if is_utun {
+        UTUN_FAMILY_HEADER_BYTES
+    } else {
+        0
+    };
+    let configured_capacity =
+        configured.saturating_add(if is_utun { UTUN_FAMILY_HEADER_BYTES } else { 0 });
+    let negotiated_capacity = (tun_mtu.max(0) as usize).saturating_add(framing_bytes);
+    configured_capacity.max(negotiated_capacity)
+}
+
+#[cfg(test)]
+mod tun_read_buffer_tests {
+    use super::tun_read_buffer_size;
+
+    #[test]
+    fn negotiated_mtu_expands_small_auto_buffers_without_shrinking_large_ones() {
+        assert_eq!(tun_read_buffer_size(600, 1400, false, false), 1400);
+        assert_eq!(tun_read_buffer_size(590, 1400, true, false), 1414);
+        assert_eq!(tun_read_buffer_size(600, 1400, false, true), 1404);
+        assert_eq!(tun_read_buffer_size(65_535, 1400, false, false), 65_535);
+        assert_eq!(tun_read_buffer_size(65_535, 1400, false, true), 65_539);
+    }
 }
 
 /// Reserve enough space for one decrypted downlink record without making every pool slot as

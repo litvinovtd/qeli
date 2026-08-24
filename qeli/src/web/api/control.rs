@@ -18,35 +18,17 @@ pub async fn restart(
     // already preflight, but the file can also be edited by hand between save and restart.
     // Refusing here preserves the currently-working VPN instead of killing it and only then
     // discovering that the replacement would collide with the host's LAN/default gateway.
-    let path = state.config_path.lock().await.clone();
-    let Some(path) = path else {
-        return Ok(Json(super::err_json("server config path is unavailable")));
-    };
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => {
-            return Ok(Json(super::err_json(format!(
-                "cannot preflight server config before restart: {error}"
-            ))));
-        }
-    };
-    let config = match crate::config::parse_server_config(&text) {
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
         Ok(config) => config,
-        Err(error) => {
-            return Ok(Json(super::err_json(format!(
-                "cannot parse server config before restart: {error}"
-            ))));
-        }
+        Err(error) => return Ok(Json(super::err_json(format!("restart refused: {error}")))),
     };
     if let Err(error) = crate::server::validate_profiles(&config) {
         return Ok(Json(super::err_json(format!(
             "restart refused: server config is invalid: {error}"
         ))));
     }
-    if let Err(error) = {
-        let users = state.users_db.read().await;
-        crate::server::validate_static_address_sources(&config, &users)
-    } {
+    if let Err(error) = super::effective_users(&config) {
         return Ok(Json(super::err_json(format!(
             "restart refused: profile reservations conflict with users: {error}"
         ))));

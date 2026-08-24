@@ -72,9 +72,7 @@ pub(super) async fn control(cmd: Value) -> Option<Value> {
 pub(super) async fn current_config(
     state: &Arc<ServerState>,
 ) -> Option<crate::config::server::ServerConfig> {
-    let path = state.config_path.lock().await.clone()?;
-    let s = std::fs::read_to_string(path).ok()?;
-    crate::config::parse_server_config(&s).ok()
+    super::current_server_config(state).await.ok()
 }
 
 pub(super) fn client_array(reply: &Option<Value>) -> Vec<Value> {

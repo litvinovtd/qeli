@@ -3017,6 +3017,56 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
     Ok(db)
 }
 
+/// Load the effective users database with the same first-run semantics used by the
+/// data-plane: an actually missing external file and no inline entries means an empty
+/// database, while every other load/parse/validation failure remains fatal.
+///
+/// Keeping this distinction in one place is important because the supervisor, worker,
+/// SIGHUP path and web panel must authenticate/validate against the same union. In
+/// particular, Path::exists() is not sufficient here: permission errors can also make
+/// existence probes return false and must never be converted into an empty ACL.
+pub fn load_users_db_for_runtime(config: &ServerConfig) -> anyhow::Result<UsersDb> {
+    match load_users_db(config) {
+        Ok(db) => Ok(db),
+        Err(error)
+            if config.auth.users.is_empty()
+                && config.auth.groups.is_empty()
+                && error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            Ok(UsersDb::default())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Build and validate the exact external + inline users view used by the data-plane.
+/// The external file wins on duplicate names, matching [`load_users_db`]. Callers use
+/// this while holding the users-file sidecar lock so an invalid cross-file candidate is
+/// rejected before it reaches disk.
+pub fn effective_users_from_external(
+    config: &ServerConfig,
+    mut db: UsersDb,
+) -> anyhow::Result<UsersDb> {
+    let file_users: HashSet<String> = db.users.iter().map(|user| user.username.clone()).collect();
+    for user in &config.auth.users {
+        if !file_users.contains(&user.username) {
+            db.users.push(user.clone());
+        }
+    }
+    for (name, group) in &config.auth.groups {
+        db.groups
+            .entry(name.clone())
+            .or_insert_with(|| group.clone());
+    }
+    db.validate_network_fields()?;
+    db.validate_access_controls()?;
+    db.validate_group_references()?;
+    validate_static_address_sources(config, &db)?;
+    Ok(db)
+}
+
 /// Refuse to start on config values that were PRESENT but not understood.
 ///
 /// These fall back to a default, and the default is frequently the PERMISSIVE end of the
@@ -3078,30 +3128,23 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     // error, and starting anyway means locking out everybody. The save path already draws this
     // exact distinction (`UsersDb::save`, "not overwriting it with an empty database") — the
     // load path did not. (Audit 2026-08-02, §5.)
-    let users_db = match load_users_db(&config) {
-        Ok(db) => db,
-        Err(e) => {
-            let path = std::path::Path::new(&config.auth.users_file);
-            let has_inline = !config.auth.users.is_empty() || !config.auth.groups.is_empty();
-            // Missing-file fallback is valid only for a genuinely empty external database.
-            // If inline entries exist, load_users_db already built their effective union and
-            // this error is a validation failure that must not be replaced by an empty DB.
-            if path.exists() || has_inline {
-                anyhow::bail!(
-                    "users configuration using '{}' could not be loaded or validated: {e}. Refusing to \
-                     start with an empty user database — every client would be rejected. Fix \
-                     the file, or move it aside to start fresh.",
-                    config.auth.users_file
-                );
-            }
-            log::warn!(
-                "users file '{}' does not exist yet — starting with an empty database (create \
-                 accounts with `qeli add-client`)",
-                config.auth.users_file
-            );
-            UsersDb::default()
-        }
-    };
+    let users_file_missing = std::fs::metadata(&config.auth.users_file)
+        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+    let users_db = load_users_db_for_runtime(&config).map_err(|error| {
+        anyhow::anyhow!(
+            "users configuration using '{}' could not be loaded or validated: {error}. Refusing \
+             to start with an empty user database — every client would be rejected. Fix the \
+             file, or move it aside to start fresh.",
+            config.auth.users_file
+        )
+    })?;
+    if users_file_missing && config.auth.users.is_empty() && config.auth.groups.is_empty() {
+        log::warn!(
+            "users file '{}' does not exist yet — starting with an empty database (create \
+             accounts with `qeli add-client`)",
+            config.auth.users_file
+        );
+    }
     log::info!(
         "Loaded {} user(s) ({} inline in config, rest from '{}')",
         users_db.users.len(),
@@ -3507,7 +3550,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     // list in the panel and let them "fix" it by re-creating accounts — writing a fresh file
     // over the one that failed to load. The supervisor must fail the same way the worker
     // does. (Audit 2026-08-02, §5.)
-    let users_db = Arc::new(RwLock::new(load_users_db(&config)?));
+    let users_db = Arc::new(RwLock::new(load_users_db_for_runtime(&config)?));
 
     // Supervisor (web panel) — governs admin-login brute-force: `[web] brute_force`,
     // a policy independent of the VPN-auth one the worker enforces above.
@@ -3803,7 +3846,7 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
     //    allowed-profiles). Union of the users file (what the panel/add-client
     //    write) and inline [user:*], file wins — so a panel edit always applies
     //    even when the config also carries inline users.
-    match load_users_db(&new_config) {
+    match load_users_db_for_runtime(&new_config) {
         Ok(db) => {
             let count = db.users.len();
             *state.users_db.write().await = db;
@@ -7536,6 +7579,32 @@ pool.cidr = 10.{net}.0.0/24
         let db = load_users_db(&config).unwrap();
         assert_eq!(db.users.len(), 1);
         assert_eq!(db.users[0].username, "solo");
+    }
+
+    #[test]
+    fn runtime_users_loader_allows_only_a_truly_missing_first_run_file() {
+        let path =
+            std::env::temp_dir().join(format!("qeli-runtime-users-{}.conf", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let mut config = ServerConfig::default();
+        config.auth.users_file = path.to_string_lossy().into_owned();
+        assert!(load_users_db(&config).is_err());
+        assert!(load_users_db_for_runtime(&config)
+            .expect("missing first-run file must become an empty database")
+            .users
+            .is_empty());
+
+        std::fs::write(
+            &path,
+            "[user:alice]\npassword_hash = x\nmax_sessions = invalid\n",
+        )
+        .unwrap();
+        assert!(
+            load_users_db_for_runtime(&config).is_err(),
+            "an existing malformed file must never collapse to an empty ACL"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

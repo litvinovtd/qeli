@@ -293,7 +293,10 @@ pub async fn list_users(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let users = state.users_db.read().await;
+    let (_, users) = match super::current_config_and_users(&state).await {
+        Ok(current) => current,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     Ok(Json(
         json!({ "ok": true, "users": users.users, "groups": users.groups }),
     ))
@@ -304,7 +307,10 @@ pub async fn get_user(
     _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    let users = state.users_db.read().await;
+    let (_, users) = match super::current_config_and_users(&state).await {
+        Ok(current) => current,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     match users.users.iter().find(|u| u.username == username) {
         Some(user) => Ok(Json(json!({ "ok": true, "user": user }))),
         None => Ok(Json(super::err_json(format!(
@@ -370,7 +376,17 @@ pub async fn create_user(
         }
     };
 
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_users = match super::effective_users(&config) {
+        Ok(users) => users,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut users = state.users_db.write().await;
+    *users = current_users;
     if users.users.iter().any(|u| u.username == username) {
         return Ok(Json(super::err_json(format!(
             "user '{}' already exists",
@@ -443,13 +459,9 @@ pub async fn create_user(
         client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
-    if let Err(error) = crate::server::validate_static_address_sources(
-        &state.config,
-        &UsersDb {
-            users: vec![new_user.clone()],
-            ..Default::default()
-        },
-    ) {
+    let mut candidate_users = users.clone();
+    candidate_users.users.push(new_user.clone());
+    if let Err(error) = crate::server::validate_static_address_sources(&config, &candidate_users) {
         return Ok(Json(super::err_json(format!(
             "static address conflicts with the active profile configuration: {error}"
         ))));
@@ -457,16 +469,17 @@ pub async fn create_user(
     // Append on a freshly re-read copy: this process's view may lag the file (the worker
     // rewrites it on any control-socket change), and writing it back verbatim reverted
     // whatever it had missed. Re-check the name there too — it may have appeared since.
-    let users_file = state.config.auth.users_file.clone();
-    let taken = match UsersDb::update_locked(&users_file, |db| {
-        if db.users.iter().any(|u| u.username == new_user.username) {
-            return true;
+    let users_file = config.auth.users_file.clone();
+    let taken = match UsersDb::update_locked_checked(&users_file, |db| {
+        let taken = db.users.iter().any(|u| u.username == new_user.username);
+        if !taken {
+            db.users.push(new_user);
         }
-        db.users.push(new_user);
-        false
+        let effective = super::effective_users_from_external(&config, db.clone())?;
+        Ok((taken, effective))
     }) {
-        Ok((fresh, taken)) => {
-            *users = fresh;
+        Ok((_fresh, (taken, effective))) => {
+            *users = effective;
             taken
         }
         Err(e) => {
@@ -570,7 +583,17 @@ pub async fn update_user(
         Ok(value) => value,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_users = match super::effective_users(&config) {
+        Ok(users) => users,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut users = state.users_db.write().await;
+    *users = current_users;
     // Check the static-IP collision BEFORE taking the mutable borrow below (and before
     // any mutation): two users sharing one static address evict each other forever.
     if let Some(ip) = static_ip_update.as_ref().and_then(|value| value.as_deref()) {
@@ -602,7 +625,7 @@ pub async fn update_user(
     // Build the candidate on the in-memory entry, then merge only changed fields into a
     // freshly locked disk copy below. The in-memory database is replaced only after that
     // atomic update succeeds.
-    let existing = users.users.iter_mut().find(|u| u.username == username);
+    let existing = users.users.iter().find(|u| u.username == username);
 
     match existing {
         Some(before) => {
@@ -684,13 +707,17 @@ pub async fn update_user(
             if body.get("client_subnets").is_some() {
                 edited.client_subnets = strings_from_json(&body["client_subnets"]);
             }
-            if let Err(error) = crate::server::validate_static_address_sources(
-                &state.config,
-                &UsersDb {
-                    users: vec![edited.clone()],
-                    ..Default::default()
-                },
-            ) {
+            let mut candidate_users = users.clone();
+            if let Some(candidate) = candidate_users
+                .users
+                .iter_mut()
+                .find(|user| user.username == username)
+            {
+                *candidate = edited.clone();
+            }
+            if let Err(error) =
+                crate::server::validate_static_address_sources(&config, &candidate_users)
+            {
                 return Ok(Json(super::err_json(format!(
                     "static address conflicts with the active profile configuration: {error}"
                 ))));
@@ -707,18 +734,25 @@ pub async fn update_user(
             // reverted those. So diff the
             // entry against its pre-edit state and copy over ONLY what this request
             // actually changed, leaving every other field at whatever the file now holds.
-            let users_file = state.config.auth.users_file.clone();
-            let applied = match UsersDb::update_locked(&users_file, |db| {
-                match db.users.iter_mut().find(|u| u.username == username) {
+            let users_file = config.auth.users_file.clone();
+            let applied = match UsersDb::update_locked_checked(&users_file, |db| {
+                let applied = match db.users.iter_mut().find(|u| u.username == username) {
                     Some(slot) => {
                         merge_changed_fields(before, &edited, slot);
                         true
                     }
+                    None if config.auth.users.iter().any(|u| u.username == username) => {
+                        // An inline user becomes a file override; the file copy wins at runtime.
+                        db.users.push(edited.clone());
+                        true
+                    }
                     None => false,
-                }
+                };
+                let effective = super::effective_users_from_external(&config, db.clone())?;
+                Ok((applied, effective))
             }) {
-                Ok((fresh, applied)) => {
-                    *users = fresh;
+                Ok((_fresh, (applied, effective))) => {
+                    *users = effective;
                     applied
                 }
                 Err(e) => {
@@ -759,18 +793,37 @@ pub async fn delete_user(
     _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    let users_file = state.config.auth.users_file.clone();
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let users_file = config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
     // Delete on a freshly re-read copy: this process's snapshot may predate changes the
     // worker made over the control socket, and writing it back verbatim reverted them.
-    let outcome = UsersDb::update_locked(&users_file, |db| {
+    let outcome = UsersDb::update_locked_checked(&users_file, |db| {
         let before = db.users.len();
         db.users.retain(|u| u.username != username);
-        db.users.len() < before
+        let removed = db.users.len() < before;
+        if !removed
+            && config
+                .auth
+                .users
+                .iter()
+                .any(|user| user.username == username)
+        {
+            anyhow::bail!(
+                "user '{}' is defined inline in server.conf; remove that [user:*] section or disable the user instead",
+                username
+            );
+        }
+        let effective = super::effective_users_from_external(&config, db.clone())?;
+        Ok((removed, effective))
     });
     let removed = match outcome {
-        Ok((fresh, removed)) => {
-            *users = fresh;
+        Ok((_fresh, (removed, effective))) => {
+            *users = effective;
             removed
         }
         Err(e) => {
@@ -824,21 +877,36 @@ async fn set_user_enabled(
     username: &str,
     enabled: bool,
 ) -> Result<Json<Value>, AuthError> {
-    let users_file = state.config.auth.users_file.clone();
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let users_file = config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
     // Flip the flag on a freshly re-read copy (see delete_user).
-    let outcome = UsersDb::update_locked(&users_file, |db| {
-        match db.users.iter_mut().find(|u| u.username == username) {
+    let outcome = UsersDb::update_locked_checked(&users_file, |db| {
+        let found = match db.users.iter_mut().find(|u| u.username == username) {
             Some(u) => {
                 u.enabled = enabled;
                 true
             }
-            None => false,
-        }
+            None => match config.auth.users.iter().find(|u| u.username == username) {
+                Some(inline) => {
+                    let mut entry = inline.clone();
+                    entry.enabled = enabled;
+                    db.users.push(entry);
+                    true
+                }
+                None => false,
+            },
+        };
+        let effective = super::effective_users_from_external(&config, db.clone())?;
+        Ok((found, effective))
     });
     let found = match outcome {
-        Ok((fresh, found)) => {
-            *users = fresh;
+        Ok((_fresh, (found, effective))) => {
+            *users = effective;
             found
         }
         Err(e) => {
@@ -880,23 +948,39 @@ pub async fn set_user_bandwidth(
         Err(e) => return Ok(Json(super::err_json(e))),
     };
 
-    // persist to the users file
-    let users_file = state.config.auth.users_file.clone();
+    // Persist to the users file selected by the current server config.
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let users_file = config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
     // Apply on a freshly re-read copy (see create_user).
     let outcome: Result<bool, String> = {
-        match UsersDb::update_locked(&users_file, |db| {
-            match db.users.iter_mut().find(|u| u.username == username) {
+        match UsersDb::update_locked_checked(&users_file, |db| {
+            let found = match db.users.iter_mut().find(|u| u.username == username) {
                 Some(user) => {
                     user.bandwidth.limit_mbps = limit_mbps;
                     user.bandwidth.burst_mbps = burst_mbps;
                     true
                 }
-                None => false,
-            }
+                None => match config.auth.users.iter().find(|u| u.username == username) {
+                    Some(inline) => {
+                        let mut entry = inline.clone();
+                        entry.bandwidth.limit_mbps = limit_mbps;
+                        entry.bandwidth.burst_mbps = burst_mbps;
+                        db.users.push(entry);
+                        true
+                    }
+                    None => false,
+                },
+            };
+            let effective = super::effective_users_from_external(&config, db.clone())?;
+            Ok((found, effective))
         }) {
-            Ok((fresh, found)) => {
-                *users = fresh;
+            Ok((_fresh, (found, effective))) => {
+                *users = effective;
                 Ok(found)
             }
             Err(e) => {
@@ -939,7 +1023,10 @@ pub async fn list_groups(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let users = state.users_db.read().await;
+    let (_, users) = match super::current_config_and_users(&state).await {
+        Ok(current) => current,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     Ok(Json(json!({ "ok": true, "groups": users.groups })))
 }
 
@@ -986,15 +1073,21 @@ pub async fn upsert_group(
         allowed_networks: group_nets,
     };
 
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut users = state.users_db.write().await;
     // Snapshot before mutating so a failed write can be undone (see create_user) —
     // the group no longer lingers in memory after a failed persist, so the message
     // below is now literally true.
-    let users_file = state.config.auth.users_file.clone();
-    if let Err(e) = UsersDb::update_locked(&users_file, |db| {
+    let users_file = config.auth.users_file.clone();
+    if let Err(e) = UsersDb::update_locked_checked(&users_file, |db| {
         db.groups.insert(name.clone(), group);
+        super::effective_users_from_external(&config, db.clone())
     })
-    .map(|(fresh, ())| *users = fresh)
+    .map(|(_fresh, effective)| *users = effective)
     {
         log::error!("Failed to save users file after group upsert: {}", e);
         return Ok(Json(super::err_json(format!(
@@ -1014,13 +1107,27 @@ pub async fn delete_group(
     _guard: auth::AuthGuard,
     Path(name): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let mut users = state.users_db.write().await;
     // Snapshot before mutating so a failed write can be undone (see create_user).
-    let users_file = state.config.auth.users_file.clone();
-    let existed = match UsersDb::update_locked(&users_file, |db| db.groups.remove(&name).is_some())
-    {
-        Ok((fresh, existed)) => {
-            *users = fresh;
+    let users_file = config.auth.users_file.clone();
+    let existed = match UsersDb::update_locked_checked(&users_file, |db| {
+        let existed = db.groups.remove(&name).is_some();
+        if !existed && config.auth.groups.contains_key(&name) {
+            anyhow::bail!(
+                "group '{}' is defined inline in server.conf; remove that [group:*] section there",
+                name
+            );
+        }
+        let effective = super::effective_users_from_external(&config, db.clone())?;
+        Ok((existed, effective))
+    }) {
+        Ok((_fresh, (existed, effective))) => {
+            *users = effective;
             existed
         }
         Err(e) => {

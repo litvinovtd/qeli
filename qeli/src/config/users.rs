@@ -270,6 +270,16 @@ impl UsersDb {
         path: impl AsRef<Path>,
         change: impl FnOnce(&mut UsersDb) -> R,
     ) -> anyhow::Result<(Self, R)> {
+        Self::update_locked_checked(path, |db| Ok::<R, anyhow::Error>(change(db)))
+    }
+
+    /// Checked form of update_locked. The callback runs while the sidecar lock is held and
+    /// can reject a candidate before the atomic save, which is required for validations that
+    /// combine users.conf with profile/inline-user state from server.conf.
+    pub fn update_locked_checked<R>(
+        path: impl AsRef<Path>,
+        change: impl FnOnce(&mut UsersDb) -> anyhow::Result<R>,
+    ) -> anyhow::Result<(Self, R)> {
         let path = path.as_ref();
         let _lock = crate::util::FileLock::acquire(path)?;
         // A MISSING file = first write (e.g. `add-client` on a fresh install) → start
@@ -334,7 +344,7 @@ impl UsersDb {
             }
         };
         db.validate_access_controls()?;
-        let out = change(&mut db);
+        let out = change(&mut db)?;
         db.validate_network_fields()?;
         db.save(path)?;
         Ok((db, out))
@@ -991,5 +1001,26 @@ mod max_sessions_tests {
                 .limit_mbps,
             5
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn checked_update_does_not_persist_a_rejected_candidate() {
+        let path = tmp_users("checked-reject");
+        UsersDb::update_locked(&path, |db| db.users.push(named("alice"))).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        let error = UsersDb::update_locked_checked(&path, |db| -> anyhow::Result<()> {
+            db.users.push(named("bob"));
+            anyhow::bail!("candidate conflicts with server.conf")
+        })
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("candidate conflicts"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let on_disk = UsersDb::load(&path).unwrap();
+        assert!(on_disk.users.iter().any(|user| user.username == "alice"));
+        assert!(on_disk.users.iter().all(|user| user.username != "bob"));
     }
 }

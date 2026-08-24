@@ -145,3 +145,105 @@ pub(crate) fn err_json(msg: impl Into<String>) -> Value {
 pub(crate) fn ok_json() -> Value {
     json!({"ok": true})
 }
+
+/// Re-read the canonical on-disk server config. The supervisor's ServerState.config is
+/// intentionally the boot-time snapshot because it owns socket-bound panel settings; using
+/// that snapshot for worker/profile/user operations after an in-process restart is stale.
+pub(super) async fn current_server_config(
+    state: &Arc<ServerState>,
+) -> Result<crate::config::server::ServerConfig, String> {
+    let path = state.config_path.lock().await.clone();
+    let Some(path) = path else {
+        return Ok(state.config.clone());
+    };
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read current server config '{}': {error}", path))?;
+    let (config, findings) = crate::config::parse_server_config_reporting(&text)
+        .map_err(|error| format!("cannot parse current server config '{}': {error}", path))?;
+    if !findings.is_empty() {
+        return Err(format!(
+            "current server config '{}' has {} unreadable or ambiguous value(s): {}",
+            path,
+            findings.len(),
+            findings.join("; ")
+        ));
+    }
+    Ok(config)
+}
+
+/// Load exactly the users union the data-plane will use for this config: the external
+/// users file plus inline user/group sections, with the file taking precedence.
+pub(super) fn effective_users(
+    config: &crate::config::server::ServerConfig,
+) -> Result<crate::config::users::UsersDb, String> {
+    crate::server::load_users_db_for_runtime(config).map_err(|error| {
+        format!(
+            "cannot load users configuration '{}': {error}",
+            config.auth.users_file
+        )
+    })
+}
+
+/// Merge a freshly locked external users DB with inline config entries and validate the
+/// complete candidate before it is written. This closes the race where a concurrent file
+/// edit was valid by itself but conflicted with an inline user or profile reservation.
+pub(super) fn effective_users_from_external(
+    config: &crate::config::server::ServerConfig,
+    db: crate::config::users::UsersDb,
+) -> anyhow::Result<crate::config::users::UsersDb> {
+    crate::server::effective_users_from_external(config, db)
+}
+
+/// Return a mutually matching config/users view without consulting the supervisor's stale
+/// boot-time ACL snapshot. Callers that mutate either file still take config_write_lock.
+pub(super) async fn current_config_and_users(
+    state: &Arc<ServerState>,
+) -> Result<
+    (
+        crate::config::server::ServerConfig,
+        crate::config::users::UsersDb,
+    ),
+    String,
+> {
+    let config = current_server_config(state).await?;
+    let users = effective_users(&config)?;
+    Ok((config, users))
+}
+
+#[cfg(test)]
+mod current_state_tests {
+    use super::effective_users_from_external;
+    use crate::config::server::ServerConfig;
+    use crate::config::users::{UserEntry, UsersDb};
+
+    fn user(name: &str, enabled: bool) -> UserEntry {
+        UserEntry {
+            username: name.to_string(),
+            password_hash: "test-hash".to_string(),
+            enabled,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn candidate_union_keeps_file_precedence_and_inline_only_entries() {
+        let mut config = ServerConfig::default();
+        config.auth.users = vec![user("alice", true), user("bob", true)];
+        let external = UsersDb {
+            users: vec![user("alice", false)],
+            ..Default::default()
+        };
+
+        let effective = effective_users_from_external(&config, external).unwrap();
+        assert_eq!(effective.users.len(), 2);
+        assert!(
+            !effective
+                .users
+                .iter()
+                .find(|entry| entry.username == "alice")
+                .unwrap()
+                .enabled
+        );
+        assert!(effective.users.iter().any(|entry| entry.username == "bob"));
+    }
+}

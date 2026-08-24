@@ -30,28 +30,6 @@ fn online_session_counts(reply: &Option<Value>) -> HashMap<String, usize> {
         })
 }
 
-/// Cache the parsed users DB keyed on the file's mtime, so `get_usage` doesn't
-/// re-read + parse the whole users file on every request. The worker bumps the
-/// file's mtime whenever it flushes an edit, so the cache invalidates exactly when
-/// the file actually changes — no staleness (the reason the load is done fresh).
-/// (audit 3.6)
-static USERS_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<Option<(std::time::SystemTime, crate::config::users::UsersDb)>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
-
-fn load_users_cached(path: &str) -> Option<crate::config::users::UsersDb> {
-    let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
-    let mut cache = USERS_CACHE.lock().ok()?;
-    if let Some((cached_mtime, db)) = cache.as_ref() {
-        if *cached_mtime == mtime {
-            return Some(db.clone());
-        }
-    }
-    let db = crate::config::users::UsersDb::load(path).ok()?;
-    *cache = Some((mtime, db.clone()));
-    Some(db)
-}
-
 /// Per-user lifetime usage + caps for the panel. Reloads the worker-flushed
 /// `usage.json` sidecar, marks who is currently online (including the active
 /// session count), and joins each user's configured data cap / expiry from the users DB.
@@ -69,13 +47,11 @@ pub async fn get_usage(
 
     let online_sessions = online_session_counts(&control(json!({ "cmd": "list-clients" })).await);
 
-    // Read the users fresh from disk: the worker (a separate process) persists
-    // cap/expiry edits to the users file, so the supervisor's in-memory copy can
-    // be stale. Fall back to the in-memory copy only if the file can't be read
-    // (e.g. inline `[user:*]` in the server config).
-    let db = match load_users_cached(&state.config.auth.users_file) {
-        Some(u) => u,
-        None => state.users_db.read().await.clone(),
+    // Join against the exact external + inline users union selected by current server.conf.
+    // A read/parse failure is surfaced instead of silently serving a boot-time ACL snapshot.
+    let (_, db) = match super::current_config_and_users(&state).await {
+        Ok(current) => current,
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     let mut out: Vec<Value> = Vec::new();
     for u in &db.users {

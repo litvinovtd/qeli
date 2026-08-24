@@ -28,22 +28,14 @@ pub async fn share_link(
         .get("profile")
         .map(String::as_str)
         .unwrap_or("default");
-    // Read profiles FRESH from disk so a config change applied via the panel (new SNI,
-    // port, mode) is reflected in the generated link WITHOUT a full process restart:
-    // "apply & restart" only restarts the WORKER and does NOT refresh the supervisor's
-    // frozen `state.config`, so the link kept the boot-time SNI until `systemctl restart`
-    // (issue #69). Fall back to the startup snapshot if the file is momentarily unreadable.
-    let fresh = state
-        .config_path
-        .lock()
-        .await
-        .clone()
-        .and_then(|p| std::fs::read_to_string(&p).ok())
-        .and_then(|s| crate::config::parse_server_config(&s).ok());
-    let profiles = match fresh.as_ref() {
-        Some(c) => &c.profiles,
-        None => &state.config.profiles,
+    // Keep profile selection and a possible password reset on one serialized config
+    // revision; the supervisor's state.config is only the boot-time socket snapshot.
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let config = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Json(super::err_json(error)),
     };
+    let profiles = &config.profiles;
     let profile = match profiles.iter().find(|p| p.name == profile_name) {
         Some(p) => p,
         None => {
@@ -85,12 +77,17 @@ pub async fn share_link(
     // Resolve the password without admin input: decrypt the stored copy, else
     // (legacy / decrypt failure) reset on demand. `reset` is reported back so the
     // UI can warn that the old config was invalidated.
-    let enc = {
-        let users = state.users_db.read().await;
-        match users.users.iter().find(|u| u.username == user) {
-            Some(u) => u.password_enc.clone(),
-            None => return Json(super::err_json(format!("user '{}' not found", user))),
-        }
+    let effective_users = match super::effective_users(&config) {
+        Ok(users) => users,
+        Err(error) => return Json(super::err_json(error)),
+    };
+    let enc = match effective_users
+        .users
+        .iter()
+        .find(|entry| entry.username == user)
+    {
+        Some(entry) => entry.password_enc.clone(),
+        None => return Json(super::err_json(format!("user '{}' not found", user))),
     };
     let recovered = enc
         .as_deref()
@@ -112,19 +109,40 @@ pub async fn share_link(
                 Err(e) => return Json(super::err_json(e)),
             };
             {
-                let users_file = state.config.auth.users_file.clone();
+                let users_file = config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
                 // Re-read under the lock and set the new credentials there. Writing this
                 // process's whole copy back could revert a change the worker had just
                 // persisted — and here the field at stake is a password hash, so the two
                 // ends would disagree about what the user's password even is.
-                match crate::config::users::UsersDb::update_locked(&users_file, |db| {
-                    if let Some(u) = db.users.iter_mut().find(|u| u.username == user) {
-                        u.password_hash = hash;
-                        u.password_enc = enc2;
+                match crate::config::users::UsersDb::update_locked_checked(&users_file, |db| {
+                    let mut found = false;
+                    if let Some(entry) = db.users.iter_mut().find(|entry| entry.username == user) {
+                        entry.password_hash = hash.clone();
+                        entry.password_enc = enc2.clone();
+                        found = true;
+                    } else if let Some(inline) = config
+                        .auth
+                        .users
+                        .iter()
+                        .find(|entry| entry.username == user)
+                    {
+                        let mut entry = inline.clone();
+                        entry.password_hash = hash.clone();
+                        entry.password_enc = enc2.clone();
+                        db.users.push(entry);
+                        found = true;
                     }
+                    let effective = super::effective_users_from_external(&config, db.clone())?;
+                    Ok((found, effective))
                 }) {
-                    Ok((fresh, ())) => *users = fresh,
+                    Ok((_fresh, (true, effective))) => *users = effective,
+                    Ok((_fresh, (false, _))) => {
+                        return Json(super::err_json(format!(
+                            "user '{}' was deleted concurrently; password was not reset",
+                            user
+                        )));
+                    }
                     Err(e) => {
                         log::error!("share/reset: failed to save users file: {}", e);
                         return Json(super::err_json(format!("could not persist reset: {}", e)));

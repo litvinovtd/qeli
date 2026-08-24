@@ -24,3 +24,19 @@ pub async fn config_page(State(state): State<Arc<ServerState>>, headers: HeaderM
 
     Html(html).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CONFIG_PAGE;
+
+    #[test]
+    fn profile_tabs_use_semantic_transport_svg_icons() {
+        assert!(CONFIG_PAGE.contains(r#"data-transport-icon="tcp""#));
+        assert!(CONFIG_PAGE.contains(r#"data-transport-icon="udp""#));
+        assert!(CONFIG_PAGE.contains(r#"aria-label="TCP""#));
+        assert!(CONFIG_PAGE.contains(r#"aria-label="UDP""#));
+        assert!(!CONFIG_PAGE.contains("profileIcon("));
+        assert!(!CONFIG_PAGE.contains("📡"));
+        assert!(!CONFIG_PAGE.contains("🔒"));
+    }
+}
