@@ -17,8 +17,8 @@ VERSION := $(shell sed -n 's/^Version: //p' control)
 ARCH    := $(shell sed -n 's/^Architecture: //p' control)
 BINARY  ?= ../target/release/$(PACKAGE_NAME)
 # The server .deb ships the jemalloc allocator (bounded RSS under handshake churn).
-# Override with `CARGO_FEATURES=` to build with the plain glibc allocator.
-CARGO_FEATURES ?= --features jemalloc
+# Keep the feature literal in both build recipes: a command-line Make variable must not
+# be able to turn a release package back into a glibc-allocator server.
 
 BUILD_DIR := build
 DEB_DIR   := $(BUILD_DIR)/$(PACKAGE_NAME)_$(VERSION)_$(ARCH)
@@ -39,12 +39,12 @@ ZIG_BINARY := ../target/x86_64-unknown-linux-gnu/release/$(PACKAGE_NAME)
 all: deb
 
 deb:
-	cargo build --release $(CARGO_FEATURES)
+	cargo build --release --features jemalloc --bin $(PACKAGE_NAME)
 	$(MAKE) deb-prebuilt BINARY=../target/release/$(PACKAGE_NAME)
 
 # Release build: pinned glibc ABI. Needs cargo-zigbuild + zig on PATH.
 deb-portable:
-	cargo zigbuild --release $(CARGO_FEATURES) --target $(ZIG_TARGET)
+	cargo zigbuild --release --features jemalloc --bin $(PACKAGE_NAME) --target $(ZIG_TARGET)
 	$(MAKE) check-abi BINARY=$(ZIG_BINARY)
 	$(MAKE) deb-prebuilt BINARY=$(ZIG_BINARY)
 

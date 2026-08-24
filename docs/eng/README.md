@@ -145,7 +145,7 @@ passive/entropy-based DPI.
 ## Quick start
 
 ```bash
-cd qeli && cargo build --release
+cd qeli && cargo build --release --features jemalloc
 
 # configs (flat-INI) — samples in qeli/config/
 sudo install -Dm644 config/server.conf /etc/qeli/server.conf

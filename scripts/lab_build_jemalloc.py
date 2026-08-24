@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sync qeli Rust source to the lab .10 and validate the jemalloc feature:
   1. cargo build --release --features jemalloc   (jemalloc-sys builds + links)
-  2. cargo build --release                        (default gate — no regression)
+  2. cargo check --release                        (must reject missing jemalloc)
   3. cargo test --all                             (gate)
   4. cargo clippy --all-targets --features jemalloc -- -D warnings
   5. isolation: client-bin build must NOT pull jemalloc; default cdylib neither
@@ -67,13 +67,14 @@ def main():
     print("\n=== toolchain for jemalloc-sys (cc/make) ===")
     print(run(c, "which cc gcc make 2>&1; echo '---'; make --version 2>&1 | head -1")[1])
 
-    print("\n=== [1] cargo build --release --features jemalloc ===")
-    rc1, o1 = run(c, f"cd {REMOTE_ROOT} && cargo build --release --features jemalloc 2>&1", t=1500)
+    print("\n=== [1] cargo build --release --features jemalloc --bin qeli ===")
+    rc1, o1 = run(c, f"cd {REMOTE_ROOT} && cargo build --release --features jemalloc --bin qeli 2>&1", t=1500)
     print(tail(o1, 20)); print("jemalloc-build rc:", rc1)
 
-    print("\n=== [2] cargo build --release (default gate) ===")
-    rc2, o2 = run(c, f"cd {REMOTE_ROOT} && cargo build --release 2>&1", t=1500)
-    print(tail(o2, 12)); print("default-build rc:", rc2)
+    print("\n=== [2] cargo check --release --bin qeli (must fail) ===")
+    rc2, o2 = run(c, f"cd {REMOTE_ROOT} && cargo check --release --bin qeli 2>&1", t=1500)
+    guard_ok = rc2 != 0 and "release qeli server builds require --features jemalloc" in o2
+    print(tail(o2, 12)); print("no-feature guard:", "OK" if guard_ok else "FAIL")
 
     print("\n=== [3] cargo test --all ===")
     rc3, o3 = run(c, f"cd {REMOTE_ROOT} && cargo test --all 2>&1", t=1500)
@@ -97,8 +98,8 @@ def main():
     run(c, "systemctl start qeli-server.service 2>/dev/null; true", t=30)
     c.close()
     print("\n===== SUMMARY =====")
-    ok = rc1 == 0 and rc2 == 0 and rc3 == 0 and rc4 == 0
-    print(f"jemalloc-build={'OK' if rc1==0 else 'FAIL'} default={'OK' if rc2==0 else 'FAIL'} "
+    ok = rc1 == 0 and guard_ok and rc3 == 0 and rc4 == 0
+    print(f"jemalloc-build={'OK' if rc1==0 else 'FAIL'} no-feature-guard={'OK' if guard_ok else 'FAIL'} "
           f"test={'OK' if rc3==0 else 'FAIL'} clippy={'OK' if rc4==0 else 'FAIL'}")
     print("GATE:", "PASS" if ok else "FAIL")
 

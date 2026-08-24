@@ -1,8 +1,8 @@
 """Verify the Keenetic Phase-1 refactor on the lab server (10.66.116.10).
 
 Two things must hold:
-  1. The DEFAULT build (server+client) is unregressed by making the server deps
-     optional / the module gating / the portable-atomic swap.
+  1. The release server+client build with its mandatory jemalloc feature is unregressed
+     by making the server deps optional / the module gating / the portable-atomic swap.
   2. The new client-only path compiles WITHOUT `ring`:
        cargo build --release --bin qeli-client --no-default-features --features client-bin
      and `cargo tree -i ring` confirms `ring` is absent from that feature graph.
@@ -79,9 +79,9 @@ def main():
     t0 = time.time(); n = sync_tree(c)
     print(f"Synced {n} files to {REMOTE_ROOT} in {time.time()-t0:.0f}s")
 
-    print("\n=== [1] DEFAULT build (regression): cargo build --release ===")
-    rc_def, o_def = run(c, f"cd {REMOTE_ROOT} && cargo build --release 2>&1")
-    print(tail(o_def, 20)); print("default build rc:", rc_def)
+    print("\n=== [1] SERVER build: cargo build --release --features jemalloc ===")
+    rc_def, o_def = run(c, f"cd {REMOTE_ROOT} && cargo build --release --features jemalloc --bin qeli 2>&1")
+    print(tail(o_def, 20)); print("server build rc:", rc_def)
 
     print("\n=== [1b] unit tests (default features): cargo test --lib ===")
     rc_test, o_test = run(c, f"cd {REMOTE_ROOT} && cargo test --lib 2>&1")
@@ -112,7 +112,7 @@ def main():
 
     ok = (rc_def == 0 and rc_test == 0 and rc_cli == 0 and rc_clp == 0 and ring_absent)
     print("\n===== SUMMARY =====")
-    print(f"default_build={'OK' if rc_def==0 else 'FAIL'}  "
+    print(f"server_build={'OK' if rc_def==0 else 'FAIL'}  "
           f"unit_tests={'OK' if rc_test==0 else 'FAIL'}  "
           f"client_build={'OK' if rc_cli==0 else 'FAIL'}  "
           f"client_clippy={'OK' if rc_clp==0 else 'FAIL'}  "

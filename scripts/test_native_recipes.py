@@ -14,6 +14,47 @@ import build_mac_universal as macpack
 
 
 class NativeRecipeTests(unittest.TestCase):
+    def test_release_server_requires_jemalloc_but_client_builds_stay_isolated(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "qeli/src/main.rs").read_text(encoding="utf-8")
+        makefile = (root / "qeli/debian/Makefile").read_text(encoding="utf-8")
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        lab_gate = (root / "scripts/lab_build_jemalloc.py").read_text(
+            encoding="utf-8"
+        )
+        keenetic_gate = (root / "scripts/keenetic_verify.py").read_text(
+            encoding="utf-8"
+        )
+
+        error = "release qeli server builds require --features jemalloc"
+        self.assertIn('not(debug_assertions)', main)
+        self.assertIn('not(feature = "jemalloc")', main)
+        self.assertIn(f'compile_error!("{error}")', main)
+
+        self.assertNotIn("CARGO_FEATURES", makefile)
+        self.assertIn(
+            "cargo build --release --features jemalloc --bin $(PACKAGE_NAME)",
+            makefile,
+        )
+        self.assertIn(
+            "cargo zigbuild --release --features jemalloc --bin $(PACKAGE_NAME)",
+            makefile,
+        )
+
+        self.assertIn("cargo check --locked --release --bin qeli", workflow)
+        self.assertIn(error, workflow)
+        self.assertIn(
+            "cargo build --locked --bin qeli --release --features jemalloc",
+            workflow,
+        )
+        self.assertIn("guard_ok = rc2 != 0", lab_gate)
+        self.assertIn(error, lab_gate)
+        self.assertIn(
+            "cargo build --release --features jemalloc --bin qeli", keenetic_gate
+        )
+        self.assertIn("server_build=", keenetic_gate)
+
+
     def test_macos_install_name_does_not_contain_build_pass_path(self):
         flags = desktop.macos_rust_flags()
         self.assertIn("-install_name,@rpath/libqeli.dylib", flags)

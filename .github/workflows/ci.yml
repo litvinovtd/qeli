@@ -104,8 +104,19 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: qeli
-      - name: Build
-        run: cargo build --locked --bin qeli --release
+      - name: Release server rejects builds without jemalloc
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          if cargo check --locked --release --bin qeli >"$log" 2>&1; then
+            cat "$log"
+            echo "release qeli unexpectedly built without jemalloc" >&2
+            exit 1
+          fi
+          grep -F "release qeli server builds require --features jemalloc" "$log"
+      - name: Build release server with jemalloc
+        run: cargo build --locked --bin qeli --release --features jemalloc
       - name: Test
         run: cargo test --locked --workspace -- --test-threads=1
       # The whole-client ABI is opt-in while clients migrate. Test its state machine with
@@ -137,10 +148,10 @@ jobs:
 
   # Hard gate: build and INSTALL the artifact that actually ships. (Audit 2026-07-27, G2)
   #
-  # `build-test` above runs a plain `cargo build --release` on the runner, which proves
-  # the code compiles and nothing else. The published artifact is a .deb produced by
-  # `make deb-portable` (cargo-zigbuild against a pinned glibc ABI) and NOTHING in CI
-  # ever built it, ran `check-abi`, or installed it anywhere. That gap is exactly how
+  # `build-test` above proves that release builds reject the glibc allocator and that the
+  # jemalloc server compiles. The published artifact is still a .deb produced by
+  # `make deb-portable` (cargo-zigbuild against a pinned glibc ABI), so CI must also build,
+  # run `check-abi`, and install that exact package. The historical gap is exactly how
   # 0.7.8–0.7.11 shipped requiring GLIBC_2.39 while declaring `Depends: libc6 (>= 2.28)`:
   # apt installed them without a word and they died at exec on Ubuntu 22.04.
   #

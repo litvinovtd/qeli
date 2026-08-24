@@ -139,7 +139,7 @@ FFI/JNI. В режимах `fake-tls`/`obfs` сам внешний TLS не на
 ## Быстрый старт
 
 ```bash
-cd qeli && cargo build --release
+cd qeli && cargo build --release --features jemalloc
 
 # конфиги (flat-INI) — примеры в qeli/config/
 sudo install -Dm644 config/server.conf /etc/qeli/server.conf

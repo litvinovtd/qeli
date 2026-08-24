@@ -8,6 +8,17 @@ use qeli::{client, server};
 #[cfg(not(target_os = "linux"))]
 compile_error!("the qeli *binary* is Linux-only (the realtls FFI library is cross-platform)");
 
+// A glibc-allocator server is valid for debug/test work, but must never become a
+// deployable release binary: under handshake churn its retained arenas caused the
+// production RSS regression that jemalloc was introduced to prevent. Keep the guard
+// in this binary target so FFI cdylibs and the standalone router client stay isolated.
+#[cfg(all(
+    target_os = "linux",
+    not(debug_assertions),
+    not(feature = "jemalloc")
+))]
+compile_error!("release qeli server builds require --features jemalloc");
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
