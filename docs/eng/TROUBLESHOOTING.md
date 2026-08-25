@@ -1,7 +1,8 @@
 # Qeli — connection diagnostics and error reference
 
-> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
-> what you actually have.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
+> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> `qeli --version` reports the version of the binary actually installed.
 
 A detailed, practical guide: how to enable debug logging, how to read the log by
 connection stage, what every server and client (Windows / macOS / Android) error
@@ -236,7 +237,7 @@ a loop with backoff. All at ERROR level.
 | `duplicate profile name: '<n>'` | two profiles share a name | rename |
 | `profile '<n>': unknown bind.transport '<t>' — expected 'tcp' or 'udp'` | transport typo | `bind.transport = tcp` or `udp` |
 | `profile '<n>': unknown obf.mode '<m>' — expected 'fake-tls', 'obfs', 'plain' or 'reality-tls'` | wire-mode typo | fix `obf.mode` |
-| `profile '<n>': performance.connection.handshake_timeout_secs and max_clients must be > 0. The [profiles.performance] section is likely missing…` | **the classic footgun**: the profile's `[performance]` section is missing → serde zeros → instant timeouts / reject-everyone | add the `performance` section (or copy from the example) |
+| `profile '<n>': perf.connection.handshake_timeout_secs and perf.connection.max_clients must be > 0…` | one of the flat-INI keys is explicitly zero | remove the zero-valued key to use its baseline default, or set a positive value |
 | `profile '<n>': plain (raw) wire mode is TCP-only — set bind.transport = tcp` | `obf.mode=plain` on UDP | switch transport to tcp |
 | `profile '<n>': obfs wire mode requires a non-empty obfuscation.obfs_key…` | empty `obfs_key` (publicly derivable → no DPI resistance) | set `obf.obfs_key` |
 | `profile '<n>': reality_proxy.enabled requires at least one non-empty obf.tls.reality_proxy.short_ids entry…` | REALITY without a short_id | set `obf.tls.reality_proxy.short_ids` |

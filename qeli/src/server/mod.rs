@@ -1186,10 +1186,9 @@ fn generate_profile_key_unlocked(
 }
 
 /// Validate profiles before bringing up any listeners. Pure (no IO) so it is
-/// unit-testable. Checks, in order: unique non-empty names; the classic
-/// "missing [performance] section" footgun (serde fills an absent section with
-/// type-zero, not per-field defaults → handshake_timeout=0 instant-timeouts and
-/// max_clients=0 rejects everyone — fail loud instead); and the plain-is-TCP-only
+/// unit-testable. Checks, in order: unique non-empty names; invalid zero values
+/// (including manually built configs) for the connection timeout and client limit;
+/// and the plain-is-TCP-only
 /// invariant (a raw datagram stream has no framing to delimit records and is a
 /// high-entropy "fully encrypted traffic" DPI red-flag, so it is refused on UDP).
 /// Schema checks the data-plane worker runs before binding anything. Public so
@@ -1704,9 +1703,9 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         let perf = &p.performance.connection;
         if perf.handshake_timeout_secs == 0 || perf.max_clients == 0 {
             anyhow::bail!(
-                "profile '{}': performance.connection.handshake_timeout_secs and max_clients \
-                 must be > 0. The [profiles.performance] section is likely missing — add it \
-                 (see qeli/config/server.conf). Omitting a whole section yields zeros, not defaults.",
+                "profile '{}': perf.connection.handshake_timeout_secs and \
+                 perf.connection.max_clients must be > 0; remove an explicit zero to use \
+                 the baseline default, or set a positive value",
                 p.name
             );
         }
@@ -6385,7 +6384,7 @@ mod tests {
         );
     }
 
-    /// Minimal single-profile config with a valid [performance] block, so
+    /// Minimal single-profile config with valid flat `perf.connection.*` keys, so
     /// `validate_profiles` reaches the wire-mode/transport check.
     fn cfg_with(mode: &str, transport: &str) -> ServerConfig {
         let ini = format!(

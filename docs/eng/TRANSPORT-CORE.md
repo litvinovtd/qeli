@@ -10,13 +10,15 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
-**Initiative status: ✅ source refactor complete.** All production clients now use the shared
-Rust transport core. The additive ABI 1.11 libraries for Windows x64, macOS universal2 and
-Android arm64/x86_64 were rebuilt from source commit `97ce38d` in independent byte-identical
-A/B lab passes; mirror hashes, machine-readable evidence and source provenance are current.
-The remaining checks are platform acceptance gates, not refactoring work: administrator
-Wintun full-tunnel, live macOS utun and physical-device iOS/Xcode. Written 2026-07-30;
-completed 2026-08-11.
+**Initiative status: ✅ source refactor complete.** All production clients use the shared
+Rust transport core; the current source API is additive ABI 1.11. The committed
+`.so`/`.dll`/`.dylib` files are still the reproducible ABI 1.10 baseline from commit
+`b1e220d` recorded by `native-libs/PROVENANCE`. These are deliberately separate states:
+before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.11 tree,
+synchronized to every consumed copy, and pass provenance/hash/ABI/platform gates.
+Until then the tree is source-complete but not package-release-ready. Remaining acceptance
+gates also include administrator Wintun full-tunnel, live macOS utun and physical-device
+iOS/Xcode. Written 2026-07-30; source refactor completed 2026-08-11.
 
 ABI 1.10 extended statistics while preserving the 64-byte V1 prefix. ABI 1.11 adds the
 dual-family NetworkPlan/platform-capability contract without changing those prefixes. The fields expose
@@ -461,7 +463,7 @@ e2e green, the wire byte-for-byte unchanged.
 
 The configuration boundary keeps deliberate platform differences without allowing schema
 drift. A source contract now proves that Rust, Android, C# and Swift recognize the exact same
-73-key union. The complete 0.7.14 → 0.7.15 comparison is in the
+80-key union. The historical 0.7.14 → 0.7.15 comparison is in the
 [client config-key matrix](CLIENT-CONFIG-MATRIX.md). Platform editors model only applicable fields and carry the rest through
 open/save. Android now models `kill_switch` too: the common plan requires the capability and
 the platform adapter acknowledges it only after verifying the system Always-on VPN lockdown.

@@ -5,6 +5,10 @@ description: "How I replaced four drifting VPN transport implementations with on
 tags: rust, networking, mobile, opensource
 ---
 
+> **Article version snapshot:** the prose and listings describe 0.7.16,
+> additive ABI 1.10, and the then-current 73-key contract. Current source uses
+> ABI 1.11 and 80 keys; the full-IPv6 line is planned for release as 0.8.0.
+
 I used to describe my VPN as having “one Rust core on every platform.”
 
 That statement was technically true, but architecturally misleading.
@@ -141,7 +145,7 @@ No ACK, no data plane.
 
 ## A C ABI that represents a lifecycle
 
-The public ABI started small, then grew additively as each platform exposed another missing assumption. The current header identifies ABI 1.10:
+The public ABI started small, then grew additively as each platform exposed another missing assumption. At this article's snapshot, the header identifies ABI 1.10:
 
 ```c
 #define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)
@@ -456,7 +460,7 @@ Randomized objects such as a browser-shaped ClientHello cannot be pinned byte fo
 
 ### Configuration source contracts
 
-The Rust parser is authoritative for production transport. Platform editors still need to open, preserve, validate, and save applicable fields. A source-level contract checks that Rust, Kotlin, C#, and Swift recognize the same set of 73 configuration keys.
+The Rust parser is authoritative for production transport. Platform editors still need to open, preserve, validate, and save applicable fields. At this snapshot, a source-level contract checked 73 configuration keys across Rust, Kotlin, C#, and Swift; the current contract has 80.
 
 This does not make four parsers equally authoritative. It prevents a GUI from silently deleting a field it does not display.
 

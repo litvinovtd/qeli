@@ -1,7 +1,8 @@
 # Qeli — operations: compatibility, upgrades, rollback, backup
 
-> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
-> what you actually have.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
+> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> `qeli --version` reports the version of the binary actually installed.
 
 Installation is covered in [GETTING-STARTED.md](GETTING-STARTED.md), config keys in
 [CONFIG.md](CONFIG.md), error decoding in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
@@ -69,7 +70,7 @@ of problem that a normal startup cannot tell apart:
 1. **Syntax** — the broken line, with its number.
 2. **Schema** — the same checks the data-plane worker runs at startup (unknown
    `bind.transport`, a typo in `obf.mode`, `plain` on UDP, a zeroed
-   `[profiles.performance]`, and so on), so its verdict matches a real start.
+   an explicit zero in `perf.connection.*`, and so on), so its verdict matches a real start.
 3. **Keys nothing reads** — i.e. typos.
 
 The third one matters more than it sounds. **An unknown key is not an error**: it is simply
@@ -333,7 +334,7 @@ editing a config.
 | `obf.multipath.*` | on a UDP transport | `has no effect on a UDP transport` — stream bonding is TCP-only; a UDP session is capped at one stream |
 | `web.secure_cookie` | on a plain-HTTP panel | A `Secure` cookie is never sent over HTTP — you simply cannot log in |
 | `web.allowed_origins` unset | panel behind a proxy / on a domain | The page loads, but every POST returns 403 (Origin-based CSRF) |
-| `[profiles.performance]` section deleted | always | Serde fills an absent section with **zeros**, not per-field defaults: `handshake_timeout = 0` and `max_clients = 0` reject everyone. This one is caught at startup with an explicit message |
+| `perf.connection.handshake_timeout_secs = 0` or `perf.connection.max_clients = 0` | always | An explicit zero has no valid timeout/limit semantics and is rejected during validation. Remove the key to use its baseline default, or set a positive value |
 
 Separately: **a misspelled key name is not logged at all** — see
 [§2](#2-checking-a-config-before-you-start).

@@ -1,10 +1,10 @@
 # qeli — REALITY development stages: status and remainder (updated 2026-06-06)
 
-> A current summary. The detailed design of the axes/applications is below (from
-> 2026-06-05) and is **historical**: Axis 1 (REALITY / `reality-tls`), PQ-KEX
-> (X25519MLKEM768), NewSessionTicket, and **cert-borrowing are fully implemented and
-> verified** on all 4 clients (Rust / Android / Windows / macOS). The lower section is
-> kept as a design rationale — not as a list of unsolved items.
+> **Historical snapshot from 2026-06-05/06.** The entire document, including its former
+> “current summary,” records that period; client counts, ABI, binaries, tests, and
+> remaining-work claims are not current status. It is retained only as a design/work log.
+> For current state use [ROADMAP.md](ROADMAP.md),
+> [TRANSPORT-CORE.md](TRANSPORT-CORE.md), [ROAMING.md](ROAMING.md), and `CHANGELOG.md`.
 
 ## ✅ Done and verified — the SERVER side of REALITY is CLOSED
 

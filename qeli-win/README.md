@@ -28,7 +28,7 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 ```
 qeli-win/
 ├── QeliWin/
-│   ├── Model/         VpnConfig (JSON + qeli://), ProfileStore
+│   ├── Model/         VpnConfig (flat-INI + qeli://), ProfileStore (profiles.json — внутреннее зашифрованное хранилище приложения)
 │   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.11 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
 │   ├── MainWindow.*   интерфейс
@@ -102,13 +102,14 @@ IPv6 tunnel resolver и наоборот через семейство-прео�
 
 #### Обфускация в редакторе
 
-Клиентских wire-режима **три**: `fake-tls` (мимикрия TLS 1.3), `obfs` (поток
-ChaCha20) и `reality-tls` (настоящий Chrome-TLS 1.3, туннель внутри). Обфускация
-шире, и в форме доступны все клиентские параметры:
+Клиентских wire-режима **четыре**: `plain` (сырой TCP без DPI-маскировки),
+`fake-tls` (мимикрия TLS 1.3), `obfs` (поток ChaCha20) и `reality-tls`
+(настоящий Chrome-TLS 1.3, туннель внутри). `plain` допустим только с TCP.
+В форме доступны все клиентские параметры:
 
 | Параметр | Значения |
 |----------|----------|
-| Wire-режим | fake-tls / obfs / reality-tls |
+| Wire-режим | plain / fake-tls / obfs / reality-tls |
 | SNI | пресеты доменов + произвольный |
 | QUIC-маскировка | вкл/выкл (для UDP) |
 | Паддинг (маскировка размера) | выкл / стандартный / усиленный / максимальный |
@@ -200,21 +201,16 @@ Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдель
 | `handshake <link\|ini\|file>`             | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|ini\|file> [секунды]`     | Поднимает полный туннель на N секунд                  | да    |
 
-## Статус тестирования (2026-08-10)
+## Состояние сборки и release gate 0.8.0
 
-- ✅ `selftest` — все проверки PASS (X25519 симметричен, HKDF совпадает с RFC 5869,
-  ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`,
-  ClientHello c UDP-паддингом).
-- ✅ ABI 1.11 source gates: Rust tests и strict Clippy зелёные; UDP buffer telemetry доступна
-  через расширенный stats ABI.
-- ⏳ `scripts/e2e_windows_native.py` и полный Wintun data-plane нужно повторить с заново
-  собранной ABI 1.11 `qeli.dll`; лежащая в дереве ABI 1.9 DLL новых stats-полей не содержит.
-- ✅ `handshake` против **боевого** сервера `YOUR_PROD_HOST` с пиннингом ключа
-  `7ff1c274…2057` (клиент `client1`) → IP `10.9.0.2`.
-- ⏳ Полный live data-plane acceptance (Rust Wintun rings + маршруты + DNS) — реализован, требует
-  запуска с правами администратора на реальной машине (UAC), автотест headless
-  невозможен.
+Исходный Windows-клиент рассчитан на transport-core ABI 1.11. Закоммиченная `qeli.dll`
+относится к воспроизводимому ABI 1.10 baseline из `native-libs/PROVENANCE` и не является
+релизным артефактом для текущего дерева. Перед выпуском 0.8.0 обязательно:
 
-> Прим.: у тестового сервера `10.66.116.10` ключ идентичности отличается от
-> боевого, поэтому для него используйте конфиг **без** пиннинга (`key=` опустить)
-> либо подставьте его реальный ключ из `qeli show-identity`.
+- пересобрать `qeli.dll` из финального source и синхронизировать canonical/consumed-копии;
+- пройти `native-libs/provenance.py --check`, hash/ABI gates и сборку обоих Windows-пакетов;
+- прогнать elevated Wintun full-tunnel, IPv4/IPv6/dual-stack, DNS, kill-switch и reconnect.
+
+Публичный ключ сервера не копируют из этого README. Для каждого сервера получите актуальный
+pin командой `qeli show-identity` по доверенному каналу; отключение pinning допустимо только
+как осознанная временная диагностика, а не как инструкция для рабочего профиля.

@@ -1,7 +1,8 @@
 # qeli configuration
 
-> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
-> what you actually have.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
+> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> `qeli --version` reports the version of the binary actually installed.
 
 ## Format: flat-INI (the only one; TOML/JSON have been dropped)
 
@@ -59,9 +60,9 @@ from 0.7.13 on**. In 0.7.12 Android keeps the alias as the literal `mode` value:
 profile imports without an error and then never connects, so hand Android users on 0.7.12
 links with `proto` and `mode` spelled out separately.
 
-> **The set in this table is exhaustive and identical across all four clients.** The
-> reference implementation is `config/share.rs` (the server and the panel generate links
-> through it); the other three are checked against it by the shared fixtures in
+> **The table is exhaustive: four independent parsers (Rust/Kotlin/C#/Swift) serve five
+> applications because the shared C# layer powers both Windows and macOS. The reference is
+> `config/share.rs`; the other implementations are checked against it by the fixtures in
 > `conformance/qeli-links.json`.
 >
 > **`bind_static` and `mtu_probe` are deliberately NOT in the link.** They are local device
@@ -229,17 +230,11 @@ applied per-field serde defaults), on top of which the specified keys are layere
 Therefore **omitting whole subsections is safe** — missing keys get their real
 defaults (`keepalive_secs=60`, `max_clients=128`, etc.), not zeros.
 
-Historical note (this was relevant for the old TOML/JSON, where omitting an *entire
-nested object* yielded `Default::default()` = zeros): omitting `performance` led to —
-
-| Omitted | Effect |
-|---|---|
-| `performance.tcp.keepalive_secs` → 0 | `setsockopt(TCP_KEEPIDLE, 0)` → **EINVAL**, every TCP connection breaks at setup |
-| `performance.connection.handshake_timeout_secs` → 0 | handshake timeout = 0 → instant timeout, no client can connect |
-| `performance.connection.max_clients` → 0 | "max clients (0) reached" → everyone refused |
-
-The values depend on the deployment (channel, number of clients, latency), so
-**they are not hardcoded** — set them in the config. A minimal working profile:
+These settings are optional: baseline defaults live in `ProfileConfig::baseline()`,
+are used by the INI loader, and are exposed to the panel by `/api/config/defaults`.
+Explicit zeroes for `perf.connection.handshake_timeout_secs` and
+`perf.connection.max_clients` do not mean "use the default" and are rejected. Manual
+tuning uses only flat `perf.*` keys inside `[profile:<name>]`. Example profile:
 
 ```ini
 [auth]
@@ -1237,7 +1232,7 @@ allowed_networks = 0.0.0.0/0
 ### Full `[qeli]` key reference and client matrix
 
 A client config is a single `[qeli]` section (plus an optional `[logging]`). All five clients
-recognize the same **73-key contract**, while the set of keys they can actually apply differs:
+recognize the same **80-key contract**, while the set of keys they can actually apply differs:
 the platform dictates what is possible (a phone has no iptables, the Rust CLI has no Wintun
 adapter, and so on). The complete per-key **0.7.14 → 0.7.15** history is in
 [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md).

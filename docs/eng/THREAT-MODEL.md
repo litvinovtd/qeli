@@ -1,4 +1,5 @@
 # qeli — Threat Model
+<!-- normative-sync: threat-ipv6-v1 -->
 
 This document states **what qeli defends against, what it deliberately does
 not, and the current assurance status.** It is written so a user can decide
@@ -103,6 +104,25 @@ some are explicit engineering trade-offs.
     forwarding and optional notification/webhook destinations also make the network requests
     their configuration explicitly requests. None of these is telemetry, but an operator's
     egress policy must allow and account for them.
+
+### 3.1. Residual dual-stack, TAP, and fragmentation risks
+
+- **Outer/inner family confusion.** IPv6 reachability to the server does not imply inner
+  IPv6, and vice versa. Capability or NetworkPlan drift can cause a silent downgrade;
+  `required` plus generation ACK must turn that into failure. `allow_*_leak` explicitly
+  accepts direct-family egress.
+- **TAP control plane.** qeli is not an L2 bridge, but local ARP/NDP/RA handling still parses
+  untrusted input. Unknown EtherTypes, malformed NDP/RA, VLAN, and oversized frames must be
+  dropped; TAP needs its own matrix in addition to ordinary TUN testing.
+- **DATA_FRAG DoS.** An authenticated peer can create many incomplete reassemblies. Bounded
+  bytes/fragments/entries/expiry limit damage but do not remove CPU/memory as a DoS surface;
+  fuzzing, quota/drop metrics, and soak tests remain required.
+- **PMTU/ICMPv6.** Lost Packet Too Big messages or filtered ICMPv6 create black holes; forged
+  PTB can reduce throughput. Probe and PMTU state must bind to path, family, and source.
+- **NAT66 and routed GUA.** NAT66 hides addresses but is not a firewall; routed GUA makes
+  client addresses globally routable and requires explicit upstream routing and ACL policy.
+- **Persistent TUN.** Interface reuse is safe only when the full NetworkPlan fingerprint
+  matches: families, addresses, routes, DNS, MTU, and leak policy.
 
 ## 4. Assurance status
 

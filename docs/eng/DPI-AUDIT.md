@@ -35,8 +35,8 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 ## 1. fake-TLS, the client side (ClientHello)
 
 ### 1.1 [CRIT] A ClientHello without ALPN — and this is also used as the "ours" marker
-- **Where:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs#L48) doesn't add
-  the ALPN extension (`0x0010`). The server detector [reality.rs:46](../../qeli/src/server/reality.rs#L46)
+- **Where:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs) doesn't add
+  the ALPN extension (`0x0010`). The server detector [reality.rs](../../qeli/src/server/reality.rs)
   (`has_alpn_extension`) explicitly relies on this: *ALPN present → a foreigner → bridge to
   the real site; no ALPN → a qeli client*.
 - **Why it gives it away:** real Chrome/Firefox/Safari **always** send ALPN (`h2`,
@@ -46,20 +46,20 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 - **Status — ✅ addressed in the REALITY modes:** the "ours/foreigner" discriminator is now
   **cryptographic** (a REALITY token in the `session_id`, not "no ALPN"), and when a token
   is present the ClientHello **adds ALPN** (`h2`/`http/1.1`) — it reads as a browser
-  ([tls.rs:88-92](../../qeli/src/protocol/tls.rs#L88)). In `reality-tls` it's a real
+  ([tls.rs](../../qeli/src/protocol/tls.rs)). In `reality-tls` it's a real
   Chrome ClientHello altogether. Bare `fake-tls` without a REALITY token still doesn't
   send ALPN.
 
 ### 1.2 [HIGH] A non-browser cipher-suite set
-- **Where:** [tls.rs:118-123](../../qeli/src/protocol/tls.rs#L118) — GREASE + exactly 3
+- **Where:** [tls.rs](../../qeli/src/protocol/tls.rs) — GREASE + exactly 3
   suites (`1301/1302/1303`).
 - **Why it gives it away:** Chrome sends ~15+ suites (including legacy ECDHE-RSA/ECDSA for
   compatibility). A 4-element list → the JA4 `ciphers` segment matches no real client. The
-  extension shuffle ([tls.rs:83](../../qeli/src/protocol/tls.rs#L83)) does **not** fix this:
+  extension shuffle ([tls.rs](../../qeli/src/protocol/tls.rs)) does **not** fix this:
   JA4 sorts the fields before hashing, and the cipher set is still "non-Chrome".
 
 ### 1.3 [HIGH] Few supported_groups — ✅ addressed (the PQ group added)
-- **Where:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs#L455).
+- **Where:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs).
 - **Why it gave it away:** current Chrome sends `X25519MLKEM768` (post-quantum) first,
   plus secp384/521. The absence of a PQ group on a "2026-grade" client is a noticeable
   anomaly for D2.
@@ -68,7 +68,7 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   (`build_supported_groups_extension` / `build_key_share_extension`).
 
 ### 1.4 [HIGH] Missing extensions that a browser always sends
-- **Where:** the extension list in [tls.rs:75-82](../../qeli/src/protocol/tls.rs#L75).
+- **Where:** the extension list in [tls.rs](../../qeli/src/protocol/tls.rs).
 - **Why it gives it away:** there's no `ec_point_formats` (0x000B), `status_request`/OCSP
   (0x0005), `signed_certificate_timestamp` (0x0012), `renegotiation_info` (0xFF01),
   `application_settings`/ALPS (0x4469), `session_ticket` (0x0023). Their collective absence
@@ -80,13 +80,13 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   status_request/SCT/renegotiation_info/ALPS.
 
 ### 1.5 [MED] An outdated signature_algorithms — ✅ fixed
-- **Where:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs#L502).
+- **Where:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs).
 - **Why it gave it away:** the list contained `rsa_pkcs1_sha1` (0x0201), which modern
   browsers have dropped. A contribution to the JA4 mismatch.
 - **Status — ✅ fixed:** `rsa_pkcs1_sha1` (0x0201) removed from the list.
 
 ### 1.6 [HIGH] SNI↔IP inconsistency (a decoy pool)
-- **Where:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs#L10).
+- **Where:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs).
 - **Why it gives it away:** the client sends the SNI `www.google.com` to an IP that does
   **not** belong to Google. D2 checks the SNI against the destination range (passive DNS /
   ASN) → a mismatch = the classic domain-fronting indicator. Worse: **SNI rotation** to the
@@ -98,8 +98,8 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 ## 2. fake-TLS, the server side (ServerHello / handshake)
 
 ### 2.1 [CRIT] The server's handshake messages go in cleartext
-- **Where:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs#L262),
-  [build_finished](../../qeli/src/protocol/tls.rs#L330) — both wrapped in a `0x16`
+- **Where:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs),
+  [build_finished](../../qeli/src/protocol/tls.rs) — both wrapped in a `0x16`
   (handshake) record in the clear, like the ServerHello.
 - **Why it gives it away:** in real TLS 1.3, after ServerHello+CCS **everything**
   (Encrypted Extensions, Certificate, CertVerify, Finished) rides inside `0x17`
@@ -107,7 +107,7 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   signature of TLS 1.2 OR a forgery. D2 (and especially D3) catches it deterministically.
 
 ### 2.2 [CRIT] The certificate — pseudo-DER, doesn't parse as X.509
-- **Where:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs#L262) — 512 bytes
+- **Where:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs) — 512 bytes
   of partially-structured garbage.
 - **Why it gives it away:** a D3 prober, having completed the handshake (or simply parsed
   the Certificate), sees that this isn't a valid X.509 and not a chain to a public CA. A
@@ -122,7 +122,7 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   `reality`-proxy mode additionally bridges **foreign** connections to the real site.
 
 ### 2.3 [MED] A poor ServerHello
-- **Where:** [tls.rs build_server_hello](../../qeli/src/protocol/tls.rs#L187) — only
+- **Where:** [tls.rs build_server_hello](../../qeli/src/protocol/tls.rs) — only
   supported_versions + key_share, no other extensions; always cipher `1301`.
 - **Why it gives it away:** a real server varies the chosen suite and sends a consistent
   set. A constant `1301` + a minimal SH = a weak but stable indicator for D2.
@@ -132,12 +132,12 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 ## 3. The data channel (application_data)
 
 ### 3.1 [HIGH] An explicit 12-byte nonce in every record
-- **Where:** [packet.rs encrypt_packet](../../qeli/src/protocol/packet.rs#L179) — a record =
+- **Where:** [packet.rs encrypt_packet](../../qeli/src/protocol/packet.rs) — a record =
   `0x17 ‖ 0303 ‖ len ‖ nonce(12) ‖ ciphertext+tag`.
 - **Why it gives it away:** real TLS 1.3 uses an **implicit** nonce (it's not on the wire).
   A constant 12-byte prefix before the ciphertext in every record is a structural
   fingerprint across the whole data plane (the Feistel-PRP in
-  [packet.rs:44](../../qeli/src/protocol/packet.rs#L44) hides the increment, but the very
+  [packet.rs](../../qeli/src/protocol/packet.rs) hides the increment, but the very
   fact of 12 "extra" bytes in every record remains). D2 sees this when analyzing the
   inter-record structure.
 
@@ -174,7 +174,7 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 > deploy). A deep QUIC parse will still tell it apart (no real handshake) — full QUIC
 > mimicry comes with Axis 2 (tells 5.1/5.2).
 
-- **Where:** [obfs.rs obfs_datagram_seal](../../qeli/src/protocol/obfs.rs#L54).
+- **Where:** [obfs.rs obfs_datagram_seal](../../qeli/src/protocol/obfs.rs).
 - **Why it gives it away:** a stable 12-byte high-entropy prefix on each datagram —
   differs both from QUIC (which has structure) and from STUN/DTLS. Recognizable when a
   sample is available.
@@ -184,14 +184,14 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 ## 5. QUIC-masking (UDP)
 
 ### 5.1 [CRIT] The packet number in cleartext, incrementing
-- **Where:** [quic.rs wrap_quic_long/short](../../qeli/src/protocol/quic.rs#L19) write the
+- **Where:** [quic.rs wrap_quic_long/short](../../qeli/src/protocol/quic.rs) write the
   `packet_number` in the clear.
 - **Why it gives it away:** real QUIC applies **header protection** — the packet number and
   the low bits of the first byte are encrypted (RFC 9001 §5.4). A visible growing 4-byte PN
   is "not QUIC" deterministically for any QUIC-aware D2.
 
 ### 5.2 [CRIT] The Initial packet is not protected per RFC 9001
-- **Where:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs#L19).
+- **Where:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs).
 - **Why it gives it away:** the shell now has the Initial `Token Length` and `Length`
   fields, but there is no Initial-secret AEAD, header protection, CRYPTO frame or mandatory
   1200-byte Initial padding. The packet number and protected low header bits remain fixed /

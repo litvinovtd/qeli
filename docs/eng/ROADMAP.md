@@ -132,8 +132,8 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 - ✅ Heartbeat idle-gating; padding probability/randomize; capping a UDP datagram < MTU.
 - ✅ **Hardening (round 1)**: an OOB read in the DHCP parser (bound-check, test); CSRF
   allowed_hosts for IPv6 (`[::1]`, bracketed bind); `keepalive_secs=0` no longer
-  causes EINVAL; config validation catches a missing `[performance]` section with a
-  clear error.
+  causes EINVAL; the flat-INI loader applies baseline defaults to omitted `perf.*` keys,
+  while explicit zeroes in critical connection settings are rejected with a clear error.
 - ✅ **Hardening (round 2)**: an OOB panic when parsing the QUIC SCID (bound-check +
   fuzz test); validation of the upstream DNS reply (source + transaction-ID —
   anti-poisoning, plus a txid-normalized cache key); constant-time comparison of the
@@ -428,7 +428,7 @@ meaning.
 ### Extend the control channel for live in-session PUSH (→ 0.8.0, BEFORE roaming)
 
 Today DNS/routes/MTU/multipath arrive **only** in `AuthOK` during the handshake
-([handler.rs:1592](../../qeli/src/server/handler.rs#L1592)), and changing any of them takes
+([handler.rs](../../qeli/src/server/handler.rs)), and changing any of them takes
 a reconnect. The protocol already has authenticated typed in-tunnel control frames in
 [`ctrl.rs`](../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` and `CTRL_CLIENT_INFO` travel
 client → server as `[0xC1 0x9B][type][u8 len][payload]`. What is missing is a negotiated,
@@ -456,7 +456,7 @@ first nibble 4/6 → IP packet
 **Do this before roaming:** roaming needs a server-notification mechanism, or it will have
 to be reworked afterwards.
 
-### Full IPv6 support (implemented for 0.7.17; certification pending)
+### Full IPv6 support (0.8.0 development line; certification pending)
 
 **Full plan: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** An IPv6 server
 endpoint is only an outer carrier and is not IPv6 support on its own. The scope includes
@@ -464,44 +464,45 @@ independent outer IPv4/IPv6, inner `ipv4|dual|ipv6`, TUN and TAP, TCP/UDP/QUIC, 
 routing and DNS, MTU/PMTU and UDP data fragmentation, kill switch, every system/per-app
 client, panel, Quick Start, installer, packages, and examples.
 
-The source implementation is part of the 0.7.17 development tree. Promotion remains
-blocked on the physical/native and Linux network-namespace certification matrix in the
-implementation plan; this is no longer scheduled as a new 0.8.0 implementation.
+The source implementation is now the 0.8.0 development line. It ships only after the
+physical/native and Linux network-namespace certification matrix; until then it is
+development code, not a release.
 
 Intermediate stages are development-only. The feature cannot ship or be called complete
 until the entire IPv6-only/dual-stack release matrix passes. User configuration remains
 flat INI; internal wire/FFI messages are not JSON configuration.
 
-### Roaming — seamless network change (→ 0.8.0)
+### Roaming — seamless network change (after IPv6; target 0.8.x, not started)
 
-**Plan: [ROAMING.md](ROAMING.md).** A client surviving a Wi-Fi↔LTE / IP change without
-dropping the user's connections (today this is a *fast reconnect* with a re-handshake +
-Argon2, not roaming). Feasibility confirmed against the code:
-- **UDP + QUIC** — seamless connection migration. The 4-byte CID is already on every
-  upstream packet ([client/mod.rs:1678](../../qeli/src/client/mod.rs#L1678)) but the server
-  discards it and demuxes by source address
-  ([udp_handler.rs:328](../../qeli/src/server/udp_handler.rs#L328)). Record the client CID,
-  migrate the session's peer-addr on an AEAD+replay-valid packet, with a **rotating
-  CID** (HKDF) for unlinkability. Mostly server-side + a client soft-rebind.
-- **TCP** — no transport migration (kernel 4-tuple), but **make-before-break** over the
-  existing multipath JOIN (open a stream on the new network before the old dies) + a
-  session **grace period** so a JOIN-resume re-attaches **without re-auth**
-  ([handler.rs:766](../../qeli/src/server/handler.rs#L766) tears down too eagerly today).
-- **Phase 1 (0.8.0):** UDP migration + TCP grace/JOIN-resume + CID rotation, new
-  `[roaming]` config. **Phase 2:** make-before-break + per-interface binding +
-  path-validation + MTU re-probe. Key risks: data-plane changes, **nonce reuse on a
-  botched client rebind**, grace-period DoS — all addressed in the plan.
-- ⚠️ **Hard constraint for resume (self-audit 2026-07-17):** the Rust `PacketCodec` builds
-  its nonce as `seed(4) ‖ counter(8)`, where `nonce_seed` is 4 random bytes per codec
-  ([packet.rs](../../qeli/src/protocol/packet.rs)). That is safe TODAY because every
-  reconnect derives a **fresh AEAD key**, so a nonce can never repeat. But if resume/roaming
-  ever **reuses a key** with a new codec (counter restarting at 0), the only protection left
-  is 32 bits of seed → a birthday collision at roughly 2¹⁶ resumes = **catastrophic nonce
-  reuse** (total AEAD break). The seed cannot be widened without shrinking the counter — the
-  nonce is a fixed 12 bytes. So this must be settled IN THE RESUME DESIGN, not afterwards:
-  preferably **re-derive the key on every resume** (HKDF over a resume counter), or put an
-  explicit epoch in the nonce. C#/Kotlin are more robust here — they use a fully random
-  96-bit nonce.
+**Normative plan: [ROAMING.md](ROAMING.md).** Today a Wi-Fi↔LTE/IP change is a fast
+reconnect with a new handshake and Argon2, not roaming. Full roaming preserves session id,
+inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP, routes, and quota state.
+
+- Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1`, and
+  `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; and a generation-scoped
+  PathUpdate transaction with PREPARE/COMMIT/ABORT.
+- **UDP with QUIC + DATA_FRAG_V1:** a distinct eight-byte-CID short header, a
+  profile-wide registry shared by workers/listeners, a per-session actor, and dynamic
+  egress. PATH_CHALLENGE/PATH_RESPONSE, anti-amplification, and bidirectional PMTU
+  reset/re-probe are mandatory before downstream switches. UDP without QUIC reconnects.
+- **TCP:** authenticated JOIN with a new key exchange and fresh AEAD keys, a wide resume
+  epoch, bounded orphan grace, stable logical slots, and make-before-break. The token is
+  a locator, never proof of possession.
+- **Cryptographic invariant:** UDP migration preserves the same `PacketCodec` and replay
+  window; it cannot recreate a codec under the same key. TCP JOIN always derives new
+  directional keys, so resume cannot reset a nonce/counter under a reused key.
+- Platform adapters atomically prepare the host route, kill-switch/per-app allowlist,
+  physical DNS, and exact candidate-socket bind/protect; validation/JOIN is followed by
+  commit, drain, and cleanup. A platform that cannot guarantee rollback advertises no
+  roaming capability.
+- User configuration remains flat INI: server `roaming.*` keys live inside a profile,
+  and client `[qeli] roaming = off|auto|required`. Initial rollout is server-default-off,
+  client-default-auto, with rolling upgrades through capability negotiation.
+
+Order: specification/KDF/control → dynamic path ABI → TCP lifecycle/supervisor → UDP
+registry/validation/PMTU → Android/Windows/macOS/iOS/Linux/OpenWrt → config/panel/docs →
+full lab and soak matrix. No production phase omits proof, path validation,
+anti-amplification, or PMTU reset. Estimated full effort is 20–30 engineering weeks.
 
 1. **Real REALITY** (a TLS 1.3 tunnel + proxying foreign parties to a real site) — the
    Xray-REALITY level. **Path A (an ACME cert of your own domain) REJECTED
@@ -662,10 +663,10 @@ Argon2, not roaming). Feasibility confirmed against the code:
 Do these in this order — both touch the same ClientHello-building code.
 
 **1. A real QUIC Initial (RFC 9001).** Today `wrap_quic_long`
-([quic.rs:19](../../qeli/src/protocol/quic.rs#L19)) draws a syntactic long-header shell and
+([quic.rs](../../qeli/src/protocol/quic.rs)) draws a syntactic long-header shell and
 appends the payload **in the clear**: no Initial-secret derivation, no AEAD, no header
 protection, no CRYPTO frame. A real ClientHello with SNI does exist
-([client/mod.rs:2561](../../qeli/src/client/mod.rs#L2561)) — it just rides in a hand-rolled
+([client/mod.rs](../../qeli/src/client/mod.rs)) — it just rides in a hand-rolled
 fragmentation scheme ([udp_frag.rs](../../qeli/src/protocol/udp_frag.rs)).
 
 To a DPI that parses QUIC this is **a tell, not camouflage**: the cleartext shell now has
@@ -685,11 +686,11 @@ experimental.
   mechanism, and one hand-rolled format goes away.
 
 **2. fake-TLS fingerprint presets.** Today there is a single hard-coded builder
-([tls.rs:105](../../qeli/src/protocol/tls.rs#L105)); no configurable Chrome/Firefox/Schannel
+([tls.rs](../../qeli/src/protocol/tls.rs)); no configurable Chrome/Firefox/Schannel
 profiles, no `gmt_unix_time`, no arbitrary extension composition.
 
 - **Start with the cheap step:** settle the question of the per-connection extension-order
-  shuffle ([tls.rs:128](../../qeli/src/protocol/tls.rs#L128)). It is meant to defeat JA3
+  shuffle ([tls.rs](../../qeli/src/protocol/tls.rs)). It is meant to defeat JA3
   pinning, but real Chrome's JA3 is **stable**, so "a client with a new fingerprint every
   connection" is itself anomalous. A day of analysis, and it may change the requirement.
 - A profile = (ciphers, extension set and order, session_id policy, ALPN, sig-algs, GREASE,
@@ -805,20 +806,12 @@ follows was deliberately deferred.
    (`qeli add-client`) and `web/api/share.rs` now emit/parse `quic=1`(link)/
    `quic=true`(INI). The udpquic link from the CLI/web enables QUIC out of the box. All
    three clients are aligned. Lab: 114 tests.
-6. ⬜ **Android: move to real release APKs** (→ **1.0.0**) — what ships as a release today
-   is a **debug build**: every APK in `release/dist/` is ~20 MB despite
-   `isMinifyEnabled = true` (a genuine release build is 5.4 MB), and the 0.7.2-0.7.4
-   artifacts are literally named `qeli-android-debug.apk`. Consequences: `debuggable=true`,
-   no obfuscation, no R8 shrinking. The build itself is already unblocked (0.7.12 added two
-   `-dontwarn` rules for the Tink JSR-305 annotations R8 choked on); what remains: set up
-   `keystore.properties` + the keystore, add `assembleRelease` to the release script, and
-   **run a full smoke test on the minified build** — R8 can strip what is reached by
-   reflection (Tink and the JNI bridges to the Rust core are the risk, and may need
-   `-keep` rules). ⚠️ **Breaks updates:** changing the signing key from the debug key to a
-   release one makes installing over the existing app impossible — only a reinstall, which
-   loses the saved profiles (`EncryptedSharedPreferences`; its master key lives in the
-   Android Keystore and dies with the app). Hence the move is tied to 1.0.0 and needs an
-   explicit warning in the release notes.
+6. 🟨 **Android: signed Release APKs** — the 0.7.16 release notes document a move to
+   `assembleRelease`, R8/minification, and release signing, so the old statement that current
+   releases are debug APKs is no longer normative. Final status is established only by
+   attesting the exact artifact being published. The 0.8.0 gates require signing-key
+   continuity, `debuggable=false`, signature verification, and a minified JNI/transport-core
+   smoke test; migration from the old debug key remains a caveat for early installations.
 
 ## P3 — long-term / experimental
 

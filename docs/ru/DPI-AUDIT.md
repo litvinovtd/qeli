@@ -34,8 +34,8 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 ## 1. fake-TLS, сторона клиента (ClientHello)
 
 ### 1.1 [CRIT] ClientHello без ALPN — и это же используется как маркер «свой»
-- **Где:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs#L48) не добавляет
-  расширение ALPN (`0x0010`). Серверный детектор [reality.rs:46](../../qeli/src/server/reality.rs#L46)
+- **Где:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs) не добавляет
+  расширение ALPN (`0x0010`). Серверный детектор [reality.rs](../../qeli/src/server/reality.rs)
   (`has_alpn_extension`) явно полагается на это: *есть ALPN → чужой → мост на реальный
   сайт; нет ALPN → qeli-клиент*.
 - **Почему палит:** реальные Chrome/Firefox/Safari **всегда** шлют ALPN (`h2`,
@@ -45,20 +45,20 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 - **Статус — ✅ адресовано в REALITY-режимах:** дискриминатор «свой/чужой» теперь
   **криптографический** (REALITY-токен в `session_id`, а не «нет ALPN»), и при наличии
   токена ClientHello **добавляет ALPN** (`h2`/`http/1.1`) — читается как браузер
-  ([tls.rs:88-92](../../qeli/src/protocol/tls.rs#L88)). В `reality-tls` это вообще настоящий
+  ([tls.rs](../../qeli/src/protocol/tls.rs)). В `reality-tls` это вообще настоящий
   Chrome-ClientHello. Голый `fake-tls` без REALITY-токена ALPN по-прежнему не шлёт.
 
 ### 1.2 [HIGH] Набор cipher suites не браузерный
-- **Где:** [tls.rs:118-123](../../qeli/src/protocol/tls.rs#L118) — GREASE + ровно 3
+- **Где:** [tls.rs](../../qeli/src/protocol/tls.rs) — GREASE + ровно 3
   suite (`1301/1302/1303`).
 - **Почему палит:** Chrome шлёт ~15+ suites (включая legacy ECDHE-RSA/ECDSA для
   совместимости). 4-элементный список → JA4 `ciphers`-сегмент не совпадает ни с
-  одним реальным клиентом. Шафл расширений ([tls.rs:83](../../qeli/src/protocol/tls.rs#L83))
+  одним реальным клиентом. Шафл расширений ([tls.rs](../../qeli/src/protocol/tls.rs))
   это **не лечит**: JA4 сортирует поля перед хэшем, а cipher-набор всё равно
   «не-Chrome».
 
 ### 1.3 [HIGH] Мало supported_groups — ✅ адресовано (PQ-группа добавлена)
-- **Где:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs#L455).
+- **Где:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs).
 - **Почему палило:** актуальный Chrome шлёт `X25519MLKEM768` (post-quantum) первым,
   плюс secp384/521. Отсутствие PQ-группы у клиента «образца 2026» — заметная
   аномалия для D2.
@@ -67,7 +67,7 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   как Chrome (`build_supported_groups_extension` / `build_key_share_extension`).
 
 ### 1.4 [HIGH] Отсутствуют расширения, которые браузер шлёт всегда
-- **Где:** список расширений в [tls.rs:75-82](../../qeli/src/protocol/tls.rs#L75).
+- **Где:** список расширений в [tls.rs](../../qeli/src/protocol/tls.rs).
 - **Почему палит:** нет `ec_point_formats` (0x000B), `status_request`/OCSP (0x0005),
   `signed_certificate_timestamp` (0x0012), `renegotiation_info` (0xFF01),
   `application_settings`/ALPS (0x4469), `session_ticket` (0x0023). Их совокупное
@@ -79,13 +79,13 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   всё ещё неполон по status_request/SCT/renegotiation_info/ALPS.
 
 ### 1.5 [MED] signature_algorithms устаревший — ✅ исправлено
-- **Где:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs#L502).
+- **Где:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs).
 - **Почему палило:** список содержал `rsa_pkcs1_sha1` (0x0201), который современные
   браузеры выпилили. Вклад в JA4-несовпадение.
 - **Статус — ✅ исправлено:** `rsa_pkcs1_sha1` (0x0201) удалён из списка.
 
 ### 1.6 [HIGH] SNI↔IP несогласованность (decoy-pool)
-- **Где:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs#L10).
+- **Где:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs).
 - **Почему палит:** клиент шлёт SNI `www.google.com` на IP, который **не**
   принадлежит Google. D2 сверяет SNI с диапазоном назначения (passive DNS /
   ASN) → mismatch = классический признак domain-fronting. Хуже: **ротация SNI**
@@ -97,8 +97,8 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 ## 2. fake-TLS, сторона сервера (ServerHello / handshake)
 
 ### 2.1 [CRIT] Handshake-сообщения сервера идут открытым текстом
-- **Где:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs#L262),
-  [build_finished](../../qeli/src/protocol/tls.rs#L330) — оба завёрнуты в record
+- **Где:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs),
+  [build_finished](../../qeli/src/protocol/tls.rs) — оба завёрнуты в record
   `0x16` (handshake) открыто, как и ServerHello.
 - **Почему палит:** в настоящем TLS 1.3 после ServerHello+CCS **всё** (Encrypted
   Extensions, Certificate, CertVerify, Finished) едет внутри `0x17`
@@ -106,7 +106,7 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   это сигнатура TLS 1.2 ИЛИ подделки. D2 (а тем более D3) ловит детерминированно.
 
 ### 2.2 [CRIT] Сертификат — псевдо-DER, не парсится как X.509
-- **Где:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs#L262) — 512 байт
+- **Где:** [tls.rs build_certificate](../../qeli/src/protocol/tls.rs) — 512 байт
   частично-структурированного мусора.
 - **Почему палит:** D3-пробер, завершив handshake (или просто распарсив
   Certificate), видит, что это не валидный X.509 и не цепочка к публичному CA.
@@ -121,7 +121,7 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   Режим `reality`-proxy дополнительно мостит **чужие** коннекты на реальный сайт.
 
 ### 2.3 [MED] Бедный ServerHello
-- **Где:** [tls.rs build_server_hello](../../qeli/src/protocol/tls.rs#L187) — только
+- **Где:** [tls.rs build_server_hello](../../qeli/src/protocol/tls.rs) — только
   supported_versions + key_share, нет других расширений; всегда cipher `1301`.
 - **Почему палит:** реальный сервер варьирует выбранный suite и шлёт согласованный
   набор. Постоянный `1301` + минимальный SH = слабый, но устойчивый признак для D2.
@@ -131,12 +131,12 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 ## 3. Канал данных (application_data)
 
 ### 3.1 [HIGH] Явный 12-байтный nonce в каждой записи
-- **Где:** [packet.rs encrypt_packet](../../qeli/src/protocol/packet.rs#L179) — record =
+- **Где:** [packet.rs encrypt_packet](../../qeli/src/protocol/packet.rs) — record =
   `0x17 ‖ 0303 ‖ len ‖ nonce(12) ‖ ciphertext+tag`.
 - **Почему палит:** настоящий TLS 1.3 использует **неявный** nonce (его нет на
   проводе). Постоянный 12-байтный префикс перед шифротекстом в каждой записи —
   структурный отпечаток на всём data-plane (Feistel-PRP в
-  [packet.rs:44](../../qeli/src/protocol/packet.rs#L44) прячет инкремент, но сам факт
+  [packet.rs](../../qeli/src/protocol/packet.rs) прячет инкремент, но сам факт
   12 «лишних» байт в каждой записи остаётся). D2 при анализе межзаписевой
   структуры это видит.
 
@@ -173,7 +173,7 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 > скоординированный). Глубокий QUIC-парсинг всё равно отличит (нет настоящего
 > handshake) — полноценная QUIC-мимикрия идёт с Осью 2 (tells 5.1/5.2).
 
-- **Где:** [obfs.rs obfs_datagram_seal](../../qeli/src/protocol/obfs.rs#L54).
+- **Где:** [obfs.rs obfs_datagram_seal](../../qeli/src/protocol/obfs.rs).
 - **Почему палит:** стабильный 12-байтный высокоэнтропийный префикс на каждой
   датаграмме — отличается и от QUIC (есть structure), и от STUN/DTLS. Узнаваемо
   при наличии образца.
@@ -183,14 +183,14 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 ## 5. QUIC-masking (UDP)
 
 ### 5.1 [CRIT] Номер пакета открытым текстом, инкрементирующий
-- **Где:** [quic.rs wrap_quic_long/short](../../qeli/src/protocol/quic.rs#L19) пишут
+- **Где:** [quic.rs wrap_quic_long/short](../../qeli/src/protocol/quic.rs) пишут
   `packet_number` в открытую.
 - **Почему палит:** настоящий QUIC применяет **header protection** — номер пакета и
   младшие биты первого байта зашифрованы (RFC 9001 §5.4). Видимый растущий
   4-байтный PN — это «не QUIC» детерминированно для любой QUIC-aware D2.
 
 ### 5.2 [CRIT] Initial-пакет не защищён по RFC 9001
-- **Где:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs#L19).
+- **Где:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs).
 - **Почему палит:** в оболочке уже есть поля Initial `Token Length` и `Length`, но нет
   AEAD на Initial-secret, header protection, CRYPTO-фрейма и обязательного padding Initial
   до 1200 байт. Номер пакета и защищаемые младшие биты заголовка остаются видимыми /

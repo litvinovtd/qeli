@@ -31,7 +31,7 @@ Rust-ядро через whole-client FFI — одна нативная либа
 ```
 qeli-mac/
 ├── QeliMac/
-│   ├── Model/         VpnConfig (JSON / qeli:// / INI), AppSettings, ProfileStore, Paths
+│   ├── Model/         VpnConfig (flat-INI / qeli://), AppSettings, ProfileStore, Paths (profiles.json — внутреннее хранилище приложения)
 │   ├── Vpn/           UtunDevice lifecycle, NetworkConfigurator, ABI 1.11 adapter
 │   ├── native/        libqeli.dylib — whole-client core (universal arm64+x86_64)
 │   ├── Service/       ServiceState, ServiceManager (launchd daemon), ServiceHost

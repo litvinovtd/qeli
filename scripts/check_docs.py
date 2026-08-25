@@ -17,8 +17,13 @@ Guards the documentation structure so it cannot silently rot:
                  (frozen records — archive/, CHANGELOG — are out of scope)
   6. placeholder — no GitHub URL left with `<owner>` unfilled; these hide in
                  fenced code blocks where check 1 never looks
-  7. version   — CHANGELOG.md has a section for the version being developed.
-                 Every other version string is owned by scripts/sync_version.py
+  7. version   — CHANGELOG.md names the next public release and it is not older
+                 than the development build. Every other version string is owned
+                 by scripts/sync_version.py
+  8. anchors   — active docs do not pin source links to refactor-fragile #L numbers
+  9. sync      — safety-sensitive RU/EN pairs carry the same normative revision
+
+Every semantic check fails closed when its extractor or marker drifts.
 
 Exit code 0 = all good, 1 = something to fix. Intended for CI and pre-release.
 """
@@ -299,14 +304,58 @@ def check_source_refs(files: list[Path]) -> None:
                 fail("source", f"{rel} points at `{ref}`, which does not exist")
 
 
+SOURCE_LINE_ANCHOR_RE = re.compile(
+    r"(?:"
+    r"\]\([^)]*\.(?:rs|cs|kt|swift)#L\d+(?:-L\d+)?\)"
+    r"|"
+    r"\[(?:[^\]\r\n]*\.(?:rs|cs|kt|swift):\d+(?:-\d+)?|:\d+(?:-\d+)?)\]"
+    r"\([^)]*\.(?:rs|cs|kt|swift)\)"
+    r")"
+)
+
+
+def check_source_line_anchors(files: list[Path]) -> None:
+    """Active docs link to symbols/files, never to refactor-fragile line numbers."""
+    for f in files:
+        rel = f.relative_to(ROOT).as_posix()
+        if any(s in rel for s in SRC_REF_SKIP):
+            continue
+        body = f.read_text(encoding="utf-8", errors="replace")
+        if SOURCE_LINE_ANCHOR_RE.search(body):
+            fail("anchors", f"{rel} contains a refactor-fragile source line anchor")
+
+
+NORMATIVE_SYNC_DOCS = ("ROAMING.md", "AUDIT.md", "THREAT-MODEL.md")
+NORMATIVE_SYNC_RE = re.compile(r"<!--\s*normative-sync:\s*([a-z0-9._-]+)\s*-->")
+
+
+def check_normative_sync() -> None:
+    """Safety-sensitive RU/EN pairs must declare the same review revision."""
+    for name in NORMATIVE_SYNC_DOCS:
+        revisions: dict[str, str] = {}
+        for lang in LANGS:
+            path = ROOT / "docs" / lang / name
+            if not path.exists():
+                continue
+            matches = NORMATIVE_SYNC_RE.findall(path.read_text(encoding="utf-8"))
+            if len(matches) != 1:
+                fail("sync", f"docs/{lang}/{name} must contain exactly one normative-sync marker")
+                continue
+            revisions[lang] = matches[0]
+        if len(revisions) == len(LANGS) and len(set(revisions.values())) != 1:
+            fail("sync", f"{name} RU/EN revisions differ: {revisions}")
+
+
 CARGO_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.M)
 
 
 def check_version() -> None:
-    """The CHANGELOG must have a section for the version being developed.
+    """The CHANGELOG must identify the next public release.
 
-    Only that: every other version string in the repo (build files, the overview
-    READMEs, the "these docs describe X" banners) is owned by
+    A development build number need not become a public release number: the
+    0.7.17 development tree is intentionally scheduled as 0.8.0. Every other
+    version string in the repo (build files, overview READMEs, documentation
+    status banners) is owned by
     `scripts/sync_version.py`, which can also stamp them. Checking them here too
     would be a second, weaker implementation of the same rule."""
     cargo = ROOT / "qeli" / "Cargo.toml"
@@ -320,10 +369,29 @@ def check_version() -> None:
     version = m.group(1)
 
     changelog = ROOT / "CHANGELOG.md"
-    if changelog.exists() and f"[{version}]" not in changelog.read_text(
-        encoding="utf-8", errors="replace"
-    ):
-        fail("version", f"CHANGELOG.md has no section for {version}")
+    if not changelog.exists():
+        fail("version", "CHANGELOG.md not found")
+        return
+    body = changelog.read_text(encoding="utf-8", errors="replace")
+    planned_match = re.search(
+        r"^## \[([0-9]+\.[0-9]+\.[0-9]+)\]\s+[—-]\s+не выпущен\s*$",
+        body,
+        re.M | re.I,
+    )
+    if not planned_match:
+        fail("version", "CHANGELOG.md has no numeric unreleased release heading")
+        return
+    planned = planned_match.group(1)
+    try:
+        dev_tuple = tuple(int(part) for part in version.split("."))
+        planned_tuple = tuple(int(part) for part in planned.split("."))
+    except ValueError:
+        fail("version", f"development/planned version is not numeric SemVer: {version}/{planned}")
+        return
+    if len(dev_tuple) != 3 or len(planned_tuple) != 3:
+        fail("version", f"development/planned version is not three-part SemVer: {version}/{planned}")
+    elif planned_tuple < dev_tuple:
+        fail("version", f"planned release {planned} is older than development build {version}")
 
 
 def main() -> int:
@@ -335,12 +403,14 @@ def main() -> int:
     check_config_keys()
     check_source_refs(files)
     check_placeholder_urls(files)
+    check_source_line_anchors(files)
+    check_normative_sync()
     check_version()
 
     if not failures:
         print(
-            "OK — all 7 checks pass (links, index, parity, config keys "
-            "[server + client + prefixes], sources, placeholders, version)."
+            "OK — all 9 checks pass (links, index, parity, config keys "
+            "[server + client + prefixes], sources, placeholders, anchors, sync, version)."
         )
         return 0
     by_check: dict[str, int] = {}

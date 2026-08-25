@@ -1,7 +1,8 @@
 # Qeli — installation & getting started (step by step)
 
-> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
-> what you actually have.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
+> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> `qeli --version` reports the version of the binary actually installed.
 
 A complete from-scratch guide: from standing up the server to creating users with
 routes and connecting your first client — **both via the CLI and via the web panel**.

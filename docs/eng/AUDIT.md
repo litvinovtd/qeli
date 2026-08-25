@@ -1,4 +1,5 @@
 # qeli — security model and status
+<!-- normative-sync: security-ipv6-v1 -->
 
 This document describes qeli's **current** cryptography, authentication, and
 obfuscation, as well as an honest list of what is protected and what is not. Past audits
@@ -127,6 +128,26 @@ After a successful login the server sends (inside the AEAD channel) a self-descr
 keyed-JSON `OK:{client_ip, server_ip, dns, dns_port, routes:[…], obfuscation:{…}}` — each
 parameter under its own key, which precludes field misalignment. The pushed-DNS is not
 sent when the in-tunnel DNS proxy is off (otherwise the client got a dead resolver).
+This is an internal wire payload, not a user-facing JSON configuration or file.
+
+## IPv6, TAP, NetworkPlan v2, and DATA_FRAG
+
+- **Capability negotiation.** Inner IPv6, NetworkPlan v2, and UDP DATA_FRAG_V1 are enabled
+  only through authenticated capability bits. `required` mode must fail when the peer or
+  platform adapter cannot acknowledge the complete requested contract.
+- **Family isolation.** Outer IPv4/IPv6 only selects the path to the server; it does not
+  select the inner mode. A missing inner family is blocked fail-closed in full-tunnel mode;
+  direct egress requires explicit `allow_ipv4_leak`/`allow_ipv6_leak`, both false by default.
+- **TUN and TAP.** TUN accepts only valid IPv4/IPv6 packets. TAP is a local Ethernet-framing
+  adapter over qeli's L3 wire: IPv4/IPv6 pass, required ARP/NDP/Router Solicitation is handled
+  locally, and VLAN/STP/LLDP or arbitrary EtherTypes do not turn it into a transparent bridge.
+- **Fragmentation.** DATA_FRAG decouples inner MTU from the outer UDP budget. Fragments are
+  accepted only after capability negotiation and authentication, with strict size/count/time
+  reassembly bounds and a separately derived MAC context. This limits memory/CPU
+  amplification, while reassembly remains a fuzz and soak-test surface.
+- **PMTU.** IPv6 routers do not fragment: ICMPv6 Packet Too Big and the live UDP probe are
+  critical. Forged or late replies must not raise another path epoch's budget; uncertainty
+  uses the conservative budget or rejects the connection.
 
 ## Code quality
 

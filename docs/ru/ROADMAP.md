@@ -126,7 +126,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 - ✅ Heartbeat idle-gating; padding probability/randomize; кап UDP-датаграммы < MTU.
 - ✅ **Хардненинг (раунд 1)**: OOB-чтение в DHCP-парсере (bound-check, тест); CSRF
   allowed_hosts для IPv6 (`[::1]`, bracketed bind); `keepalive_secs=0` не вызывает
-  EINVAL; валидация конфига ловит пропущенную `[performance]` секцию с внятной ошибкой.
+  EINVAL; flat-INI loader применяет baseline-дефолты к пропущенным `perf.*` ключам, а явные нули критичных connection-параметров отклоняются с внятной ошибкой.
 - ✅ **Хардненинг (раунд 2)**: OOB-panic при парсинге QUIC SCID (bound-check + fuzz-тест);
   валидация DNS-ответа upstream (источник + transaction-ID — анти-poisoning, плюс
   txid-нормализованный ключ кэша); константно-временное сравнение auth-proof
@@ -395,7 +395,7 @@ downlink-пула во всех четырёх насосах (Linux/Android, Wi
 ### Расширение control-канала для live PUSH в сессии (→ 0.8.0, ДО роуминга)
 
 Сегодня DNS/routes/MTU/multipath приходят **только** в `AuthOK` во время рукопожатия
-([handler.rs:1592](../../qeli/src/server/handler.rs#L1592)), и поменять их можно лишь
+([handler.rs](../../qeli/src/server/handler.rs)), и поменять их можно лишь
 переподключением. Аутентифицированные типизированные внутритуннельные control-фреймы уже
 есть в [`ctrl.rs`](../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` и `CTRL_CLIENT_INFO`
 идут клиент → сервер как `[0xC1 0x9B][тип][u8 len][payload]`. Текущий однобайтовый размер
@@ -426,7 +426,7 @@ server → client dispatcher и семантики подтверждения/о
 Полная реализация live `PUSH_CONFIG` не блокирует первую версию роуминга, если dispatcher,
 fragmentation, ACK/error и capability negotiation уже закончены.
 
-### Полная поддержка IPv6 (реализована для 0.7.17; сертификация не завершена)
+### Полная поддержка IPv6 (линия разработки 0.8.0; сертификация не завершена)
 
 **Полный план: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** IPv6-адрес
 сервера — лишь внешний carrier и не считается реализацией IPv6 сам по себе. Задача включает
@@ -434,15 +434,15 @@ fragmentation, ACK/error и capability negotiation уже закончены.
 маршрутизацию и DNS, MTU/PMTU и UDP data fragmentation, kill switch, все системные/per-app
 клиенты, панель, Quick Start, установщик, пакеты и примеры.
 
-Исходная реализация входит в разрабатываемую 0.7.17. Продвижение релиза по-прежнему
-заблокировано до прохождения физической/native-матрицы и Linux network namespace из плана;
-это больше не новая реализация, запланированная только на 0.8.0.
+Исходная реализация теперь относится к линии разработки 0.8.0. Она выпускается только после
+физической/native-матрицы и Linux network namespace из плана. До прохождения этих gate это
+development implementation, а не релиз.
 
 Промежуточные стадии используются только для разработки. Возможность нельзя выпускать или
 называть полной до прохождения всей IPv6-only/dual-stack release matrix. Пользовательские
 конфиги остаются flat INI; внутренние wire/FFI-сообщения не являются JSON-конфигами.
 
-### Роуминг — бесшовная смена сети (→ 0.8.0)
+### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, не начато)
 
 **Нормативный план: [ROAMING.md](ROAMING.md).** Сегодня смена Wi-Fi↔LTE/IP — это быстрый
 reconnect с новым handshake и Argon2, а не роуминг. Полная реализация сохраняет session id,
@@ -603,10 +603,10 @@ registry/validation/PMTU → Android/Windows/macOS/iOS/Linux/OpenWrt → кон�
 Делать именно в этом порядке — оба пункта правят один и тот же код построения ClientHello.
 
 **1. Настоящий QUIC Initial (RFC 9001).** Сейчас `wrap_quic_long`
-([quic.rs:19](../../qeli/src/protocol/quic.rs#L19)) рисует синтаксическую оболочку long
+([quic.rs](../../qeli/src/protocol/quic.rs)) рисует синтаксическую оболочку long
 header, а payload дописывает **открытым текстом**: нет вывода Initial-секретов, нет AEAD,
 нет header protection, нет CRYPTO-фрейма. Реальный ClientHello с SNI при этом есть
-([client/mod.rs:2561](../../qeli/src/client/mod.rs#L2561)) — он просто едет в самописной
+([client/mod.rs](../../qeli/src/client/mod.rs)) — он просто едет в самописной
 фрагментации ([udp_frag.rs](../../qeli/src/protocol/udp_frag.rs)).
 
 Для DPI, умеющего разбирать QUIC, это **отличительный признак, а не маскировка**: пакет
@@ -625,11 +625,11 @@ header, а payload дописывает **открытым текстом**: н�
   **штатным** механизмом, и один самодельный формат уходит.
 
 **2. Пресеты fake-TLS отпечатков.** Сегодня builder один и жёстко зашит
-([tls.rs:105](../../qeli/src/protocol/tls.rs#L105)); настраиваемых профилей
+([tls.rs](../../qeli/src/protocol/tls.rs)); настраиваемых профилей
 Chrome/Firefox/Schannel, `gmt_unix_time` и произвольного состава расширений нет.
 
 - **Сначала — дешёвый шаг:** решить судьбу перемешивания порядка расширений
-  ([tls.rs:128](../../qeli/src/protocol/tls.rs#L128)). Задумано против JA3-пиннинга, но у
+  ([tls.rs](../../qeli/src/protocol/tls.rs)). Задумано против JA3-пиннинга, но у
   настоящего Chrome JA3 **стабилен**, и «клиент с новым отпечатком каждое соединение» сам
   по себе аномален. Это анализ на день, и он может изменить постановку задачи.
 - Профиль = (шифры, состав и порядок расширений, политика session_id, ALPN, sig-algs,
@@ -743,19 +743,12 @@ Chrome/Firefox/Schannel, `gmt_unix_time` и произвольного сост�
    (`from_link`/`from_ini`/`to_link`/`to_ini_string`) + генераторы `main.rs` (`qeli add-client`)
    и `web/api/share.rs` теперь эмитят/парсят `quic=1`(ссылка)/`quic=true`(INI). udpquic-ссылка
    из CLI/web включает QUIC из коробки. Все три клиента согласованы. Лаба: 114 тестов.
-6. ⬜ **Android: перейти на настоящие релизные APK** (→ **1.0.0**) — сейчас под видом
-   релизов выпускаются **debug-сборки**: все APK в `release/dist/` весят ~20 МБ при
-   `isMinifyEnabled = true` (реальный релизный билд — 5.4 МБ), а артефакты 0.7.2-0.7.4
-   прямо называются `qeli-android-debug.apk`. Следствия: `debuggable=true`, без обфускации
-   и без сжатия R8. Сама сборка уже разблокирована (в 0.7.12 добавлены два `-dontwarn` для
-   JSR-305-аннотаций Tink, на которых падал R8), осталось: настроить `keystore.properties`
-   + keystore, добавить `assembleRelease` в релизный скрипт и **прогнать полный smoke на
-   minified-сборке** — R8 может вырезать то, что дергается рефлексией (Tink/JNI-мосты
-   к Rust-ядру в зоне риска, для них могут понадобиться `-keep`). ⚠️ **Ломает обновление:**
-   смена ключа подписи с debug-ключа на релизный делает установку поверх невозможной —
-   только переустановка, а с ней теряются профили (`EncryptedSharedPreferences`, мастер-ключ
-   в Android Keystore уничтожается вместе с приложением). Поэтому переход приурочен к 1.0.0
-   и требует явного предупреждения в release notes.
+6. 🟨 **Android: подписанные Release APK** — release notes 0.7.16 документируют переход на
+   `assembleRelease`, R8/minification и release signing, поэтому прежнее утверждение «сегодня
+   выпускается debug APK» больше не является нормативным. Окончательный статус подтверждается
+   только attestation конкретного публикуемого артефакта. Для 0.8.0 обязательны непрерывность
+   signing key, `debuggable=false`, проверка подписи и smoke minified-сборки с JNI/transport-core;
+   migration со старого debug-ключа остаётся caveat для ранних установок.
 
 ## P3 — long-term / экспериментальное
 

@@ -59,10 +59,17 @@ operator need first, then internal and historical material.
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | Roadmap |
 | [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md) | Full IPv6 support: architecture, stages, and release gates |
-| [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | Refactoring plan: eliminating code duplication |
-| [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | A shared transport core in Rust for every client: proposal, measurements, plan |
-| [DESIGN-remaining.md](DESIGN-remaining.md) | REALITY development stages: status and remainder |
-| [RELEASE-FIXES.md](RELEASE-FIXES.md) | Plan to finish off toward a stable release |
+| [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | Shared Rust core: current source/ABI contract and release gates |
+
+## 🗂 Historical design/work logs
+
+> These explain past decisions but are not current status or a release checklist.
+
+| Document | Frozen context |
+|---|---|
+| [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | Plan and log of the completed production-duplicate removal |
+| [DESIGN-remaining.md](DESIGN-remaining.md) | June 2026 REALITY development snapshot |
+| [RELEASE-FIXES.md](RELEASE-FIXES.md) | Historical stabilization plan for early pre-1.0 releases |
 
 ## 🗄 Archive: historical audits
 

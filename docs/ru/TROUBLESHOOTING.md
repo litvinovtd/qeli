@@ -1,7 +1,8 @@
 # Qeli — диагностика подключения и справочник по ошибкам
 
-> **Документация описывает 0.7.16** — последний выпущенный релиз. Что именно установлено
-> у вас, покажет `qeli --version`.
+> **Статус документации:** текущая ветка разработки **0.8.0**; планируемый full-IPv6 релиз **0.8.0**;
+> последний опубликованный релиз **0.7.16**. Публичного релиза 0.7.17 не будет.
+> Фактическую версию установленного бинарника показывает `qeli --version`.
 
 Подробный практический гайд: как включить debug, как читать лог по стадиям
 подключения, что означает каждая ошибка сервера и клиентов (Windows / macOS /
@@ -236,7 +237,7 @@ t_us,dir,site,size,seq
 | `duplicate profile name: '<n>'` | два профиля с одним именем | переименовать |
 | `profile '<n>': unknown bind.transport '<t>' — expected 'tcp' or 'udp'` | опечатка в транспорте | `bind.transport = tcp` или `udp` |
 | `profile '<n>': unknown obf.mode '<m>' — expected 'fake-tls', 'obfs', 'plain' or 'reality-tls'` | опечатка в wire-режиме | исправить `obf.mode` |
-| `profile '<n>': performance.connection.handshake_timeout_secs and max_clients must be > 0. The [profiles.performance] section is likely missing…` | **классический фугас**: секция `[performance]` профиля отсутствует → serde-нули → мгновенные таймауты/reject всех | добавить секцию `performance` (или скопировать из примера) |
+| `profile '<n>': perf.connection.handshake_timeout_secs and perf.connection.max_clients must be > 0…` | один из flat-INI ключей явно задан нулём | удалить нулевой ключ для baseline-дефолта либо задать положительное значение |
 | `profile '<n>': plain (raw) wire mode is TCP-only — set bind.transport = tcp` | `obf.mode=plain` на UDP | сменить транспорт на tcp |
 | `profile '<n>': obfs wire mode requires a non-empty obfuscation.obfs_key…` | пустой `obfs_key` (публично выводим → нет DPI-защиты) | задать `obf.obfs_key` |
 | `profile '<n>': reality_proxy.enabled requires at least one non-empty obf.tls.reality_proxy.short_ids entry…` | REALITY без short_id | задать `obf.tls.reality_proxy.short_ids` |

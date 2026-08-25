@@ -59,10 +59,17 @@
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | План развития |
 | [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md) | Полная поддержка IPv6: архитектура, этапы и release gates |
-| [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | План рефакторинга: устранение дублей кода |
-| [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | Общее транспортное Rust-ядро для всех клиентов: предложение, замеры, план |
-| [DESIGN-remaining.md](DESIGN-remaining.md) | Стадии разработки REALITY: статус и остаток |
-| [RELEASE-FIXES.md](RELEASE-FIXES.md) | План доводки до стабильного релиза |
+| [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | Общее транспортное Rust-ядро: текущий source/ABI контракт и release gates |
+
+## 🗂 Исторические design/work logs
+
+> Эти документы объясняют принятые решения, но не являются текущим статусом или release checklist.
+
+| Документ | Зафиксированный контекст |
+|---|---|
+| [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | План и журнал завершённого устранения production-дублей |
+| [DESIGN-remaining.md](DESIGN-remaining.md) | Снимок разработки REALITY от июня 2026 |
+| [RELEASE-FIXES.md](RELEASE-FIXES.md) | Исторический план доводки ранних pre-1.0 релизов |
 
 ## 🗄 Архив: исторические аудиты
 

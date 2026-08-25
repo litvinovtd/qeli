@@ -21,9 +21,12 @@
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 | `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app packet capture | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
-> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-19 из clean commit
-> `b1e220d` с ABI 1.10 двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
-> `SHA256SUMS`, canonical/consumed copies, обе evidence-записи и `PROVENANCE` согласованы.
+> **Закоммиченный binary baseline:** все четыре first-party binaries собраны 2026-08-19
+> из clean commit `b1e220d` с ABI 1.10; его A/B evidence, `SHA256SUMS` и `PROVENANCE`
+> согласованы между собой. Текущее исходное дерево уже использует ABI 1.11 и 80-key
+> config contract, поэтому baseline закономерно считается stale относительно source.
+> Релиз 0.8.0 запрещён до повторной воспроизводимой сборки всех native cores, обновления
+> consumed-копий и успешных provenance/hash/ABI/platform gates.
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
@@ -37,8 +40,8 @@ wrappers удалены после перехода всего Android transport
 
 **Версия лежащих сейчас бинарников:** baseline собран 2026-08-19 из дерева разработки 0.7.16 с
 ABI 1.10 transport-core, включая два cancellable UDP-probe JNI exports и dependency baseline из
-`Cargo.lock` коммита `b1e220d`. `provenance.py --check` проходит; публикация полного релиза всё равно
-требует пересборки остальных payload-файлов и прохождения platform/signing/E2E gates. Поверхность baseline включает
+`Cargo.lock` коммита `b1e220d`. Для текущего source `provenance.py --check` обязан сообщать stale до
+плановой пересборки 0.8.0; публикация требует platform/signing/E2E gates. Поверхность baseline включает
 поддержку обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
@@ -106,7 +109,7 @@ SSH/SFTP, ограниченный source-sync, проверка удалённ�
 один раз в `scripts/native_lab.py`; обязательные A/B-проходы — в `scripts/native_repro.py`.
 CI запускает 35 mock/unit-тестов этих контрактов, включая отказ до записи при несовпадении хеша,
 запрет destination вне репозитория, строгий toolchain и гарантию, что выполняются оба прохода
-`a` и `b`, а также точное совпадение 73 распознаваемых ключей конфигурации Rust/Android/
+`a` и `b`, а также точное совпадение 80 распознаваемых ключей конфигурации Rust/Android/
 Windows/macOS/iOS.
 
 Раньше desktop-скрипт не синхронизировал локальный source и не забирал результат: он мог

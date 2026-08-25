@@ -1,8 +1,9 @@
 # qeli for OpenWrt (client)
 
-> **Status: experimental preview (since v0.7.5).** Prebuilt per-arch binaries are
-> attached to the GitHub Release; the package source lives here in the repo. Not yet
-> tested on real OpenWrt hardware — use at your own risk.
+> **Status: experimental integration.** The full-IPv6 line uses public version 0.8.0;
+> there is no public 0.7.17 release. Real OpenWrt hardware acceptance is still pending;
+> only use artifacts attached to the exact release tag and treat the package as
+> pre-production until that gate is closed.
 
 A native **OpenWrt** package for the qeli **client**, so an OpenWrt router can dial
 out to a qeli server and route its LAN through the tunnel — managed the OpenWrt way

@@ -1,8 +1,9 @@
 # Installing the qeli client on OpenWrt
 
-> **Experimental — published in v0.7.5 as a preview.** Not yet tested on real OpenWrt
-> hardware; the integration paths are by-design and pending a real-device run. Use at
-> your own risk.
+> **Experimental integration.** The full-IPv6 line uses public version 0.8.0; there is no
+> public 0.7.17 release. Real-device OpenWrt acceptance remains pending. Install only an
+> artifact from the exact release tag and do not treat this integration as
+> production-certified yet.
 
 Two ways to install: **A) prebuilt binary** (fastest — hand-install + opkg deps) or
 **B) from source** (proper feed package + `.ipk`). Both end with the same UCI/LuCI
