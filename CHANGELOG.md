@@ -4,7 +4,10 @@
 (Linux/OpenWrt, Android, iOS, Windows и macOS). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.17] — не выпущен
+## [0.8.0] — не выпущен
+
+- Версии Rust-сервера, Android, iOS, Windows, macOS, shared-компонентов, Debian и
+  OpenWrt/LuCI синхронизированы с новой линией разработки `0.8.0`.
 
 - Release-сборка Linux server теперь останавливается на этапе компиляции без feature `jemalloc`;
   debug/test, FFI-библиотеки и отдельный router client остаются изолированными. Debian-рецепты

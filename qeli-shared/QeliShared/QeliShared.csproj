@@ -21,7 +21,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>QeliShared</AssemblyName>
     <RootNamespace>Qeli.Shared</RootNamespace>
-    <Version>0.7.17</Version>
+    <Version>0.8.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

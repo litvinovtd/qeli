@@ -18,7 +18,7 @@
     <AssemblyName>QeliMac</AssemblyName>
     <RootNamespace>QeliMac</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.7.17</Version>
+    <Version>0.8.0</Version>
     <!-- The runtime identifier is supplied on publish (osx-arm64 / osx-x64). -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <!-- Avalonia's compiled-XAML + trimming-friendly settings. -->
