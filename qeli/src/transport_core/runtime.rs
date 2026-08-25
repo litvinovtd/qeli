@@ -517,17 +517,13 @@ async fn wrap_obfs(
         jmin: config.obfuscation.awg.jmin,
         jmax: config.obfuscation.awg.jmax,
     };
-    let host = match config.obfuscation.sni.as_deref() {
-        Some(value) if !value.is_empty() => Some(value),
-        _ if config.server.address.parse::<IpAddr>().is_ok() => None,
-        _ => Some(config.server.address.as_str()),
-    };
+    let host = config.effective_fronting_host();
     ObfsStream::connect_with_host(
         stream,
         &key,
         config.obfuscation.fronting == "websocket",
         awg,
-        host,
+        Some(&host),
     )
     .await
     .map_err(anyhow::Error::from)
@@ -537,13 +533,7 @@ async fn wrap_reality(
     mut stream: TcpStream,
     config: &ClientConfig,
 ) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
-    let server_name = match config.obfuscation.sni.as_deref() {
-        Some(value) if !value.is_empty() => value.to_string(),
-        _ if config.server.address.parse::<IpAddr>().is_ok() => {
-            crate::protocol::pick_random_sni().to_string()
-        }
-        _ => config.server.address.clone(),
-    };
+    let server_name = config.effective_reality_sni().to_string();
     let ephemeral = crate::crypto::Keypair::generate();
     let short_id = config
         .obfuscation

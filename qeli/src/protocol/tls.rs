@@ -1,29 +1,9 @@
 use crate::crypto::PublicKey;
+use crate::protocol::realtls::clienthello::CHROME_CIPHERS;
 use rand::prelude::*;
 
 const TLS_HEADER_SIZE: usize = 5;
 const MAX_HANDSHAKE_SIZE: usize = 16384;
-
-/// Decoy SNI pool used when the caller passes a literal IP as server address.
-/// Picking randomly per connection breaks the "all qeli flows use the same SNI"
-/// fingerprint that a passive DPI box can otherwise build.
-pub const DEFAULT_SNI_POOL: &[&str] = &[
-    "www.cloudflare.com",
-    "www.google.com",
-    "www.microsoft.com",
-    "www.apple.com",
-    "www.amazon.com",
-];
-
-/// Pick a random SNI from the decoy pool. Falls back to "www.cloudflare.com"
-/// in the (impossible) case of an empty pool.
-pub fn pick_random_sni() -> &'static str {
-    use rand::seq::IndexedRandom;
-    DEFAULT_SNI_POOL
-        .choose(&mut rand::rng())
-        .copied()
-        .unwrap_or("www.cloudflare.com")
-}
 
 pub struct FakeTlsHandshake;
 
@@ -142,6 +122,9 @@ impl FakeTlsHandshake {
             host => push_ext(&|e| Self::build_sni_extension(e, host)),
         }
         push_ext(&|e| Self::build_empty_extension(e, 0x0017)); // extended_master_secret
+        push_ext(&|e| Self::build_ec_point_formats_extension(e));
+        push_ext(&|e| Self::build_renegotiation_info_extension(e));
+        push_ext(&|e| Self::build_empty_extension(e, 0x0023)); // session_ticket
         push_ext(&|e| Self::build_supported_groups_extension(e));
         push_ext(&|e| Self::build_key_share_extension(e, key_public, ml_ek));
         push_ext(&|e| Self::build_psk_key_exchange_modes(e));
@@ -153,6 +136,9 @@ impl FakeTlsHandshake {
         // DPI box can't key on ALPN absence. The server discriminates qeli clients by
         // the crypto token / key_share, never by ALPN, and skips this extension by TLV.
         push_ext(&|e| Self::build_alpn_extension(e));
+        push_ext(&|e| Self::build_status_request_extension(e));
+        push_ext(&|e| Self::build_empty_extension(e, 0x0012)); // signed_certificate_timestamp
+        push_ext(&|e| Self::build_application_settings_extension(e));
         shuffleable.shuffle(&mut rng);
 
         // GREASE extension first and last (Chrome layout).
@@ -164,12 +150,13 @@ impl FakeTlsHandshake {
         Self::build_grease_extension(&mut extensions, grease_last);
 
         // Anti-amplification / realism padding (RFC 7685). Non-extension record
-        // bytes are a constant 90 (record+handshake headers, random, session id,
-        // 4 cipher suites, compression, ext-length field), so the deficit is
+        // bytes consist of a constant base plus GREASE and the shared Chrome cipher
+        // list (record+handshake headers, random, session id, compression and lengths),
+        // so the deficit is
         // filled with a padding extension to reach `pad_to_min`. The debug_assert
         // after the body is built cross-checks this against the real layout, so
         // editing the cipher-suite list can't silently break the padding (audit 1.13).
-        const NON_EXT_BYTES: usize = 90;
+        const NON_EXT_BYTES: usize = 82 + 2 * (1 + CHROME_CIPHERS.len());
         let projected = NON_EXT_BYTES + extensions.len();
         if pad_to_min > projected + 4 {
             let pad_data = pad_to_min - projected - 4; // 4 = padding ext header
@@ -190,12 +177,14 @@ impl FakeTlsHandshake {
         body.push(0x20);
         body.extend_from_slice(&session_id);
 
-        // Cipher suites — GREASE first, then the standard TLS 1.3 suites.
-        body.extend_from_slice(&[0x00, 0x08]); // list length: 8 bytes (4 suites)
+        // Cipher suites — GREASE followed by the same Chrome list used by REALITY.
+        // A three-suite TLS-1.3-only list is a stable non-browser JA4 fingerprint.
+        let cipher_bytes = 2 * (1 + CHROME_CIPHERS.len());
+        body.extend_from_slice(&(cipher_bytes as u16).to_be_bytes());
         body.extend_from_slice(&grease_cipher.to_be_bytes());
-        body.extend_from_slice(&[0x13, 0x01]); // TLS_AES_128_GCM_SHA256
-        body.extend_from_slice(&[0x13, 0x02]); // TLS_AES_256_GCM_SHA384
-        body.extend_from_slice(&[0x13, 0x03]); // TLS_CHACHA20_POLY1305_SHA256
+        for cipher in CHROME_CIPHERS {
+            body.extend_from_slice(&cipher.to_be_bytes());
+        }
 
         body.push(0x01); // compression methods length
         body.push(0x00); // null compression
@@ -582,12 +571,13 @@ impl FakeTlsHandshake {
         // and never reads supported_groups, so an extra group is harmless.
         let grease = grease_value(&mut rand::rng());
         buf.extend_from_slice(&[0x00, 0x0A]); // supported_groups
-        buf.extend_from_slice(&[0x00, 0x0A]); // extension data length: 10
-        buf.extend_from_slice(&[0x00, 0x08]); // list length: 8 (4 groups)
+        buf.extend_from_slice(&[0x00, 0x0C]); // extension data length: 12
+        buf.extend_from_slice(&[0x00, 0x0A]); // list length: 10 (5 groups)
         buf.extend_from_slice(&grease.to_be_bytes()); // GREASE (0x?A?A)
         buf.extend_from_slice(&[0x11, 0xEC]); // X25519MLKEM768 (PQ, first like Chrome)
         buf.extend_from_slice(&[0x00, 0x1D]); // x25519
         buf.extend_from_slice(&[0x00, 0x17]); // secp256r1
+        buf.extend_from_slice(&[0x00, 0x18]); // secp384r1
     }
 
     fn build_key_share_extension(buf: &mut Vec<u8>, key_public: &PublicKey, ml_ek: &[u8]) {
@@ -622,29 +612,25 @@ impl FakeTlsHandshake {
     }
 
     fn build_supported_versions_extension(buf: &mut Vec<u8>) {
+        let grease = grease_value(&mut rand::rng());
         buf.extend_from_slice(&[0x00, 0x2B]); // supported_versions
-        buf.extend_from_slice(&[0x00, 0x03]); // extension data length: 3
-        buf.push(0x02); // versions list length: 2
-        buf.extend_from_slice(&[0x03, 0x04]); // TLS 1.3 (0x0304)
+        buf.extend_from_slice(&[0x00, 0x07]); // extension data length: 7
+        buf.push(0x06); // versions list length: 6
+        buf.extend_from_slice(&grease.to_be_bytes());
+        buf.extend_from_slice(&[0x03, 0x04]); // TLS 1.3
+        buf.extend_from_slice(&[0x03, 0x03]); // TLS 1.2 compatibility
     }
 
     fn build_signature_algorithms_extension(buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&[0x00, 0x0D]); // signature_algorithms
-                                              // Extension data: length(2) + list_length(2) + algorithms
-                                              // IANA SignatureScheme codepoints. No rsa_pkcs1_sha1 (0x0201): modern
-                                              // browsers dropped SHA-1, so offering it is a fake-tls fingerprint tell.
-        let algorithms: &[u8] = &[
-            0x04, 0x03, // ecdsa_secp256r1_sha256
-            0x05, 0x03, // ecdsa_secp384r1_sha384
-            0x06, 0x03, // ecdsa_secp521r1_sha512
-            0x08, 0x04, // rsa_pss_rsae_sha256
-            0x04, 0x01, // rsa_pkcs1_sha256
-            0x05, 0x01, // rsa_pkcs1_sha384
+        let algorithms: &[u16] = &[
+            0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601,
         ];
-        let list_len = algorithms.len() as u16 + 2;
-        buf.extend_from_slice(&list_len.to_be_bytes());
-        buf.extend_from_slice(&(algorithms.len() as u16).to_be_bytes());
-        buf.extend_from_slice(algorithms);
+        buf.extend_from_slice(&[0x00, 0x0D]); // signature_algorithms
+        buf.extend_from_slice(&((2 + algorithms.len() * 2) as u16).to_be_bytes());
+        buf.extend_from_slice(&((algorithms.len() * 2) as u16).to_be_bytes());
+        for algorithm in algorithms {
+            buf.extend_from_slice(&algorithm.to_be_bytes());
+        }
     }
 
     fn build_compress_certificate_extension(buf: &mut Vec<u8>) {
@@ -666,6 +652,23 @@ impl FakeTlsHandshake {
         buf.extend_from_slice(&((list.len() + 2) as u16).to_be_bytes()); // ext data len
         buf.extend_from_slice(&(list.len() as u16).to_be_bytes()); // ALPN list len
         buf.extend_from_slice(&list);
+    }
+
+    fn build_ec_point_formats_extension(buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&[0x00, 0x0B, 0x00, 0x02, 0x01, 0x00]);
+    }
+
+    fn build_renegotiation_info_extension(buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&[0xFF, 0x01, 0x00, 0x01, 0x00]);
+    }
+
+    fn build_status_request_extension(buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&[0x00, 0x05, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    fn build_application_settings_extension(buf: &mut Vec<u8>) {
+        // ALPS protocol-name list containing h2, matching the ALPN preference.
+        buf.extend_from_slice(&[0x44, 0x69, 0x00, 0x05, 0x00, 0x03, 0x02, b'h', b'2']);
     }
 
     fn build_empty_extension(buf: &mut Vec<u8>, ext_type: u16) {
@@ -967,22 +970,45 @@ mod tests {
     }
 
     #[test]
-    fn test_client_hello_no_cca9() {
+    fn test_client_hello_matches_shared_chrome_cipher_and_extension_set() {
         let kp = Keypair::generate();
         let hello = FakeTlsHandshake::build_client_hello(kp.public(), "test.com", 0, None);
-        // Scan ONLY the cipher_suites list, not the whole message: the 32-byte
-        // client random / session_id and the random key_share would trip a
-        // whole-message byte scan for 0xCCA9 ~0.1% of runs (a false flake).
-        // Offset = record header (5) + handshake type(1) + len(3) + version(2)
-        // + random(32) + session_id_len(1) + session_id(32) → cipher_suites length.
-        let off = TLS_HEADER_SIZE + 1 + 3 + 2 + 32 + 1 + 32;
-        let csl = u16::from_be_bytes([hello[off], hello[off + 1]]) as usize;
-        let ciphers = &hello[off + 2..off + 2 + csl];
-        let has_old_cipher = ciphers.chunks_exact(2).any(|c| c == [0xCC, 0xA9]);
-        assert!(
-            !has_old_cipher,
-            "cipher_suites must not contain 0xCCA9 (ECDHE-ECDSA-CHACHA20-POLY1305)"
+        // Fixed ClientHello prefix through legacy_session_id.
+        let mut off = TLS_HEADER_SIZE + 1 + 3 + 2 + 32 + 1 + 32;
+        let cipher_len = u16::from_be_bytes([hello[off], hello[off + 1]]) as usize;
+        off += 2;
+        let ciphers = &hello[off..off + cipher_len];
+        assert_eq!(cipher_len, 2 * (1 + CHROME_CIPHERS.len()));
+        assert_eq!(
+            &ciphers[2..],
+            CHROME_CIPHERS
+                .iter()
+                .flat_map(|cipher| cipher.to_be_bytes())
+                .collect::<Vec<_>>(),
+            "bare fake-tls must not regress to a TLS-1.3-only cipher list"
         );
+        off += cipher_len;
+        let compression_len = hello[off] as usize;
+        off += 1 + compression_len;
+        let extensions_len = u16::from_be_bytes([hello[off], hello[off + 1]]) as usize;
+        off += 2;
+        let extensions_end = off + extensions_len;
+        let mut extension_types = Vec::new();
+        while off < extensions_end {
+            let kind = u16::from_be_bytes([hello[off], hello[off + 1]]);
+            let len = u16::from_be_bytes([hello[off + 2], hello[off + 3]]) as usize;
+            extension_types.push(kind);
+            off += 4 + len;
+        }
+        assert_eq!(off, extensions_end);
+        for required in [
+            0x0005, 0x000b, 0x0010, 0x0012, 0x0023, 0x002b, 0x002d, 0x0033, 0x4469, 0xff01,
+        ] {
+            assert!(
+                extension_types.contains(&required),
+                "Chrome extension 0x{required:04x} is missing"
+            );
+        }
     }
 
     #[test]

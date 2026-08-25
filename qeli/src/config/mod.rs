@@ -622,6 +622,7 @@ mod tests {
             let extra = match mode {
                 "reality-tls" => concat!(
                     "reality_sid = 0123456789abcdef\n",
+                    "sni = www.cloudflare.com\n",
                     "key = 1111111111111111111111111111111111111111111111111111111111111111\n"
                 ),
                 "obfs" => "obfs_key = deadbeefcafe\n",

@@ -1,4 +1,4 @@
-<div x-data="usersPage()" x-init="init()">
+<div x-data="usersPage">
 
   <div x-show="expiringSoon.length" class="card p-3 mb-4">
     <div class="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
@@ -13,7 +13,7 @@
     <div class="flex items-center gap-2">
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
       <span class="text-sm text-slate-500"
-            x-text="`${filteredUsers.length} shown · ${users.length} total · ${onlineCount} online`"></span>
+            x-text="userSummary"></span>
     </div>
     <button class="btn btn-primary" @click="openCreate()">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
@@ -175,10 +175,10 @@
 
     <div x-show="filteredUsers.length > 0" class="flex flex-col gap-2 px-5 py-3 border-t border-[#21314e] sm:flex-row sm:items-center sm:justify-between">
       <span class="text-xs" style="color:var(--txt-dim)"
-            x-text="`Showing ${pageFrom}–${pageTo} of ${filteredUsers.length} users`"></span>
+            x-text="pageRangeLabel"></span>
       <div class="flex items-center gap-2">
         <button class="btn btn-ghost btn-sm" @click="setPage(page - 1)" :disabled="safePage <= 1">Previous</button>
-        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="`Page ${safePage} of ${pageCount}`"></span>
+        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="pageLabel"></span>
         <button class="btn btn-ghost btn-sm" @click="setPage(page + 1)" :disabled="safePage >= pageCount">Next</button>
       </div>
     </div>
@@ -505,7 +505,7 @@
 
         <!-- Result: QR + URI -->
         <div x-show="share.uri" class="space-y-3">
-          <div class="flex justify-center p-4 rounded-lg bg-white" x-html="share.qr"></div>
+          <div class="flex justify-center p-4 rounded-lg bg-white"><img :src="share.qr" alt="Qeli client configuration QR code" width="256" height="256"></div>
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">qeli:// link</label>
             <div class="flex gap-2">
@@ -561,11 +561,14 @@ function usersPage() {
     page: 1,
     pageSize: 50,
     usageForm: { username: '', data_limit_gb: 0, expire_days: 0, mode: 'limit' },
+    fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     // Thin shim over the shared dialog in layout.html, kept so the call sites below read
     // the same as before. New code can call qeliConfirm() directly.
     confirmDialog(title, message, opts = {}) { return qeliConfirm(title, message, opts); },
 
     get onlineCount() { return this.usage.filter(u => u.online).length; },
+    get userSummary() { return this.filteredUsers.length + ' shown · ' + this.users.length + ' total · ' + this.onlineCount + ' online'; },
     addressRows(user) {
       const rows = new Map();
       const add = (address, kind) => {
@@ -618,6 +621,8 @@ function usersPage() {
     },
     get pageFrom() { return this.filteredUsers.length ? (this.safePage - 1) * this.pageSize + 1 : 0; },
     get pageTo() { return Math.min(this.safePage * this.pageSize, this.filteredUsers.length); },
+    get pageRangeLabel() { return 'Showing ' + this.pageFrom + '–' + this.pageTo + ' of ' + this.filteredUsers.length + ' users'; },
+    get pageLabel() { return 'Page ' + this.safePage + ' of ' + this.pageCount; },
     setPage(next) { this.page = Math.min(Math.max(1, next), this.pageCount); },
 
     get allSel() { return this.pageUsers.length > 0 && this.pageUsers.every(u => this.selected.includes(u.username)); },
@@ -824,7 +829,7 @@ function usersPage() {
         });
         if (r.ok) {
           this.share.uri = r.uri;
-          this.share.qr = r.qr_svg || '';
+          this.share.qr = this.svgDataUri(r.qr_svg);
           this.share.needsReset = false;
           this.share.reset = !!r.reset;
           this.share.newPassword = r.new_password || '';
@@ -841,6 +846,12 @@ function usersPage() {
       } finally {
         this.share.loading = false;
       }
+    },
+
+    svgDataUri(svg) {
+      const source = String(svg || '').trim();
+      if (!/^<svg(?:\s|>)/i.test(source)) return '';
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
     },
 
     copyUri() {
@@ -1072,4 +1083,5 @@ function usersPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('usersPage', usersPage));
 </script>

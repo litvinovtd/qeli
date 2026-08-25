@@ -46,7 +46,7 @@ qeli-win/
 VPN требует прав администратора (создание Wintun-адаптера, изменение маршрутов/DNS).
 
 Из релиза приходят **два варианта приложения** — выберите один. Рядом лежат общие
-`WinDivert-LICENSE.txt` и `WinDivert-NOTICE.txt`, необходимые для поставки драйвера:
+`Wintun-LICENSE.txt`, `WinDivert-LICENSE.txt` и `WinDivert-NOTICE.txt`; они являются обязательной частью поставки встроенных драйверов:
 
 | Файл | Размер | Что нужно на машине |
 |---|---|---|
@@ -178,7 +178,9 @@ dotnet build QeliWin\QeliWin.csproj -c Debug
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained false `
   -p:PublishSingleFile=true -o dist\net-required
 Copy-Item dist\net-required\QeliWin.exe dist\QeliWin-net-required.exe
-Copy-Item dist\net-required\WinDivert-*.txt dist\
+Copy-Item dist\net-required\Wintun-LICENSE.txt dist\
+Copy-Item dist\net-required\WinDivert-LICENSE.txt dist\
+Copy-Item dist\net-required\WinDivert-NOTICE.txt dist\
 
 # ── вариант B: сжатый self-contained (~77 МБ, без установки .NET) ──
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained true `
@@ -187,8 +189,7 @@ dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained tru
 Copy-Item dist\standalone\QeliWin.exe dist\QeliWin-standalone.exe
 ```
 
-Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдельный файл рядом не нужен
-ни в одном из вариантов.
+Wintun DLL вшита в exe как ресурс (`EmbeddedResource`), но `Wintun-LICENSE.txt` и notices WinDivert должны распространяться рядом с обоими вариантами приложения.
 
 ## Headless-режимы (для отладки/CI)
 

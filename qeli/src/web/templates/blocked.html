@@ -1,4 +1,4 @@
-<div x-data="blockedPage()" x-init="load(); loadPolicy(); startAuto()">
+<div x-data="blockedPage">
 
   <!-- Lockout policy editor — two INDEPENDENT policies. VPN keys patch [auth]
        brute_force, panel keys patch [web] brute_force (comments preserved),
@@ -166,6 +166,12 @@ function blockedPage() {
     policyMsg: '',
     policyOk: false,
 
+    init() {
+      this.load();
+      this.loadPolicy();
+      this.startAuto();
+    },
+
     // Translate a JS string (confirm/alert text the i18n DOM walker can't reach).
     t(s) { return window.qeliT ? window.qeliT(s) : s; },
 
@@ -260,4 +266,5 @@ function blockedPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('blockedPage', blockedPage));
 </script>

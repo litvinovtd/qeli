@@ -33,29 +33,18 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
 
 ## 1. fake-TLS, сторона клиента (ClientHello)
 
-### 1.1 [CRIT] ClientHello без ALPN — и это же используется как маркер «свой»
-- **Где:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs) не добавляет
-  расширение ALPN (`0x0010`). Серверный детектор [reality.rs](../../qeli/src/server/reality.rs)
-  (`has_alpn_extension`) явно полагается на это: *есть ALPN → чужой → мост на реальный
-  сайт; нет ALPN → qeli-клиент*.
-- **Почему палит:** реальные Chrome/Firefox/Safari **всегда** шлют ALPN (`h2`,
-  `http/1.1`). ClientHello на :443 без ALPN — это уже не «как браузер». Одно
-  правило DPI (`tls.client_hello and not tls.alpn`) детерминированно отбирает
-  весь qeli-трафик (**D1/D2**). Это, вероятно, худший единичный tell.
-- **Статус — ✅ адресовано в REALITY-режимах:** дискриминатор «свой/чужой» теперь
-  **криптографический** (REALITY-токен в `session_id`, а не «нет ALPN»), и при наличии
-  токена ClientHello **добавляет ALPN** (`h2`/`http/1.1`) — читается как браузер
-  ([tls.rs](../../qeli/src/protocol/tls.rs)). В `reality-tls` это вообще настоящий
-  Chrome-ClientHello. Голый `fake-tls` без REALITY-токена ALPN по-прежнему не шлёт.
+### 1.1 [CRIT] ClientHello без ALPN — ✅ исправлено
+- **Было:** отсутствие ALPN позволяло выделить qeli одним правилом и использовалось как
+  незащищённый маркер «свой».
+- **Статус:** и bare `fake-tls`, и `reality-tls` безусловно предлагают `h2`/`http/1.1`;
+  REALITY различает клиента только по криптографическому token/key_share. Регрессионный
+  тест требует ALPN в полном Chrome-наборе расширений.
 
-### 1.2 [HIGH] Набор cipher suites не браузерный
-- **Где:** [tls.rs](../../qeli/src/protocol/tls.rs) — GREASE + ровно 3
-  suite (`1301/1302/1303`).
-- **Почему палит:** Chrome шлёт ~15+ suites (включая legacy ECDHE-RSA/ECDSA для
-  совместимости). 4-элементный список → JA4 `ciphers`-сегмент не совпадает ни с
-  одним реальным клиентом. Шафл расширений ([tls.rs](../../qeli/src/protocol/tls.rs))
-  это **не лечит**: JA4 сортирует поля перед хэшем, а cipher-набор всё равно
-  «не-Chrome».
+### 1.2 [HIGH] Набор cipher suites не браузерный — ✅ исправлено
+- **Было:** GREASE + только `1301/1302/1303`, устойчивый non-browser JA4.
+- **Статус:** bare `fake-tls` использует тот же единый 15-suite Chrome-list, что и
+  `reality-tls`, плюс отдельный GREASE. Точный порядок и полный набор закреплены тестом;
+  ошибочный запрет современного `0xCCA9` удалён.
 
 ### 1.3 [HIGH] Мало supported_groups — ✅ адресовано (PQ-группа добавлена)
 - **Где:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs).
@@ -66,17 +55,12 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   **первым** в supported_groups + соответствующий PQ key_share (1216 Б на проводе),
   как Chrome (`build_supported_groups_extension` / `build_key_share_extension`).
 
-### 1.4 [HIGH] Отсутствуют расширения, которые браузер шлёт всегда
-- **Где:** список расширений в [tls.rs](../../qeli/src/protocol/tls.rs).
-- **Почему палит:** нет `ec_point_formats` (0x000B), `status_request`/OCSP (0x0005),
-  `signed_certificate_timestamp` (0x0012), `renegotiation_info` (0xFF01),
-  `application_settings`/ALPS (0x4469), `session_ticket` (0x0023). Их совокупное
-  отсутствие даёт JA4-отпечаток, не принадлежащий никакому массовому клиенту →
-  D2-блок по «unknown fingerprint».
-- **Статус — частично:** добавлены `extended_master_secret` (0x17),
-  `psk_key_exchange_modes`, `compress_certificate` (0x1b) и ALPN (в REALITY-режимах).
-  В `reality-tls` ClientHello — настоящий Chrome (полный набор). Голый `fake-tls`
-  всё ещё неполон по status_request/SCT/renegotiation_info/ALPS.
+### 1.4 [HIGH] Отсутствовали обязательные browser extensions — ✅ исправлено
+- **Было:** bare `fake-tls` не отправлял OCSP, SCT, ec_point_formats, session_ticket,
+  renegotiation_info и ALPS.
+- **Статус:** builder использует полный Chrome-shaped набор с GREASE, ALPN, TLS 1.3/1.2,
+  PQ/classic key_share и случайной перестановкой middle-extensions. Тест разбирает реальный
+  extension block и требует каждый критичный type, а не ищет случайную пару байт.
 
 ### 1.5 [MED] signature_algorithms устаревший — ✅ исправлено
 - **Где:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs).
@@ -84,13 +68,13 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   браузеры выпилили. Вклад в JA4-несовпадение.
 - **Статус — ✅ исправлено:** `rsa_pkcs1_sha1` (0x0201) удалён из списка.
 
-### 1.6 [HIGH] SNI↔IP несогласованность (decoy-pool)
-- **Где:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs).
-- **Почему палит:** клиент шлёт SNI `www.google.com` на IP, который **не**
-  принадлежит Google. D2 сверяет SNI с диапазоном назначения (passive DNS /
-  ASN) → mismatch = классический признак domain-fronting. Хуже: **ротация SNI**
-  на один и тот же dst-IP между коннектами (разный decoy каждый раз) — сигнатура,
-  которой у легитимных клиентов не бывает (один хост → стабильный SNI).
+### 1.6 [HIGH] SNI↔IP несогласованность (decoy-pool) — ✅ default-path исправлен
+- **Было:** голый IP выбирал новый домен Google/Cloudflare/Microsoft на каждом реконнекте.
+- **Статус:** случайный client decoy-pool удалён. `fake-tls` при голом IP корректно не
+  отправляет SNI; WebSocket obfs ставит фактический IP в `Host` (IPv6 — в скобках);
+  `reality-tls` для IP требует явный валидный DNS `sni`. Контрольные символы/невалидные
+  имена отклоняются до соединения. Явный operator front остаётся ответственностью оператора:
+  qeli не может доказать соответствие CDN/anycast одному DNS-снимку без ложных отказов.
 
 ---
 

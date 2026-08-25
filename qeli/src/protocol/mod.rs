@@ -19,7 +19,7 @@ pub use quic::{
     wrap_quic_long, wrap_quic_long_into, wrap_quic_short, wrap_quic_short_into,
 };
 pub use shaper::{liveness_deadline, Shaper, ShapingConfig};
-pub use tls::{pick_random_sni, FakeTlsHandshake};
+pub use tls::FakeTlsHandshake;
 
 /// Stream bonding (multipath): a secondary connection's first post-handshake
 /// message is `JOIN_MAGIC ‖ token(JOIN_TOKEN_LEN) ‖ stream_index(1)`, presenting

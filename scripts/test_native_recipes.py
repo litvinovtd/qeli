@@ -33,11 +33,11 @@ class NativeRecipeTests(unittest.TestCase):
 
         self.assertNotIn("CARGO_FEATURES", makefile)
         self.assertIn(
-            "cargo build --release --features jemalloc --bin $(PACKAGE_NAME)",
+            "cargo build --locked --release --features jemalloc --bin $(PACKAGE_NAME)",
             makefile,
         )
         self.assertIn(
-            "cargo zigbuild --release --features jemalloc --bin $(PACKAGE_NAME)",
+            "cargo zigbuild --locked --release --features jemalloc --bin $(PACKAGE_NAME)",
             makefile,
         )
 

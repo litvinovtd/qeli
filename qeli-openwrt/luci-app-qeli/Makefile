@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for the qeli VPN client
-LUCI_DEPENDS:=+qeli
+LUCI_DEPENDS:=+qeli +rpcd-mod-ucode
 LUCI_PKGARCH:=all
 PKG_VERSION:=0.8.0
 PKG_RELEASE:=1

@@ -65,6 +65,7 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var activeConfig: VpnConfig? = null
     @Volatile private var nativeFatalError: Throwable? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wakeLockRenewalJob: Job? = null
     // Watches the default network (Wi-Fi <-> LTE switch). On a change we cancel the
     // live native generation to reconnect on the new network without waiting for its
     // dead-connection timeout.
@@ -136,8 +137,17 @@ class VpnServiceImpl : VpnService() {
 
     companion object {
         private const val MAX_CARRIER_DNS_REQUESTS = 2
+        // A finite lease is renewed while the foreground tunnel is alive. If every
+        // cleanup callback is skipped by an OEM/service bug, Android still releases it.
+        private const val WAKE_LOCK_LEASE_MS = 10 * 60 * 1000L
+        private const val WAKE_LOCK_RENEW_MS = 5 * 60 * 1000L
         const val ACTION_CONNECT = "com.qeli.CONNECT"
         const val ACTION_DISCONNECT = "com.qeli.DISCONNECT"
+        // Non-exported and accepted only by a debuggable build. CI grants Android's
+        // ACTIVATE_VPN app-op, then executes the production Builder path on a real emulator.
+        internal const val ACTION_DEBUG_TUN_SELF_TEST = "com.qeli.DEBUG_TUN_SELF_TEST"
+        @Volatile
+        internal var debugTunSelfTestResult: String? = null
         const val ACTION_REEVALUATE_TRUSTED = "com.qeli.REEVALUATE_TRUSTED_WIFI"
         const val EXTRA_CONFIG = "config"
         const val BROADCAST_STATUS = "com.qeli.STATUS"
@@ -284,6 +294,26 @@ class VpnServiceImpl : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_DEBUG_TUN_SELF_TEST -> {
+                if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                    Log.w("VpnSvc", "Ignoring TUN self-test action in a non-debuggable build")
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+                debugTunSelfTestResult = null
+                try {
+                    runDebugTunSelfTest()
+                    debugTunSelfTestResult = "ok"
+                } catch (error: Throwable) {
+                    debugTunSelfTestResult =
+                        "${error.javaClass.simpleName}: ${error.message ?: "unknown error"}"
+                    Log.e("VpnSvc", "Android TUN runtime self-test failed", error)
+                } finally {
+                    runCatching { setUnderlyingNetworks(emptyArray()) }
+                    stopSelf(startId)
+                }
+                return START_NOT_STICKY
+            }
             ACTION_CONNECT -> {
                 val config = if (Build.VERSION.SDK_INT >= 33) {
                     intent.getSerializableExtra(EXTRA_CONFIG, VpnConfig::class.java)
@@ -428,8 +458,7 @@ class VpnServiceImpl : VpnService() {
             transportCore = null
             runCatching { core?.close() }
         }
-        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
-        wakeLock = null
+        releaseTunnelWakeLock()
         unregisterNetworkCallback()
         unregisterScreenReceiver()
         trustedResumeJob?.cancel()
@@ -444,6 +473,49 @@ class VpnServiceImpl : VpnService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+    }
+
+    @Synchronized
+    private fun acquireTunnelWakeLock() {
+        releaseTunnelWakeLock()
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Qeli::TunnelLock")
+            // Renewal must not increase a reference count: one lifecycle release has to be
+            // sufficient even after many leases on a long-lived VPN session.
+            lock.setReferenceCounted(false)
+            lock.acquire(WAKE_LOCK_LEASE_MS)
+            wakeLock = lock
+            wakeLockRenewalJob = teardownScope.launch {
+                while (currentCoroutineContext().isActive) {
+                    delay(WAKE_LOCK_RENEW_MS)
+                    synchronized(this@VpnServiceImpl) {
+                        if (wakeLock !== lock) return@launch
+                        try {
+                            lock.acquire(WAKE_LOCK_LEASE_MS)
+                        } catch (error: Exception) {
+                            Log.e("VpnSvc", "WakeLock renewal failed: ${error.message}", error)
+                        }
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            releaseTunnelWakeLock()
+            Log.e("VpnSvc", "WakeLock failed: ${error.message}", error)
+        }
+    }
+
+    @Synchronized
+    private fun releaseTunnelWakeLock() {
+        wakeLockRenewalJob?.cancel()
+        wakeLockRenewalJob = null
+        val lock = wakeLock
+        wakeLock = null
+        try {
+            if (lock?.isHeld == true) lock.release()
+        } catch (error: Exception) {
+            Log.w("VpnSvc", "WakeLock release failed: ${error.message}", error)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -673,8 +745,7 @@ class VpnServiceImpl : VpnService() {
         stopping = true
         teardownJob = teardownScope.launch {
             teardownAndWait(keepNetworkObserver = true)
-            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
-            wakeLock = null
+            releaseTunnelWakeLock()
             liveIp = ""
             liveAddresses = ""
             liveConnectedAt = 0L
@@ -915,21 +986,8 @@ class VpnServiceImpl : VpnService() {
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
-        broadcastLog(
-            "Connecting to ${logValue(config.serverAddress)}:${config.port} " +
-                "as user '${logValue(config.username)}'"
-        )
-        try {
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Qeli::TunnelLock")
-            // No timeout: the lock is bounded by the foreground-service lifecycle and is
-            // always released in stopVpn(). A 12h timeout used to let the CPU sleep after
-            // 12h on a long-lived session, silently stalling the data plane until traffic
-            // woke the device again.
-            wakeLock?.acquire()
-        } catch (e: Exception) {
-            Log.e("VpnSvc", "WakeLock failed: ${e.message}", e)
-        }
+        broadcastLog("Connecting to ${logValue(config.serverAddress)}:${config.port}")
+        acquireTunnelWakeLock()
 
         supervisor = SupervisorJob()
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
@@ -1013,7 +1071,7 @@ class VpnServiceImpl : VpnService() {
             TransportCoreEventCodec.KIND_SOCKET_PROTECT -> {
                 val outcome = TransportCoreEventDispatcher.protectSocket(
                     event,
-                    attempt = { fd -> protect(fd) },
+                    attempt = { fd -> protectAndBindCarrierSocket(fd) },
                     beforeRetry = {
                         try {
                             Thread.sleep(100)
@@ -1069,8 +1127,7 @@ class VpnServiceImpl : VpnService() {
      * the established TUN to the native packet pump before acknowledging Running. */
     private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
-        val username = activeConfig?.username?.let(::logValue) ?: "?"
-        broadcastLog("Auth OK: user='$username', IP ${plan.tunnelAddress}")
+        broadcastLog("Auth OK: IP ${plan.tunnelAddress}")
         plan.connectionLog.forEach(::broadcastLog)
         val config = activeConfig
         if (config == null || transportCore !== core) {
@@ -1344,14 +1401,7 @@ class VpnServiceImpl : VpnService() {
     ): List<String> = withContext(Dispatchers.IO) {
         val cm = getSystemService(ConnectivityManager::class.java)
             ?: throw IllegalStateException("ConnectivityManager is unavailable")
-        val selected = currentNetwork
-            ?: cm.activeNetwork?.takeIf { usableCarrierNetwork(cm, it) }
-            // `currentNetwork` is null between onLost and the next onAvailable, and while the
-            // fail-closed TUN is retained `activeNetwork` is our OWN vpn — so both of the
-            // lookups above come back empty exactly when a network change needs them most,
-            // and every retry died here until a new best match happened to arrive. Ask the
-            // framework for the whole list instead of the one network it thinks is active.
-            ?: firstUsableCarrierNetwork(cm)
+        val selected = selectPhysicalCarrierNetwork(cm)
             ?: throw IllegalStateException("No physical network is available for carrier DNS")
         val timeoutMs = config.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
         val key = "${selected.networkHandle}:${config.serverAddress}"
@@ -1791,6 +1841,64 @@ class VpnServiceImpl : VpnService() {
         } ?: candidates.firstOrNull()
     }
 
+    /**
+     * Select one concrete non-VPN carrier and retain it for DNS, socket binding and the
+     * VpnService underlying-network declaration. Merely calling protect(fd) excludes the
+     * carrier from the TUN; it does not pin a Wi-Fi/LTE path on a multi-homed device.
+     */
+    private fun selectPhysicalCarrierNetwork(cm: ConnectivityManager): Network? {
+        currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }?.let { return it }
+        val candidate = runCatching { cm.activeNetwork }.getOrNull()
+            ?.takeIf { usableCarrierNetwork(cm, it) }
+            ?: firstUsableCarrierNetwork(cm)
+            ?: return null
+        synchronized(this) {
+            currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }?.let { return it }
+            currentNetwork = candidate
+            networkSignatures.putIfAbsent(candidate, physicalNetworkSignature(cm, candidate))
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) underlyingNets.add(candidate)
+            return candidate
+        }
+    }
+
+    /**
+     * The core asks before connect(), while the descriptor is still unconnected. Protect the
+     * socket from the VPN and bind the same open file description to the selected carrier.
+     * ParcelFileDescriptor.fromFd duplicates the descriptor; closing the wrapper cannot close
+     * Rust's original fd. When a fail-closed TUN is retained during reconnect, update its live
+     * declaration only after the replacement socket has actually been bound.
+     */
+    private fun protectAndBindCarrierSocket(fd: Int): Boolean {
+        if (!protect(fd)) return false
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = selectPhysicalCarrierNetwork(cm) ?: return false
+        return try {
+            ParcelFileDescriptor.fromFd(fd).use { duplicate ->
+                network.bindSocket(duplicate.fileDescriptor)
+            }
+            if (vpnInterface != null && !setUnderlyingNetworks(arrayOf(network))) {
+                throw IllegalStateException("Android rejected the live underlying network")
+            }
+            true
+        } catch (error: Exception) {
+            Log.w(
+                "VpnSvc",
+                "Could not bind protected carrier socket to network ${network.networkHandle}: " +
+                    error.message,
+            )
+            false
+        }
+    }
+
+    /** During teardown or a carrier handoff, tell Android that the retained fail-closed TUN
+     * currently has no usable upstream. This prevents the OS from attributing it to the dead
+     * path while the core is between generations. */
+    private fun declareNoUnderlyingNetwork() {
+        if (vpnInterface == null) return
+        runCatching { setUnderlyingNetworks(emptyArray()) }
+            .onFailure { Log.w("VpnSvc", "Could not clear underlying networks: ${it.message}") }
+    }
+
     private fun physicalNetworkSignature(cm: ConnectivityManager, network: Network): String {
         val caps = cm.getNetworkCapabilities(network)
         val links = cm.getLinkProperties(network)
@@ -1962,6 +2070,7 @@ class VpnServiceImpl : VpnService() {
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
         val core = transportCore ?: return
+        declareNoUnderlyingNetwork()
         forcedReconnectInFlight = true
         runCatching { core.stop() }
             .onFailure { broadcastLog("Network-change native stop failed: ${it.message}") }
@@ -1978,8 +2087,7 @@ class VpnServiceImpl : VpnService() {
 
         teardownJob = teardownScope.launch {
             teardownAndWait()
-            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
-            wakeLock = null
+            releaseTunnelWakeLock()
             // NB: do NOT reset userRequestedDisconnect here — the retry loop may still
             // be unwinding and must see it as true so it does not reconnect. It is
             // reset in startVpn() on the next explicit Connect.
@@ -2132,6 +2240,92 @@ class VpnServiceImpl : VpnService() {
 
     // ── Android TUN / route / DNS adapter ──
 
+    /**
+     * Debug-build runtime gate for the highest-risk Android adapter. Unlike JVM tests this
+     * reaches VpnService.Builder.establish() on both a pre-33 and a current emulator in CI.
+     * It covers split IPv4, full IPv4 with an exclusion/synthetic IPv6 sink, and full dual
+     * stack. The service is non-exported and [onStartCommand] rejects this action in release.
+     */
+    private fun runDebugTunSelfTest() {
+        fun ipv4Address() = TransportCoreNetworkAddress(
+            family = "ipv4",
+            address = "10.71.0.2",
+            prefixLength = 32,
+            onLinkPrefixLength = 24,
+            gateway = "10.71.0.1",
+        )
+        fun ipv6Address() = TransportCoreNetworkAddress(
+            family = "ipv6",
+            address = "fd71:71e1::2",
+            prefixLength = 128,
+            onLinkPrefixLength = 64,
+            gateway = "fd71:71e1::1",
+        )
+        fun plan(fullTunnel: Boolean, dual: Boolean): TransportCoreNetworkPlan {
+            val addresses = if (dual) listOf(ipv4Address(), ipv6Address()) else listOf(ipv4Address())
+            val routes = buildList {
+                add(TransportCoreNetworkRoute("10.72.0.0/16", "10.71.0.1", 10))
+                if (dual) add(TransportCoreNetworkRoute("2001:db8:200::/64", "fd71:71e1::1", 10))
+            }
+            return TransportCoreNetworkPlan(
+                generation = 1,
+                familyMode = if (dual) "dual" else "ipv4",
+                addresses = addresses,
+                tunnelAddress = "10.71.0.2",
+                prefixLength = 24,
+                mtu = 1400,
+                tunnelGateway = "10.71.0.1",
+                routes = routes,
+                pushedRoutes = routes.map { it.cidr },
+                dnsServers = buildList {
+                    add(TransportCoreNetworkDns("10.71.0.53", 53))
+                    if (dual) add(TransportCoreNetworkDns("fd71:71e1::53", 53))
+                },
+                fullTunnel = fullTunnel,
+                killSwitch = false,
+                allowIpv4Leak = false,
+                allowIpv6Leak = false,
+                maxStreams = 1,
+                adaptive = false,
+                dataPlane = TransportCoreDataPlaneFacts(),
+                connectionLog = emptyList(),
+            )
+        }
+
+        val cases = listOf(
+            VpnConfig(
+                serverAddress = "vpn.invalid",
+                port = 443,
+                username = "selftest",
+                password = "selftest",
+                routingMode = "split-tunnel",
+                addDefaultGateway = false,
+            ) to plan(fullTunnel = false, dual = false),
+            VpnConfig(
+                serverAddress = "vpn.invalid",
+                port = 443,
+                username = "selftest",
+                password = "selftest",
+                excludeRoutes = listOf("203.0.113.0/24"),
+            ) to plan(fullTunnel = true, dual = false),
+            VpnConfig(
+                serverAddress = "vpn.invalid",
+                port = 443,
+                username = "selftest",
+                password = "selftest",
+            ) to plan(fullTunnel = true, dual = true),
+        )
+
+        cases.forEachIndexed { index, (config, networkPlan) ->
+            val tun = buildTunInterface(config, networkPlan, withIpv6 = true)
+            try {
+                check(tun.fd >= 0) { "case $index returned a closed TUN descriptor" }
+            } finally {
+                tun.close()
+            }
+        }
+    }
+
     private fun setupTunInterface(
         config: VpnConfig,
         plan: TransportCoreNetworkPlan,
@@ -2191,6 +2385,10 @@ class VpnServiceImpl : VpnService() {
         val fullTunnel = plan.fullTunnel
         val hasIpv4 = plan.addresses.any { it.family == "ipv4" }
         val hasIpv6 = plan.addresses.any { it.family == "ipv6" }
+        val cm = getSystemService(ConnectivityManager::class.java)
+            ?: throw IllegalStateException("ConnectivityManager is unavailable")
+        val carrierNetwork = selectPhysicalCarrierNetwork(cm)
+            ?: throw IllegalStateException("No physical network is available for the VPN carrier")
         // A full tunnel must account for both families. If the authenticated plan is
         // IPv6-only, route IPv4 into a local synthetic sink so public IPv4 stays
         // fail-closed while API 33 excludeRoute/pre-33 complements can still carve LAN
@@ -2231,6 +2429,9 @@ class VpnServiceImpl : VpnService() {
         }
         return Builder().apply {
             setMtu(tunnelMtu)
+            // Initial establishment cannot use VpnService.setUnderlyingNetworks yet. Declare
+            // the exact carrier already used by the protected, Network-bound socket here.
+            setUnderlyingNetworks(arrayOf(carrierNetwork))
             plan.addresses.forEach { assigned ->
                 addAddress(assigned.address, assigned.prefixLength)
             }

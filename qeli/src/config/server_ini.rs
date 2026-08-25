@@ -151,7 +151,7 @@ impl ServerConfig {
                     log::warn!(
                         "config: duplicate inline [user:{}] — keeping the first block and \
                          ignoring the later one (the lookup only ever saw the first)",
-                        u.username
+                        crate::util::log_identity(&u.username)
                     );
                     false
                 }

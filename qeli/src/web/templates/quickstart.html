@@ -1,4 +1,4 @@
-<div x-data="quickstartPage()">
+<div x-data="quickstartPage">
 
   <!-- Intro / explanation -->
   <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
@@ -66,12 +66,12 @@
         <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,.12);color:var(--green-2)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
         </div>
-        <h3 class="text-base font-semibold text-white"><span x-text="qs.done?.name"></span> server is live</h3>
+        <h3 class="text-base font-semibold text-white"><span x-text="doneValue('name')"></span> server is live</h3>
       </div>
-      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="qs.done?.profile"></strong> is running on <strong class="text-white font-mono" x-text="qs.done?.endpoint"></strong>.</p>
+      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="doneValue('profile')"></strong> is running on <strong class="text-white font-mono" x-text="doneValue('endpoint')"></strong>.</p>
 
       <div class="space-y-2.5 mb-5">
-        <template x-if="qs.done?.sid">
+        <template x-if="doneValue('sid')">
           <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">REALITY short_id <span style="color:var(--txt-dim)">— set reality_sid to this on every client</span></label>
             <div class="flex gap-2">
@@ -80,7 +80,7 @@
             </div>
           </div>
         </template>
-        <template x-if="qs.done?.obfsKey">
+        <template x-if="doneValue('obfsKey')">
           <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">obfs pre-shared key <span style="color:var(--txt-dim)">— set obfs_key to this on every client</span></label>
             <div class="flex gap-2">
@@ -93,7 +93,7 @@
           <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           <span>Clients also need the server's pinned public key — run qeli show-identity on the server. Then add users below and share a QR/link from the Users page.</span>
         </div>
-        <template x-if="qs.done?.tcp">
+        <template x-if="doneValue('tcp')">
           <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);color:var(--txt-mut)">
             <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:#f59e0b" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
             <span>Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-qeli-server.sh installer does this automatically.</span>
@@ -143,7 +143,7 @@ function quickstartPage() {
     modes: [
       { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
         obfMode: 'fake-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
-        desc: 'Genuine TLS 1.3 carries the tunnel — indistinguishable from a real HTTPS site, beats active probing. Best default.' },
+        desc: 'TLS 1.3-shaped encrypted transport with REALITY decoy forwarding. Server authentication uses qeli identity proof and the pinned key; no transport is literally indistinguishable. Best default.' },
       { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, idx: 1, tag: 'TCP · 8443',
         obfMode: 'fake-tls', realityEnabled: true, realTls: false, needsSid: true, padding: true, heartbeat: false, shaping: true, multipath: true,
         desc: 'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).' },
@@ -172,6 +172,8 @@ function quickstartPage() {
         obfMode: 'obfs', needsKey: true, fronting: 'none', awg: true, awgJc: 4, padding: true, heartbeat: false, shaping: true, multipath: true,
         desc: 'obfs + AmneziaWG-style junk preamble — prepends jc random junk packets before the handshake (the Amnezia analog). Both ends need the same jc.' },
     ],
+
+    doneValue(field) { return this.qs.done ? this.qs.done[field] : null; },
 
     copy(text) {
       navigator.clipboard?.writeText(text).then(
@@ -263,4 +265,5 @@ function quickstartPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('quickstartPage', quickstartPage));
 </script>

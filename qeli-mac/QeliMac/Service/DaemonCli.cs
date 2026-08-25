@@ -1,6 +1,7 @@
 using System.IO;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using QeliMac.Model;
@@ -61,12 +62,25 @@ public static class DaemonCli
     /// </summary>
     private static int Install(string[] rest)
     {
-        if (rest.Length < 1 || string.IsNullOrWhiteSpace(rest[0]))
+        if (rest.Length < 2 || string.IsNullOrWhiteSpace(rest[0])
+            || string.IsNullOrWhiteSpace(rest[1]))
         {
-            Console.Error.WriteLine("daemon-install: missing profile path");
+            Console.Error.WriteLine("daemon-install: expected profile path and SHA-256 digest");
             return 2;
         }
         var path = rest[0];
+        byte[] expectedDigest;
+        try
+        {
+            expectedDigest = Convert.FromHexString(rest[1]);
+        }
+        catch (FormatException)
+        {
+            Console.Error.WriteLine("daemon-install: invalid SHA-256 digest");
+            return 2;
+        }
+        if (expectedDigest.Length != SHA256.HashSizeInBytes)
+            throw new InvalidOperationException("daemon-install: invalid SHA-256 digest length");
         // This runs as ROOT and the path comes from argv, so vet the file before reading it.
         //
         // It used to be a bare `File.ReadAllText(path)`: no owner check, no mode check, no
@@ -80,13 +94,17 @@ public static class DaemonCli
         // with RunAtLoad + KeepAlive. The user, meanwhile, is looking at a password prompt
         // they themselves initiated.
         //
-        // Vetting cannot close the race on its own — the file lives in a directory the
-        // attacker controls — but it does reject the cases that matter: a symlink aimed at
-        // something else, a file owned by another account, and anything group/world-writable.
-        // The real fix is to stop passing the profile through a user-writable path at all
-        // (stdin, or a root-owned mkstemp), which is a larger change to the caller.
-        // (Audit 2026-08-04.)
-        var cfg = JsonSerializer.Deserialize<VpnConfig>(ReadProfileHandoff(path))
+        // File metadata checks alone cannot close the same-UID in-place write race. Bind the
+        // handoff to the exact bytes selected by the GUI before the authorization prompt:
+        // the expected digest is already part of the root command argv, and the helper hashes
+        // bytes read from the same descriptor it inspected. Rename, replacement or in-place
+        // modification therefore fails closed instead of changing the daemon configuration.
+        var profileBytes = ReadProfileHandoff(path);
+        var actualDigest = SHA256.HashData(profileBytes);
+        if (!CryptographicOperations.FixedTimeEquals(expectedDigest, actualDigest))
+            throw new InvalidOperationException(
+                "daemon-install: profile changed after authorization was requested; retry the operation");
+        var cfg = JsonSerializer.Deserialize<VpnConfig>(Encoding.UTF8.GetString(profileBytes))
                   ?? throw new InvalidOperationException("could not parse daemon profile");
 
         ServiceState.SaveProfile(cfg);                 // AES-GCM into /Library/Application Support/Qeli
@@ -134,7 +152,7 @@ public static class DaemonCli
     /// <summary>Refuse a hand-off file that is not a plain, single-link, non-world/group-
     /// writable regular file owned by root or by the invoking user. Opens once with
     /// O_NOFOLLOW, validates that descriptor, and reads from the same descriptor.</summary>
-    private static string ReadProfileHandoff(string path)
+    private static byte[] ReadProfileHandoff(string path)
     {
         const int O_RDONLY = 0x0000, O_NOFOLLOW = 0x0100, O_CLOEXEC = 0x1000000;
         int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC, 0);
@@ -194,6 +212,6 @@ public static class DaemonCli
         if (total > MaxProfileBytes)
             throw new InvalidOperationException(
                 $"daemon-install: refusing \"{path}\" — profile grew beyond {MaxProfileBytes} bytes while being read.");
-        return Encoding.UTF8.GetString(bytes, 0, total);
+        return bytes.AsSpan(0, total).ToArray();
     }
 }

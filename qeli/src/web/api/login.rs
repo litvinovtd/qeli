@@ -42,7 +42,7 @@ pub async fn login(
             log::warn!(
                 "PANEL LOGIN BLOCKED from {} user='{}': {}",
                 client_ip,
-                crate::util::log_sanitize(username),
+                crate::util::log_identity(username),
                 msg
             );
             // Notify (Tier-3) — throttled to once/10 min per source IP.
@@ -50,7 +50,7 @@ pub async fn login(
             let detail = format!(
                 "panel login blocked from {} (user '{}')",
                 client_ip,
-                crate::util::log_sanitize(username)
+                crate::util::log_identity(username)
             );
             tokio::spawn(async move {
                 crate::server::notify::fire_throttled(
@@ -78,7 +78,7 @@ pub async fn login(
         log::warn!(
             "PANEL LOGIN FAIL from {} user='{}'",
             client_ip,
-            crate::util::log_sanitize(username)
+            crate::util::log_identity(username)
         );
         return (
             StatusCode::UNAUTHORIZED,

@@ -1,19 +1,25 @@
 #!/bin/sh /etc/rc.common
 # procd service for the qeli VPN client on OpenWrt.
 #   /etc/init.d/qeli {start|stop|restart|reload|enable|status}
-# Config lives in UCI (/etc/config/qeli) or LuCI — this script renders it to a
-# 0600 flat-INI in tmpfs and runs `qeli client` under procd (respawn + logread).
+# Non-secret config lives in UCI (/etc/config/qeli). Passwords are per-boot
+# 0600 files in tmpfs; this script renders a 0600 flat-INI and runs qeli-client
+# under procd (respawn + logread).
 
 USE_PROCD=1
 START=99
 STOP=10
 
 BIN=/usr/bin/qeli-client        # client-only binary (src/client_main.rs); run directly with --config
-RUNDIR=/var/run/qeli            # tmpfs — the RENDERED INI never hits flash. NOTE: the UCI
-                                # source /etc/config/qeli still holds pass/obfs_key in
-                                # plaintext on flash (mode 0600); tmpfs only spares the copy.
+RUNDIR=/var/run/qeli            # tmpfs — rendered config and credentials never hit flash
 CONF="$RUNDIR/client.conf"
+PASS_FILE="$RUNDIR/password"
+OBFS_KEY_FILE="$RUNDIR/obfs-key"
 STATEDIR=/etc/qeli              # persistent overlay — device-id + TOFU known_hosts survive reboot
+
+EXTRA_COMMANDS="set_secret clear_secrets"
+EXTRA_HELP="
+	set_secret <pass|obfs_key>  Read one secret line from stdin into tmpfs
+	clear_secrets [name]        Remove one or all volatile secrets"
 
 # Strip CR/LF (and every other control character) from a UCI value.
 #
@@ -32,6 +38,79 @@ ini_sanitize() { printf '%s' "$1" | tr -d '\000-\037'; }
 # Append `key = value` to the INI only when value is non-empty.
 ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$(ini_sanitize "$2")" >> "$CONF"; }
 
+ensure_runtime_dir() {
+	mkdir -p "$RUNDIR" || return 1
+	chmod 700 "$RUNDIR" || return 1
+}
+
+runtime_secret_path() {
+	case "$1" in
+		pass) printf '%s' "$PASS_FILE" ;;
+		obfs_key) printf '%s' "$OBFS_KEY_FILE" ;;
+		*) return 1 ;;
+	esac
+}
+
+# Atomic, root-only tmpfs write. Values never appear in argv, UCI or persistent
+# overlay. Control characters are rejected rather than silently changing a key.
+write_runtime_secret_value() {
+	local name="$1" value="$2" path clean tmp
+	path="$(runtime_secret_path "$name")" || {
+		logger -t qeli "ERROR: secret name must be pass or obfs_key"
+		return 2
+	}
+	[ -n "$value" ] || { logger -t qeli "ERROR: refusing an empty $name secret"; return 2; }
+	[ "${#value}" -le 4096 ] || { logger -t qeli "ERROR: $name secret exceeds 4096 bytes"; return 2; }
+	clean="$(ini_sanitize "$value")"
+	[ "$clean" = "$value" ] || { logger -t qeli "ERROR: $name secret contains a control character"; return 2; }
+	ensure_runtime_dir || return 1
+	umask 077
+	tmp="$(mktemp "$RUNDIR/.secret.XXXXXX")" || return 1
+	if ! printf '%s' "$value" > "$tmp" || ! chmod 600 "$tmp" || ! mv -f "$tmp" "$path"; then
+		rm -f "$tmp"
+		return 1
+	fi
+	logger -t qeli "$name secret installed in volatile tmpfs; restart qeli to apply it"
+}
+
+set_secret() {
+	local name="$1" value
+	[ -n "$name" ] || { logger -t qeli "ERROR: usage: /etc/init.d/qeli set_secret <pass|obfs_key>"; return 2; }
+	IFS= read -r value || { logger -t qeli "ERROR: expected one secret line on stdin"; return 2; }
+	write_runtime_secret_value "$name" "$value"
+}
+
+clear_secrets() {
+	case "${1:-all}" in
+		pass) rm -f "$PASS_FILE" ;;
+		obfs_key) rm -f "$OBFS_KEY_FILE" ;;
+		all) rm -f "$PASS_FILE" "$OBFS_KEY_FILE" ;;
+		*) logger -t qeli "ERROR: secret name must be pass, obfs_key or all"; return 2 ;;
+	esac
+	logger -t qeli "volatile qeli secret(s) cleared"
+}
+
+# One-shot compatibility migration. Old packages persisted these fields in UCI.
+# Copy them into tmpfs before deleting the UCI keys, then commit the scrubbed config.
+# Flash wear levelling means prior blocks cannot be securely erased in software; users
+# upgrading from the old format should rotate both credentials after migration.
+migrate_legacy_secrets() {
+	local changed=0 name value path
+	for name in pass obfs_key; do
+		uci -q get "qeli.main.$name" >/dev/null || continue
+		value="$(uci -q get "qeli.main.$name")"
+		path="$(runtime_secret_path "$name")" || return 1
+		if [ -n "$value" ] && [ ! -s "$path" ]; then
+			write_runtime_secret_value "$name" "$value" || return 1
+		fi
+		uci -q delete "qeli.main.$name" || return 1
+		changed=1
+	done
+	[ "$changed" = 1 ] || return 0
+	uci commit qeli || return 1
+	logger -t qeli "WARNING: migrated legacy UCI secrets to tmpfs and removed them from /etc/config/qeli; rotate them because old flash blocks may remain recoverable"
+}
+
 append_dns_server() {
 	local value
 	value="$(ini_sanitize "$1")"
@@ -41,19 +120,17 @@ append_dns_server() {
 
 # Render the UCI `main` section into the flat-INI the binary expects.
 render_conf() {
-	local server proto user pass key bind_static mode sni obfs_key front quic \
+	local server proto user key bind_static mode sni obfs_key front quic \
 	      reality_sid gateway ipv6 dns dns_mode dns_servers dev mtu route_local kill_switch allow_ipv4_leak allow_ipv6_leak log_level \
 	      log_time_format
 
 	config_get server     main server
 	config_get proto      main proto      tcp
 	config_get user       main user
-	config_get pass       main pass
 	config_get key        main key
 	config_get_bool bind_static main bind_static 1   # H-1 on by default (needs a pinned key)
 	config_get mode       main mode       fake-tls
 	config_get sni        main sni
-	config_get obfs_key   main obfs_key
 	config_get front      main front
 	config_get_bool quic  main quic       0
 	config_get reality_sid main reality_sid
@@ -74,15 +151,32 @@ render_conf() {
 	config_get log_time_format main log_time_format none
 
 	[ -n "$server" ] || { logger -t qeli "ERROR: option 'server' is not set in /etc/config/qeli"; return 1; }
+	[ -s "$PASS_FILE" ] || {
+		logger -t qeli "ERROR: volatile password is missing; set it with: printf '%s\n' 'PASSWORD' | /etc/init.d/qeli set_secret pass"
+		return 1
+	}
+	if [ "$mode" = obfs ]; then
+		[ -s "$OBFS_KEY_FILE" ] || {
+			logger -t qeli "ERROR: mode=obfs requires a volatile obfs_key; use /etc/init.d/qeli set_secret obfs_key"
+			return 1
+		}
+		obfs_key="$(cat "$OBFS_KEY_FILE")"
+		[ -n "$obfs_key" ] && [ "$(ini_sanitize "$obfs_key")" = "$obfs_key" ] || {
+			logger -t qeli "ERROR: volatile obfs_key is empty or contains control characters"
+			return 1
+		}
+	fi
 
-	mkdir -p "$RUNDIR"; : > "$CONF"; chmod 600 "$CONF"
+	ensure_runtime_dir || return 1
+	: > "$CONF"; chmod 600 "$CONF"
 	{
 		echo "[qeli]"
 		echo "server = $(ini_sanitize "$server")"
 		echo "proto = $(ini_sanitize "$proto")"
 	} >> "$CONF"
 	ini_kv user "$user"
-	ini_kv pass "$pass"
+	# Keep the password out of the rendered INI too: the core reads this 0600 tmpfs file.
+	echo "password_file = $PASS_FILE" >> "$CONF"
 	ini_kv key  "$key"
 	# bind_static is on by default; only emit when explicitly off (TOFU / zero key).
 	[ "$bind_static" = 0 ] && echo "bind_static = false" >> "$CONF"
@@ -191,6 +285,8 @@ sync_firewall_device() {
 }
 
 start_service() {
+	config_load qeli
+	migrate_legacy_secrets || return 1
 	config_load qeli
 
 	local enabled

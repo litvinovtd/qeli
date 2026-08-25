@@ -208,14 +208,15 @@ internal static class WinDivertSelfTest
             && fr.Disposition == PacketDisposition.Tunnel
             && remote2.Equals(fr.TunnelDestination));
 
-        // Include fail-closed: unknown owner → Drop (exercised via ProcessAppMap on a
-        // port that cannot belong to a live socket — high ephemeral unlikely to be bound
-        // after refresh; we assert the mode flag and disposition helper contract).
+        // Unknown ownership is returned immediately so capture never blocks on the endpoint scan.
+        // WinDivertAdapter holds it in a bounded queue; one unresolved retry is dropped.
+        // Exercise the non-blocking ProcessAppMap half of that contract here.
         using (var includeMap = new ProcessAppMap(Array.Empty<string>(), includeMode: true))
         {
             var d = includeMap.Classify(6, IPAddress.Parse("127.0.0.1"), 1,
                 IPAddress.Parse("1.1.1.1"), 443);
-            check("include: unknown owner is Drop (fail-closed)", d == PacketDisposition.Drop);
+            check("include: unknown owner is deferred without blocking capture",
+                d == PacketDisposition.Unknown);
             check("include: non-TCP/UDP is Drop",
                 includeMap.Classify(1, IPAddress.Parse("127.0.0.1"), 0,
                     IPAddress.Parse("1.1.1.1"), 0) == PacketDisposition.Drop);
@@ -224,8 +225,8 @@ internal static class WinDivertSelfTest
         {
             var d = excludeMap.Classify(6, IPAddress.Parse("127.0.0.1"), 1,
                 IPAddress.Parse("1.1.1.1"), 443);
-            check("exclude: unknown owner is Drop until refreshed (no policy leak)",
-                d == PacketDisposition.Drop);
+            check("exclude: unknown owner is deferred without a policy leak",
+                d == PacketDisposition.Unknown);
         }
         check("family policy: active IPv6 tunnels selected traffic",
             WinDivertAdapter.DispositionForFamily(
@@ -278,6 +279,9 @@ internal static class WinDivertSelfTest
             42,
             new[] { "203.0.113.7", "2001:db8::7" },
             new[] { "192.0.2.53" });
+        check("kill-switch priority: valid and ordered before the normal capture handle",
+            WinDivertKillSwitchGate.DropGatePriority is >= -300 and <= 300
+            && WinDivertKillSwitchGate.DropGatePriority > 0);
         check("kill-switch filter: excludes Wintun and allows only named endpoints",
             killSwitchFilter.Contains("ifIdx != 42", StringComparison.Ordinal)
             && killSwitchFilter.Contains("ip.DstAddr == 203.0.113.7", StringComparison.Ordinal)

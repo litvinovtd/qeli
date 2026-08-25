@@ -1709,8 +1709,8 @@ fn validate_config_structure(parsed: &crate::config::server::ServerConfig) -> Op
 /// comments stating the browser never sees them. The raw editor returned the file
 /// byte-for-byte and so handed out exactly what the structured path was careful to
 /// withhold: the admin's argon2 verifier (offline-crackable) and every inline user's
-/// hash and reversibly-encrypted password. Any XSS — the CSP still carries
-/// `'unsafe-eval'` for Alpine — or one borrowed session was enough to collect them.
+/// hash and reversibly-encrypted password. Any XSS or one borrowed panel session
+/// was enough to collect them, so masking remains mandatory even with the hardened CSP.
 /// (Audit 2026-07-27, P1.)
 const RAW_SECRET_KEYS: &[&str] = &["password_hash", "password_enc", "password"];
 

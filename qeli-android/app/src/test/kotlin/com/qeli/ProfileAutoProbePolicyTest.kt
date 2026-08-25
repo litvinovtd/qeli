@@ -15,6 +15,7 @@ class ProfileAutoProbePolicyTest {
 
     @Test
     fun automaticSweepRequiresOptInAndDisconnectedTunnel() {
+        assertFalse(ProfileAutoProbePolicy.DEFAULT_ENABLED)
         assertFalse(ProfileAutoProbePolicy.canStartSweep(false, false, 20_000, 0))
         assertFalse(ProfileAutoProbePolicy.canStartSweep(true, true, 20_000, 0))
         assertTrue(ProfileAutoProbePolicy.canStartSweep(true, false, 20_000, 0))

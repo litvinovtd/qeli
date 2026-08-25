@@ -1201,11 +1201,8 @@ fn default_max_streams() -> u32 {
 pub struct TlsConfig {
     #[serde(default = "default_server_name")]
     pub server_name: String,
-    /// Pool of decoy SNI hostnames for camouflage. Defaults to a built-in set of
-    /// high-traffic domains (the same list as `protocol::tls::DEFAULT_SNI_POOL`),
-    /// surfaced here so operators can override it per profile in the config
-    /// instead of it being hard-coded. (Client-side SNI rotation that consumes
-    /// this list is a follow-up; today the field is config-surfaced and parsed.)
+    /// REALITY proxy/target settings. The client uses the configured target as a
+    /// stable explicit SNI; it never rotates unrelated public domains for a bare IP.
     #[serde(default)]
     pub reality_proxy: RealityProxyConfig,
 }

@@ -287,7 +287,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
         log::info!(
             "CONTROL action='{}' user='{}' profile='{}' mbps={} ip='{}'",
             crate::util::log_sanitize(&req.cmd),
-            crate::util::log_sanitize(&req.username),
+            crate::util::log_identity(&req.username),
             crate::util::log_sanitize(&req.profile),
             req.mbps,
             crate::util::log_sanitize(&req.ip)

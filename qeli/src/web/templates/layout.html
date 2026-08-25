@@ -48,7 +48,7 @@ async function apiFetch(url, opts = {}) {
 }
 </script>
 </head>
-<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type, $event.detail.timeout)"
+<body class="flex h-screen overflow-hidden" x-data="app" @notify.window="notify($event.detail.msg, $event.detail.type, $event.detail.timeout)"
   @qeli-confirm.window="onConfirmRequest($event.detail)"
       @keydown.escape.window="sidebarOpen = false">
 
@@ -468,6 +468,7 @@ function app() {
     }
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('app', app));
 
 // Any request that comes back 401 means the session expired — bounce to login.
 (function () {

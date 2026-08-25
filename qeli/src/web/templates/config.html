@@ -1,4 +1,4 @@
-<div x-data="configPage()" x-init="init()">
+<div x-data="configPage">
 
   <!-- Toolbar -->
   <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-5">
@@ -53,7 +53,7 @@
         <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 flex items-center"
           :class="activeTab === i ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
           @click="activeTab = i">
-          <svg x-show="p.bind?.transport !== 'udp'" data-transport-icon="tcp"
+          <svg x-show="p.bind.transport !== 'udp'" data-transport-icon="tcp"
             class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--blue-2)"
             fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="TCP">
             <circle cx="4" cy="12" r="2.25" stroke-width="1.8"/>
@@ -61,7 +61,7 @@
             <path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
               d="M7.5 9h8m0 0-2-2m2 2-2 2M16.5 15h-8m0 0 2 2m-2-2 2-2"/>
           </svg>
-          <svg x-show="p.bind?.transport === 'udp'" data-transport-icon="udp"
+          <svg x-show="p.bind.transport === 'udp'" data-transport-icon="udp"
             class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--violet)"
             fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="UDP">
             <path stroke-width="1.7" stroke-linecap="round" d="M3 5.25h5M3 12h2.5M3 18.75h5"/>
@@ -480,15 +480,15 @@
     </div> <!-- /global tab -->
 
     <!-- ── PROFILE TAB — single page, all sections stacked (no inner tabs) ── -->
-    <template x-if="typeof activeTab === 'number' && cfg.profiles && cfg.profiles[activeTab]">
+    <template x-if="hasActiveProfile">
       <div class="space-y-4">
 
         <!-- Profile header -->
         <div class="card p-4 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-3">
             <input class="inp text-base font-bold w-48" type="text" x-model="cfg.profiles[activeTab].name" @input="markDirty()" placeholder="profile name">
-            <span class="badge" :class="cfg.profiles[activeTab].bind?.transport === 'udp' ? 'badge-udp' : 'badge-tcp'"
-              x-text="(cfg.profiles[activeTab].bind?.transport || 'tcp').toUpperCase()"></span>
+            <span class="badge" :class="cfg.profiles[activeTab].bind.transport === 'udp' ? 'badge-udp' : 'badge-tcp'"
+              x-text="(cfg.profiles[activeTab].bind.transport || 'tcp').toUpperCase()"></span>
             <!-- enabled toggle -->
             <label class="flex items-center gap-2 cursor-pointer" @click="cfg.profiles[activeTab].enabled = !(cfg.profiles[activeTab].enabled !== false); markDirty()">
               <div class="toggle" :class="cfg.profiles[activeTab].enabled !== false ? 'bg-emerald-500' : 'bg-slate-700'">
@@ -752,16 +752,16 @@
               </div>
             </div>
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}; cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].routing.nat?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}; cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div class="flex-1">
                 <div class="text-sm font-medium text-white">NAT masquerade</div>
                 <div class="text-xs text-slate-500">MASQUERADE client traffic through the server's internet interface</div>
               </div>
-              <div x-show="cfg.profiles[activeTab].routing.nat?.enabled" class="flex items-center gap-2">
+              <div x-show="cfg.profiles[activeTab].routing.nat.enabled" class="flex items-center gap-2">
                 <span class="text-xs text-slate-500">Interface:</span>
                 <input class="inp font-mono text-xs h-8 flex-shrink-0" style="width:7rem" type="text"
                   x-model="cfg.profiles[activeTab].routing.nat.interface" @input="markDirty()" placeholder="ens18">
@@ -1052,20 +1052,20 @@
               <label class="field-label">Decoy SNI pool</label>
               <p class="field-desc">Candidate camouflage hostnames. <strong>Not applied yet</strong> — SNI rotation currently draws from the built-in list in the code, so editing this pool changes nothing at runtime; it is stored for the follow-up that will consume it.</p>
             </div>
-            <!-- REALITY — TCP-only (real TLS termination); hidden on UDP profiles (#11) -->
-            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
+            <!-- REALITY — TCP-only TLS-shaped outer transport; hidden on UDP profiles (#11) -->
+            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
-                <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled; markDirty()">
-                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
-                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">REALITY <span class="badge badge-on ml-1.5">flagship</span></div>
-                  <div class="text-xs text-slate-500">Genuine browser TLS 1.3. "Foreign"/prober traffic is transparently proxied to a real HTTPS site; our clients are recognised by a REALITY short_id token and (optionally) terminated with real TLS.</div>
+                  <div class="text-xs text-slate-500">Browser-shaped TLS 1.3 on the wire. "Foreign"/prober traffic is transparently proxied to a real HTTPS site; qeli clients are authenticated by short_id, the inner identity proof and the pinned server key.</div>
                 </div>
               </div>
-              <div x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled" class="space-y-3 mt-3">
+              <div x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled" class="space-y-3 mt-3">
                 <div class="grid grid-cols-3 gap-3">
                   <div class="col-span-2">
                     <label class="field-label">Camouflage target (real site)</label>
@@ -1086,22 +1086,22 @@
 
                 <!-- real_tls: genuine TLS termination -->
                 <div class="field-toggle pt-1">
-                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls; markDirty()">
-                    <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls ? 'bg-emerald-500' : 'bg-slate-700'">
-                      <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls; markDirty()">
+                    <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls ? 'bg-emerald-500' : 'bg-slate-700'">
+                      <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls ? 'translate-x-4' : 'translate-x-0.5'"></div>
                     </div>
                   </div>
                   <div>
-                    <div class="text-sm font-medium text-white">Genuine TLS termination <span class="text-emerald-400 text-xs">(full REALITY)</span></div>
-                    <div class="text-xs text-slate-500">Terminate our authenticated clients with a real TLS 1.3 session and run the qeli tunnel inside it — real TLS on the wire (Xray-REALITY level). Off = plain fake-TLS handshake (TLS-shaped, directly on the socket). <strong class="text-amber-400">Requires at least one short_id.</strong></div>
+                    <div class="text-sm font-medium text-white">TLS 1.3 outer transport <span class="text-emerald-400 text-xs">(full REALITY)</span></div>
+                    <div class="text-xs text-slate-500">Run the qeli tunnel inside a TLS 1.3-compatible encrypted session. The borrowed public certificate is camouflage, not a PKI trust anchor: server authentication comes from qeli identity proof plus the pinned server key. Off = fake-TLS directly on the socket. <strong class="text-amber-400">Requires static session binding and at least one short_id.</strong></div>
                   </div>
                 </div>
 
                 <!-- handrolled TLS stack -->
-                <div class="field-toggle" x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls">
-                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.handrolled; markDirty()">
-                    <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.handrolled ? 'bg-emerald-500' : 'bg-slate-700'">
-                      <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.handrolled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                <div class="field-toggle" x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls">
+                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled; markDirty()">
+                    <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled ? 'bg-emerald-500' : 'bg-slate-700'">
+                      <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                     </div>
                   </div>
                   <div>
@@ -1253,9 +1253,9 @@
           <!-- Traffic normalization -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled = !cfg.profiles[activeTab].obfuscation.traffic_normalization?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled = !cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
@@ -1263,7 +1263,7 @@
                 <div class="text-xs text-slate-500">Pad packets up to fixed "round" sizes so payload lengths leak no information</div>
               </div>
             </div>
-            <div x-show="cfg.profiles[activeTab].obfuscation.traffic_normalization?.enabled" class="space-y-4">
+            <div x-show="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled" class="space-y-4">
               <div class="flex items-start gap-3">
                 <div>
                   <div class="text-sm font-medium text-white">Randomize sequence</div>
@@ -1290,9 +1290,9 @@
           <!-- Traffic shaping (idle cover traffic) -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled = !cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled = !cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
@@ -1300,7 +1300,7 @@
                 <div class="text-xs text-slate-500">Fill idle gaps with cover traffic at non-periodic (exponential) intervals; replaces the heartbeat beacon. Real packets are not delayed.</div>
               </div>
             </div>
-            <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled" class="grid grid-cols-2 gap-4">
+            <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled" class="grid grid-cols-2 gap-4">
               <div>
                 <label class="field-label">Idle gap mean (ms)</label>
                 <p class="field-desc">Mean of the exponential inter-cover gap</p>
@@ -1328,9 +1328,9 @@
                 <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.max_size" @input="markDirty()">
               </div>
               <div class="col-span-2 flex items-start gap-3 pt-2 border-t border-[#21314e]">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth = !cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth; markDirty()">
-                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth ? 'bg-blue-600' : 'bg-slate-700'">
-                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth = !cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
                 </div>
                 <div>
@@ -1338,7 +1338,7 @@
                   <div class="text-xs text-slate-500">Rate-caps the data plane and runs cover under load, breaking the bulk-download size + timing tell. Sacrifices throughput.</div>
                 </div>
               </div>
-              <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth">
+              <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth">
                 <label class="field-label">Stealth rate cap (Mbps)</label>
                 <p class="field-desc">Lower = less like a bulk download (and slower)</p>
                 <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth_rate_mbps" @input="markDirty()">
@@ -1349,9 +1349,9 @@
           <!-- Anti-fingerprinting -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
@@ -1361,11 +1361,11 @@
                 <div class="text-xs text-slate-500">Enables the implemented handshake-timing controls. Cipher-suite rotation is not implemented.</div>
               </div>
             </div>
-            <div x-show="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled" class="grid grid-cols-2 gap-4">
+            <div x-show="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled" class="grid grid-cols-2 gap-4">
               <div class="flex items-start gap-3 pt-1">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.add_jitter_to_handshake; markDirty()">
-                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.add_jitter_to_handshake ? 'bg-blue-600' : 'bg-slate-700'">
-                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.add_jitter_to_handshake ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
                 </div>
                 <div>
@@ -1377,11 +1377,11 @@
           </div>
 
           <!-- QUIC (UDP-only masking — hidden on TCP profiles, #11) -->
-          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') === 'udp'">
+          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') === 'udp'">
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.quic?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.quic?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.quic.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.quic.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
@@ -1389,16 +1389,16 @@
                 <div class="text-xs text-slate-500">Wrap UDP packets in fake QUIC headers to look like QUIC/HTTP3 traffic</div>
               </div>
             </div>
-            <div x-show="cfg.profiles[activeTab].obfuscation.quic?.enabled" class="grid grid-cols-2 gap-4 mt-3">
+            <div x-show="cfg.profiles[activeTab].obfuscation.quic.enabled" class="grid grid-cols-2 gap-4 mt-3">
             </div>
           </div>
 
           <!-- Multipath (stream bonding) — TCP-only, hidden on UDP profiles (#11) -->
-          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') !== 'udp'">
+          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'">
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.multipath = cfg.profiles[activeTab].obfuscation.multipath || {}; cfg.profiles[activeTab].obfuscation.multipath.enabled = !cfg.profiles[activeTab].obfuscation.multipath?.enabled; markDirty()">
-                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
-                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.multipath = cfg.profiles[activeTab].obfuscation.multipath || {}; cfg.profiles[activeTab].obfuscation.multipath.enabled = !cfg.profiles[activeTab].obfuscation.multipath.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
@@ -1406,16 +1406,16 @@
                 <div class="text-xs text-slate-500">Aggregate several parallel connections into ONE tunnel session to beat the single-stream TCP-over-TCP throughput ceiling. Leave off on UDP profiles.</div>
               </div>
             </div>
-            <div x-show="cfg.profiles[activeTab].obfuscation.multipath?.enabled" class="grid grid-cols-2 gap-4 mt-3">
+            <div x-show="cfg.profiles[activeTab].obfuscation.multipath.enabled" class="grid grid-cols-2 gap-4 mt-3">
               <div>
                 <label class="field-label">Max streams</label>
                 <p class="field-desc">Server-enforced ceiling on parallel streams per session</p>
                 <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath?.adaptive; markDirty()">
-                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath?.adaptive ? 'bg-blue-600' : 'bg-slate-700'">
-                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath?.adaptive ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath.adaptive; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath.adaptive ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath.adaptive ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
                 </div>
                 <div>
@@ -1616,6 +1616,12 @@ function configPage() {
       { id: 'routing', label: 'Routing' }, { id: 'dns', label: 'DNS' }, { id: 'dhcp', label: 'DHCP' },
       { id: 'obfuscation', label: 'Obfuscation' }, { id: 'performance', label: 'Performance' },
     ],
+
+    get hasActiveProfile() {
+      return typeof this.activeTab === 'number' && !!(this.cfg.profiles && this.cfg.profiles[this.activeTab]);
+    },
+    fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
 
     // Scroll a section into view. scrollIntoView walks up to the real scroll container
     // (<main>), unlike a native fragment anchor; the .cfg-anchor scroll-margin-top offsets
@@ -2171,4 +2177,5 @@ function configPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('configPage', configPage));
 </script>

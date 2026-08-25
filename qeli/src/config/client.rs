@@ -325,9 +325,9 @@ pub struct ClientObfuscationConfig {
     /// Delay between the two ClientHello writes when `reality_split` is active.
     #[serde(default = "default_reality_split_delay")]
     pub reality_split_delay_ms: u64,
-    /// SNI to present in the fake-tls ClientHello. When empty, the client uses
-    /// the connect hostname (or a random decoy SNI when connecting to a bare
-    /// IP). Lets a QR/link pin a specific front domain.
+    /// SNI/front host. When empty, fake-tls uses the connect hostname and omits
+    /// SNI for a literal IP; WebSocket obfs uses the actual connect host. reality-tls
+    /// requires a DNS name when the connect endpoint is an IP.
     #[serde(default)]
     pub sni: Option<String>,
     #[serde(default)]
@@ -936,6 +936,40 @@ impl ClientConfig {
         Ok(())
     }
 
+    pub(crate) fn effective_fake_tls_sni(&self) -> &str {
+        match self
+            .obfuscation
+            .sni
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => value,
+            None if self.server.address.parse::<std::net::IpAddr>().is_ok() => "!",
+            None => &self.server.address,
+        }
+    }
+
+    pub(crate) fn effective_reality_sni(&self) -> &str {
+        self.obfuscation
+            .sni
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&self.server.address)
+    }
+
+    pub(crate) fn effective_fronting_host(&self) -> String {
+        let host = self
+            .obfuscation
+            .sni
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&self.server.address);
+        match host.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V6(_)) => format!("[{host}]"),
+            _ => host.to_string(),
+        }
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         fn check(field: &str, got: &str, allowed: &[&str]) -> anyhow::Result<()> {
             if allowed.contains(&got) {
@@ -949,6 +983,22 @@ impl ClientConfig {
                     .collect::<Vec<_>>()
                     .join(" or ")
             )
+        }
+
+        fn valid_dns_hostname(value: &str) -> bool {
+            let value = value.strip_suffix('.').unwrap_or(value);
+            !value.is_empty()
+                && value.len() <= 253
+                && value.parse::<std::net::IpAddr>().is_err()
+                && value.split('.').all(|label| {
+                    !label.is_empty()
+                        && label.len() <= 63
+                        && label.as_bytes()[0].is_ascii_alphanumeric()
+                        && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                        && label
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                })
         }
 
         // A value that is present is a cryptographic X25519 public key, not an opaque
@@ -1023,6 +1073,34 @@ impl ClientConfig {
                 );
             }
         }
+        if let Some(raw) = self.obfuscation.sni.as_deref() {
+            let value = raw.trim();
+            if value != raw || value.chars().any(char::is_control) {
+                anyhow::bail!("'sni' contains surrounding whitespace or control characters");
+            }
+            match self.obfuscation.mode.as_str() {
+                "fake-tls" if !matches!(value, "!" | "~" | "@") && !valid_dns_hostname(value) => {
+                    anyhow::bail!("'sni' must be a DNS hostname or one of !, ~, @ for fake-tls");
+                }
+                "obfs"
+                    if !valid_dns_hostname(value) && value.parse::<std::net::IpAddr>().is_err() =>
+                {
+                    anyhow::bail!("'sni' must be a DNS hostname or IP address for WebSocket obfs");
+                }
+                "reality-tls" if !valid_dns_hostname(value) => {
+                    anyhow::bail!("'sni' must be a DNS hostname for reality-tls");
+                }
+                _ => {}
+            }
+        }
+        if self.obfuscation.mode == "reality-tls"
+            && !valid_dns_hostname(self.effective_reality_sni())
+        {
+            anyhow::bail!(
+                "'mode = reality-tls' needs an explicit DNS 'sni' when 'server' is an IP; \
+                 a random unrelated decoy would create an SNI-to-destination mismatch"
+            );
+        }
         // A mode that needs a secret must HAVE it, or the profile is valid and unusable.
         //
         // Each of these was checked at the use site or not at all, so `check-config` and the
@@ -1078,6 +1156,13 @@ impl ClientConfig {
                     "'mode = reality-tls' requires a pinned server 'key' — REALITY's whole \
                      point is that an unauthenticated peer is proxied to the decoy site, which \
                      a TOFU client cannot tell apart from the real server"
+                );
+            }
+            if !self.auth.bind_static_to_session {
+                anyhow::bail!(
+                    "'mode = reality-tls' requires 'bind_static = true' — the borrowed outer \
+                     certificate is camouflage, not the server-authentication boundary; the \
+                     pinned static key must be folded into the inner session keys"
                 );
             }
         }
@@ -1835,6 +1920,67 @@ sni    = www.cloudflare.com
         )
         .unwrap();
         split.validate().unwrap();
+    }
+
+    #[test]
+    fn reality_tls_rejects_disabled_static_session_binding() {
+        let src = concat!(
+            "[qeli]
+",
+            "server = vpn.example.com:443
+",
+            "user = alice
+",
+            "pass = secret
+",
+            "mode = reality-tls
+",
+            "reality_sid = 0123456789abcdef
+",
+            "key = 0a33d308295d5dc49bff020ca8a73e86b3f6797cbcc7d3aa440eee754729223a
+",
+            "bind_static = false
+",
+        );
+        let config = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
+        let error = config
+            .validate()
+            .expect_err("REALITY must not run without static-key session binding")
+            .to_string();
+        assert!(
+            error.contains("bind_static = true"),
+            "unexpected error: {error}"
+        );
+    }
+    #[test]
+    fn camouflage_names_are_stable_and_fail_closed() {
+        let bare_ip = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = 192.0.2.10:443\nmode = fake-tls\n").unwrap(),
+        )
+        .unwrap();
+        bare_ip.validate().unwrap();
+        assert_eq!(bare_ip.effective_fake_tls_sni(), "!");
+        assert_eq!(bare_ip.effective_fronting_host(), "192.0.2.10");
+
+        let base = "[qeli]\nserver = 192.0.2.10:443\nmode = reality-tls\nreality_sid = 0123456789abcdef\nkey = 0a33d308295d5dc49bff020ca8a73e86b3f6797cbcc7d3aa440eee754729223a\n";
+        let missing = ClientConfig::from_ini(&IniDoc::parse(base).unwrap()).unwrap();
+        let error = missing.validate().unwrap_err().to_string();
+        assert!(error.contains("explicit DNS 'sni'"), "{error}");
+
+        let valid = ClientConfig::from_ini(
+            &IniDoc::parse(&(base.to_string() + "sni = www.cloudflare.com\n")).unwrap(),
+        )
+        .unwrap();
+        valid.validate().unwrap();
+        assert_eq!(valid.effective_reality_sni(), "www.cloudflare.com");
+
+        let mut injected = bare_ip;
+        injected.obfuscation.sni = Some("safe.example\r\nX-Probe: yes".to_string());
+        assert!(injected
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("control"));
     }
 
     #[test]

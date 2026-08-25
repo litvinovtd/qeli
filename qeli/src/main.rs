@@ -12,11 +12,7 @@ compile_error!("the qeli *binary* is Linux-only (the realtls FFI library is cros
 // deployable release binary: under handshake churn its retained arenas caused the
 // production RSS regression that jemalloc was introduced to prevent. Keep the guard
 // in this binary target so FFI cdylibs and the standalone router client stay isolated.
-#[cfg(all(
-    target_os = "linux",
-    not(debug_assertions),
-    not(feature = "jemalloc")
-))]
+#[cfg(all(target_os = "linux", not(debug_assertions), not(feature = "jemalloc")))]
 compile_error!("release qeli server builds require --features jemalloc");
 
 use clap::{Parser, Subcommand};

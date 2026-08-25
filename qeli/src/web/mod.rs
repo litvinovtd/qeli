@@ -473,7 +473,7 @@ async fn ip_allowlist(
 
 /// Add hardening response headers to every panel response (HSTS only when the
 /// panel itself serves TLS). The CSP keeps everything same-origin while allowing
-/// the inline/eval Alpine.js the panel relies on.
+/// the nonce-stamped component scripts and CSP-compatible Alpine.js the panel relies on.
 /// Per-response CSP nonce, handed from this (outermost) layer to `base_path_rewrite`
 /// (inner), which stamps it onto every `<script>` as it rewrites the HTML. Both halves
 /// must agree or the page runs nothing, so the value travels in the request extensions
@@ -488,6 +488,15 @@ fn new_csp_nonce() -> String {
     let mut b = [0u8; 16];
     rand::rng().fill_bytes(&mut b);
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn content_security_policy(nonce: &str) -> String {
+    format!(
+        "default-src 'self'; script-src 'self' 'nonce-{nonce}'; \
+         style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
+         connect-src 'self' https://api.github.com; frame-ancestors 'none'; \
+         base-uri 'self'; form-action 'self'"
+    )
 }
 
 async fn security_headers(
@@ -543,16 +552,10 @@ async fn security_headers(
     // its main job. With a nonce, only the tags this server stamped run; browsers ignore
     // `'unsafe-inline'` entirely once a nonce is present, so it is simply dropped.
     //
-    // `'unsafe-eval'` STAYS: Alpine.js evaluates the expressions in `x-data` / `@click`
-    // attributes, and removing it would need Alpine's separate CSP build plus a rewrite
-    // of every directive in the templates. That is a real remaining gap, not an
-    // oversight — but it is much narrower than allowing arbitrary inline `<script>`.
-    if let Ok(v) = HeaderValue::from_str(&format!(
-        "default-src 'self'; script-src 'self' 'nonce-{nonce}' 'unsafe-eval'; \
-         style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
-         connect-src 'self' https://api.github.com; frame-ancestors 'none'; \
-         base-uri 'self'; form-action 'self'"
-    )) {
+    // The vendored `@alpinejs/csp` evaluator interprets the supported directive grammar
+    // without `eval`/`Function`, so `unsafe-eval` is deliberately absent. Template
+    // expressions are covered by a CSP-bundle smoke test and the header by a Rust test.
+    if let Ok(v) = HeaderValue::from_str(&content_security_policy(&nonce)) {
         h.insert(header::CONTENT_SECURITY_POLICY, v);
     }
     if tls {
@@ -809,9 +812,24 @@ mod tests {
     use super::{effective_client_ip, HeaderMap};
     use axum::{routing::get, Router};
 
-    /// SECURITY: `{{basehref}}` is substituted into `<base href="...">` with no HTML
-    /// escaping and the CSP allows 'unsafe-inline', so an attribute breakout in the
-    /// forwarded prefix would execute script. Anything but a plain URL path is refused.
+    #[test]
+    fn csp_disallows_dynamic_code_execution() {
+        let policy = super::content_security_policy("0123456789abcdef");
+        assert!(policy.contains("script-src 'self' 'nonce-0123456789abcdef'"));
+        assert!(!policy.contains("'unsafe-eval'"));
+        let script_src = policy
+            .split(';')
+            .find(|part| part.trim_start().starts_with("script-src "))
+            .unwrap();
+        assert!(
+            !script_src.contains("'unsafe-inline'"),
+            "script-src must remain nonce-only"
+        );
+    }
+
+    /// SECURITY: `{{basehref}}` is substituted into `<base href="...">`. The nonce CSP
+    /// blocks an unstamped script, but malformed markup could still alter URL resolution or
+    /// create an injection primitive for future directives. Only a plain path is accepted.
     #[test]
     fn unsafe_forwarded_prefix_is_rejected() {
         assert!(super::is_safe_prefix("/qeli"));

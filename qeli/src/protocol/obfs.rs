@@ -13,7 +13,11 @@
 //! lets `poll_write` rewind on partial writes, so the transform is exact and
 //! never desyncs.
 //!
-//! Limit: the IETF ChaCha20 keystream is 256 GiB per direction. If a single
+//! Integrity: this outer transform intentionally provides camouflage only. Tunnel
+//! records inside it are always authenticated by the PacketCodec AEAD; an on-path bit
+//! flip can corrupt or terminate a connection (as can a dropped TCP segment/datagram)
+//! but cannot become accepted inner plaintext. Keep that invariant covered end-to-end.
+//!//! Limit: the IETF ChaCha20 keystream is 256 GiB per direction. If a single
 //! session transfers more than that one way, `poll_write` returns an error and
 //! the connection reconnects with a fresh nonce — fail-safe, never reusing
 //! keystream. Document for very-high-volume long-lived links.
@@ -125,7 +129,6 @@ fn cipher_from(key: &[u8; 32], nonce: &[u8; NONCE_LEN]) -> ChaCha20 {
 // Public for the standalone fuzz crate: this HTTP head is received before
 // authentication and therefore has to be exercised directly with arbitrary bytes.
 pub mod ws {
-    use super::super::tls::DEFAULT_SNI_POOL;
     use base64::Engine;
     use hkdf::Hkdf;
     use rand::prelude::*;
@@ -250,9 +253,9 @@ pub mod ws {
 
     /// Build a randomised WebSocket Upgrade request (the client's first bytes).
     ///
-    /// `host` is the value for the `Host:` header. Pass the name the client actually
-    /// connected to (or the operator's configured front); `None` falls back to a random
-    /// decoy from the SNI pool, which is only appropriate when connecting to a bare IP.
+    /// `host` is the value for the `Host:` header. Production callers always pass
+    /// the actual connect host or an operator-configured front. `None` is retained only
+    /// for defensive API compatibility and uses `localhost`, never an unrelated CDN.
     ///
     /// The header used to ALWAYS be a random pick from a five-entry pool of big-name
     /// domains, sent in the clear to whatever VPS the client dialled. A passive observer
@@ -265,7 +268,7 @@ pub mod ws {
         let mut rng = rand::rng();
         let host = match host {
             Some(h) if !h.is_empty() => h,
-            _ => DEFAULT_SNI_POOL[rng.random_range(0..DEFAULT_SNI_POOL.len())],
+            _ => "localhost",
         };
         let ua = USER_AGENTS[rng.random_range(0..USER_AGENTS.len())];
 
@@ -1716,6 +1719,30 @@ mod tests {
         assert!(obfs_datagram_open(&key, &[0u8; 4]).is_none());
     }
 
+    #[test]
+    fn outer_datagram_tamper_is_rejected_by_inner_aead() {
+        let packet_key = [0x5au8; 32];
+        let mut sender = crate::protocol::packet::PacketCodec::new(packet_key);
+        let inner = sender
+            .encrypt_packet(b"authenticated tunnel payload", &[])
+            .expect("inner AEAD encrypts");
+
+        let obfs_key = derive_obfs_key("outer-camouflage-key");
+        let mut wire = obfs_datagram_seal(&obfs_key, &inner);
+        *wire.last_mut().expect("sealed datagram has a body") ^= 0x01;
+
+        // The outer ChaCha20 layer is intentionally not an authentication boundary:
+        // it opens to corrupted bytes. The mandatory inner AEAD is the boundary and
+        // must reject those bytes instead of delivering modified tunnel plaintext.
+        let corrupted_inner =
+            obfs_datagram_open(&obfs_key, &wire).expect("outer shape remains parseable");
+        assert_ne!(corrupted_inner, inner);
+        let mut receiver = crate::protocol::packet::PacketCodec::new(packet_key);
+        assert!(
+            receiver.decrypt_packet(&corrupted_inner).is_err(),
+            "tampered outer ciphertext must never become accepted inner plaintext"
+        );
+    }
     #[tokio::test]
     async fn wrong_psk_yields_garbage() {
         let (a, b) = tokio::io::duplex(64 * 1024);
@@ -1820,9 +1847,11 @@ mod tests {
             req.contains("\r\nHost: vpn.example.com\r\n"),
             "explicit host must be used verbatim:\n{req}"
         );
-        // With no host (bare-IP server) it still has to produce SOME plausible Host.
+        // Defensive legacy fallback never impersonates an unrelated public CDN.
         let fallback = String::from_utf8(ws::build_request(None, &key)).unwrap();
-        assert!(fallback.contains("\r\nHost: "));
+        assert!(fallback.contains("\r\nHost: localhost\r\n"));
+        let ip = String::from_utf8(ws::build_request(Some("192.0.2.10"), &key)).unwrap();
+        assert!(ip.contains("\r\nHost: 192.0.2.10\r\n"));
     }
 
     /// The endpoint path is PSK-derived, stable, and the ONLY target that upgrades.
@@ -2034,12 +2063,11 @@ mod tests {
         // must hold for every deployment, not just for one lucky path. (Audit 2026-08-04.)
         for i in 0..64 {
             let key = derive_obfs_key(&format!("psk-fet-{i}"));
-            // Both host sources must satisfy the exemptions: an explicit connect
-            // hostname and the decoy fallback used for a bare-IP server. (E2)
+            // Both hostname and literal-IP connect targets must satisfy the exemptions.
             let req = if rand::random::<bool>() {
                 ws::build_request(Some("vpn.example.com"), &key)
             } else {
-                ws::build_request(None, &key)
+                ws::build_request(Some("192.0.2.10"), &key)
             };
             // Ex2: first 6 bytes printable ("GET /x").
             assert!(

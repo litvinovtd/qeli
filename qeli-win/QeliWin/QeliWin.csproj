@@ -73,6 +73,15 @@
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>
+    <!-- The prebuilt DLL may be redistributed with software using the permitted API only
+         when its license terms travel with the binary. Keep the notice outside both
+         single-file executables so recipients can read it without extracting resources. -->
+    <Content Include="wintun\LICENSE.txt">
+      <Link>Wintun-LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
     <!-- WinDivert 2.2 packet capture pair used only by per-app profiles. The DLL expects
          the signed x64 driver beside it; NativeLoader extracts both into one protected
          directory before opening the filter. -->

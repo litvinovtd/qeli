@@ -1,4 +1,4 @@
-<div x-data="notificationsPage()" x-init="init()" class="max-w-2xl">
+<div x-data="notificationsPage" class="max-w-2xl">
 
   <!-- Intro -->
   <div class="card p-5 mb-5" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
@@ -242,4 +242,5 @@ function notificationsPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('notificationsPage', notificationsPage));
 </script>

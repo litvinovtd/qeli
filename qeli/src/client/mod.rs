@@ -12,9 +12,9 @@ use crate::crypto::{
     derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
 use crate::protocol::{
-    generate_connection_id, pick_random_sni, read_record, read_record_into, read_tls_record,
-    unwrap_quic, unwrap_quic_payload, wrap_quic_long, wrap_quic_short, wrap_quic_short_into,
-    FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
+    generate_connection_id, read_record, read_record_into, read_tls_record, unwrap_quic,
+    unwrap_quic_payload, wrap_quic_long, wrap_quic_short, wrap_quic_short_into, FakeTlsHandshake,
+    Framing, Obfuscator, PacketCodec,
 };
 #[cfg(target_os = "linux")]
 use crate::trace;
@@ -1323,13 +1323,7 @@ async fn connect_reality(
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
-    let server_name: String = match config.obfuscation.sni.as_deref() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => {
-            crate::protocol::pick_random_sni().to_string()
-        }
-        _ => config.server.address.clone(),
-    };
+    let server_name = config.effective_reality_sni().to_string();
     // Seal the REALITY token into the real ClientHello's session_id with a fresh
     // ephemeral. Requires a pinned server key + short_id, else the server can't
     // recognise us and would proxy us to the real site.
@@ -1437,18 +1431,16 @@ async fn connect_obfs(
             jmin: config.obfuscation.awg.jmin,
             jmax: config.obfuscation.awg.jmax,
         };
-        // Same precedence as the fake-TLS SNI: an explicit `obfuscation.sni` wins, else
-        // the connect hostname, else `None` (a random decoy) when dialling a bare IP —
-        // so the cleartext `Host:` header agrees with where the packets are actually
-        // going instead of naming an unrelated CDN. (Audit 2026-07-27, E2.)
-        let ws_host: Option<&str> = match config.obfuscation.sni.as_deref() {
-            Some(s) if !s.is_empty() => Some(s),
-            _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => None,
-            _ => Some(config.server.address.as_str()),
-        };
+        // Always send the configured front or the actual connect host. In particular,
+        // a bare IP stays that IP instead of rotating unrelated CDN names.
+        let ws_host = config.effective_fronting_host();
         anyhow::Ok(
             crate::protocol::obfs::ObfsStream::connect_with_host(
-                stream, &key, fronting, awg, ws_host,
+                stream,
+                &key,
+                fronting,
+                awg,
+                Some(&ws_host),
             )
             .await?,
         )
@@ -1491,7 +1483,7 @@ async fn connect_and_run_tcp(
     log::info!(
         "Connecting to {} (TCP) as user '{}'",
         addr,
-        config.auth.username
+        crate::util::log_identity(&config.auth.username)
     );
 
     if config.obfuscation.mode == "obfs" {
@@ -2921,11 +2913,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         return Ok((client_rx, client_tx));
     }
 
-    let server_name: &str = match config.obfuscation.sni.as_deref() {
-        Some(s) if !s.is_empty() => s,
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
-        _ => &config.server.address,
-    };
+    let server_name = config.effective_fake_tls_sni();
     let reality_sid: Option<[u8; 32]> = match (
         config
             .obfuscation
@@ -4439,7 +4427,7 @@ async fn connect_and_run_udp(
     log::info!(
         "Connecting to {} (UDP) as user '{}'",
         addr,
-        config.auth.username
+        crate::util::log_identity(&config.auth.username)
     );
 
     if config.obfuscation.mode == "obfs" && config.obfuscation.obfs_key.trim().is_empty() {

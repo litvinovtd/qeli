@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 /// Chrome's TLS cipher suites (GREASE is prepended at build time, not listed
 /// here). Order matches Chrome's ClientHello. The sorted form hashes to the
 /// canonical Chrome JA4_b `8daaf6152771`.
-const CHROME_CIPHERS: &[u16] = &[
+pub(crate) const CHROME_CIPHERS: &[u16] = &[
     0x1301, 0x1302, 0x1303, // TLS 1.3 AES-128-GCM / AES-256-GCM / ChaCha20
     0xc02b, 0xc02f, 0xc02c, 0xc030, // ECDHE AES-GCM (ECDSA/RSA)
     0xcca9, 0xcca8, // ECDHE ChaCha20 (ECDSA/RSA)

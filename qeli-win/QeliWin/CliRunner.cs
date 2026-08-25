@@ -211,7 +211,8 @@ public static class CliRunner
 
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);
-        Check("ClientHello builds + UDP padding (>=1200B, type 0x16)", hello.Length >= 1200 && hello[0] == 0x16);
+        Check("ClientHello builds + UDP padding + Chrome cipher set",
+            hello.Length >= 1200 && hello[0] == 0x16 && hello[76] == 0x00 && hello[77] == 0x20);
 
         // Embedded wintun.dll loads from the resource (no loose DLL beside the exe).
         bool wintunLoaded; uint drv = 0;

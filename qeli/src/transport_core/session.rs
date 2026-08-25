@@ -8,9 +8,7 @@ use crate::crypto::{
     derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
     handshake_transcript_hash, Keypair,
 };
-use crate::protocol::{
-    pick_random_sni, read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec,
-};
+use crate::protocol::{read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec};
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -55,11 +53,7 @@ pub(crate) fn build_udp_client_hello_flight(
         );
     }
     let client_keypair = Keypair::generate();
-    let server_name = match config.obfuscation.sni.as_deref() {
-        Some(name) if !name.is_empty() => name,
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
-        _ => &config.server.address,
-    };
+    let server_name = config.effective_fake_tls_sni();
     let (client_hello, mlkem_decapsulation_key) =
         FakeTlsHandshake::build_client_hello_pq(client_keypair.public(), server_name, 1200, None);
     let fragments = crate::protocol::udp_frag::fragment(
@@ -368,11 +362,7 @@ where
         return Ok((client_rx, client_tx, auth));
     }
 
-    let server_name = match config.obfuscation.sni.as_deref() {
-        Some(name) if !name.is_empty() => name,
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
-        _ => &config.server.address,
-    };
+    let server_name = config.effective_fake_tls_sni();
     let reality_session_id = match (
         config
             .obfuscation

@@ -26,7 +26,6 @@ internal sealed class ProcessAppMap : IDisposable
     private readonly bool _includeMode; // true = only selected tunnel; false = selected bypass
     private DateTime _lastRefresh = DateTime.MinValue;
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
-    private const int MissRefreshWaitMs = 75;
     private bool _refreshQueued;
     private readonly ManualResetEventSlim _refreshFinished = new(initialState: true);
     private readonly int _selfPid = Environment.ProcessId;
@@ -69,19 +68,26 @@ internal sealed class ProcessAppMap : IDisposable
         }
     }
 
-    /// <summary>Classify an outbound packet by owning process.</summary>
+    /// <summary>
+    /// Classify an outbound packet from the latest ownership snapshot. A miss schedules a
+    /// coalesced refresh and returns <see cref="PacketDisposition.Unknown"/> immediately:
+    /// the WinDivert capture thread must never wait on the system-wide endpoint scan.
+    /// The adapter holds the packet in its bounded retry queue and applies the refreshed
+    /// decision off the capture thread.
+    /// </summary>
     public PacketDisposition Classify(
         byte protocol, IPAddress localIp, ushort localPort,
         IPAddress remoteIp, ushort remotePort)
     {
         var result = ClassifySnapshot(protocol, localIp, localPort, remoteIp, remotePort);
-        if (result != PacketDisposition.Unknown) return result;
-
-        ScheduleRefresh(force: true);
-        if (!_refreshFinished.Wait(MissRefreshWaitMs)) return PacketDisposition.Drop;
-        result = ClassifySnapshot(protocol, localIp, localPort, remoteIp, remotePort);
-        return result == PacketDisposition.Unknown ? PacketDisposition.Drop : result;
+        if (result == PacketDisposition.Unknown) ScheduleRefresh(force: true);
+        return result;
     }
+
+    /// <summary>Wait for the refresh already requested by an Unknown classification.
+    /// Called only by the adapter's deferred-classification worker, never by capture.</summary>
+    public bool WaitForPendingRefresh(int timeoutMilliseconds) =>
+        _refreshFinished.Wait(timeoutMilliseconds);
 
     /// <summary>Check the latest kernel TCP-owner snapshot for a still-open socket.
     /// Flow-table GC calls this only after a grace period, so the normal two-second

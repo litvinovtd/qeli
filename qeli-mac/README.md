@@ -189,6 +189,7 @@ Rust-ядро ABI 1.11. Невыбранные потоки остаются н�
 
 ```bash
 QeliMac selftest                         # крипто/кодек/парсинг (без сети, без root) — все PASS
+QeliMac pf-selftest-rules /tmp/qeli.pf    # CI: production rules для pfctl parse/load/flush
 QeliMac handshake <link|ini|file>        # TCP/UDP + полное рукопожатие, печатает выданный IP
 sudo QeliMac connect <link|ini|file> [сек]   # поднимает полный туннель на N секунд (нужен root)
 QeliMac genassets <dir>                  # рендер брендовых PNG (использует build_app.sh для .icns)

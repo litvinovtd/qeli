@@ -6,6 +6,47 @@
 
 ## [0.8.0] — не выпущен
 
+- Закрыт повторный security/runtime-аудит клиентов и поставки. Windows kill-switch теперь
+  открывает WinDivert с допустимым приоритетом и проверяет границы в self-test; необработанные
+  UI/AppDomain/TaskScheduler ошибки пишутся в аварийный журнал, а per-app capture классифицирует
+  новые потоки в ограниченной очереди без 75-мс блокировки общего packet-loop и fail-open потери
+  первых пакетов.
+- macOS устраняет TOCTOU при привилегированной установке daemon: root читает ровно заранее
+  проверенные байты через `O_NOFOLLOW` и сверяет digest. CI теперь загружает настоящие production
+  pf-правила в одноразовый не подключённый anchor, читает их обратно и очищает; полный сетевой
+  тест подключённого anchor остаётся обязательным release-gate на физическом Mac.
+- Панель переведена на официальный Alpine CSP build: `script-src` больше не требует
+  'unsafe-eval', динамический QR не использует `x-html`, а все bundled-шаблоны проходят CSP
+  smoke-test. REALITY-конфигурация fail-closed требует session-bound static proof; документация
+  точно разделяет внешний TLS-camouflage и фактическую аутентификацию pinned qeli identity.
+- Android привязывает transport/DNS к выбранной carrier network и сообщает её системе через
+  `setUnderlyingNetworks()`. Хранилище профилей переведено с deprecated security-crypto на
+  Android Keystore AES-256-GCM с versioned AAD-envelope и одноразовой legacy-миграцией. Emulator
+  CI на API 29/35 исполняет production `VpnService.Builder.establish()` для split/full/dual-stack.
+  Wake-lock теперь имеет продлеваемый конечный lease и аварийно истекает, если lifecycle-cleanup
+  не был вызван.
+- Bare `fake-tls` больше не выдаёт себя TLS-1.3-only списком: он переиспользует полный
+  15-suite Chrome contract REALITY и отправляет обязательные OCSP/SCT/ALPS/session-ticket/
+  ec-point/renegotiation extensions. Случайный SNI decoy-pool удалён: IP endpoint
+  означает no-SNI для fake-TLS, фактический `Host` для WebSocket и обязательный явный
+  DNS-front для REALITY; CR/LF и некорректные имена отклоняются до сети.
+  Managed C# fallback для старого/несовместимого native-core также использует Chrome-набор,
+  GREASE и полный набор browser-like расширений; WebSocket fronting без фактического или явно
+  заданного Host отклоняется вместо случайной подстановки чужого домена.
+- Автоопрос reachability на Windows, macOS и Android стал privacy-safe opt-in и выключен по
+  умолчанию; ручная проверка сохранена, а уже запущенные автоматические поколения отменяются.
+  RU/EN threat model, troubleshooting и подсказки интерфейса синхронизированы с этим поведением.
+- OpenWrt больше не хранит пароль и obfs-key в UCI: LuCI передаёт write-only секрет узкому rpcd
+  методу, init-скрипт атомарно кладёт его с mode 0600 в `/var/run/qeli`, а legacy UCI-значения
+  мигрируются и удаляются. rpcd ACL больше не позволяет запускать/останавливать произвольные
+  службы маршрутизатора.
+- Linux `.deb` теперь собирается из точного release-tag в GitHub Actions с `--locked`, проходит
+  package smoke-test, получает OIDC build-provenance и только затем заменяет release asset и
+  `SHA256SUMS`. Wintun DLL сопровождается официальным Prebuilt Binaries License; CI проверяет
+  подпись, hashes и наличие лицензии в обоих publish-путях.
+- Из git удалены временные Habr-preview файлы и тестовый APK; бинарные payload релиза
+  по-прежнему публикуются только в GitHub Releases и не хранятся в исходном дереве.
+
 - Версии Rust-сервера, Android, iOS, Windows, macOS, shared-компонентов, Debian и
   OpenWrt/LuCI синхронизированы с новой линией разработки `0.8.0`.
 - Документация и release-gates для `0.8.0` теперь раздельно фиксируют текущую ветку,

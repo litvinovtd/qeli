@@ -1,4 +1,4 @@
-<div x-data="transportHealthPage()" x-init="init()" @keydown.escape.window="closeDetails()">
+<div x-data="transportHealthPage" @keydown.escape.window="closeDetails()">
   <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
     <div>
       <h2 class="text-lg font-bold text-white">Transport health</h2>
@@ -149,6 +149,8 @@ function transportHealthPage() {
   return {
     profiles: [], summary: {}, workerOk: false, loading: false, error: '',
     query: '', statusFilter: 'all', selectedName: null, updatedAt: '', timer: null,
+    fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     init() {
       this.refresh();
       this.timer = setInterval(() => { if (!document.hidden) this.refresh(true); }, 5000);
@@ -199,4 +201,5 @@ function transportHealthPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('transportHealthPage', transportHealthPage));
 </script>

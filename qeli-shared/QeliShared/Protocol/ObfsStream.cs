@@ -524,9 +524,6 @@ public sealed class ObfsStream
 
     private const int MaxHttpHead = 4096;
 
-    /// The WebSocket `Host:` pool IS the SNI pool — see TlsHandshake.DefaultSniPool for why
-    /// they must not drift apart.
-    private static readonly string[] WsHosts = TlsHandshake.DefaultSniPool;
 
     private static readonly string[] WsUserAgents =
     {
@@ -554,21 +551,16 @@ public sealed class ObfsStream
         return "/" + Convert.ToBase64String(raw).Replace('+', '-').Replace('/', '_');
     }
 
-    /// <summary>Build the WebSocket Upgrade request (the client's first bytes).
-    /// <paramref name="host"/> is the value for the <c>Host:</c> header — pass the name the
-    /// client actually connected to (or the operator's configured front); null falls back
-    /// to a random decoy from the SNI pool, which is only appropriate for a bare IP.
-    ///
-    /// The header used to ALWAYS be a random pick from the SNI pool, sent in the clear to
-    /// whatever VPS was dialled: an observer only had to compare <c>Host: www.apple.com</c>
-    /// against a destination that demonstrably is not Apple — one packet, no statistics.
-    /// Rust closed this in audit 2026-07-27 (E2); this port had not. (Audit 2026-08-04,
-    /// M-08.)</summary>
+    /// <summary>Build a WebSocket Upgrade request for the exact address the client
+    /// connected to (or the explicitly configured front). A missing Host fails closed:
+    /// substituting an unrelated public domain creates an immediate destination/Host DPI tell.</summary>
     private static byte[] BuildWsRequest(string? host, byte[] key)
     {
-        string hostHeader = !string.IsNullOrEmpty(host)
-            ? host!
-            : WsHosts[RandomNumberGenerator.GetInt32(WsHosts.Length)];
+        if (string.IsNullOrWhiteSpace(host))
+            throw new ArgumentException("WebSocket fronting requires the actual or configured Host", nameof(host));
+        if (host.IndexOfAny(new[] { '\r', '\n' }) >= 0)
+            throw new ArgumentException("WebSocket Host must not contain CR/LF", nameof(host));
+        string hostHeader = host;
         string ua = WsUserAgents[RandomNumberGenerator.GetInt32(WsUserAgents.Length)];
         string path = DerivePath(key);
         string wsKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));

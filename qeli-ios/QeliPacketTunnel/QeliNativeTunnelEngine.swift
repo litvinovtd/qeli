@@ -223,10 +223,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         let transportName = config.protocolName.uppercased() + "/" + config.wireMode
             + (config.isUDP && config.quicEnabled ? "+QUIC" : "")
         sharedStore.appendLog("Service started: \(transportName)")
-        sharedStore.appendLog(
-            "Connecting to \(Self.logValue(config.serverAddress)):\(config.port) "
-                + "as user '\(Self.logValue(config.username))'"
-        )
+        sharedStore.appendLog("Connecting to \(Self.logValue(config.serverAddress)):\(config.port)")
         // Re-serialize through the iOS model so platform-unsupported keys (notably the
         // Linux/desktop `kill_switch`) keep their documented iOS semantics instead of making
         // the Rust plan require a capability NetworkExtension cannot provide.
@@ -615,8 +612,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             throw NativeTunnelError.invalidNetworkPlan
         }
         sharedStore.appendLog(
-            "Auth OK: user='\(Self.logValue(config.username))', " +
-            "addresses \(plan.addresses.map { "\($0.address)/\($0.prefixLen)" }.joined(separator: ", "))"
+            "Auth OK: addresses " +
+                plan.addresses.map { "\($0.address)/\($0.prefixLen)" }.joined(separator: ", ")
         )
         (plan.connectionLog ?? []).forEach { sharedStore.appendLog($0) }
         do {

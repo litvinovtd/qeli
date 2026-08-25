@@ -26,6 +26,7 @@ android {
         targetSdk = 37
         versionCode = 720
         versionName = "0.8.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -93,9 +94,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // QR scanning for importing a qeli:// profile via camera.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    // Encrypted-at-rest profile store (passwords/obfs_key) — master key in the
-    // Android Keystore (TEE/StrongBox where available). See docs/RELEASE-FIXES.md E1.
-    implementation("androidx.security:security-crypto:1.1.0")
+    // Read-only one-shot migration of the old security-crypto/Tink preference keysets.
+    // New profile writes use AES-GCM + Android Keystore directly (ProfileStore).
+    implementation("com.google.crypto.tink:tink-android:1.23.0")
     // Local (JVM) unit tests — e.g. the F3 WebSocket masking wire-vector test that
     // pins byte parity with the Rust/C# obfs framers (ObfsStreamTest).
     testImplementation("junit:junit:4.13.2")
@@ -105,4 +106,6 @@ dependencies {
     // conformance/qeli-links.json. Test-only: the app itself uses the platform's real
     // implementation on-device.
     testImplementation("org.json:json:20260719")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
 }

@@ -1,4 +1,4 @@
-<div x-data="clientPage()" x-init="load(); timer = setInterval(refresh, 5000)">
+<div x-data="clientPage">
 
   <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <div class="flex items-center gap-2">
@@ -296,6 +296,11 @@
 function clientPage() {
   return {
     profiles: [], loading: false, timer: null,
+    init() {
+      this.load();
+      this.timer = setInterval(() => this.refresh(), 5000);
+    },
+    destroy() { if (this.timer) clearInterval(this.timer); },
     importOpen: false, importLink: '', importName: '',
     diagOpen: false, diagProfile: null,
     formOpen: false,
@@ -311,6 +316,10 @@ function clientPage() {
     },
     lastLine(t) { const a = (t||'').trim().split('\n'); return a[a.length-1] || ''; },
     notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
+    // Alpine's CSP evaluator intentionally does not expose arbitrary window globals.
+    // Keep the template expressions CSP-safe by making the shared helpers component data.
+    fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     openDiagnostics(profile) { this.diagProfile = profile; this.diagOpen = true; },
     diagValue(path, fallback) {
       let value = this.diagProfile && this.diagProfile.diagnostics;
@@ -452,4 +461,5 @@ function clientPage() {
     },
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('clientPage', clientPage));
 </script>

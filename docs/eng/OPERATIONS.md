@@ -131,18 +131,21 @@ Three caveats:
   against. Use it deliberately, for your own builds.
 - **The script itself verifies only the SHA256** from the same release — that is integrity,
   not provenance: whoever can replace the release can replace `SHA256SUMS` with it.
-  The `release-attest` workflow separately creates a signed **publication attestation** for
-  the exact uploaded bytes. It binds an asset to this repository, workflow and commit, but
-  does **not** prove that a locally built package was compiled from that source:
+  For the Linux `.deb`, the `release-build-and-attest` workflow now checks out the exact
+  release tag, builds `make deb-portable`, runs the package smoke checks, creates signed
+  **build provenance**, and only then uploads that same byte sequence and regenerates
+  `SHA256SUMS`:
 
   ```bash
   gh attestation verify qeli_0.7.16_amd64.deb -R litvinovtd/qeli
   ```
 
-  The container is built in GitHub Actions, so its separate attestation is build provenance:
+  That verification binds the Linux package to this repository, workflow and tagged source
+  commit. Other desktop/mobile assets still receive publication evidence only until their
+  release builds also move into CI. The container has its own build provenance:
   `gh attestation verify oci://ghcr.io/litvinovtd/qeli:latest -R litvinovtd/qeli`.
-  Verification needs `gh` and network access, so the updater does not run it — do it by
-  hand whenever independently signed publication/build evidence is required.
+  Verification needs `gh` and network access, so the updater does not run it — use it
+  manually when independently signed source/build evidence is required.
 
 The manual equivalent, if you'd rather not use the script:
 

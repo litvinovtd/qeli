@@ -2123,18 +2123,15 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 [server.conf](../../qeli/config/server.conf) some are shown with illustrative,
 **non-default** values — rely on the tables here).
 
-> **How the client chooses its SNI.** Priority: a configured/link `sni` wins; else,
-> when dialing a bare IP, a random decoy from the built-in pool (per connection); else
-> the connect hostname. So **fake-tls** SNI rotation is a *client* setting — leave `sni`
-> empty and connect by IP to rotate. Adding more `server_names` on the *server* does
-> nothing on the wire. For **reality / reality-tls** the client SNI must equal the one
-> mimicked `reality_proxy.target`; to offer several front domains, run several
-> reality-tls profiles, each with its own target and matching client links.
+> **How the client chooses SNI/Host.** An explicit `sni` wins. Otherwise the connect
+> hostname is used as SNI/Host; for a bare IP `fake-tls` omits SNI and WebSocket obfs
+> uses the actual IP in `Host`. Unrelated CDN names are no longer rotated. A
+> `reality-tls` IP endpoint requires an explicit DNS `sni` matching
+> `reality_proxy.target`; invalid names and control characters fail before connect.
 >
-> **Hiding/omitting SNI (fake-tls/obfs only).** Special `sni` values: `!` = don't send the
-> SNI extension at all (like a browser dialing a bare IP); `~` = send an empty extension;
-> `@` = empty `server_name_list`. Useful where a pinned SNI gets the flow blocked but a
-> no-SNI hello passes. Not applied to **reality / reality-tls** — there SNI is required.
+> **Hiding/omitting SNI (fake-tls only).** Special `sni` values: `!` = omit the SNI
+> extension, `~` = send an empty extension, `@` = an empty `server_name_list`. For
+> obfs this field is the HTTP `Host`; reality-tls requires an ordinary DNS name.
 
 **AEAD and the fake-TLS ClientHello:**
 

@@ -15,6 +15,7 @@ namespace QeliMac;
 /// Headless command-line modes for testing without the GUI:
 ///   QeliMac selftest                       — crypto/codec/parse round-trips (no network, no root)
 ///   QeliMac packetbench [--ci]             — managed PacketCodec release benchmark
+///   QeliMac pf-selftest-rules &lt;path&gt;        — emit production pf rules for macOS CI
 ///   QeliMac handshake &lt;link|ini|file&gt;     — connect + full handshake only (no root)
 ///   QeliMac connect   &lt;link|ini|file&gt; [s]  — full tunnel (needs root)
 ///   QeliMac genassets &lt;dir&gt;                — render the brand PNGs into a directory
@@ -27,6 +28,7 @@ public static class CliRunner
         {
             "selftest" => SelfTest(),
             "packetbench" => PacketCodecBenchmark.Run("csharp-macos", rest),
+            "pf-selftest-rules" => PfSelfTestRules(rest),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
             "genassets" => GenAssets(rest),
@@ -37,8 +39,19 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliMac [selftest | packetbench [--ci] | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
+        Console.WriteLine("Usage: QeliMac [selftest | packetbench [--ci] | pf-selftest-rules <path> | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
         return 2;
+    }
+
+    private static int PfSelfTestRules(string[] args)
+    {
+        if (args.Length != 1)
+        {
+            Console.Error.WriteLine("pf-selftest-rules requires exactly one output path");
+            return 2;
+        }
+        KillSwitch.WriteRuntimeSelfTestRules(args[0]);
+        return 0;
     }
 
     // ── crypto self-test ────────────────────────────────────────────────────────
@@ -219,7 +232,8 @@ public static class CliRunner
 
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);
-        Check("ClientHello builds + UDP padding (>=1200B, type 0x16)", hello.Length >= 1200 && hello[0] == 0x16);
+        Check("ClientHello builds + UDP padding + Chrome cipher set",
+            hello.Length >= 1200 && hello[0] == 0x16 && hello[76] == 0x00 && hello[77] == 0x20);
 
         // Brand renderer produces a PNG (SkiaSharp path).
         bool brandOk; try { brandOk = Branding.AppIconPng(64).Length > 0; } catch { brandOk = false; }

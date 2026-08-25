@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
@@ -427,7 +428,8 @@ public partial class MainWindow : Window
         );
         try
         {
-            var json = JsonSerializer.Serialize(p);
+            byte[] profileBytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p));
+            string profileDigest = Convert.ToHexString(SHA256.HashData(profileBytes));
             // The temp file carries the server password — create it 0600 BEFORE the bytes land,
             // rather than writing at the default umask and narrowing afterwards: a crash/read in
             // that window would otherwise expose the plaintext password. Mirrors
@@ -436,17 +438,17 @@ public partial class MainWindow : Window
             {
                 using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
                 try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
-                var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-                fs.Write(bytes, 0, bytes.Length);
+                fs.Write(profileBytes, 0, profileBytes.Length);
             }
             else
             {
                 using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
                 using var writer = new StreamWriter(fs);
-                writer.Write(json);
+                writer.Write(System.Text.Encoding.UTF8.GetString(profileBytes));
             }
 
-            var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-install", tmp));
+            var (ok, msg, canceled) = await Task.Run(() =>
+                ServiceManager.RunSelfElevated("daemon-install", tmp, profileDigest));
             if (!ok)
             {
                 if (!canceled)

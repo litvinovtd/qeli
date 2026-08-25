@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
      *  key lives in the Android Keystore (TEE/StrongBox where available). On first
      *  use this migrates any legacy plaintext profiles, then wipes the legacy copy
      *  so secrets no longer linger unencrypted. (docs/RELEASE-FIXES.md E1) */
-    private val secureStore: SharedPreferences by lazy {
+    private val secureStore: ProfileStore.SecureStore by lazy {
         // Same store the Quick Settings tile reads — see ProfileStore for the shared params.
         val store = ProfileStore.open(this)
         val legacy = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -599,7 +599,7 @@ ipv6 = auto
         }
         val cbAutoProbe = android.widget.CheckBox(this).apply {
             text = getString(R.string.auto_probe_profiles)
-            isChecked = prefs.getBoolean(PREF_AUTO_PROBE, true)
+            isChecked = prefs.getBoolean(PREF_AUTO_PROBE, ProfileAutoProbePolicy.DEFAULT_ENABLED)
         }
         val probeIntervalInput = com.google.android.material.textfield.TextInputEditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
@@ -1801,7 +1801,7 @@ ipv6 = auto
         autoProbeJob = null
         cancelAutomaticProbeJobs()
         val prefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(PREF_AUTO_PROBE, true)) return
+        if (!prefs.getBoolean(PREF_AUTO_PROBE, ProfileAutoProbePolicy.DEFAULT_ENABLED)) return
 
         autoProbeJob = lifecycleScope.launch {
             if (runImmediately) pingAll(manual = false)
@@ -1845,7 +1845,7 @@ ipv6 = auto
         if (isDisconnecting) return
         if (!manual) {
             val enabled = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
-                .getBoolean(PREF_AUTO_PROBE, true)
+                .getBoolean(PREF_AUTO_PROBE, ProfileAutoProbePolicy.DEFAULT_ENABLED)
             if (!enabled || isConnected || isConnecting || isTrustedPaused) return
         }
         val p = current() ?: return
@@ -1877,7 +1877,7 @@ ipv6 = auto
         val sweepAt = System.currentTimeMillis()
         if (!manual) {
             if (!ProfileAutoProbePolicy.canStartSweep(
-                    enabled = sweepPrefs.getBoolean(PREF_AUTO_PROBE, true),
+                    enabled = sweepPrefs.getBoolean(PREF_AUTO_PROBE, ProfileAutoProbePolicy.DEFAULT_ENABLED),
                     tunnelBusy = isConnected || isConnecting || isDisconnecting || isTrustedPaused,
                     nowMs = sweepAt,
                     lastSweepMs = lastAutoProbeAtMs,

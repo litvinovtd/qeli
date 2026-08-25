@@ -39,12 +39,12 @@ ZIG_BINARY := ../target/x86_64-unknown-linux-gnu/release/$(PACKAGE_NAME)
 all: deb
 
 deb:
-	cargo build --release --features jemalloc --bin $(PACKAGE_NAME)
+	cargo build --locked --release --features jemalloc --bin $(PACKAGE_NAME)
 	$(MAKE) deb-prebuilt BINARY=../target/release/$(PACKAGE_NAME)
 
 # Release build: pinned glibc ABI. Needs cargo-zigbuild + zig on PATH.
 deb-portable:
-	cargo zigbuild --release --features jemalloc --bin $(PACKAGE_NAME) --target $(ZIG_TARGET)
+	cargo zigbuild --locked --release --features jemalloc --bin $(PACKAGE_NAME) --target $(ZIG_TARGET)
 	$(MAKE) check-abi BINARY=$(ZIG_BINARY)
 	$(MAKE) deb-prebuilt BINARY=$(ZIG_BINARY)
 

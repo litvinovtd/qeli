@@ -51,6 +51,16 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             SingleReader = false, // reconnect can briefly overlap a cancelling reader
             FullMode = BoundedChannelFullMode.Wait,
         });
+    private readonly Channel<DeferredPacket> _deferredClassification =
+        Channel.CreateBounded<DeferredPacket>(
+            new BoundedChannelOptions(256)
+            {
+                SingleWriter = true,
+                SingleReader = true,
+                FullMode = BoundedChannelFullMode.Wait,
+            });
+    private const int OwnerRefreshWaitMs = 75;
+    private Thread? _classificationThread;
     private Thread? _captureThread;
     private IntPtr _handle = IntPtr.Zero;
     private readonly object _gate = new();
@@ -70,6 +80,10 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private long _replyDrops;
     private long _earlyFragmentsBuffered;
     private long _reorderedFragmentsReleased;
+    private long _ownerPacketsDeferred;
+    private long _ownerPacketsRetried;
+    private long _ownerPacketsDropped;
+    private long _policyGeneration;
 
     public WinDivertAdapter(
         IPAddress? clientIpv4,
@@ -119,7 +133,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     public void SetTunnelUp(bool up)
     {
         _tunnelUp = up;
-        if (!up) DrainUplink();
+        if (!up)
+        {
+            // A packet captured for one native tunnel generation must never be retried
+            // after disconnect/reconnect against a different generation.
+            lock (_policyGate) _policyGeneration++;
+            DrainUplink();
+        }
     }
 
     /// <summary>Refresh authenticated policy while retaining the capture handle across a
@@ -179,6 +199,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             _dest = replacementDest;
             _carrier = replacementCarrier;
             _tunnelMtu = replacementMtu;
+            _policyGeneration++;
             _flows.Clear();
             _pendingIpv6.Clear();
             _pendingOutboundIpv4.Clear();
@@ -255,7 +276,12 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             $"IPv6 {_clientIpv6?.ToString() ?? "off"}, {_apps.SelectedCount} app path(s), " +
             $"include={_apps.IncludeMode}, allow_ipv4_leak={_allowIpv4Leak}, " +
             $"allow_ipv6_leak={_allowIpv6Leak}, mtu={_tunnelMtu})");
-        _captureThread = new Thread(CaptureLoop)
+        _classificationThread = new Thread(ClassificationLoop)
+        {
+            IsBackground = true,
+            Name = "qeli-windivert-owner-classifier",
+        };
+        _classificationThread.Start();        _captureThread = new Thread(CaptureLoop)
         {
             IsBackground = true,
             Name = "qeli-windivert-capture",
@@ -335,12 +361,115 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 }
             }
         }
-        finally { _uplink.Writer.TryComplete(); }
+        finally
+        {
+            _deferredClassification.Writer.TryComplete();
+            _uplink.Writer.TryComplete();
+        }
     }
 
-    private void HandleIpv4(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
+    private void ClassificationLoop()
+    {
+        while (!_disposed)
+        {
+            DeferredPacket deferred;
+            try
+            {
+                deferred = _deferredClassification.Reader
+                    .ReadAsync()
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (ChannelClosedException)
+            {
+                break;
+            }
+
+            ProcessAppMap ownerMap;
+            lock (_policyGate)
+            {
+                if (_disposed) break;
+                if (deferred.PolicyGeneration != _policyGeneration)
+                {
+                    Interlocked.Increment(ref _ownerPacketsDropped);
+                    continue;
+                }
+                ownerMap = _apps;
+            }
+
+            // Classify() already queued the refresh. Waiting is deliberately isolated on
+            // this worker so the WinDivert receive loop can continue draining the driver.
+            ownerMap.WaitForPendingRefresh(OwnerRefreshWaitMs);
+
+            lock (_policyGate)
+            {
+                if (_disposed) break;
+                if (deferred.PolicyGeneration != _policyGeneration)
+                {
+                    Interlocked.Increment(ref _ownerPacketsDropped);
+                    continue;
+                }
+
+                Interlocked.Increment(ref _ownerPacketsRetried);
+                var address = deferred.Address;
+                byte version = (byte)(deferred.Packet[0] >> 4);
+                if (version == 4)
+                    HandleIpv4(
+                        deferred.Packet, deferred.Packet.Length, ref address,
+                        allowOwnerDeferral: false);
+                else if (version == 6)
+                    HandleIpv6(
+                        deferred.Packet, deferred.Packet.Length, ref address,
+                        allowOwnerDeferral: false);
+                else
+                {
+                    Interlocked.Increment(ref _ownerPacketsDropped);
+                    Interlocked.Increment(ref _policyDrops);
+                }
+            }
+        }
+    }
+
+    private bool DeferOwnerClassification(
+        byte[] packet, int length, in WinDivertNative.WinDivertAddress address)
+    {
+        var copy = new byte[length];
+        Buffer.BlockCopy(packet, 0, copy, 0, length);
+        if (_deferredClassification.Writer.TryWrite(
+                new DeferredPacket(copy, address, _policyGeneration)))
+        {
+            Interlocked.Increment(ref _ownerPacketsDeferred);
+            return true;
+        }
+
+        Interlocked.Increment(ref _ownerPacketsDropped);
+        return false;
+    }
+
+    private void HandleIpv4(
+        byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr,
+        bool allowOwnerDeferral = true)
     {
         var decision = ClassifyIpv4(buf, len, ref addr, out var meta);
+        if (decision == PacketDisposition.Unknown && meta.OwnerLookupPending)
+        {
+            if (allowOwnerDeferral)
+            {
+                if (DeferOwnerClassification(buf, len, in addr))
+                    return;
+            }
+            else
+            {
+                Interlocked.Increment(ref _ownerPacketsDropped);
+            }
+
+            Interlocked.Increment(ref _policyDrops);
+            if (meta.IsFragment && meta.IsFirstFrag)
+                _pendingOutboundIpv4.Discard(new WinDivertFlowTable.FragKey(
+                    meta.OrigSrc, meta.Dst, meta.Proto, meta.IpId));
+            return;
+        }
         bool requireIpv4Tunnel = decision == PacketDisposition.Tunnel
             && (_dest.RequiresTunnel(meta.Dst)
                 || (meta.IsDns && CanTunnelDns()));
@@ -443,7 +572,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
     }
 
-    private void HandleIpv6(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
+    private void HandleIpv6(
+        byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr,
+        bool allowOwnerDeferral = true)
     {
         if (!TryParseIpv6Packet(buf, len, out var ipv6))
         {
@@ -512,6 +643,24 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 _dest.RequiresTunnel(dst) || (isDns && canTunnelDns));
         }
 
+        if (outcome == PacketDisposition.Unknown)
+        {
+            if (allowOwnerDeferral)
+            {
+                if (DeferOwnerClassification(buf, len, in addr))
+                    return;
+            }
+            else
+            {
+                Interlocked.Increment(ref _ownerPacketsDropped);
+            }
+
+            Interlocked.Increment(ref _policyDrops);
+            if (ipv6.IsFragment)
+                _pendingIpv6.Discard(new WinDivertFlowTable.Ipv6FragKey(
+                    src, dst, affinityProto, ipv6.FragmentId));
+            return;
+        }
         WinDivertFlowTable.Ipv6FragKey fragmentKey = default;
         if (ipv6.IsFragment)
         {
@@ -767,6 +916,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         public bool IsFirstFrag;
         public ushort IpId;
         public IPAddress? FragmentTunnelDst;
+        public bool OwnerLookupPending;
     }
 
     private PacketDisposition ClassifyIpv4(
@@ -853,6 +1003,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             : proto is 6 or 17
             ? _apps.Classify(proto, src, localPort, dst, remotePort)
             : PacketDisposition.Drop;
+        meta.OwnerLookupPending = disp == PacketDisposition.Unknown;
         return disp;
     }
 
@@ -2019,7 +2170,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
         if (h != IntPtr.Zero && h != new IntPtr(-1))
             try { WinDivertNative.WinDivertClose(h); } catch { }
+        _deferredClassification.Writer.TryComplete();
         try { _captureThread?.Join(2000); } catch { }
+        try { _classificationThread?.Join(2000); } catch { }
         _uplink.Writer.TryComplete();
         DrainUplink();
         _pendingIpv6.Clear();
@@ -2041,6 +2194,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             + $"reply_drops={Interlocked.Read(ref _replyDrops)} "
             + $"early_fragments_buffered={Interlocked.Read(ref _earlyFragmentsBuffered)} "
             + $"reordered_fragments_released={Interlocked.Read(ref _reorderedFragmentsReleased)} "
+            + $"owner_deferred={Interlocked.Read(ref _ownerPacketsDeferred)} "
+            + $"owner_retried={Interlocked.Read(ref _ownerPacketsRetried)} "
+            + $"owner_deferred_drops={Interlocked.Read(ref _ownerPacketsDropped)} "
             + $"fragment_buffer_drops={_pendingIpv6.DroppedCount + _pendingOutboundIpv4.DroppedCount + _pendingInboundIpv4.DroppedCount + _pendingInboundIpv6.DroppedCount}");
     }
 
@@ -2334,6 +2490,10 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             ArrayPool<byte>.Shared.Return(lease.Buffer);
     }
 
+    private readonly record struct DeferredPacket(
+        byte[] Packet,
+        WinDivertNative.WinDivertAddress Address,
+        long PolicyGeneration);
     private readonly record struct PacketLease(byte[] Buffer, int Length);
     private readonly record struct CapturedFragment(
         byte[] Packet, WinDivertNative.WinDivertAddress Address);

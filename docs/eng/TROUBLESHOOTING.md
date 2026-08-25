@@ -555,8 +555,8 @@ qeli add-client <user> --password '<pw>' --link --host <public-ip>:<port> \
 
 The grey dot on a profile card is a **server reachability probe** (Unknown/grey = not
 probed yet), **not** the tunnel status. The tunnel status is a separate indicator
-(Disconnected/Connecting/Connected/Error). Tap "Ping" / wait for the auto-poll. Green
-for the connected active profile is set directly (probing through the live full-tunnel
+(Disconnected/Connecting/Connected/Error). Tap "Ping" to check it manually; automatic polling is opt-in and disabled by default.
+Green for the connected active profile is set directly (probing through the live full-tunnel
 is unreliable).
 
 ### 6.6 `protect() failed …` (Android) = a conflict with an always-on VPN

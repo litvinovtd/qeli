@@ -201,6 +201,59 @@ pub fn log_sanitize(s: &str) -> String {
     out
 }
 
+/// Return a stable pseudonym suitable for logs instead of a plaintext account name.
+///
+/// The first 96 bits of SHA-256 are enough to correlate one account's events while
+/// keeping usernames, email addresses and control characters out of local or shipped
+/// logs. This is pseudonymisation, not authentication and not an API identifier.
+pub fn log_identity(username: &str) -> String {
+    log_fingerprint("user#", username)
+}
+
+/// Return a stable pseudonym for a session/device key that may embed a username.
+pub fn log_device_identity(device_key: &str) -> String {
+    log_fingerprint("device#", device_key)
+}
+
+fn log_fingerprint(prefix: &str, value: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    const DIGEST_BYTES: usize = 12;
+
+    let digest = Sha256::digest(value.as_bytes());
+    let mut out = String::with_capacity(prefix.len() + DIGEST_BYTES * 2);
+    out.push_str(prefix);
+    for &byte in &digest[..DIGEST_BYTES] {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+#[cfg(test)]
+mod log_identity_tests {
+    use super::log_identity;
+
+    #[test]
+    fn identity_is_stable_distinct_and_contains_no_plaintext() {
+        let alice = log_identity("alice@example.com");
+        assert_eq!(alice, log_identity("alice@example.com"));
+        assert_ne!(alice, log_identity("bob@example.com"));
+        assert!(alice.starts_with("user#"));
+        assert_eq!(alice.len(), 29);
+        assert!(!alice.contains("alice"));
+        assert!(!alice.chars().any(char::is_control));
+    }
+
+    #[test]
+    fn hostile_identity_cannot_forge_a_log_line() {
+        let id = log_identity("alice\nAUTH OK: root");
+        assert!(!id.contains('\n'));
+        assert!(!id.contains("AUTH"));
+    }
+}
+
 /// Write `bytes` to `path` **atomically**: a uniquely-named temp file in the same
 /// directory is written, `fsync`'d, then `rename`d over the target. A crash, power
 /// loss, or full disk mid-write therefore leaves either the previous file fully

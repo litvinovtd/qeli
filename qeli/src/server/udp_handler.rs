@@ -1795,7 +1795,7 @@ async fn handle_udp_auth(
     log::info!(
         "AUTH attempt UDP from {}: user={} on profile '{}'",
         addr,
-        crate::util::log_sanitize(&username),
+        crate::util::log_identity(&username),
         profile.name
     );
 
@@ -1999,7 +1999,7 @@ async fn handle_udp_auth(
                         }
                         log::info!(
                             "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
-                            username, max_sessions, ip, profile.name, dkey
+                            crate::util::log_identity(&username), max_sessions, ip, profile.name, crate::util::log_device_identity(&dkey)
                         );
                     }
                     None => break,
@@ -2022,7 +2022,7 @@ async fn handle_udp_auth(
         Err(error) => {
             log::error!(
                 "UDP: refusing user '{}' on profile '{}': {error}",
-                crate::util::log_sanitize(&username),
+                crate::util::log_identity(&username),
                 profile.name
             );
             sessions.write().await.remove(&addr);
@@ -2061,7 +2061,7 @@ async fn handle_udp_auth(
                     }
                     log::info!(
                     "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
-                    ip, username, ev_dkey, profile.name
+                    ip, crate::util::log_identity(&username), crate::util::log_device_identity(&ev_dkey), profile.name
                 );
                 }
             }
@@ -2095,8 +2095,8 @@ async fn handle_udp_auth(
                     log::info!(
                         "Static IPv6 {} for user '{}' evicts holder device '{}' on profile '{}'",
                         address,
-                        username,
-                        evicted_key,
+                        crate::util::log_identity(&username),
+                        crate::util::log_device_identity(&evicted_key),
                         profile.name
                     );
                 }
@@ -2150,7 +2150,10 @@ async fn handle_udp_auth(
             .map_err(|error| {
                 format!(
                     "cannot allocate {} address set for '{}' on profile '{}': {}",
-                    negotiated_ip_mode, username, profile.name, error
+                    negotiated_ip_mode,
+                    crate::util::log_identity(&username),
+                    profile.name,
+                    error
                 )
             });
         // The old UDP ownership was already evicted under the profile admission lock. If
@@ -2273,7 +2276,7 @@ async fn handle_udp_auth(
                  This profile pushes more than the UDP handshake can carry — reduce the pushed \
                  routes for this user/profile, or use a TCP profile.",
                 profile.name,
-                username,
+                crate::util::log_identity(&username),
                 auth_ok_len,
                 e
             );
@@ -2308,13 +2311,13 @@ async fn handle_udp_auth(
             &db.find_user(&username)
                 .map(|u| crate::server::acl::effective_allowed_networks(u, &db.groups))
                 .unwrap_or_default(),
-            &username,
+            &crate::util::log_identity(&username),
         )
     };
     if !dst_acl.is_unrestricted() {
         log::info!(
             "User '{}' is restricted to {} destination network(s) (allowed_networks)",
-            username,
+            crate::util::log_identity(&username),
             dst_acl.rule_count()
         );
     }
@@ -2331,7 +2334,7 @@ async fn handle_udp_auth(
         Err(error) => {
             log::error!(
                 "UDP: cannot allocate the bounded wire-record pool for '{}' on profile '{}': {}",
-                username,
+                crate::util::log_identity(&username),
                 profile.name,
                 error
             );
@@ -2438,7 +2441,7 @@ async fn handle_udp_auth(
             client.src_guard = Some(crate::server::acl::SrcGuard::new_dual(
                 &assigned_sources,
                 &src_subnets,
-                &username,
+                &crate::util::log_identity(&username),
             ));
             client.exit_access = exit_access;
             client.wire_pool = Some(wire_pool.clone());
@@ -2456,7 +2459,7 @@ async fn handle_udp_auth(
              reassemble it — reduce the pushed routes for this user/profile, or use a TCP \
              profile, if any are still in the field.",
             profile.name,
-            username,
+            crate::util::log_identity(&username),
             auth_ok_len,
             crate::protocol::udp_frag::MAX_CHUNK,
             response_pkts.len()
@@ -2495,8 +2498,11 @@ async fn handle_udp_auth(
         .into_iter()
         .chain(assigned.ipv6.map(std::net::IpAddr::V6))
         .collect();
-    let src_guard =
-        crate::server::acl::SrcGuard::new_dual(&assigned_sources, &src_subnets, &username);
+    let src_guard = crate::server::acl::SrcGuard::new_dual(
+        &assigned_sources,
+        &src_subnets,
+        &crate::util::log_identity(&username),
+    );
     let session = std::sync::Arc::new(crate::server::handler::SessionShared {
         session_id,
         username,

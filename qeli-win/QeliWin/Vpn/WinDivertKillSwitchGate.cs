@@ -13,6 +13,11 @@ namespace QeliWin.Vpn;
 /// </summary>
 internal sealed class WinDivertKillSwitchGate : IDisposable
 {
+    // WinDivert accepts priorities only in [-300, 300]. The drop gate must run before the
+    // normal priority-0 per-app handle so blocked carrier traffic cannot be re-injected by
+    // another Qeli handle first.
+    internal static readonly short DropGatePriority = 300;
+
     private IntPtr _handle;
 
     private WinDivertKillSwitchGate(IntPtr handle) => _handle = handle;
@@ -32,7 +37,7 @@ internal sealed class WinDivertKillSwitchGate : IDisposable
         IntPtr handle = WinDivertNative.WinDivertOpen(
             filter,
             WinDivertNative.WINDIVERT_LAYER_NETWORK,
-            priority: 1000,
+            priority: DropGatePriority,
             WinDivertNative.WINDIVERT_FLAG_DROP);
         if (handle == IntPtr.Zero || handle == new IntPtr(-1))
         {

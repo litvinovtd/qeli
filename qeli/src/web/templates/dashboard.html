@@ -1,4 +1,4 @@
-<div x-data="dashboard()" x-init="init()">
+<div x-data="dashboard">
 
   <!-- ═══ OPERATIONAL WARNINGS (e.g. NAT enabled but iptables missing) ═══ -->
   <template x-for="w in warnings" :key="w">
@@ -16,7 +16,7 @@
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-sm font-semibold text-white">Host load<span x-show="metricsErr" class="text-xs font-normal text-amber-400" title="metrics sampler unreachable"> · unavailable</span></h3>
         <div class="flex items-center gap-3">
-          <span class="text-xs" style="color:var(--txt-dim)" x-text="'pid ' + (sys.proc?.pid || '—')"></span>
+          <span class="text-xs" style="color:var(--txt-dim)" x-text="processId"></span>
           <a href="api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
           <input type="file" x-ref="restoreFile" accept=".gz,.tgz,application/gzip" style="display:none" @change="restore($event)">
           <button class="btn btn-ghost btn-sm" @click="$refs.restoreFile.click()" title="Restore /etc/qeli from a backup .tar.gz">⤒ Restore</button>
@@ -27,16 +27,16 @@
           <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
           <circle cx="40" cy="40" r="30" fill="none" stroke="var(--blue-2)" stroke-width="8" stroke-linecap="round"
             transform="rotate(-90 40 40)" stroke-dasharray="188.5"
-            :stroke-dashoffset="188.5 * (1 - Math.min(100, sys.cpu_pct || 0) / 100)"/>
-          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="Math.round(sys.cpu_pct || 0) + '%'"></text>
+            :stroke-dashoffset="cpuDashOffset"/>
+          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="cpuLabel"></text>
           <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)" x-text="'CPU·' + (sys.cores || 1) + 'c'"></text>
         </svg>
         <svg viewBox="0 0 80 80" style="width:88px;height:88px;flex-shrink:0">
           <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
           <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" stroke-width="8" stroke-linecap="round"
             transform="rotate(-90 40 40)" stroke-dasharray="188.5"
-            :stroke-dashoffset="188.5 * (1 - Math.min(100, sys.mem_pct || 0) / 100)"/>
-          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="Math.round(sys.mem_pct || 0) + '%'"></text>
+            :stroke-dashoffset="memoryDashOffset"/>
+          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="memoryLabel"></text>
           <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)">RAM</text>
         </svg>
         <div class="flex-1 min-w-0" style="margin-left:6px">
@@ -47,23 +47,23 @@
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">qeli proc</div>
-              <div class="font-mono text-white" x-text="(sys.proc?.cpu_pct || 0) + '% · ' + fmt(sys.proc?.rss_bytes || 0)"></div>
+              <div class="font-mono text-white" x-text="processSummary"></div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">memory</div>
-              <div class="font-mono text-white" x-text="fmt(sys.mem_used || 0) + ' / ' + fmt(sys.mem_total || 0)"></div>
+              <div class="font-mono text-white" x-text="memorySummary"></div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">disk</div>
-              <div class="font-mono" :style="'color:' + ((sys.disk_pct || 0) >= 90 ? '#ef4444' : (sys.disk_pct || 0) >= 75 ? '#f59e0b' : 'var(--txt)')" x-text="(sys.disk_pct ?? '—') + '%'"></div>
+              <div class="font-mono" :style="diskStyle" x-text="diskLabel"></div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">WAN net</div>
-              <div class="font-mono"><span style="color:var(--blue-2)" x-text="'↓' + (sys.net?.rx_mbps || 0)"></span> <span style="color:var(--green-2,#10b981)" x-text="'↑' + (sys.net?.tx_mbps || 0)"></span> <span style="color:var(--txt-dim)">Mbps</span></div>
+              <div class="font-mono"><span style="color:var(--blue-2)" x-text="networkRx"></span> <span style="color:var(--green-2,#10b981)" x-text="networkTx"></span> <span style="color:var(--txt-dim)">Mbps</span></div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">conns · uptime</div>
-              <div class="font-mono text-white" x-text="'T' + (sys.conns?.tcp || 0) + ' U' + (sys.conns?.udp || 0) + ' · ' + upStr"></div>
+              <div class="font-mono text-white" x-text="connectionsSummary"></div>
             </div>
           </div>
         </div>
@@ -240,10 +240,10 @@
 
     <div x-show="filtered.length > 0" class="flex flex-col gap-2 px-5 py-3 border-t border-[#21314e] sm:flex-row sm:items-center sm:justify-between">
       <span class="text-xs" style="color:var(--txt-dim)"
-            x-text="`Showing ${pageFrom}–${pageTo} of ${filtered.length} sessions`"></span>
+            x-text="pageRangeLabel"></span>
       <div class="flex items-center gap-2">
         <button class="btn btn-ghost btn-sm" @click="setPage(page - 1)" :disabled="safePage <= 1">Previous</button>
-        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="`Page ${safePage} of ${pageCount}`"></span>
+        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="pageLabel"></span>
         <button class="btn btn-ghost btn-sm" @click="setPage(page + 1)" :disabled="safePage >= pageCount">Next</button>
       </div>
     </div>
@@ -327,8 +327,33 @@ function dashboard() {
     setPage(next) { this.page = Math.min(Math.max(1, next), this.pageCount); },
     clientKey(c) { return [c.profile, c.username, c.ip, c.peer || '', c.client_platform || ''].join('|'); },
     get totalClients() { return this.clients.length; },
+    fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
+    get processId() { return 'pid ' + ((this.sys.proc && this.sys.proc.pid) || '—'); },
+    get cpuDashOffset() { return 188.5 * (1 - Math.min(100, this.sys.cpu_pct || 0) / 100); },
+    get cpuLabel() { return Math.round(this.sys.cpu_pct || 0) + '%'; },
+    get memoryDashOffset() { return 188.5 * (1 - Math.min(100, this.sys.mem_pct || 0) / 100); },
+    get memoryLabel() { return Math.round(this.sys.mem_pct || 0) + '%'; },
+    get processSummary() {
+      const proc = this.sys.proc || {};
+      return (proc.cpu_pct || 0) + '% · ' + this.fmt(proc.rss_bytes || 0);
+    },
+    get memorySummary() { return this.fmt(this.sys.mem_used || 0) + ' / ' + this.fmt(this.sys.mem_total || 0); },
+    get diskStyle() {
+      const value = this.sys.disk_pct || 0;
+      return 'color:' + (value >= 90 ? '#ef4444' : value >= 75 ? '#f59e0b' : 'var(--txt)');
+    },
+    get diskLabel() { return (this.sys.disk_pct === undefined || this.sys.disk_pct === null ? '—' : this.sys.disk_pct) + '%'; },
+    get networkRx() { return '↓' + ((this.sys.net && this.sys.net.rx_mbps) || 0); },
+    get networkTx() { return '↑' + ((this.sys.net && this.sys.net.tx_mbps) || 0); },
+    get connectionsSummary() {
+      const conns = this.sys.conns || {};
+      return 'T' + (conns.tcp || 0) + ' U' + (conns.udp || 0) + ' · ' + this.upStr;
+    },
+    get pageRangeLabel() { return 'Showing ' + this.pageFrom + '–' + this.pageTo + ' of ' + this.filtered.length + ' sessions'; },
+    get pageLabel() { return 'Page ' + this.safePage + ' of ' + this.pageCount; },
 
     async init() {
       await this.load();
@@ -464,4 +489,5 @@ function dashboard() {
 
   };
 }
+document.addEventListener('alpine:init', () => Alpine.data('dashboard', dashboard));
 </script>

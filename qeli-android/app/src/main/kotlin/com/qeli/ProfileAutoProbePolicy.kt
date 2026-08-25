@@ -2,6 +2,7 @@ package com.qeli
 
 /** Shared timing policy for Android's lifecycle-aware automatic profile polling. */
 internal object ProfileAutoProbePolicy {
+    const val DEFAULT_ENABLED = false
     const val DEFAULT_INTERVAL_SECS = 30
     const val MIN_INTERVAL_SECS = 10
     const val MAX_INTERVAL_SECS = 3_600

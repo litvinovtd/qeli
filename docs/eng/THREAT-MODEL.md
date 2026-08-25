@@ -90,14 +90,16 @@ some are explicit engineering trade-offs.
    The residual, when enabled, is a "this host asked GitHub for the qeli repo" signal
    to whatever sees the request (inside the tunnel, that is your own exit's upstream).
 
-9. **Profile reachability polling — ON by default, opt-out.** Windows, macOS and Android
-   periodically contact every configured VPN endpoint to paint the status dot and latency.
-   The default interval is 30 seconds (configurable from 10 to 3600 seconds); automatic
-   sweeps stop while a tunnel is connecting/connected, and Android additionally limits them
-   to a visible app. TCP profiles get a bounded TCP connect; UDP profiles get a
-   credential-free protocol first flight. These diagnostics send no data to the qeli project,
-   but the configured servers and an on-path observer can see their timing. Disable automatic
-   profile checks in Settings when that signal is undesirable; manual checks remain available.
+9. **Profile reachability polling — OFF by default (opt-in).** Windows, macOS and
+   Android periodically contact every configured VPN endpoint only after this feature is
+   explicitly enabled, to paint the status dot and latency. Once enabled, the default
+   interval is 30 seconds (configurable from 10 to 3600 seconds); automatic sweeps stop
+   while a tunnel is connecting/connected, and Android additionally limits them to a
+   visible app. TCP profiles get a bounded TCP connect; UDP profiles get a credential-free
+   protocol first flight. These diagnostics send no data to the qeli project, but the
+   configured servers and an on-path observer can see their timing. With auto-polling off,
+   network probes run only when the user explicitly requests a manual check.
+
 
 10. **Configured server-side egress.** A `reality-tls` handrolled profile probes its configured
     target at startup and every 12 hours to refresh the borrowed certificate/shape. DNS

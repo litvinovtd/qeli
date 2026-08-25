@@ -14,11 +14,31 @@ var callServiceList = rpc.declare({
 	expect: { '': {} }
 });
 
-// LuCI init-action helper (granted in the ACL): start/stop/restart/enable/disable.
-var callInitAction = rpc.declare({
-	object: 'luci',
-	method: 'setInitAction',
-	params: [ 'name', 'action' ],
+// Package-owned rpcd endpoint; unlike luci.setInitAction it cannot control other services.
+var callQeliServiceAction = rpc.declare({
+	object: 'luci.qeli',
+	method: 'service_action',
+	params: [ 'action' ],
+	expect: { result: false }
+});
+
+var callQeliSecretStatus = rpc.declare({
+	object: 'luci.qeli',
+	method: 'secret_status',
+	expect: { '': {} }
+});
+
+var callQeliSetSecret = rpc.declare({
+	object: 'luci.qeli',
+	method: 'set_secret',
+	params: [ 'name', 'value' ],
+	expect: { result: false }
+});
+
+var callQeliClearSecret = rpc.declare({
+	object: 'luci.qeli',
+	method: 'clear_secret',
+	params: [ 'name' ],
 	expect: { result: false }
 });
 
@@ -33,8 +53,24 @@ function getRunning() {
 }
 
 function svc(action) {
-	return callInitAction('qeli', action).then(function () {
+	return callQeliServiceAction(action).then(function (ok) {
+		if (!ok) throw new Error(_('qeli: %s failed').format(action));
 		ui.addNotification(null, E('p', _('qeli: %s requested').format(action)), 'info');
+	});
+}
+
+function setSecret(name, value) {
+	if (!value) return Promise.resolve(); // empty means "leave the existing volatile secret"
+	return callQeliSetSecret(name, value).then(function (ok) {
+		if (!ok) throw new Error(_('Failed to store the volatile %s secret.').format(name));
+		ui.addNotification(null, E('p', _('Volatile %s secret updated. Restart qeli to apply it.').format(name)), 'info');
+	});
+}
+
+function clearSecret(name) {
+	return callQeliClearSecret(name).then(function (ok) {
+		if (!ok) throw new Error(_('Failed to clear the volatile %s secret.').format(name));
+		ui.addNotification(null, E('p', _('Volatile %s secret cleared.').format(name)), 'info');
 	});
 }
 
@@ -55,12 +91,17 @@ function statusText(running, enabled) {
 
 return view.extend({
 	load: function () {
-		return Promise.all([ getRunning(), getEnabled() ]);
+		return Promise.all([
+			getRunning(),
+			getEnabled(),
+			L.resolveDefault(callQeliSecretStatus(), { pass: false, obfs_key: false })
+		]);
 	},
 
 	render: function (data) {
 		var running = data[0];
 		var enabled = data[1];
+		var secretStatus = data[2] || { pass: false, obfs_key: false };
 		var m, s, o;
 
 		m = new form.Map('qeli', _('qeli VPN client'),
@@ -140,8 +181,21 @@ return view.extend({
 		o.default = 'tcp';
 
 		o = s.option(form.Value, 'user', _('Username'));
-		o = s.option(form.Value, 'pass', _('Password'));
+
+		// Underscored options are intentionally not UCI-backed. UCI is persistent flash;
+		// these write through the package-owned RPC into root-only /var/run/qeli instead.
+		o = s.option(form.Value, '_runtime_pass', _('Password (volatile)'),
+			_('Stored only in tmpfs until reboot. Current state: %s. Leave empty to keep it unchanged.')
+				.format(secretStatus.pass ? _('configured') : _('missing')));
 		o.password = true;
+		o.rmempty = true;
+		o.cfgvalue = function () { return ''; };
+		o.write = function (sectionId, value) { return setSecret('pass', value); };
+		o.remove = function () { return Promise.resolve(); };
+
+		o = s.option(form.Button, '_clear_runtime_pass', _('Clear volatile password'));
+		o.inputstyle = 'remove';
+		o.onclick = function () { return clearSecret('pass'); };
 
 		o = s.option(form.Value, 'key', _('Server key'),
 			_('Server identity public key (hex) for pinning — <code>qeli show-identity</code>. ' +
@@ -173,9 +227,20 @@ return view.extend({
 		o = s.option(form.Value, 'reality_sid', _('REALITY short_id'));
 		o.depends('mode', 'reality-tls');
 
-		o = s.option(form.Value, 'obfs_key', _('obfs key'), _('Shared secret — required for obfs.'));
+		o = s.option(form.Value, '_runtime_obfs_key', _('obfs key (volatile)'),
+			_('Required for obfs and stored only in tmpfs until reboot. Current state: %s. Leave empty to keep it unchanged.')
+				.format(secretStatus.obfs_key ? _('configured') : _('missing')));
 		o.depends('mode', 'obfs');
 		o.password = true;
+		o.rmempty = true;
+		o.cfgvalue = function () { return ''; };
+		o.write = function (sectionId, value) { return setSecret('obfs_key', value); };
+		o.remove = function () { return Promise.resolve(); };
+
+		o = s.option(form.Button, '_clear_runtime_obfs_key', _('Clear volatile obfs key'));
+		o.depends('mode', 'obfs');
+		o.inputstyle = 'remove';
+		o.onclick = function () { return clearSecret('obfs_key'); };
 
 		o = s.option(form.ListValue, 'front', _('obfs fronting'));
 		o.value('websocket', 'websocket (default)');

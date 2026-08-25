@@ -21,8 +21,10 @@ namespace QeliMac.Vpn;
 /// REQUIRES root (the tunnel already does). Before loading the fail-closed rules, the
 /// system-TUN path reserves the real utun device and passes that exact name here. During
 /// an atomic persisted-plan replacement both the old and replacement names are allowed;
-/// after the swap only the live device remains. RUNTIME-UNVERIFIED in this build — exercise on
-/// a real Mac before shipping, since a bug here can block the machine's outbound.
+/// after the swap only the live device remains. CI parses, loads, reads back and flushes the
+/// production-generated rules in a disposable, unreferenced pf anchor on macOS. A full traffic-
+/// blocking exercise remains a physical release gate because intentionally referencing that
+/// anchor would sever the hosted runner's control connection.
 /// </summary>
 public static class KillSwitch
 {
@@ -230,6 +232,17 @@ public static class KillSwitch
             throw new InvalidOperationException(
                 "kill-switch: tunnel allowlist must contain only actual utunN interface names");
         return result;
+    }
+
+    /// <summary>Emit the exact production ruleset used by the macOS CI pf runtime gate.</summary>
+    internal static void WriteRuntimeSelfTestRules(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("pf self-test rules path is empty", nameof(path));
+        File.WriteAllText(path, BuildRules(
+            new[] { "203.0.113.7", "2001:db8::7" },
+            new[] { "1.1.1.1", "2606:4700:4700::1111" },
+            new[] { "utun27" }));
     }
 
     internal static void RunSelfTests(Action<string, bool> check)

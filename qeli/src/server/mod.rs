@@ -1962,6 +1962,17 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // reality_proxy is the shipped "REALITY token, fake-TLS inner" variant
         // (server-multiprofile.conf) and `fake-tls` + real_tls is server-maxobf.conf. Only the
         // NAME is being held to its promise here. (Audit 2026-08-03, P2.)
+        // The hand-rolled REALITY terminator deliberately borrows the decoy's certificate
+        // without its private key, so that outer certificate is camouflage rather than an
+        // authentication boundary. The inner pinned static key is the real server identity;
+        // require the KDF to bind it into every real-TLS session instead of permitting a
+        // configuration whose only remaining authentication guarantee is accidentally weaker.
+        if rp.enabled && rp.real_tls && !config.auth.bind_static_to_session {
+            anyhow::bail!(
+                "profile '{}': REALITY real-TLS requires auth.bind_static_to_session = true —                  the borrowed outer certificate is camouflage, so the pinned static identity                  must be bound into the inner session keys",
+                p.name
+            );
+        }
         if p.obfuscation.mode == "reality-tls" && !rp.enabled {
             anyhow::bail!(
                 "profile '{}': obf.mode = reality-tls but obf.tls.reality_proxy.enabled is \
@@ -3511,7 +3522,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
                         profile.pool.lock().await.release(&s.device_key);
                         log::info!(
                             "usage: disconnected '{}' on profile '{}' — over quota / expired",
-                            s.username,
+                            crate::util::log_identity(&s.username),
                             pname
                         );
                         // Notify (opt-in): forced off for quota/expiry.
@@ -7140,6 +7151,23 @@ pool.cidr = 10.{net}.0.0/24
         assert!(validate_profiles(&tcp).is_ok());
     }
 
+    #[test]
+    fn reality_real_tls_requires_static_session_binding() {
+        let mut config = cfg_with("reality-tls", "tcp");
+        config.profiles[0].obfuscation.tls.reality_proxy.enabled = true;
+        config.profiles[0].obfuscation.tls.reality_proxy.short_ids =
+            vec!["0123456789abcdef".into()];
+        config.profiles[0].obfuscation.tls.reality_proxy.real_tls = true;
+        config.auth.bind_static_to_session = false;
+
+        let error = validate_profiles(&config)
+            .expect_err("REALITY real-TLS must bind the pinned static identity")
+            .to_string();
+        assert!(
+            error.contains("auth.bind_static_to_session = true"),
+            "unexpected error: {error}"
+        );
+    }
     #[test]
     fn plain_wire_mode_is_rejected_on_udp() {
         // `plain` (raw) is TCP-only by design: a raw datagram stream is a

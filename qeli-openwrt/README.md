@@ -51,12 +51,13 @@ qeli-openwrt/
    client-bin`, no `ring` → works on mips), installed to `/usr/bin/qeli-client` and run
    directly as `qeli-client --config <file>` (no subcommand; the default `qeli` bin with
    subcommands needs the server+client features).
-2. **Config**: the operator edits **UCI** (`/etc/config/qeli`) or LuCI — never the INI.
-   On start, `qeli.init` renders UCI → a 0600 flat-INI in **tmpfs** (`/var/run/qeli/client.conf`,
-   so the *rendered* config never lands on flash) and runs `qeli client --config …` under **procd**
-   (respawn + logs to `logread`). Note: the UCI source `/etc/config/qeli` still stores the
-   password (and `obfs_key`) in **plaintext on flash** — keep it `chmod 600`; tmpfs only avoids
-   a second on-flash copy, it doesn't make the secret disappear.
+2. **Config and secrets**: non-secret settings live in **UCI** (`/etc/config/qeli`) or LuCI.
+   Password and `obfs_key` are never UCI options: they are 0600 files below
+   `/var/run/qeli/` (tmpfs). On start, `qeli.init` renders a 0600 flat-INI in the same
+   tmpfs and passes the password through `password_file`. Secrets therefore must be
+   provisioned again after every reboot, either in LuCI or from a trusted boot-time secret
+   provider. On first upgrade, legacy UCI secrets are moved to tmpfs and deleted from the
+   live UCI config; rotate them because flash wear levelling may retain older blocks.
 3. **Persistence**: `QELI_DEVICE_ID_FILE` + `QELI_KNOWN_HOSTS` live in `/etc/qeli/`
    (persistent overlay; `/tmp` and `/var` are tmpfs and reset on reboot) so the server
    doesn't see a "new device" every boot and the TOFU pin survives.
@@ -72,7 +73,9 @@ qeli-openwrt/
 ```sh
 opkg install qeli luci-app-qeli      # from the feed, or `opkg install ./qeli_*.ipk`
 uci set qeli.main.server='vpn.example.com:443'
-uci set qeli.main.user='router1'; uci set qeli.main.pass='…'
+uci set qeli.main.user='router1'
+# Read from stdin: the secret does not enter UCI, process argv or persistent flash.
+printf '%s\n' 'PASSWORD' | /etc/init.d/qeli set_secret pass
 uci set qeli.main.key='<server identity hex from: qeli show-identity>'
 # H-1 MUST match the server, and the server default is ON. The shipped UCI default is
 # '0' because the shipped key is the all-zero TOFU placeholder — the moment you set a
@@ -87,7 +90,8 @@ uci set qeli.main.enabled='1'; uci commit qeli
 logread -e qeli                      # look for "Auth OK"
 ```
 
-Or just use **LuCI → Services → qeli VPN**.
+Or use **LuCI → Services → qeli VPN**. The password fields are write-only and show only
+whether a volatile secret exists; an empty field leaves the current value unchanged.
 
 ## Notes / open items
 

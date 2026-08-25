@@ -34,29 +34,18 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 
 ## 1. fake-TLS, the client side (ClientHello)
 
-### 1.1 [CRIT] A ClientHello without ALPN — and this is also used as the "ours" marker
-- **Where:** [tls.rs build_client_hello](../../qeli/src/protocol/tls.rs) doesn't add
-  the ALPN extension (`0x0010`). The server detector [reality.rs](../../qeli/src/server/reality.rs)
-  (`has_alpn_extension`) explicitly relies on this: *ALPN present → a foreigner → bridge to
-  the real site; no ALPN → a qeli client*.
-- **Why it gives it away:** real Chrome/Firefox/Safari **always** send ALPN (`h2`,
-  `http/1.1`). A ClientHello on :443 without ALPN is no longer "like a browser". A single
-  DPI rule (`tls.client_hello and not tls.alpn`) deterministically singles out all qeli
-  traffic (**D1/D2**). This is probably the worst single tell.
-- **Status — ✅ addressed in the REALITY modes:** the "ours/foreigner" discriminator is now
-  **cryptographic** (a REALITY token in the `session_id`, not "no ALPN"), and when a token
-  is present the ClientHello **adds ALPN** (`h2`/`http/1.1`) — it reads as a browser
-  ([tls.rs](../../qeli/src/protocol/tls.rs)). In `reality-tls` it's a real
-  Chrome ClientHello altogether. Bare `fake-tls` without a REALITY token still doesn't
-  send ALPN.
+### 1.1 [CRIT] ClientHello without ALPN — ✅ fixed
+- **Before:** missing ALPN selected qeli with one rule and doubled as an unauthenticated
+  “ours” marker.
+- **Status:** both bare `fake-tls` and `reality-tls` always offer `h2`/`http/1.1`;
+  REALITY classifies clients only by its cryptographic token/key_share. A regression test
+  requires ALPN in the complete Chrome-shaped extension set.
 
-### 1.2 [HIGH] A non-browser cipher-suite set
-- **Where:** [tls.rs](../../qeli/src/protocol/tls.rs) — GREASE + exactly 3
-  suites (`1301/1302/1303`).
-- **Why it gives it away:** Chrome sends ~15+ suites (including legacy ECDHE-RSA/ECDSA for
-  compatibility). A 4-element list → the JA4 `ciphers` segment matches no real client. The
-  extension shuffle ([tls.rs](../../qeli/src/protocol/tls.rs)) does **not** fix this:
-  JA4 sorts the fields before hashing, and the cipher set is still "non-Chrome".
+### 1.2 [HIGH] Non-browser cipher-suite set — ✅ fixed
+- **Before:** GREASE plus only `1301/1302/1303`, a stable non-browser JA4.
+- **Status:** bare `fake-tls` consumes the same single 15-suite Chrome list as
+  `reality-tls`, plus a separate GREASE value. Tests pin the exact order and set;
+  the erroneous ban on modern `0xCCA9` is gone.
 
 ### 1.3 [HIGH] Few supported_groups — ✅ addressed (the PQ group added)
 - **Where:** [tls.rs build_supported_groups_extension](../../qeli/src/protocol/tls.rs).
@@ -67,17 +56,12 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   supported_groups + the corresponding PQ key_share (1216 B on the wire), like Chrome
   (`build_supported_groups_extension` / `build_key_share_extension`).
 
-### 1.4 [HIGH] Missing extensions that a browser always sends
-- **Where:** the extension list in [tls.rs](../../qeli/src/protocol/tls.rs).
-- **Why it gives it away:** there's no `ec_point_formats` (0x000B), `status_request`/OCSP
-  (0x0005), `signed_certificate_timestamp` (0x0012), `renegotiation_info` (0xFF01),
-  `application_settings`/ALPS (0x4469), `session_ticket` (0x0023). Their collective absence
-  gives a JA4 fingerprint that belongs to no mass-market client → a D2 block by an "unknown
-  fingerprint".
-- **Status — partial:** added `extended_master_secret` (0x17), `psk_key_exchange_modes`,
-  `compress_certificate` (0x1b), and ALPN (in the REALITY modes). In `reality-tls` the
-  ClientHello is real Chrome (the full set). Bare `fake-tls` is still incomplete on
-  status_request/SCT/renegotiation_info/ALPS.
+### 1.4 [HIGH] Missing always-present browser extensions — ✅ fixed
+- **Before:** bare `fake-tls` omitted OCSP, SCT, ec_point_formats, session_ticket,
+  renegotiation_info and ALPS.
+- **Status:** the builder emits the complete Chrome-shaped set with GREASE, ALPN, TLS
+  1.3/1.2, PQ/classic key_share and shuffled middle extensions. The test parses the actual
+  extension block and requires every critical type instead of scanning random bytes.
 
 ### 1.5 [MED] An outdated signature_algorithms — ✅ fixed
 - **Where:** [tls.rs build_signature_algorithms_extension](../../qeli/src/protocol/tls.rs).
@@ -85,13 +69,14 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   browsers have dropped. A contribution to the JA4 mismatch.
 - **Status — ✅ fixed:** `rsa_pkcs1_sha1` (0x0201) removed from the list.
 
-### 1.6 [HIGH] SNI↔IP inconsistency (a decoy pool)
-- **Where:** [tls.rs DEFAULT_SNI_POOL / pick_random_sni](../../qeli/src/protocol/tls.rs).
-- **Why it gives it away:** the client sends the SNI `www.google.com` to an IP that does
-  **not** belong to Google. D2 checks the SNI against the destination range (passive DNS /
-  ASN) → a mismatch = the classic domain-fronting indicator. Worse: **SNI rotation** to the
-  same dst-IP between connections (a different decoy each time) — a signature that
-  legitimate clients never have (one host → a stable SNI).
+### 1.6 [HIGH] SNI↔IP inconsistency (decoy pool) — ✅ default path fixed
+- **Before:** a bare IP selected a new Google/Cloudflare/Microsoft name on every reconnect.
+- **Status:** the random client decoy pool is gone. `fake-tls` correctly omits SNI for a
+  bare IP; WebSocket obfs puts the actual IP in `Host` (bracketed for IPv6); `reality-tls`
+  requires an explicit valid DNS `sni` for an IP endpoint. Control characters and invalid
+  names fail before connecting. An explicit operator front remains the operator’s
+  responsibility: qeli cannot prove CDN/anycast membership from one DNS snapshot without
+  false failures.
 
 ---
 

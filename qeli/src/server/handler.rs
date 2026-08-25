@@ -363,7 +363,11 @@ impl SessionShared {
     pub fn note_path_mtu(&self, mtu: u16) {
         note_path_mtu(
             &self.path_mtu,
-            format_args!("'{}' ({})", self.username, self.client_ip),
+            format_args!(
+                "'{}' ({})",
+                crate::util::log_identity(&self.username),
+                self.client_ip
+            ),
             mtu,
         );
     }
@@ -374,7 +378,7 @@ impl SessionShared {
             &self.client_info,
             format_args!(
                 "'{}' ({})",
-                crate::util::log_sanitize(&self.username),
+                crate::util::log_identity(&self.username),
                 self.client_ip
             ),
             version,
@@ -520,7 +524,7 @@ where
                 "AUTH attempt from {} on profile '{}': user={}",
                 addr,
                 pcfg.name,
-                crate::util::log_sanitize(&username)
+                crate::util::log_identity(&username)
             );
             verify_client_auth(
                 &server_state,
@@ -673,7 +677,7 @@ where
                         evicted_client_routes.extend(sessions.take_client_routes(old.client_ip));
                         log::info!(
                             "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
-                            address, username, old.device_key, profile.name
+                            address, crate::util::log_identity(&username), crate::util::log_device_identity(&old.device_key), profile.name
                         );
                         cap_evicted.push(old);
                     }
@@ -701,7 +705,7 @@ where
                                     .extend(sessions.take_client_routes(oldest_ip));
                                 log::info!(
                                     "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
-                                    username, max_sessions, oldest_ip, profile.name, dkey
+                                    crate::util::log_identity(&username), max_sessions, oldest_ip, profile.name, crate::util::log_device_identity(&dkey)
                                 );
                                 // This evicted device's own stream won't release its IP
                                 // (it's no longer in by_ip under its session_id), so the
@@ -785,7 +789,7 @@ where
                         anyhow::anyhow!(
                             "cannot allocate {} address set for '{}' on profile '{}': {}",
                             negotiated_ip_mode,
-                            username,
+                            crate::util::log_identity(&username),
                             profile.name,
                             error
                         )
@@ -822,7 +826,7 @@ where
                 let acl = crate::server::acl::DstAcl::compile(
                     &u.map(|u| crate::server::acl::effective_allowed_networks(u, &users_db.groups))
                         .unwrap_or_default(),
-                    &username,
+                    &crate::util::log_identity(&username),
                 );
                 let subnets = u.map(|u| u.client_subnets.clone()).unwrap_or_default();
                 (routes, exit_access, bw, acl, subnets)
@@ -833,12 +837,15 @@ where
                 .into_iter()
                 .chain(assigned.ipv6.map(std::net::IpAddr::V6))
                 .collect();
-            let src_guard =
-                crate::server::acl::SrcGuard::new_dual(&assigned_sources, &src_subnets, &username);
+            let src_guard = crate::server::acl::SrcGuard::new_dual(
+                &assigned_sources,
+                &src_subnets,
+                &crate::util::log_identity(&username),
+            );
             if !dst_acl.is_unrestricted() {
                 log::info!(
                     "User '{}' is restricted to {} destination network(s) (allowed_networks)",
-                    username,
+                    crate::util::log_identity(&username),
                     dst_acl.rule_count()
                 );
             }
@@ -849,7 +856,7 @@ where
                     profile.pool.lock().await.release(&dkey);
                     return Err(anyhow::anyhow!(
                         "cannot allocate the bounded wire-record pool for user '{}' on profile '{}': {}",
-                        username,
+                        crate::util::log_identity(&username),
                         profile.name,
                         error
                     ));
@@ -950,7 +957,7 @@ where
                     return Err(anyhow::anyhow!(
                         "cannot install client_subnet '{}' for user '{}' on profile '{}': {} ({} in-memory route(s) rolled back)",
                         cidr,
-                        crate::util::log_sanitize(&username),
+                        crate::util::log_identity(&username),
                         profile.name,
                         error,
                         orphan_routes.len()
@@ -999,7 +1006,7 @@ where
                     "Client {} ({}) failed to receive AUTH OK on profile '{}' ({}) — session, \
                      pool address {} and {} iroute(s) rolled back",
                     addr,
-                    username,
+                    crate::util::log_identity(&username),
                     profile.name,
                     e,
                     client_ip,
@@ -1016,7 +1023,12 @@ where
 
             log::info!(
                 "Client {} ({}) connected on profile '{}', IP: {}, bandwidth_limit: {} Mbps, streams<={}",
-                addr, username, profile.name, client_ip, initial_bandwidth_mbps, max_streams
+                addr,
+                crate::util::log_identity(&username),
+                profile.name,
+                client_ip,
+                initial_bandwidth_mbps,
+                max_streams
             );
             (session, true)
         }
@@ -1037,7 +1049,7 @@ where
                 return Err(anyhow::anyhow!(
                     "JOIN exceeds max_streams ({}) for user '{}'",
                     session.max_streams,
-                    session.username
+                    crate::util::log_identity(&session.username)
                 ));
             }
             // Ack so the client confirms attachment before pumping data.
@@ -1046,7 +1058,7 @@ where
             log::info!(
                 "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
                 stream_index,
-                session.username,
+                crate::util::log_identity(&session.username),
                 session.client_ip,
                 profile.name,
                 addr
@@ -1270,7 +1282,7 @@ async fn run_stream<R, W>(
         log::warn!(
             "Stream from {} dropped: session for '{}' already at max_streams ({})",
             addr,
-            session.username,
+            crate::util::log_identity(&session.username),
             session.max_streams
         );
         return;
@@ -1353,7 +1365,7 @@ async fn run_stream<R, W>(
                                     if !session_r.src_guard.allows_packet(&plaintext) {
                                         log::debug!(
                                             "dropped packet from '{}' — disallowed inner source {} (expected {} or a routed subnet)",
-                                            session_r.username,
+                                            crate::util::log_identity(&session_r.username),
                                             crate::server::acl::packet_source(&plaintext)
                                                 .map(|source| source.to_string())
                                                 .unwrap_or_else(|| "<malformed>".to_string()),
@@ -1366,7 +1378,7 @@ async fn run_stream<R, W>(
                                     {
                                         log::debug!(
                                             "ACL: dropped packet from '{}' — destination not in allowed_networks",
-                                            session_r.username
+                                            crate::util::log_identity(&session_r.username)
                                         );
                                         continue;
                                     }
@@ -1621,7 +1633,7 @@ async fn run_stream<R, W>(
                 if let Some(rx_dead) = rx_dead_ms {
                     if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
                         log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
-                            addr, session.username, rx_dead / 1000, profile.name);
+                            addr, crate::util::log_identity(&session.username), rx_dead / 1000, profile.name);
                         break;
                     }
                 }
@@ -1668,7 +1680,7 @@ async fn run_stream<R, W>(
             log::info!(
                 "Client {} ({}) disconnected from profile '{}'",
                 addr,
-                session.username,
+                crate::util::log_identity(&session.username),
                 profile.name
             );
             // Notify (opt-in) — this guarded block is the fire-once per-session TCP
@@ -1978,7 +1990,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — server key not pinned (require_client_key_proof)",
                 proto,
                 addr,
-                crate::util::log_sanitize(username)
+                crate::util::log_identity(username)
             );
             // Count against the source IP only: a probe that fails the
             // server-key proof never proved interest in this username, so it
@@ -2004,7 +2016,7 @@ pub async fn verify_client_auth(
                 "AUTH BLOCKED {} {}: user={} — {}",
                 proto,
                 addr,
-                crate::util::log_sanitize(username),
+                crate::util::log_identity(username),
                 msg
             );
             return Err(anyhow::anyhow!("authentication blocked: {}", msg));
@@ -2033,7 +2045,7 @@ pub async fn verify_client_auth(
                     "AUTH FAIL {} {}: user={} — not found or disabled",
                     proto,
                     addr,
-                    crate::util::log_sanitize(username)
+                    crate::util::log_identity(username)
                 );
                 drop(db);
                 // Spend the same Argon2 work as the wrong-password path below, so an
@@ -2068,14 +2080,17 @@ pub async fn verify_client_auth(
                         3600,
                         crate::server::notify::Event::AuthLockout,
                         &format!(
-                            "{} locked after repeated wrong VPN credentials (last user: '{}')",
+                            "{} locked after repeated wrong VPN credentials (last user: {})",
                             addr.ip(),
-                            username
+                            crate::util::log_identity(username)
                         ),
                     )
                     .await;
                 }
-                return Err(anyhow::anyhow!("user not found or disabled: {}", username));
+                return Err(anyhow::anyhow!(
+                    "user not found or disabled: {}",
+                    crate::util::log_identity(username)
+                ));
             }
         }
     };
@@ -2093,7 +2108,12 @@ pub async fn verify_client_auth(
         use argon2::PasswordVerifier;
         argon2::Argon2::default()
             .verify_password(&pw_bytes, &ph)
-            .map_err(|_| anyhow::anyhow!("invalid password for user: {}", uname))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "invalid password for user: {}",
+                    crate::util::log_identity(&uname)
+                )
+            })
     })
     .await?;
 
@@ -2102,7 +2122,7 @@ pub async fn verify_client_auth(
             "AUTH FAIL {} {}: user={} — wrong password",
             proto,
             addr,
-            crate::util::log_sanitize(username)
+            crate::util::log_identity(username)
         );
         let locked = server_state
             .failed_auth
@@ -2115,9 +2135,9 @@ pub async fn verify_client_auth(
                 3600,
                 crate::server::notify::Event::AuthLockout,
                 &format!(
-                    "{} locked after repeated wrong VPN credentials (last user: '{}')",
+                    "{} locked after repeated wrong VPN credentials (last user: {})",
                     addr.ip(),
-                    username
+                    crate::util::log_identity(username)
                 ),
             )
             .await;
@@ -2137,12 +2157,12 @@ pub async fn verify_client_auth(
             "AUTH DENIED {} {}: user={} not permitted on profile '{}'",
             proto,
             addr,
-            crate::util::log_sanitize(username),
+            crate::util::log_identity(username),
             profile.name
         );
         return Err(anyhow::anyhow!(
             "user '{}' not authorised for profile '{}'",
-            username,
+            crate::util::log_identity(username),
             profile.name
         ));
     }
@@ -2155,7 +2175,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — account expired",
                 proto,
                 addr,
-                crate::util::log_sanitize(username)
+                crate::util::log_identity(username)
             );
             return Err(anyhow::anyhow!("account expired"));
         }
@@ -2168,7 +2188,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — download quota exhausted ({} / {} GB down)",
                 proto,
                 addr,
-                crate::util::log_sanitize(username),
+                crate::util::log_identity(username),
                 used / 1_000_000_000,
                 data_limit_gb
             );
@@ -2180,7 +2200,7 @@ pub async fn verify_client_auth(
         "AUTH OK {} {}: user={} on profile '{}'",
         proto,
         addr,
-        crate::util::log_sanitize(username),
+        crate::util::log_identity(username),
         profile.name
     );
     Ok(())
@@ -2220,7 +2240,7 @@ pub fn resolve_static_ip(
             anyhow::anyhow!(
                 "static_ip '{}' for user '{}' on profile '{}' is invalid: {error}",
                 configured,
-                crate::util::log_sanitize(username),
+                crate::util::log_identity(username),
                 pcfg.name
             )
         })
@@ -2250,7 +2270,7 @@ pub fn resolve_static_ipv6(
             anyhow::anyhow!(
                 "static_ipv6 '{}' for user '{}' on profile '{}' is invalid: {error}",
                 configured,
-                crate::util::log_sanitize(username),
+                crate::util::log_identity(username),
                 pcfg.name
             )
         })
@@ -2695,7 +2715,7 @@ pub(crate) fn register_client_subnets(
         ) {
             log::warn!(
                 "iroute: skipping client_subnet '{cidr}' for user '{}' because its address family was not negotiated for this session",
-                crate::util::log_sanitize(username)
+                crate::util::log_identity(username)
             );
             continue;
         }
@@ -2703,7 +2723,8 @@ pub(crate) fn register_client_subnets(
             Some(r) => r,
             None => {
                 log::warn!(
-                    "iroute: skipping malformed client_subnet '{cidr}' for user '{username}'"
+                    "iroute: skipping malformed client_subnet '{cidr}' for user '{}'",
+                    crate::util::log_identity(username)
                 );
                 continue;
             }
@@ -2715,8 +2736,9 @@ pub(crate) fn register_client_subnets(
                 .any(|address| r.contains(*address))
         {
             log::warn!(
-                "iroute: refusing client_subnet '{cidr}' (user '{username}') — it would capture the tunnel gateway"
-            );
+                "iroute: refusing client_subnet '{cidr}' (user '{}') — it would capture the tunnel gateway",
+                crate::util::log_identity(username)
+                );
             continue;
         }
         if let Some(existing) = sessions
@@ -2727,22 +2749,19 @@ pub(crate) fn register_client_subnets(
             if existing.client_ip != client_ip {
                 log::warn!(
                     "iroute: '{cidr}' (user '{}') is already claimed by another client — skipping",
-                    crate::util::log_sanitize(username)
+                    crate::util::log_identity(username)
                 );
             } else {
                 log::debug!(
                     "iroute: duplicate client_subnet '{cidr}' for user '{}' — keeping one canonical route",
-                    crate::util::log_sanitize(username)
+                    crate::util::log_identity(username)
                 );
             }
             continue;
         }
-        // Sanitize the username on the way to the log like every other user-derived value —
-        // a CR/LF in it could otherwise forge log records (CWE-117). These two were the last
-        // raw `{username}` sites left in server/. (H-8)
         log::info!(
             "iroute: {cidr} -> client {} ({client_ip}) on profile '{profile_name}'",
-            crate::util::log_sanitize(username)
+            crate::util::log_identity(username)
         );
         // `/0` is an internal session-to-session next hop. Never turn it into the Linux
         // host default route: the qeli server's own listener/WAN packets would be captured

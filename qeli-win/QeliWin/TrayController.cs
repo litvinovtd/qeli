@@ -55,7 +55,7 @@ public sealed class TrayController : IDisposable
         {
             Visible = true,
             Icon = _icons[VpnStatus.Disconnected],
-            Text = "Qeli — отключено",
+            Text = Truncate(TooltipFor(VpnStatus.Disconnected, null), 63),
             ContextMenuStrip = _menu,
         };
         _icon.DoubleClick += (_, _) => _onShowWindow();

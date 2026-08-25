@@ -194,7 +194,8 @@ pub async fn share_link(
 }
 
 /// Render a `qeli://` URI to a self-contained SVG QR code (no JS/CDN needed —
-/// the markup is injected straight into the page). Returns `null` on the rare
+/// the UI percent-encodes it into an `<img>` data URI; it is never injected as HTML).
+/// Returns `null` on the rare
 /// failure (e.g. payload exceeds QR capacity), so the UI can still show the URI.
 fn render_qr_svg(data: &str) -> Option<String> {
     use qrcode::{render::svg, QrCode};
