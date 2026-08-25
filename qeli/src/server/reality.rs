@@ -342,7 +342,11 @@ where
     let mut buf = vec![0u8; 16 * 1024];
     loop {
         let n = match tokio::time::timeout(idle, r.read(&mut buf)).await {
-            Ok(Ok(0)) => return Ok(()), // clean EOF
+            Ok(Ok(0)) => {
+                // Propagate this direction's FIN while leaving the reverse direction alive.
+                w.shutdown().await?;
+                return Ok(());
+            }
             Ok(Ok(n)) => n,
             Ok(Err(e)) => return Err(e),
             Err(_) => {
@@ -385,12 +389,10 @@ async fn bridge_to_target(inbound: TcpStream, target: &str) -> anyhow::Result<()
     let fwd = copy_until_idle(ri, wo, BRIDGE_IDLE_TIMEOUT);
     let rev = copy_until_idle(ro, wi, BRIDGE_IDLE_TIMEOUT);
 
-    let bridged = async {
-        tokio::select! {
-            r = fwd => r,
-            r = rev => r,
-        }
-    };
+    // Wait for both directions. The first clean EOF now half-closes its destination rather
+    // than cancelling the reverse copy, so protocols that send a request, FIN, then read a
+    // response are bridged correctly. Errors still cancel the sibling through try_join.
+    let bridged = async { tokio::try_join!(fwd, rev).map(|_| ()) };
 
     // Absolute cap on top of the idle timeout: a peer that dribbles one byte per
     // minute stays under the idle bound indefinitely otherwise.
@@ -484,7 +486,7 @@ async fn recv_peek(stream: &TcpStream, len: usize, budget_ms: u64) -> std::io::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     /// `has_alpn_extension` walks attacker-controlled length fields and decides whether a peer
@@ -607,5 +609,25 @@ mod tests {
         let got = recv_peek(&server, payload.len(), 1500).await.unwrap();
         assert_eq!(got, payload, "recv_peek must reassemble every segment");
         writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn copy_until_idle_propagates_half_close() {
+        let (mut source_peer, source) = tokio::io::duplex(1024);
+        let (sink, mut sink_peer) = tokio::io::duplex(1024);
+        let copy =
+            tokio::spawn(
+                async move { copy_until_idle(source, sink, Duration::from_secs(1)).await },
+            );
+
+        source_peer.write_all(b"request").await.unwrap();
+        source_peer.shutdown().await.unwrap();
+        let mut received = Vec::new();
+        tokio::time::timeout(Duration::from_secs(1), sink_peer.read_to_end(&mut received))
+            .await
+            .expect("destination must observe propagated EOF")
+            .unwrap();
+        assert_eq!(received, b"request");
+        copy.await.unwrap().unwrap();
     }
 }

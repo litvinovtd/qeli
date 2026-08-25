@@ -337,6 +337,8 @@ pub struct NetworkDataPlaneFacts {
     pub padding_enabled: bool,
     pub padding_min: u16,
     pub padding_max: u16,
+    /// Largest authenticated traffic-normalization target, zero when disabled/empty.
+    pub normalization_max: u16,
     pub heartbeat_enabled: bool,
     pub heartbeat_interval_ms: u64,
     pub shaping_enabled: bool,
@@ -350,6 +352,17 @@ impl NetworkDataPlaneFacts {
             padding_enabled: config.padding.enabled,
             padding_min: config.padding.min_bytes,
             padding_max: config.padding.max_bytes,
+            normalization_max: if config.traffic_normalization.enabled {
+                config
+                    .traffic_normalization
+                    .round_sizes
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0)
+            } else {
+                0
+            },
             heartbeat_enabled: config.heartbeat.enabled,
             heartbeat_interval_ms: config.heartbeat.interval_ms,
             shaping_enabled: config.traffic_shaping.enabled,
@@ -977,6 +990,19 @@ impl ClientCore {
         Ok(())
     }
 
+    fn network_plan_record_budget(plan: &NetworkPlan) -> usize {
+        usize::from(plan.mtu)
+            .max(usize::from(plan.data_plane.normalization_max))
+            .saturating_add(usize::from(plan.data_plane.padding_max))
+            .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
+            // Nonce, tag, counter, padding length and headroom for future record fields.
+            .saturating_add(128)
+            .min(
+                crate::protocol::packet::TLS_RECORD_HEADER
+                    + crate::protocol::packet::MAX_RECORD_SIZE,
+            )
+    }
+
     /// Publish the system configuration learned during the handshake.
     ///
     /// The data plane calls this after authentication. The core remains paused in
@@ -1007,6 +1033,9 @@ impl ClientCore {
             return Err(CoreError::MissingCapability { missing });
         }
         self.require_event_slots(2)?;
+        // Every publication path, including direct native/iOS plans, must size the packet
+        // bridge from the final authenticated plan rather than a stale zero/default slot.
+        self.last_downlink_record_bytes = Self::network_plan_record_budget(&plan);
         self.pending_plan = Some(plan.generation);
         self.state = ClientState::AwaitingNetwork;
         self.push_event(EventKind::StateChanged, None, None, None, None);
@@ -1085,24 +1114,6 @@ impl ClientCore {
             effective_obfuscation.traffic_shaping = pushed.traffic_shaping.clone();
         }
         plan.data_plane = NetworkDataPlaneFacts::from_obfuscation(&effective_obfuscation);
-        // Remember how big one inbound wire record can get, while MTU and the PUSHED
-        // obfuscation are both in hand: `ack_network_plan` builds the packet bridge and would
-        // otherwise have to reserve a protocol-maximum 64 KiB per slot, which is what left the
-        // bridge with 32-64 buffers — a few milliseconds of traffic — and made it drop inbound
-        // packets whenever the platform writer stalled. Same reasoning as the TUN pumps.
-        self.last_downlink_record_bytes = usize::from(input.effective_mtu)
-            .max(
-                effective_obfuscation
-                    .traffic_normalization
-                    .round_sizes
-                    .iter()
-                    .copied()
-                    .max()
-                    .unwrap_or(0) as usize,
-            )
-            .saturating_add(usize::from(effective_obfuscation.padding.max_bytes))
-            .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
-            .saturating_add(128);
         plan.connection_log = network::server_push_log_lines(
             &self.config,
             &plan,
@@ -1917,7 +1928,15 @@ mod tests {
     #[test]
     fn running_requires_positive_network_plan_ack() {
         let mut core = started_core(DEFAULT_EVENT_CAPACITY);
-        core.publish_network_plan(plan(1)).unwrap();
+        let mut network_plan = plan(1);
+        network_plan.data_plane.normalization_max = 1600;
+        network_plan.data_plane.padding_max = 200;
+        core.publish_network_plan(network_plan).unwrap();
+        assert_eq!(
+            core.last_downlink_record_bytes,
+            1600 + 200 + crate::protocol::packet::TLS_RECORD_HEADER + 128,
+            "direct plans must size the packet bridge from authenticated data-plane facts",
+        );
         assert_eq!(core.state(), ClientState::AwaitingNetwork);
         assert_eq!(core.poll_event().unwrap().kind, EventKind::StateChanged);
         let event = core.poll_event().unwrap();

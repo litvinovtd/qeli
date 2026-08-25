@@ -67,7 +67,7 @@ enum UDPFragmentation {
     ///
     /// There is no ambiguity against a real record, in either framing: TLS framing opens
     /// `0x17 0x03 0x03`, and raw framing opens with a UInt16 payload length bounded by
-    /// MAX_RECORD_SIZE (0x4124), so its high byte is at most 0x41 — `0xF0` is unreachable both
+    /// MAX_RECORD_SIZE (0x4100), so its high byte is at most 0x41 — `0xF0` is unreachable both
     /// ways. Same property ``isFragment(_:)`` already relies on to tell a fragmented
     /// ClientHello from a legacy single-datagram one.
     static let authOK: UInt8 = 6

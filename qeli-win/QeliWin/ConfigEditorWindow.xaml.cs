@@ -401,7 +401,7 @@ public partial class ConfigEditorWindow : Window
         text = text.Trim();
         if (text.Length == 0 || text.Equals("auto", StringComparison.OrdinalIgnoreCase))
         { mtu = 0; return true; }
-        return int.TryParse(text, out mtu) && (mtu == 0 || mtu is >= 576 and <= 16638);
+        return int.TryParse(text, out mtu) && (mtu == 0 || mtu is >= 576 and <= 16602);
     }
 
     private void SelectPadding(VpnConfig c)

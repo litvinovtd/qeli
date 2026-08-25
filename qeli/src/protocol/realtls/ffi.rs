@@ -341,7 +341,10 @@ pub unsafe extern "C" fn qeli_build_faketls_clienthello(
     catch_unwind(AssertUnwindSafe(|| {
         if x25519_pub.is_null()
             || ml_ek.is_null()
-            || ml_ek_len == 0
+            || ml_ek_len != crate::crypto::mlkem::MLKEM768_EK_LEN
+            // One TLS plaintext record; reject hostile FFI values before allocation rather
+            // than depending on the outer catch_unwind after a wrapped length or huge Vec.
+            || pad_to_min > 5 + (1 << 14)
             || sni.is_null()
             || out.is_null()
             || out_len.is_null()
@@ -354,8 +357,9 @@ pub unsafe extern "C" fn qeli_build_faketls_clienthello(
         pk.copy_from_slice(std::slice::from_raw_parts(x25519_pub, 32));
         let ek = std::slice::from_raw_parts(ml_ek, ml_ek_len);
         let sni_str = match std::ffi::CStr::from_ptr(sni).to_str() {
-            Ok(s) => s,
+            Ok(s) if matches!(s, "" | "!" | "~" | "@") || (s.is_ascii() && s.len() <= 253) => s,
             Err(_) => return -1,
+            _ => return -1,
         };
         let hello = crate::protocol::FakeTlsHandshake::build_client_hello_with_ek(
             &PublicKey::from_bytes(&pk),

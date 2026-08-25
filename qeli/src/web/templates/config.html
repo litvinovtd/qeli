@@ -596,7 +596,7 @@
             <div>
               <label class="field-label">MTU</label>
               <p class="field-desc">Max packet size. 1400–1480 avoids fragmentation with encapsulation overhead.</p>
-              <input class="inp" type="number" min="576" max="16638" x-model.number="cfg.profiles[activeTab].tun.mtu" @input="markDirty()">
+              <input class="inp" type="number" min="576" max="16602" x-model.number="cfg.profiles[activeTab].tun.mtu" @input="markDirty()">
             </div>
             <div x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
               <label class="field-label">IPv4 gateway (server address)</label>

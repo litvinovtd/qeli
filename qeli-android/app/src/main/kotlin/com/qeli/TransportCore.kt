@@ -1,5 +1,7 @@
 package com.qeli
 
+import com.qeli.model.VpnConfig
+
 /**
  * Generation-safe JNI owner for the shared Rust transport control plane.
  *
@@ -87,7 +89,9 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         fallbackDnsServers: List<String> = emptyList(),
     ): TransportCoreNetworkPlan {
         require(authOk.startsWith("OK:")) { "authenticated network input must start with OK:" }
-        require(effectiveMtu in 576..65535) { "effective MTU is outside the ABI range" }
+        require(effectiveMtu in VpnConfig.MTU_MIN..VpnConfig.MTU_MAX) {
+            "effective MTU is outside ${VpnConfig.MTU_MIN}..${VpnConfig.MTU_MAX}"
+        }
         val envelope = org.json.JSONObject()
             .put("auth_ok", authOk)
             .put("effective_mtu", effectiveMtu)

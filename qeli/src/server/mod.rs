@@ -530,6 +530,10 @@ mod client_route_tests {
             dropped: Arc::new(AtomicU64::new(0)),
             bandwidth_limit_mbps: Arc::new(AtomicU32::new(0)),
             rates: DirectionalRateBuckets::new(),
+            cover_budget: crate::protocol::Shaper::shared_budget(
+                &crate::protocol::ShapingConfig::default(),
+                std::time::Instant::now(),
+            ),
             dst_acl: crate::server::acl::DstAcl::compile(&[], "test"),
             src_guard: crate::server::acl::SrcGuard::new_dual(&[address], &[], "test"),
             exit_access: super::ExitAccess::default(),
@@ -1876,6 +1880,22 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if p.bind.transport == "udp" && !hb.enabled && !sh.enabled && perf.idle_timeout_secs == 0 {
             anyhow::bail!(
                 "profile '{}': UDP cannot combine heartbeat=false, traffic_shaping=false and idle_timeout_secs=0; enable heartbeat/shaping or set a finite idle timeout so dead sessions release their IP and client slot",
+                p.name
+            );
+        }
+        // TCP normally has kernel keepalive as its final dead-peer detector. If an operator
+        // explicitly disables that as well as application liveness and the idle reaper, a
+        // vanished half-open peer can retain an address and max_clients slot indefinitely.
+        if p.bind.transport == "tcp"
+            && !hb.enabled
+            && !sh.enabled
+            && perf.idle_timeout_secs == 0
+            && p.performance.tcp.keepalive_secs == 0
+        {
+            anyhow::bail!(
+                "profile '{}': TCP cannot combine heartbeat=false, traffic_shaping=false, \
+                 idle_timeout_secs=0 and perf.tcp.keepalive_secs=0; enable one liveness/reaper \
+                 mechanism so dead sessions release their IP and client slot",
                 p.name
             );
         }
@@ -6079,7 +6099,14 @@ async fn run_profile_generation(
                         profile_tasks.spawn(async move {
                             // Socket options on the raw TcpStream before any obfs wrapping.
                             let _ = stream.set_nodelay(nodelay);
-                            let _ = set_tcp_keepalive(&stream, keepalive);
+                            if let Err(error) = set_tcp_keepalive(&stream, keepalive) {
+                                log::warn!(
+                                    "Profile '{}': failed to apply TCP keepalive to {}: {}",
+                                    name_conn,
+                                    addr,
+                                    error
+                                );
+                            }
                             let _ = set_tcp_buffers(&stream, sndbuf, rcvbuf);
                             if use_reality {
                                 if let Err(e) = reality::handle_connection(
@@ -7258,6 +7285,30 @@ pool.cidr = 10.{net}.0.0/24
             .connection
             .idle_timeout_secs = 0;
         dead_forever.profiles[0].obfuscation.heartbeat.enabled = true;
+        assert!(validate_profiles(&dead_forever).is_ok());
+    }
+
+    #[test]
+    fn tcp_requires_keepalive_when_every_other_reaper_is_disabled() {
+        let mut dead_forever = cfg_with("fake-tls", "tcp");
+        dead_forever.profiles[0].obfuscation.heartbeat.enabled = false;
+        dead_forever.profiles[0].obfuscation.traffic_shaping.enabled = false;
+        dead_forever.profiles[0]
+            .performance
+            .connection
+            .idle_timeout_secs = 0;
+        dead_forever.profiles[0].performance.tcp.keepalive_secs = 0;
+        let error = validate_profiles(&dead_forever).unwrap_err();
+        assert!(error.to_string().contains("TCP cannot combine"));
+
+        dead_forever.profiles[0].performance.tcp.keepalive_secs = 60;
+        assert!(validate_profiles(&dead_forever).is_ok());
+
+        dead_forever.profiles[0].performance.tcp.keepalive_secs = 0;
+        dead_forever.profiles[0]
+            .performance
+            .connection
+            .idle_timeout_secs = 300;
         assert!(validate_profiles(&dead_forever).is_ok());
     }
 

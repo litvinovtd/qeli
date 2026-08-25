@@ -93,7 +93,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// same number, because raising it in one place only is worse than not raising it.
     /// (Audit 2026-08-01, §1.)
     static let mtuMin = 576
-    static let mtuMax = 16638
+    static let mtuMax = 16602
 
     /// Upper bound for both reconnect delays, in seconds (one day). Shared with the Kotlin and
     /// C# ports; see the note at the parse site for why the desktop client cannot go higher.

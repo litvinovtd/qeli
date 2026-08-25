@@ -434,15 +434,16 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeStats(
     })
 }
 
-/// Poll one control-plane event. `null` means the bounded queue is currently empty or the
-/// handle is invalid; a valid frame contains the stable 48-byte ABI header plus payload.
+/// Poll one control-plane event. `null` means only that the bounded queue is currently empty.
+/// Invalid handles, ABI failures, oversized payloads and panic-boundary failures raise a Java
+/// IllegalStateException, so Kotlin cannot silently confuse a broken native core with quiescence.
 #[no_mangle]
 pub extern "system" fn Java_com_qeli_TransportCore_nativePollEvent<'local>(
-    env: JNIEnv<'local>,
+    mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
 ) -> jbyteArray {
-    guard(std::ptr::null_mut(), || {
+    let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut event = QeliClientEvent::default();
         let mut required = 0usize;
         let first = unsafe {
@@ -455,10 +456,12 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativePollEvent<'local>(
             )
         };
         if first == NO_EVENT {
-            return std::ptr::null_mut();
+            return Ok(None);
         }
         if required > MAX_JNI_EVENT_PAYLOAD {
-            return std::ptr::null_mut();
+            return Err(format!(
+                "native event payload {required} exceeds JNI cap {MAX_JNI_EVENT_PAYLOAD}"
+            ));
         }
         let payload = if first == OK {
             Vec::new()
@@ -475,14 +478,41 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativePollEvent<'local>(
                 )
             };
             if second != OK || actual != payload.len() {
-                return std::ptr::null_mut();
+                return Err(format!(
+                    "qeli_client_poll_event payload read failed (rc={second}, expected={required}, actual={actual})"
+                ));
             }
             payload
         } else {
-            return std::ptr::null_mut();
+            return Err(format!("qeli_client_poll_event failed (rc={first})"));
         };
-        to_array(&env, &event_frame(&event, &payload))
-    })
+        Ok(Some(event_frame(&event, &payload)))
+    }));
+
+    match polled {
+        Ok(Ok(None)) => std::ptr::null_mut(),
+        Ok(Ok(Some(frame))) => match env.byte_array_from_slice(&frame) {
+            Ok(array) => array.into_raw(),
+            Err(error) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalStateException",
+                    format!("cannot allocate native event frame: {error}"),
+                );
+                std::ptr::null_mut()
+            }
+        },
+        Ok(Err(message)) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", message);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "nativePollEvent panicked",
+            );
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[no_mangle]

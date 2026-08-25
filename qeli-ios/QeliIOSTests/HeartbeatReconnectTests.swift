@@ -67,6 +67,12 @@ final class HeartbeatReconnectTests: XCTestCase {
             [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]
         )
         XCTAssertEqual(
+            policy.jitteredDelayMilliseconds(forAttempt: 2, reductionForTesting: 0), 2_000
+        )
+        XCTAssertEqual(
+            policy.jitteredDelayMilliseconds(forAttempt: 2, reductionForTesting: 400), 1_600
+        )
+        XCTAssertEqual(
             policy.decision(failureCount: 0, millisecondsSinceAttemptStarted: 200),
             .retry(attempt: 0, afterMilliseconds: 1_300)
         )

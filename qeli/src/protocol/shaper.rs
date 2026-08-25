@@ -20,6 +20,7 @@
 //! against a capture — a bad model can ADD a tell, so it stays separate).
 
 use rand::prelude::*;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Resolved (already merged with defaults) shaping parameters for one direction.
@@ -85,12 +86,47 @@ pub fn liveness_deadline(
     Some(promised_gap.saturating_mul(3).max(Duration::from_secs(30)))
 }
 
+/// One direction's aggregate cover-traffic token bucket. Bonded TCP streams share this object,
+/// so `budget_bytes_per_sec` remains a session budget instead of multiplying by stream count.
+pub struct CoverBudget {
+    rate: f64,
+    tokens: f64,
+    last_refill: Instant,
+}
+
+impl CoverBudget {
+    fn new(bytes_per_sec: u32, now: Instant) -> Self {
+        let rate = f64::from(bytes_per_sec);
+        Self {
+            rate,
+            tokens: rate,
+            last_refill: now,
+        }
+    }
+
+    fn try_spend(&mut self, bytes: usize, now: Instant) -> bool {
+        if self.rate <= 0.0 {
+            return false;
+        }
+        let elapsed = now.duration_since(self.last_refill).as_secs_f64();
+        self.last_refill = now;
+        self.tokens = (self.tokens + elapsed * self.rate).min(self.rate);
+        if self.tokens < bytes as f64 {
+            return false;
+        }
+        self.tokens -= bytes as f64;
+        true
+    }
+}
+
+pub type SharedCoverBudget = Arc<Mutex<CoverBudget>>;
+
 /// Idle cover-traffic scheduler. Stateful (carries a token-bucket budget); one
 /// per direction/stream. Cheap to clone the config into.
 pub struct Shaper {
     cfg: ShapingConfig,
-    tokens: f64,
-    last_refill: Instant,
+    local_cover_budget: CoverBudget,
+    shared_cover_budget: Option<SharedCoverBudget>,
     // Separate token bucket (bits) for the stealth data-plane rate cap.
     rate_tokens: f64,
     rate_last: Instant,
@@ -98,14 +134,23 @@ pub struct Shaper {
 
 impl Shaper {
     pub fn new(cfg: ShapingConfig, now: Instant) -> Self {
-        let tokens = cfg.budget_bytes_per_sec as f64; // start with ~1s of budget
+        let local_cover_budget = CoverBudget::new(cfg.budget_bytes_per_sec, now);
         Shaper {
             cfg,
-            tokens,
-            last_refill: now,
+            local_cover_budget,
+            shared_cover_budget: None,
             rate_tokens: 0.0,
             rate_last: now,
         }
+    }
+
+    pub fn shared_budget(cfg: &ShapingConfig, now: Instant) -> SharedCoverBudget {
+        Arc::new(Mutex::new(CoverBudget::new(cfg.budget_bytes_per_sec, now)))
+    }
+
+    pub fn with_shared_budget(mut self, budget: SharedCoverBudget) -> Self {
+        self.shared_cover_budget = Some(budget);
+        self
     }
 
     /// Stealth data-plane pacing: account `bytes` against the `stealth_rate_mbps`
@@ -179,20 +224,13 @@ impl Shaper {
     /// caller should skip this cover packet — real traffic, which is not metered
     /// here, will keep the link alive anyway).
     pub fn try_spend(&mut self, bytes: usize, now: Instant) -> bool {
-        let rate = self.cfg.budget_bytes_per_sec as f64;
-        if rate <= 0.0 {
-            return false;
+        if let Some(shared) = &self.shared_cover_budget {
+            return shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .try_spend(bytes, now);
         }
-        let elapsed = now.duration_since(self.last_refill).as_secs_f64();
-        self.last_refill = now;
-        // Cap the bucket at ~1s of budget so an idle period can't bank a burst.
-        self.tokens = (self.tokens + elapsed * rate).min(rate);
-        if self.tokens >= bytes as f64 {
-            self.tokens -= bytes as f64;
-            true
-        } else {
-            false
-        }
+        self.local_cover_budget.try_spend(bytes, now)
     }
 }
 
@@ -261,6 +299,28 @@ mod tests {
         assert!(
             allowed >= 15,
             "should allow ~the full first-second budget, got {allowed}"
+        );
+    }
+
+    #[test]
+    fn shared_budget_is_aggregate_across_stream_shapers() {
+        let now = Instant::now();
+        let config = cfg();
+        let budget = Shaper::shared_budget(&config, now);
+        let mut first = Shaper::new(config.clone(), now).with_shared_budget(budget.clone());
+        let mut second = Shaper::new(config, now).with_shared_budget(budget);
+        let mut allowed = 0;
+        for index in 0..100 {
+            let accepted = if index % 2 == 0 {
+                first.try_spend(512, now)
+            } else {
+                second.try_spend(512, now)
+            };
+            allowed += usize::from(accepted);
+        }
+        assert_eq!(
+            allowed, 16,
+            "two streams must share one 8192-byte initial budget"
         );
     }
 

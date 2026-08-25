@@ -1135,11 +1135,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // `qeli://…?mtu=999999` (or a negative) became a profile that failed at connect with
     // an opaque TUN/socket error, and an out-of-range padding_max built records the peer
     // rejects as oversized. Same ranges the Rust client enforces — config/client.rs:
-    // mtu is 0 (auto) or 576..=16638; padding is bounded by the 1400-byte wire ceiling the
+    // mtu is 0 (auto) or 576..=16602; padding is bounded by the 1400-byte wire ceiling the
     // per-packet pad_cap uses. (Audit 2026-07-27, C6)
     internal const int MtuMin = 576;
     /// <summary>Derived, in Rust, from the record format (protocol/packet.rs MAX_TUNNEL_MTU): a record holds nonce + counter + payload + padding-length + tag and must fit MAX_RECORD_SIZE, so anything larger the PEER REJECTS. Mirrored here as a literal; the four ports and the two UIs must all carry the same number, because raising it in one place only is worse than not raising it — see Audit 2026-08-01 §1.</summary>
-    internal const int MtuMax = 16638;
+    internal const int MtuMax = 16602;
     private const int PaddingCeiling = 1400;
 
     /// <summary>Range-check an explicit TUN MTU from a config FILE (flat-INI);

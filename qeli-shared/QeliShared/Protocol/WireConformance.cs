@@ -166,6 +166,10 @@ public static class WireConformance
         var patient = Ini("reconnect_max_delay = 3600");
         check("ini-bounds: an hour-long reconnect delay is left alone",
             patient.ReconnectMaxDelaySecs == 3600 && patient.UnparsedNumericKeys.Count == 0);
+        bool jitterBounded = Enumerable.Range(0, 256)
+            .Select(_ => Vpn.VpnTunnelBase.JitterReconnectDelay(60_000))
+            .All(delay => delay is >= 48_000 and <= 60_000);
+        check("reconnect: jitter stays within 80-100% of the capped schedule", jitterBounded);
 
         // padding_min > padding_max is an inverted range; a five-digit padding is past the
         // ceiling. Each field only checked `>= 0` on its own, so both parsed.
@@ -656,11 +660,11 @@ public static class WireConformance
 
         // A JUMBO ceiling must not fall straight to 1360. The ladder was written when the
         // ceiling was an Ethernet-sized number, so the rung below it was 1360 and the gap was
-        // 140 bytes; raising the ceiling to 16638 turned that gap into 15278, and a path
+        // 140 bytes; raising the ceiling to 16602 turned that gap into 15242, and a path
         // carrying 9000 was certified at 1360. (Audit 2026-08-01, §8.)
         int jumboOverhead = 48 + 13 + 9 + 8 + 40;
-        var jumbo = Vpn.VpnTunnelBase.MtuProbeLadder(16638, jumboOverhead);
-        bool hasMiddle = jumbo.Count(m => m >= 1360 && m < 16638) >= 3;
+        var jumbo = Vpn.VpnTunnelBase.MtuProbeLadder(16602, jumboOverhead);
+        bool hasMiddle = jumbo.Count(m => m >= 1360 && m < 16602) >= 3;
         int under9000 = jumbo.FirstOrDefault(m => m + jumboOverhead <= 9000);
         bool jumboUseful = under9000 >= 4000;
         check("mtu-ladder: a jumbo ceiling has rungs between it and 1360", hasMiddle);

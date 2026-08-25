@@ -13,6 +13,7 @@ internal static unsafe class NativeTransportCore
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
+    internal const int StaleRequest = -11;
 
     internal const uint StateConnecting = 1;
     internal const uint StateRunning = 3;
@@ -279,7 +280,15 @@ internal static unsafe class NativeTransportCore
     {
         byte[] bytes = string.IsNullOrEmpty(reason) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(reason);
         fixed (byte* pointer = bytes)
-            Check(call(pointer, (nuint)bytes.Length), operation);
+        {
+            int result = call(pointer, (nuint)bytes.Length);
+            // A reconnect can cancel this generation while the platform applies trust or
+            // network state. Android and Swift already treat that race as a normal outcome;
+            // escalating it made a network change look like a key mismatch on Windows/macOS.
+            if (result == StaleRequest)
+                return;
+            Check(result, operation);
+        }
     }
 
     internal static NativeStats Stats(ulong handle)

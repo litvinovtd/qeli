@@ -40,6 +40,8 @@ pub struct RealTlsStream<S> {
     /// Decrypted application bytes ready to hand to the reader.
     plain: Vec<u8>,
     plain_pos: usize,
+    /// A valid TLS close_notify was consumed; return clean EOF after buffered app data.
+    peer_closed: bool,
     /// Encrypted outbound record pending write to the inner socket.
     out_buf: Vec<u8>,
     out_pos: usize,
@@ -62,6 +64,7 @@ impl<S> RealTlsStream<S> {
             rbuf: vec![0u8; READ_CHUNK],
             plain: Vec::new(),
             plain_pos: 0,
+            peer_closed: false,
             out_buf: Vec::new(),
             out_pos: 0,
         }
@@ -91,6 +94,54 @@ fn flush_out<S: AsyncWrite + Unpin>(
     Poll::Ready(Ok(()))
 }
 
+/// Accept ignorable NewSessionTicket messages but fail explicitly on KeyUpdate. Skipping a
+/// KeyUpdate would leave RecordCrypto on the old traffic secret and turn the next valid record
+/// into a misleading AEAD failure. This implementation deliberately reconnects instead of
+/// pretending to support a rekey it has not applied.
+fn validate_post_handshake(mut plaintext: &[u8]) -> io::Result<()> {
+    while !plaintext.is_empty() {
+        if plaintext.len() < 4 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated TLS post-handshake message",
+            ));
+        }
+        let kind = plaintext[0];
+        let len = (usize::from(plaintext[1]) << 16)
+            | (usize::from(plaintext[2]) << 8)
+            | usize::from(plaintext[3]);
+        let total = 4usize.checked_add(len).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "TLS post-handshake length overflow",
+            )
+        })?;
+        if plaintext.len() < total {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated TLS post-handshake body",
+            ));
+        }
+        match kind {
+            0x04 => {} // NewSessionTicket; qeli deliberately does not resume these sessions.
+            0x18 => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "TLS KeyUpdate is not supported; reconnecting before record keys diverge",
+                ));
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unexpected TLS post-handshake message",
+                ))
+            }
+        }
+        plaintext = &plaintext[total..];
+    }
+    Ok(())
+}
+
 impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -104,6 +155,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                 let n = (me.plain.len() - me.plain_pos).min(buf.remaining());
                 buf.put_slice(&me.plain[me.plain_pos..me.plain_pos + n]);
                 me.plain_pos += n;
+                return Poll::Ready(Ok(()));
+            }
+            if me.peer_closed {
                 return Poll::Ready(Ok(()));
             }
             // 2. Batch: decrypt EVERY complete record currently buffered into
@@ -136,11 +190,34 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                 if me.in_buf.len() - pos < total {
                     break; // incomplete record — need more bytes
                 }
+                let mut close_notify = false;
                 match me.recv.decrypt(&me.in_buf[pos..pos + total]) {
                     Some((0x17, pt)) => me.plain.extend_from_slice(&pt),
-                    // Non-application records under the app key (e.g. a
-                    // post-handshake NewSessionTicket) are skipped.
-                    Some(_) => {}
+                    Some((0x16, pt)) => {
+                        if let Err(error) = validate_post_handshake(&pt) {
+                            me.in_buf.drain(..pos);
+                            return Poll::Ready(Err(error));
+                        }
+                    }
+                    Some((0x15, alert)) if alert.len() == 2 && alert[1] == 0 => {
+                        me.peer_closed = true;
+                        close_notify = true;
+                    }
+                    Some((0x15, alert)) => {
+                        let description = alert.get(1).copied().unwrap_or(0xff);
+                        me.in_buf.drain(..pos);
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            format!("TLS peer sent alert {description}"),
+                        )));
+                    }
+                    Some(_) => {
+                        me.in_buf.drain(..pos);
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "unexpected TLS inner content type",
+                        )));
+                    }
                     None => {
                         me.in_buf.drain(..pos);
                         return Poll::Ready(Err(io::Error::new(
@@ -150,6 +227,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                     }
                 }
                 pos += total;
+                if close_notify {
+                    break;
+                }
             }
             if pos > 0 {
                 me.in_buf.drain(..pos);
@@ -157,6 +237,11 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
             if !me.plain.is_empty() {
                 continue; // serve what we just decrypted
             }
+            if me.peer_closed {
+                // close_notify was consumed above; do not wait for transport EOF.
+                return Poll::Ready(Ok(()));
+            }
+
             // 3. No complete record yet — pull a large chunk into the reused
             // scratch buffer and append. Big reads keep whole records together
             // (one syscall yields several records instead of fragmenting one).
@@ -281,6 +366,48 @@ mod tests {
             .await
             .expect_err("truncated TLS framing must not be reported as clean EOF");
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[tokio::test]
+    async fn close_notify_is_clean_eof_and_key_update_is_explicitly_rejected() {
+        let key = [0x31u8; 16];
+        let iv = [0x42u8; 12];
+
+        let (mut peer, inner) = tokio::io::duplex(256);
+        let mut peer_crypto = RecordCrypto::new(&key, &iv);
+        peer.write_all(&peer_crypto.encrypt(0x15, &[1, 0]))
+            .await
+            .unwrap();
+        let mut stream = RealTlsStream::from_crypto(
+            inner,
+            RecordCrypto::new(&key, &iv),
+            RecordCrypto::new(&key, &iv),
+        );
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), stream.read(&mut byte))
+                .await
+                .expect("close_notify must not wait for transport EOF")
+                .unwrap(),
+            0
+        );
+
+        let (mut peer, inner) = tokio::io::duplex(256);
+        let mut peer_crypto = RecordCrypto::new(&key, &iv);
+        // Handshake type 0x18 (KeyUpdate), uint24 body length 1, request_update=0.
+        peer.write_all(&peer_crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]))
+            .await
+            .unwrap();
+        let mut stream = RealTlsStream::from_crypto(
+            inner,
+            RecordCrypto::new(&key, &iv),
+            RecordCrypto::new(&key, &iv),
+        );
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), stream.read(&mut byte))
+            .await
+            .expect("KeyUpdate rejection must not wait for another record")
+            .expect_err("unsupported KeyUpdate must not be silently skipped");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     /// Wrap the realtls client's established session in `RealTlsStream` and talk to

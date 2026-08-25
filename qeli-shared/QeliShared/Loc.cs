@@ -247,7 +247,7 @@ public static class Loc
         ["NeedServer"] = ("Enter the server address.", "Укажите адрес сервера."),
         ["BadPort"] = ("Invalid port (1–65535).", "Некорректный порт (1–65535)."),
         ["BadTimeout"] = ("Invalid connection timeout (1–300 seconds).", "Некорректный таймаут подключения (1–300 секунд)."),
-        ["BadMtu"] = ("MTU must be 0 (automatic) or 576–16638.", "MTU должен быть 0 (автоматически) или 576–16638."),
+        ["BadMtu"] = ("MTU must be 0 (automatic) or 576–16602.", "MTU должен быть 0 (автоматически) или 576–16602."),
         ["NeedLogin"] = ("Enter the username.", "Укажите логин."),
         ["ManualEdit"] = ("Edit INI configuration", "Редактирование INI-конфига"),
         ["ManualEditPrompt"] = ("Edit the INI configuration:", "Редактирование INI-конфига:"),

@@ -1227,7 +1227,7 @@ fn build_udp_frag() -> String {
             "auth-ok-fragment",
             "The AuthOK, msg_id 6 — fragment 0 of 2. Unambiguous against a real record in \
              either framing: TLS framing opens 0x17 0x03 0x03, and raw framing opens with a \
-             u16 payload length bounded by MAX_RECORD_SIZE (0x4124), so its high byte is at \
+             u16 payload length bounded by MAX_RECORD_SIZE (0x4100), so its high byte is at \
              most 0x41 and 0xF0 is unreachable both ways. Same property that lets a server \
              tell a fragmented ClientHello from a legacy single-datagram one.",
             frag(MSG_AUTH_OK, 0, 2, b"\xde\xad\xbe\xef"),

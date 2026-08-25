@@ -380,7 +380,7 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('ini_kv ipv6 "$ipv6"', init)
         self.assertIn("form.ListValue, 'dns'", luci)
         self.assertIn("form.DynamicList, 'dns_servers'", luci)
-        self.assertIn("mtu >= 576 && mtu <= 16638", luci)
+        self.assertIn("mtu >= 576 && mtu <= 16602", luci)
 
     def test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop(self):
         hook = (

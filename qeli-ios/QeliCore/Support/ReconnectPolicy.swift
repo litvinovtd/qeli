@@ -71,7 +71,7 @@ struct ReconnectPolicy: Equatable, Sendable {
             0,
             Self.minimumInterAttemptMilliseconds - max(0, millisecondsSinceAttemptStarted)
         )
-        let backoff = attempt == 0 ? 0 : delayMilliseconds(forAttempt: attempt)
+        let backoff = attempt == 0 ? 0 : jitteredDelayMilliseconds(forAttempt: attempt)
         return .retry(attempt: attempt, afterMilliseconds: max(interAttemptRemainder, backoff))
     }
 
@@ -82,6 +82,18 @@ struct ReconnectPolicy: Equatable, Sendable {
         let (raw, overflow) = baseDelayMilliseconds.multipliedReportingOverflow(by: multiplier)
         let safeRaw = overflow ? Int.max : raw
         return max(1_000, min(safeRaw, maximumDelayMilliseconds))
+    }
+
+    /// Randomise the scheduled delay within 80–100% without ever exceeding the configured cap.
+    /// The optional reduction exists only to make both interval edges deterministic in tests.
+    func jitteredDelayMilliseconds(forAttempt attempt: Int, reductionForTesting: Int? = nil) -> Int {
+        let scheduled = delayMilliseconds(forAttempt: attempt)
+        guard scheduled > 0 else { return 0 }
+        let spread = scheduled / 5
+        let reduction = reductionForTesting
+            .map { min(max(0, $0), spread) }
+            ?? Int.random(in: 0...spread)
+        return scheduled - reduction
     }
 
     /// Backoff escalates only across failures that never reached connected state.

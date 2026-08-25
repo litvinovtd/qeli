@@ -132,7 +132,7 @@ pub const MSG_MTU_PROBE_ACK: u8 = 5;
 ///
 /// There is no ambiguity against a real record, in either framing: TLS framing opens
 /// `0x17 0x03 0x03`, and raw framing opens with a u16 payload length bounded by
-/// [`crate::protocol::packet::MAX_RECORD_SIZE`] (0x4124), so its high byte is at most 0x41 —
+/// [`crate::protocol::packet::MAX_RECORD_SIZE`] (0x4100), so its high byte is at most 0x41 —
 /// `0xF0` is unreachable both ways. That is the same property [`is_fragment`] already relies
 /// on to tell a fragmented ClientHello from a legacy single-datagram one.
 ///

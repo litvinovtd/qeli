@@ -311,7 +311,7 @@ tun.queues = 0
 The server sets the MTU of its TUN via `tun.mtu` (per-profile, default 1400) **and
 pushes this value to the client** at auth.
 
-> **The accepted range is `576..=16638`, and it is hard (since 0.7.13).** 576 is the IPv4
+> **The accepted range is `576..=16602`, and it is hard.** 576 is the IPv4
 > minimum reassembly buffer (RFC 791). The ceiling is **derived from the PacketCodec record
 > format**, not chosen: each complete inner IP packet must first fit one encrypted record
 > (nonce + counter + payload + padding + tag) inside `MAX_RECORD_SIZE`. Negotiated
@@ -323,8 +323,8 @@ pushes this value to the client** at auth.
 >
 > A value outside the range is no longer **silently discarded with a fallback to the
 > default**: the server refuses to start the profile (`profile '<name>': tun.mtu <N> is out of
-> range — expected 576..=16638`) and the client rejects the link/config (`invalid mtu <N> —
-> expected 0 (auto) or 576..=16638`). A peer without `UDP_DATA_FRAG_V1` still has to send one
+> range — expected 576..=16602`) and the client rejects the link/config (`invalid mtu <N> —
+> expected 0 (auto) or 576..=16602`). A peer without `UDP_DATA_FRAG_V1` still has to send one
 > complete record in one UDP datagram, which is another reason to keep the explicit bound.
 > On the client `0` still means "auto" and need not be in range.
 
@@ -357,7 +357,7 @@ session, the inner MTU and the outer datagram size are deliberately independent:
   The **kernel** discovers the outer path MTU there (`tcp_mtu_probing` + MSS clamping), so no
   application-level UDP probe or DATA_FRAG budget is involved.
 
-The probe has three limits worth knowing before you treat MTU as a solved problem:
+The probe has four limits worth knowing before you treat MTU as a solved problem:
 
 - **The two directions are certified separately.** The client's full-size DF ladder certifies
   client → server. Its authenticated UDP-budget report is only a ceiling for the opposite
@@ -369,6 +369,14 @@ The probe has three limits worth knowing before you treat MTU as a solved proble
   retries the complete encrypted record with a new DATA_FRAG record id. The separate
   authenticated inner-MTU report remains in place for PMTU/ICMP handling. Older peers ignore
   the additive control type.
+- **An auto-MTU DATA_FRAG session re-probes a wider path every 10 minutes.** The state machine
+  uses the existing socket receive loop (there is no competing reader), tries only rungs above
+  the currently certified uplink budget and requires three independently random exact
+  challenge/ACK confirmations before widening it. A success atomically updates the record,
+  fragmentation and control-padding budgets and re-sends the authenticated budget report so
+  the server can run its own reverse-direction probe. If every larger rung times out, the
+  current certified budget and DF state remain unchanged. Legacy peers are not live-widened
+  because changing their carrier budget would require rebuilding the inner interface.
 - **The bottom rung reaches exactly 1280 bytes of real path MTU** (the IPv6 minimum). The rung
   value describes the inner-shaped probe payload while the floor is computed as `1280 − outer
   overhead` (qeli probe framing + obfs seal + QUIC header + UDP/IP), so the narrowest probe is

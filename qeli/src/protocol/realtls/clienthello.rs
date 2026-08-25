@@ -22,6 +22,9 @@ use rand::prelude::*;
 use rand::seq::SliceRandom;
 use sha2::{Digest, Sha256};
 
+const MAX_SNI_BYTES: usize = 253;
+const MAX_CLIENT_HELLO_BODY: usize = 1 << 14;
+
 /// Chrome's TLS cipher suites (GREASE is prepended at build time, not listed
 /// here). Order matches Chrome's ClientHello. The sorted form hashes to the
 /// canonical Chrome JA4_b `8daaf6152771`.
@@ -46,9 +49,13 @@ fn is_grease(v: u16) -> bool {
     hi == lo && (lo & 0x0f) == 0x0a
 }
 
+fn tls_u16_len(len: usize, field: &str) -> u16 {
+    u16::try_from(len).unwrap_or_else(|_| panic!("{field} exceeds the TLS u16 length field"))
+}
+
 fn ext(buf: &mut Vec<u8>, ext_type: u16, data: &[u8]) {
     buf.extend_from_slice(&ext_type.to_be_bytes());
-    buf.extend_from_slice(&(data.len() as u16).to_be_bytes());
+    buf.extend_from_slice(&tls_u16_len(data.len(), "extension data").to_be_bytes());
     buf.extend_from_slice(data);
 }
 
@@ -82,6 +89,10 @@ fn build_client_hello_inner(
     session_id: &[u8; 32],
     include_pq: bool,
 ) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
+    assert!(
+        server_name.is_ascii() && server_name.len() <= MAX_SNI_BYTES,
+        "REALITY SNI must be ASCII and at most {MAX_SNI_BYTES} bytes"
+    );
     let mut rng = rand::rng();
     // Real hybrid key exchange (L3.2): generate the ML-KEM-768 keypair and keep
     // the decapsulation key, so the client handshake can open the server's
@@ -109,9 +120,9 @@ fn build_client_hello_inner(
     {
         let name = server_name.as_bytes();
         let mut d = Vec::new();
-        d.extend_from_slice(&((name.len() + 3) as u16).to_be_bytes()); // server_name_list len
+        d.extend_from_slice(&tls_u16_len(name.len() + 3, "server_name_list").to_be_bytes());
         d.push(0x00); // host_name
-        d.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        d.extend_from_slice(&tls_u16_len(name.len(), "server_name").to_be_bytes());
         d.extend_from_slice(name);
         ext(&mut e_sni, 0x0000, &d);
     }
@@ -282,19 +293,23 @@ fn build_client_hello_inner(
     body.push(0x01); // compression methods length
     body.push(0x00); // null compression
 
-    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+    body.extend_from_slice(&tls_u16_len(extensions.len(), "ClientHello extensions").to_be_bytes());
     body.extend_from_slice(&extensions);
 
     let body_len = body.len() - 4;
     body[1] = (body_len >> 16) as u8;
     body[2] = (body_len >> 8) as u8;
     body[3] = body_len as u8;
+    assert!(
+        body.len() <= MAX_CLIENT_HELLO_BODY,
+        "ClientHello body exceeds the local TLS handshake limit"
+    );
 
     // Wrap in a TLS record (handshake, 0x16).
     let mut record = Vec::with_capacity(5 + body.len());
     record.push(0x16);
     record.extend_from_slice(&[0x03, 0x01]); // record version TLS 1.0 (Chrome)
-    record.extend_from_slice(&(body.len() as u16).to_be_bytes());
+    record.extend_from_slice(&tls_u16_len(body.len(), "ClientHello record").to_be_bytes());
     record.extend_from_slice(&body);
     (record, mlkem_dk)
 }
@@ -317,7 +332,7 @@ fn pad_extensions(extensions: &mut Vec<u8>) {
     let target: usize = 512;
     let pad = target.saturating_sub(projected);
     extensions.extend_from_slice(&[0x00, 0x15]); // padding extension
-    extensions.extend_from_slice(&(pad as u16).to_be_bytes());
+    extensions.extend_from_slice(&tls_u16_len(pad, "ClientHello padding").to_be_bytes());
     extensions.extend(std::iter::repeat_n(0u8, pad));
 }
 
@@ -637,5 +652,24 @@ mod tests {
         let rec_len = u16::from_be_bytes([hello[3], hello[4]]) as usize;
         assert_eq!(hello.len(), 5 + rec_len, "record length matches");
         assert_eq!(hello[5], 0x01, "ClientHello handshake type");
+    }
+
+    #[test]
+    fn maximum_valid_sni_keeps_all_tls_lengths_honest() {
+        let eph = Keypair::generate();
+        let sid = [7u8; 32];
+        let sni = "a".repeat(MAX_SNI_BYTES);
+        let hello = build_client_hello(eph.public(), &sni, &sid).0;
+        let declared = u16::from_be_bytes([hello[3], hello[4]]) as usize;
+        assert_eq!(declared + 5, hello.len());
+        assert!(declared <= MAX_CLIENT_HELLO_BODY);
+        assert!(parse(&hello).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "REALITY SNI must be ASCII")]
+    fn oversized_sni_is_rejected_before_any_length_cast() {
+        let eph = Keypair::generate();
+        let _ = build_client_hello(eph.public(), &"a".repeat(MAX_SNI_BYTES + 1), &[0u8; 32]);
     }
 }

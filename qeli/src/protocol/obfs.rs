@@ -265,6 +265,15 @@ pub mod ws {
     /// existing `obfuscation.sni` override lets an operator pin a genuine front domain
     /// when one is actually in front. (Audit 2026-07-27, E2.)
     pub fn build_request(host: Option<&str>, key: &[u8; 32]) -> Vec<u8> {
+        build_request_with_accept(host, key).0
+    }
+
+    /// Build the request and retain the exact RFC 6455 accept value the response must carry.
+    /// The public wrapper above stays convenient for tests and callers that only need bytes.
+    pub(super) fn build_request_with_accept(
+        host: Option<&str>,
+        key: &[u8; 32],
+    ) -> (Vec<u8>, String) {
         let mut rng = rand::rng();
         let host = match host {
             Some(h) if !h.is_empty() => h,
@@ -279,7 +288,8 @@ pub mod ws {
         rng.fill_bytes(&mut nonce);
         let ws_key = b64(&nonce);
 
-        format!(
+        let expected_accept = accept_token(&ws_key);
+        let request = format!(
             "GET {path} HTTP/1.1\r\n\
              Host: {host}\r\n\
              User-Agent: {ua}\r\n\
@@ -290,7 +300,39 @@ pub mod ws {
              Sec-WebSocket-Version: 13\r\n\
              \r\n"
         )
-        .into_bytes()
+        .into_bytes();
+        (request, expected_accept)
+    }
+
+    /// Validate the complete server upgrade response, including the challenge binding.
+    /// Accepting only the status line allowed an HTTP endpoint (or active interceptor) to
+    /// return an arbitrary 101 and move the client into the binary tunnel handshake.
+    pub(super) fn validate_response(head: &[u8], expected_accept: &str) -> bool {
+        let text = String::from_utf8_lossy(head);
+        let mut status = text.split("\r\n").next().unwrap_or("").split_whitespace();
+        if status.next() != Some("HTTP/1.1") || status.next() != Some("101") {
+            return false;
+        }
+        let upgrade_ok = header_value(head, "upgrade")
+            .map(|v| v.trim().eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false);
+        let connection_ok = header_value(head, "connection")
+            .map(|v| {
+                v.split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+            })
+            .unwrap_or(false);
+        let accept_ok = header_value(head, "sec-websocket-accept")
+            .map(|value| {
+                value
+                    .trim()
+                    .as_bytes()
+                    .ct_eq(expected_accept.as_bytes())
+                    .unwrap_u8()
+                    == 1
+            })
+            .unwrap_or(false);
+        upgrade_ok && connection_ok && accept_ok
     }
 
     /// Build the `101 Switching Protocols` response for a received request head, or
@@ -554,6 +596,11 @@ fn ws_encode_frames(cipher_bytes: &[u8], masked: bool) -> Vec<u8> {
 /// payload bytes only).
 #[derive(Default)]
 struct WsReframer {
+    /// RFC 6455 direction contract: client frames are masked and server frames are not.
+    /// `None` is retained only for direction-agnostic parser unit tests.
+    expected_masked: Option<bool>,
+    /// Whether a fragmented binary message is awaiting continuation frames.
+    fragment_open: bool,
     /// Raw wire bytes read but not yet parsed into completed frames.
     buf: Vec<u8>,
     /// Delivered (binary) payload bytes ready to hand to the caller.
@@ -577,6 +624,13 @@ struct WsReframer {
 }
 
 impl WsReframer {
+    fn with_expected_mask(expected_masked: bool) -> Self {
+        Self {
+            expected_masked: Some(expected_masked),
+            ..Self::default()
+        }
+    }
+
     /// Append newly-read raw wire bytes.
     fn feed(&mut self, data: &[u8]) {
         self.buf.extend_from_slice(data);
@@ -593,9 +647,37 @@ impl WsReframer {
         }
         let b0 = self.buf[0];
         let b1 = self.buf[1];
+        let fin = (b0 & 0x80) != 0;
+        if b0 & 0x70 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "obfs ws: RSV bits set without a negotiated extension",
+            ));
+        }
         let opcode = b0 & 0x0f;
+        if !matches!(opcode, 0x0 | 0x2 | 0x8 | 0x9 | 0xA) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "obfs ws: unsupported opcode",
+            ));
+        }
         let masked = (b1 & 0x80) != 0;
+        if self
+            .expected_masked
+            .is_some_and(|expected| expected != masked)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "obfs ws: invalid MASK bit for peer direction",
+            ));
+        }
         let len7 = (b1 & 0x7f) as usize;
+        if opcode & 0x08 != 0 && (!fin || len7 > 125) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "obfs ws: fragmented or oversized control frame",
+            ));
+        }
         let mut off = 2usize;
         let payload_len: usize = if len7 == 126 {
             if self.buf.len() < off + 2 {
@@ -640,8 +722,33 @@ impl WsReframer {
         if self.buf.len() < off + payload_len {
             return Ok(FrameParse::NeedMore); // full payload not yet buffered
         }
-        // opcode 0x2 = binary (deliver); 0x0 continuation (deliver); others are control.
-        let deliver = opcode == 0x2 || opcode == 0x0;
+        // Update fragmentation state only once the whole frame is present; doing it while a
+        // partial frame is buffered would make the next poll see a false duplicate/open.
+        let deliver = match opcode {
+            0x0 => {
+                if !self.fragment_open {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "obfs ws: continuation without an open message",
+                    ));
+                }
+                if fin {
+                    self.fragment_open = false;
+                }
+                true
+            }
+            0x2 => {
+                if self.fragment_open {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "obfs ws: new data frame before final continuation",
+                    ));
+                }
+                self.fragment_open = !fin;
+                true
+            }
+            _ => false,
+        };
         if deliver {
             for (i, &b) in self.buf[off..off + payload_len].iter().enumerate() {
                 let plain = if masked { b ^ mask[i % 4] } else { b };
@@ -686,6 +793,11 @@ impl WsReframer {
     fn drain_frames(&mut self) -> io::Result<()> {
         while !matches!(self.parse_one_frame()?, FrameParse::NeedMore) {}
         Ok(())
+    }
+
+    /// True when EOF would truncate a header, mask key or payload already started on wire.
+    fn has_incomplete_frame(&self) -> bool {
+        !self.buf.is_empty()
     }
 
     /// Number of delivered payload bytes available to read.
@@ -1131,16 +1243,19 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         host: Option<&str>,
     ) -> io::Result<Self> {
         if fronting {
-            inner.write_all(&ws::build_request(host, key)).await?;
+            let (request, expected_accept) = ws::build_request_with_accept(host, key);
+            inner.write_all(&request).await?;
             inner.flush().await?;
             let head = ws::read_head(&mut inner).await?;
-            if !head.starts_with(b"HTTP/1.1 101") {
-                return Err(io::Error::other("obfs ws: server did not switch protocols"));
+            if !ws::validate_response(&head, &expected_accept) {
+                return Err(io::Error::other(
+                    "obfs ws: invalid or unbound protocol-switch response",
+                ));
             }
         }
         let jc = awg.effective_jc();
         let (jmin, jmax) = awg.clamp_window();
-        let mut reframer = WsReframer::default();
+        let mut reframer = WsReframer::with_expected_mask(false);
         // F2: client is the sender first — emit jc junk, then discard jc junk.
         if jc > 0 {
             if fronting {
@@ -1234,7 +1349,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         }
         let jc = awg.effective_jc();
         let (jmin, jmax) = awg.clamp_window();
-        let mut reframer = WsReframer::default();
+        let mut reframer = WsReframer::with_expected_mask(true);
         // F2: server is the receiver first — discard jc junk, then emit jc junk.
         if jc > 0 {
             if fronting {
@@ -1444,7 +1559,13 @@ fn ws_read<R: AsyncRead + Unpin>(
         ready!(Pin::new(&mut *inner).poll_read(cx, &mut rb))?;
         let filled = rb.filled().len();
         if filled == 0 {
-            // EOF from the socket. If nothing is pending, signal EOF (empty read).
+            if ws.reframer.has_incomplete_frame() {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "obfs ws: EOF in the middle of a frame",
+                )));
+            }
+            // Clean EOF at a frame boundary.
             return Poll::Ready(Ok(()));
         }
         let bytes = rb.filled().to_vec();
@@ -2191,6 +2312,39 @@ mod tests {
         let mut out = vec![0u8; p.len()];
         assert_eq!(rf.read_pending(&mut out), p.len());
         assert_eq!(out, p);
+    }
+
+    #[test]
+    fn ws_reframer_enforces_mask_direction_and_fragment_state() {
+        let payload = b"direction";
+        let masked = ws_encode_frames(payload, true);
+        let unmasked = ws_encode_frames(payload, false);
+
+        let mut server = WsReframer::with_expected_mask(true);
+        server.feed(&unmasked);
+        assert!(
+            server.drain_frames().is_err(),
+            "server must reject an unmasked client frame"
+        );
+
+        let mut client = WsReframer::with_expected_mask(false);
+        client.feed(&masked);
+        assert!(
+            client.drain_frames().is_err(),
+            "client must reject a masked server frame"
+        );
+
+        let mut fragments = WsReframer::default();
+        fragments.feed(&[0x00, 0x00]);
+        assert!(
+            fragments.drain_frames().is_err(),
+            "orphan continuation must be rejected"
+        );
+
+        let mut truncated = WsReframer::with_expected_mask(false);
+        truncated.feed(&[0x82, 0x05, b'a']);
+        truncated.drain_frames().unwrap();
+        assert!(truncated.has_incomplete_frame());
     }
 
     /// End-to-end fronted round-trip over the WS-framed data plane, with a large

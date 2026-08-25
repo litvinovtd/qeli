@@ -1512,8 +1512,9 @@ class VpnServiceImpl : VpnService() {
                     showNotification(s(R.string.notif_reconnecting, attempt.coerceAtLeast(1)))
                     if (attempt > 0) {
                         val pow = Math.pow(2.0, (attempt - 1).coerceAtMost(7).toDouble()).toLong()
-                        val delayMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
-                        broadcastLog("Reconnect attempt $attempt in ${delayMs / 1000}s")
+                        val scheduledMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
+                        val delayMs = jitterReconnectDelay(scheduledMs)
+                        broadcastLog("Reconnect attempt $attempt in ${"%.1f".format(delayMs / 1000.0)}s")
                         delay(delayMs)
                     } else {
                         broadcastLog("Reconnecting…") // a stable session dropped — reconnect promptly
@@ -2029,6 +2030,14 @@ class VpnServiceImpl : VpnService() {
             established && ranMs >= stableMs -> 0
             else -> attempt + 1
         }
+    }
+
+    private fun jitterReconnectDelay(scheduledMs: Long): Long {
+        if (scheduledMs <= 1L) return scheduledMs.coerceAtLeast(0L)
+        val minimum = scheduledMs - scheduledMs / 5L
+        // Config validation caps this far below Long.MAX_VALUE, so the exclusive upper bound
+        // cannot overflow. Jitter never exceeds the operator's capped schedule.
+        return kotlin.random.Random.nextLong(minimum, scheduledMs + 1L)
     }
 
     private fun switchedNetwork(why: String) {

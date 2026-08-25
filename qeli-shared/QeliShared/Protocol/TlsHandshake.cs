@@ -59,7 +59,10 @@ public static class TlsHandshake
     /// fake-tls / obfs / UDP paths use <see cref="BuildClientHelloPq"/> because the
     /// server now requires the X25519MLKEM768 share for the hybrid tunnel.</summary>
     public static byte[] BuildClientHello(byte[] keyShare, string sni = "!", int padToMin = 0)
-        => BuildClientHelloInner(keyShare, null, sni, padToMin);
+    {
+        ValidateClientHelloInputs(sni, padToMin);
+        return BuildClientHelloInner(keyShare, null, sni, padToMin);
+    }
 
     /// <summary>Hybrid post-quantum ClientHello: carries the real ML-KEM-768
     /// encapsulation key in an X25519MLKEM768 (0x11ec) key_share alongside the classic
@@ -69,6 +72,7 @@ public static class TlsHandshake
     public static byte[] BuildClientHelloPq(byte[] x25519Pub, byte[] mlKemEk,
         string sni = "!", int padToMin = 0)
     {
+        ValidateClientHelloInputs(sni, padToMin);
         // Prefer the shared Rust builder (qeli.dll) so every client emits the identical
         // fake-tls hello (GREASE / per-connection shuffle / ALPN). Fall back to the
         // managed builder if the native export is unavailable (e.g. an older bundled
@@ -90,6 +94,18 @@ public static class TlsHandshake
         catch (DllNotFoundException) { /* qeli.dll missing → managed builder */ }
         catch (EntryPointNotFoundException) { /* old qeli.dll w/o the export → managed */ }
         return BuildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin);
+    }
+
+    private static void ValidateClientHelloInputs(string sni, int padToMin)
+    {
+        ArgumentNullException.ThrowIfNull(sni);
+        bool marker = sni is "" or "!" or "~" or "@";
+        if (!marker && (sni.Length > 253 || sni.Any(ch => ch > 0x7f)))
+            throw new ArgumentException("SNI must be ASCII and at most 253 bytes", nameof(sni));
+        // One TLS plaintext handshake record; matches Rust MAX_HANDSHAKE_SIZE + header.
+        if (padToMin is < 0 or > 16_389)
+            throw new ArgumentOutOfRangeException(nameof(padToMin),
+                "ClientHello padding target must be between 0 and 16389 bytes");
     }
 
     private static byte[] BuildClientHelloInner(byte[] x25519Pub, byte[]? mlKemEk, string sni, int padToMin)

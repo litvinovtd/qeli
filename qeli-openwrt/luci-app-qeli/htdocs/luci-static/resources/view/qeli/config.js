@@ -288,9 +288,9 @@ return view.extend({
 		o.validate = function(section_id, value) {
 			if (value === '' || value === '0') return true;
 			var mtu = Number(value);
-			return Number.isInteger(mtu) && mtu >= 576 && mtu <= 16638
+			return Number.isInteger(mtu) && mtu >= 576 && mtu <= 16602
 				? true
-				: _('MTU must be 0 (auto) or between 576 and 16638.');
+				: _('MTU must be 0 (auto) or between 576 and 16602.');
 		}; // mirrors config/server.rs MTU_MIN..=MTU_MAX
 
 		o = s.option(form.Flag, 'kill_switch', _('Kill-switch'),

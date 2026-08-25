@@ -68,6 +68,113 @@ const UDP_CONTROL_REPORT_RESENDS: u8 = 3;
 /// used only to translate the existing inner-MTU-shaped probe into the independently tracked
 /// UDP payload budget that the probe actually certified.
 const UDP_RECORD_PROBE_OVERHEAD: usize = 48;
+/// A widened mobile/Wi-Fi path should not remain pinned to the conservative startup budget
+/// for the lifetime of a long session. Re-probing is sparse and uses the one existing socket
+/// receive loop, so it neither creates a competing reader nor loses ordinary data records.
+const UDP_MTU_REPROBE_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const UDP_MTU_REPROBE_TICK: Duration = Duration::from_millis(250);
+const UDP_MTU_REPROBE_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
+const UDP_MTU_REPROBE_SENDS: u8 = 2;
+const UDP_MTU_REPROBE_CONFIRMATIONS: u8 = 3;
+
+#[derive(Debug, Clone, Copy)]
+struct UdpMtuChallenge {
+    candidate: i32,
+    id: u16,
+    outer_size: u16,
+    sends: u8,
+    deadline: tokio::time::Instant,
+}
+
+#[derive(Debug, Default)]
+struct LiveUdpMtuProbe {
+    candidates: std::collections::VecDeque<i32>,
+    challenge: Option<UdpMtuChallenge>,
+    confirmations: u8,
+}
+
+impl LiveUdpMtuProbe {
+    fn start(&mut self, candidates: impl IntoIterator<Item = i32>) {
+        self.candidates = candidates.into_iter().collect();
+        self.challenge = None;
+        self.confirmations = 0;
+    }
+
+    fn is_active(&self) -> bool {
+        self.challenge.is_some() || !self.candidates.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.candidates.clear();
+        self.challenge = None;
+        self.confirmations = 0;
+    }
+
+    /// Return the next challenge that must be sent. A candidate gets two sends with one
+    /// correlation id; a certified candidate then needs three independently random ids.
+    fn next_send(&mut self, now: tokio::time::Instant) -> Option<(u16, i32)> {
+        loop {
+            if self.challenge.is_none() {
+                let candidate = self.candidates.pop_front()?;
+                self.challenge = Some(UdpMtuChallenge {
+                    candidate,
+                    id: rand::random(),
+                    outer_size: u16::try_from(
+                        candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
+                    )
+                    .ok()?,
+                    sends: 0,
+                    deadline: now,
+                });
+            }
+            let challenge = self.challenge.as_mut()?;
+            if challenge.sends != 0 && now < challenge.deadline {
+                return None;
+            }
+            if challenge.sends >= UDP_MTU_REPROBE_SENDS {
+                // This rung did not answer. Continue down the already descending ladder.
+                self.challenge = None;
+                self.confirmations = 0;
+                continue;
+            }
+            challenge.sends += 1;
+            challenge.deadline = now + UDP_MTU_REPROBE_REPLY_TIMEOUT;
+            return Some((challenge.id, challenge.candidate));
+        }
+    }
+
+    /// Accept only an exact id+size echo. `Some(candidate)` means the third independent
+    /// confirmation completed and the live data-plane budget may be widened.
+    fn acknowledge(&mut self, id: u16, outer_size: u16) -> Option<i32> {
+        let challenge = self.challenge?;
+        if challenge.id != id || challenge.outer_size != outer_size {
+            return None;
+        }
+        self.confirmations = self.confirmations.saturating_add(1);
+        if self.confirmations >= UDP_MTU_REPROBE_CONFIRMATIONS {
+            self.clear();
+            return Some(challenge.candidate);
+        }
+        self.challenge = Some(UdpMtuChallenge {
+            id: rand::random(),
+            sends: 0,
+            deadline: tokio::time::Instant::now(),
+            ..challenge
+        });
+        None
+    }
+}
+
+fn udp_payload_budget_for_probe(probe_mtu: i32, seal_overhead: usize, quic_enabled: bool) -> usize {
+    (probe_mtu.max(0) as usize)
+        .saturating_add(UDP_RECORD_PROBE_OVERHEAD)
+        .saturating_add(seal_overhead)
+        .saturating_add(if quic_enabled {
+            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+        } else {
+            0
+        })
+}
 
 /// Accept only packets belonging to the address families negotiated atomically in the
 /// authenticated NetworkPlan. Packets from a disabled family must not leak into a profile
@@ -792,6 +899,18 @@ impl ClientPlatform for LinuxCoreAdapter {
 /// mobile cores, so a `linux`-only definition compiles on the gate host and nowhere else.
 static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Desynchronise clients that lose the same server/carrier at once. Jitter only shortens the
+/// scheduled delay (by at most 20%), so the configured maximum is never exceeded.
+fn jitter_reconnect_delay(scheduled: Duration) -> Duration {
+    let millis = u64::try_from(scheduled.as_millis()).unwrap_or(u64::MAX);
+    let spread = millis / 5;
+    if spread == 0 {
+        return scheduled;
+    }
+    let reduction = rand::rng().random_range(0..=spread);
+    Duration::from_millis(millis.saturating_sub(reduction))
+}
+
 #[cfg(target_os = "linux")]
 pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
@@ -1118,7 +1237,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             .checked_shl(retry_count as u32)
             .unwrap_or(u64::MAX)
             .min(100);
-        let delay = std::cmp::min(
+        let scheduled_delay = std::cmp::min(
             config
                 .server
                 .reconnect
@@ -1126,6 +1245,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 .saturating_mul(multiplier),
             config.server.reconnect.max_delay_secs,
         );
+        let delay = jitter_reconnect_delay(Duration::from_secs(scheduled_delay));
         retry_count += 1;
 
         // Re-resolve the server so a rotated (DDNS / round-robin) address is allowed
@@ -1139,12 +1259,34 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             }
         }
 
-        log::info!("Reconnecting in {}s (attempt {})...", delay, retry_count);
+        let retry_in_secs =
+            u64::try_from(delay.as_millis().saturating_add(999) / 1000).unwrap_or(u64::MAX);
+        log::info!(
+            "Reconnecting in {:.3}s (attempt {})...",
+            delay.as_secs_f64(),
+            retry_count
+        );
         core_adapter
             .diagnostics
-            .retrying(result.as_ref().err(), retry_count, delay);
+            .retrying(result.as_ref().err(), retry_count, retry_in_secs);
         core_adapter.diagnostics.publish(&core_adapter.counters);
-        tokio::time::sleep(Duration::from_secs(delay)).await;
+        tokio::time::sleep(delay).await;
+    }
+}
+
+#[cfg(test)]
+mod reconnect_jitter_tests {
+    use super::jitter_reconnect_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn reconnect_jitter_stays_within_eighty_to_one_hundred_percent() {
+        let scheduled = Duration::from_secs(60);
+        for _ in 0..256 {
+            let delay = jitter_reconnect_delay(scheduled);
+            assert!(delay >= Duration::from_secs(48));
+            assert!(delay <= scheduled);
+        }
     }
 }
 
@@ -1394,10 +1536,15 @@ async fn connect_reality(
         }
     };
     let est = match tokio::time::timeout(to, handshake).await {
-        Ok(r) => r?,
+        Ok(Ok(established)) => established,
+        Ok(Err(error)) => {
+            return Err(anyhow::anyhow!(
+                "reality-tls handshake failed: {error}; if the server bridged to the decoy, verify the pinned server key, short_id, and that client/server clocks differ by no more than ±120 seconds"
+            ));
+        }
         Err(_) => {
             return Err(anyhow::anyhow!(
-                "reality-tls handshake timed out after {}s",
+                "reality-tls handshake timed out after {}s; verify reachability and, if the server bridged to the decoy, the pinned key, short_id and ±120-second clock window",
                 to.as_secs()
             ))
         }
@@ -1540,6 +1687,9 @@ struct StreamPump {
     heartbeat_enabled: bool,
     heartbeat_interval: Duration,
     idle_timeout: Duration,
+    /// Effective authenticated TUN MTU. TCP normalization and padding must obey the same
+    /// inner-record budget as UDP even though the outer TCP stream handles segmentation.
+    tun_mtu: usize,
     hb_data: u16,
     hb_jitter: u64,
     padding_enabled: bool,
@@ -1552,6 +1702,8 @@ struct StreamPump {
     /// Flow-shaping (DPI-AUDIT 6.1/6.2): client->server idle cover, mirror of the
     /// server's. When enabled it replaces this stream's fixed heartbeat.
     shaping: crate::protocol::ShapingConfig,
+    /// Aggregate client→server cover budget shared by every bonded stream.
+    cover_budget: crate::protocol::SharedCoverBudget,
     /// reality-tls only: run the receive side as a 2-stage pipeline so the outer
     /// TLS AES-GCM (done in `read_record`) and the inner qeli ChaCha
     /// (`decrypt_packet`) overlap across cores instead of running serially in one
@@ -1658,6 +1810,7 @@ where
             let inner_tun = tun_write_tx;
             let inner_total_rx = total_rx.clone();
             let inner_runtime = runtime.clone();
+            let inner_last_rx = last_rx.clone();
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
@@ -1670,6 +1823,8 @@ where
                             if !record.is_empty()
                                 && is_supported_inner_packet(record.as_ref(), family_mode) =>
                         {
+                            inner_last_rx
+                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                             inner_total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                             inner_runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
                             inner_runtime
@@ -1682,8 +1837,13 @@ where
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
-                        Ok(()) if record.is_empty() => {}
+                        Ok(()) if record.is_empty() => {
+                            inner_last_rx
+                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
+                        }
                         Ok(()) => {
+                            inner_last_rx
+                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                             unsupported_downlink_drops =
                                 unsupported_downlink_drops.saturating_add(1);
                             if unsupported_downlink_drops.is_power_of_two() {
@@ -1716,7 +1876,6 @@ where
                 };
                 match read_record_into(&mut read_half, framing, record.as_vec_mut()).await {
                     Ok(()) => {
-                        last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                         match &mut sink {
                             RxSink::Inline { rx, tun } => {
                                 match rx.decrypt_packet_in_place(record.as_vec_mut()) {
@@ -1727,6 +1886,10 @@ where
                                                 family_mode,
                                             ) =>
                                     {
+                                        last_rx.store(
+                                            base.elapsed().as_millis() as u64,
+                                            Ordering::Relaxed,
+                                        );
                                         total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                                         runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
                                         runtime
@@ -1746,8 +1909,17 @@ where
                                             }
                                         }
                                     }
-                                    Ok(()) if record.is_empty() => {}
+                                    Ok(()) if record.is_empty() => {
+                                        last_rx.store(
+                                            base.elapsed().as_millis() as u64,
+                                            Ordering::Relaxed,
+                                        );
+                                    }
                                     Ok(()) => {
+                                        last_rx.store(
+                                            base.elapsed().as_millis() as u64,
+                                            Ordering::Relaxed,
+                                        );
                                         unsupported_downlink_drops =
                                             unsupported_downlink_drops.saturating_add(1);
                                         if unsupported_downlink_drops.is_power_of_two() {
@@ -1826,7 +1998,8 @@ where
             // gaps REPLACES the fixed heartbeat (client->server direction). Never
             // hold a `ThreadRng` across `.await` (it is `!Send`) — fresh per call.
             let mut shaper =
-                crate::protocol::Shaper::new(cfg.shaping.clone(), std::time::Instant::now());
+                crate::protocol::Shaper::new(cfg.shaping.clone(), std::time::Instant::now())
+                    .with_shared_budget(cfg.cover_budget.clone());
             let shaping_on = shaper.enabled();
             let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
             let rx_dead_ms = crate::protocol::liveness_deadline(
@@ -1865,7 +2038,7 @@ where
                                 Obfuscator::normalization_padding_len(
                                     data.len(),
                                     &cfg.norm_sizes,
-                                    1400,
+                                    cfg.tun_mtu,
                                 )
                             } else {
                                 0
@@ -1875,7 +2048,8 @@ where
                                     .len()
                                     .saturating_add(normalization_padding)
                                     .saturating_add(60);
-                                (cfg.padding_max as usize).min(1400usize.saturating_sub(b)) as u16
+                                (cfg.padding_max as usize)
+                                    .min(cfg.tun_mtu.saturating_sub(b)) as u16
                             };
                             obf.generate_padding_opts_into(
                                 cfg.padding_enabled, cfg.padding_min, pad_cap,
@@ -1885,7 +2059,7 @@ where
                                 obf.append_normalization_padding_into(
                                     data.len(),
                                     &cfg.norm_sizes,
-                                    1400,
+                                    cfg.tun_mtu,
                                     &mut padding,
                                 );
                             }
@@ -2017,7 +2191,10 @@ where
                                 break;
                             }
                         }
-                        if idle_ms > 0 && now.saturating_sub(last_tx_ms) > idle_ms { break; }
+                        let last_activity = last_tx_ms.max(last_rx.load(Ordering::Relaxed));
+                        if idle_ms > 0 && now.saturating_sub(last_activity) > idle_ms {
+                            break;
+                        }
                     }
 
                     else => break,
@@ -2337,12 +2514,16 @@ where
     // this reaches 0 (losing one bonded stream just degrades to the rest).
     let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+    let shaping = eff_obf.traffic_shaping.to_shaping();
+    let cover_budget = crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());
     let pump = StreamPump {
         framing,
         family_mode: negotiated_family_mode,
         heartbeat_enabled,
         heartbeat_interval,
         idle_timeout,
+        tun_mtu: usize::try_from(tun_mtu)
+            .map_err(|_| anyhow::anyhow!("authenticated TUN MTU is negative"))?,
         hb_data: hb_config.data_size_bytes,
         hb_jitter: hb_config.jitter_ms,
         padding_enabled,
@@ -2352,7 +2533,8 @@ where
         padding_prob,
         norm_enabled: eff_obf.traffic_normalization.enabled,
         norm_sizes: norm_sizes.clone(),
-        shaping: eff_obf.traffic_shaping.to_shaping(),
+        shaping,
+        cover_budget,
         // Only reality-tls pays a second (outer TLS AES-GCM) AEAD on the read
         // side; pipeline its two decrypt layers across cores. Other modes decrypt
         // inline (unchanged path).
@@ -2839,7 +3021,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     platform_capabilities: u64,
     identity_verifier: IdentityVerifier,
 ) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)> {
-    authenticate_tcp(
+    let result = authenticate_tcp(
         stream,
         config,
         password,
@@ -2847,7 +3029,16 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         platform_capabilities,
         move |received| identity_verifier(received),
     )
-    .await
+    .await;
+    result.map_err(|error| {
+        if config.obfuscation.mode == "reality-tls" {
+            anyhow::anyhow!(
+                "REALITY authentication failed: {error}; verify the pinned server key, short_id, and that client/server clocks differ by no more than ±120 seconds"
+            )
+        } else {
+            error
+        }
+    })
 }
 
 /// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
@@ -3702,7 +3893,7 @@ fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize, peer_is_ipv6: bool) -> 
     .clamp(crate::config::server::MTU_MIN as i32, ceiling);
     // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet number.
     // While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once the ceiling
-    // became 16638 the same ladder went straight from 16638 to 1360, so a path that carries
+    // became record-sized the same ladder went straight from the ceiling to 1360, so a path that carries
     // 9000 — an ordinary jumbo LAN, which is exactly who configures a large MTU — was certified
     // at 1360 and lost ~85% of its frame. These rungs cost nothing on a normal path: they are
     // all above a 1500 ceiling and the filter below drops them.
@@ -3773,18 +3964,20 @@ mod mtu_ladder_tests {
     /// A jumbo ceiling must not fall straight to 1360.
     ///
     /// The ladder was written when the ceiling was an Ethernet-sized number, so the rung below
-    /// it was 1360 and the gap was 140 bytes. Raising the ceiling to 16638 turned that same gap
-    /// into 15278: a path carrying 9000 — an ordinary jumbo LAN, and precisely the setup where
-    /// someone configures a large MTU — probed 16638, failed, and was certified at 1360.
+    /// it was 1360 and the gap was 140 bytes. Raising to the record-format ceiling made that
+    /// gap enormous: a path carrying 9000 — an ordinary jumbo LAN, and precisely the setup
+    /// where someone configures a large MTU — could fail the ceiling probe and be certified
+    /// at only 1360.
     /// (Audit 2026-08-01, §8.)
     #[test]
     fn a_jumbo_ceiling_has_rungs_between_it_and_1360() {
         let overhead = 48 + 13 + 9 + 8 + 40;
-        let ladder = mtu_probe_ladder(16638, overhead, true);
+        let ceiling = crate::protocol::packet::MAX_TUNNEL_MTU as i32;
+        let ladder = mtu_probe_ladder(ceiling, overhead, true);
         let jumbo: Vec<i32> = ladder
             .iter()
             .copied()
-            .filter(|&m| (1360..16638).contains(&m))
+            .filter(|&m| (1360..ceiling).contains(&m))
             .collect();
         assert!(
             jumbo.len() >= 3,
@@ -3896,6 +4089,64 @@ mod mtu_ladder_tests {
         assert_eq!(
             udp_inner_mtu_after_probe(1400, 1320, false, NetworkFamilyMode::Dual),
             1320
+        );
+    }
+
+    #[test]
+    fn live_probe_requires_three_independent_exact_echoes() {
+        use super::{LiveUdpMtuProbe, UDP_RECORD_PROBE_OVERHEAD};
+
+        let mut probe = LiveUdpMtuProbe::default();
+        probe.start([1400]);
+        for confirmation in 0..3 {
+            let (id, candidate) = probe
+                .next_send(tokio::time::Instant::now())
+                .expect("fresh challenge must send immediately");
+            assert_eq!(candidate, 1400);
+            let size = (candidate as usize + UDP_RECORD_PROBE_OVERHEAD) as u16;
+            assert_eq!(
+                probe.acknowledge(id.wrapping_add(1), size),
+                None,
+                "wrong id must not advance confirmation"
+            );
+            let result = probe.acknowledge(id, size);
+            if confirmation < 2 {
+                assert_eq!(result, None);
+                assert!(probe.is_active());
+            } else {
+                assert_eq!(result, Some(1400));
+                assert!(!probe.is_active());
+            }
+        }
+    }
+
+    #[test]
+    fn live_probe_descends_after_two_unanswered_sends() {
+        use super::{LiveUdpMtuProbe, UDP_MTU_REPROBE_REPLY_TIMEOUT, UDP_MTU_REPROBE_SENDS};
+
+        let mut probe = LiveUdpMtuProbe::default();
+        probe.start([1500, 1400]);
+        let start = tokio::time::Instant::now();
+        for send in 0..UDP_MTU_REPROBE_SENDS {
+            let (_, candidate) = probe
+                .next_send(start + UDP_MTU_REPROBE_REPLY_TIMEOUT * u32::from(send))
+                .expect("retry must be emitted");
+            assert_eq!(candidate, 1500);
+        }
+        let (_, next_candidate) = probe
+            .next_send(start + UDP_MTU_REPROBE_REPLY_TIMEOUT * u32::from(UDP_MTU_REPROBE_SENDS))
+            .expect("lower rung must start after timeout");
+        assert_eq!(next_candidate, 1400);
+    }
+
+    #[test]
+    fn probe_budget_accounts_for_all_udp_payload_wrappers() {
+        use super::udp_payload_budget_for_probe;
+
+        assert_eq!(udp_payload_budget_for_probe(1400, 13, false), 1461);
+        assert_eq!(
+            udp_payload_budget_for_probe(1400, 13, true),
+            1461 + crate::protocol::quic::QUIC_SHORT_HEADER_MIN
         );
     }
 }
@@ -4962,6 +5213,7 @@ pub(crate) async fn run_udp_tunnel(
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
     let mut uplink_udp_payload_budget =
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
+    let mut keep_df_after_live_probe = false;
     let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
         match probe_udp_mtu(
             &socket,
@@ -4974,16 +5226,11 @@ pub(crate) async fn run_udp_tunnel(
         .await
         {
             Some(m) => {
+                keep_df_after_live_probe = data_frag_enabled;
                 // The probe sent `m + record-overhead`, then QUIC/obfs wrapped it. Record
                 // the UDP payload size it actually certified separately from inner MTU.
-                uplink_udp_payload_budget = (m.max(0) as usize)
-                    .saturating_add(UDP_RECORD_PROBE_OVERHEAD)
-                    .saturating_add(socket.seal_overhead())
-                    .saturating_add(if quic_enabled {
-                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-                    } else {
-                        0
-                    });
+                uplink_udp_payload_budget =
+                    udp_payload_budget_for_probe(m, socket.seal_overhead(), quic_enabled);
                 // Inner and outer MTU stay independent when DATA_FRAG_V1 was negotiated.
                 // A legacy server cannot reassemble record fragments, so use the certified
                 // inner size for IPv4. IPv6 keeps its mandatory 1280 floor; the probe restored
@@ -5229,12 +5476,12 @@ pub(crate) async fn run_udp_tunnel(
         Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut oversize_tun_drops: u64 = 0;
-    let data_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
+    let mut data_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
         uplink_udp_payload_budget,
         socket.seal_overhead(),
         quic_enabled,
     )?;
-    let max_empty_record_padding = client_tx
+    let mut max_empty_record_padding = client_tx
         .max_padding_for_record_budget(0, data_record_budget)
         .map_err(|error| {
             anyhow::anyhow!("UDP record budget cannot carry control traffic: {error}")
@@ -5260,7 +5507,7 @@ pub(crate) async fn run_udp_tunnel(
     // certified uplink UDP payload budget as a distinct authenticated frame. A current server
     // treats it only as the ceiling for its own reverse DF probe and widens downlink after that
     // direction answers; an older server skips the unknown type.
-    let udp_payload_budget_report_value = data_frag_enabled
+    let mut udp_payload_budget_report_value = data_frag_enabled
         .then(|| u16::try_from(uplink_udp_payload_budget).ok())
         .flatten()
         .filter(|budget| {
@@ -5340,6 +5587,18 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
+    // Live PMTU widening is available only when DATA_FRAG decouples the TUN MTU from the
+    // carrier datagram size. A legacy peer would require rebuilding the interface/routes.
+    let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.mtu == 0 && config.tun.mtu_probe;
+    let mut live_mtu_probe = LiveUdpMtuProbe::default();
+    let mut live_mtu_due = tokio::time::interval(UDP_MTU_REPROBE_INTERVAL);
+    live_mtu_due.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Consume interval's immediate first tick: startup probing just ran above.
+    live_mtu_due.tick().await;
+    let mut live_mtu_tick = tokio::time::interval(UDP_MTU_REPROBE_TICK);
+    live_mtu_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    live_mtu_tick.tick().await;
+
     let mut unsupported_inner_drops = 0u64;
     loop {
         tokio::select! {
@@ -5349,6 +5608,80 @@ pub(crate) async fn run_udp_tunnel(
 
             _ = udp_buffer_tick.tick() => {
                 udp_buffer.tick(socket.raw_socket());
+            }
+
+            _ = live_mtu_due.tick(), if live_mtu_reprobe_enabled && !live_mtu_probe.is_active() => {
+                let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
+                    + socket.seal_overhead()
+                    + if quic_enabled {
+                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+                    } else {
+                        0
+                    }
+                    + 8
+                    + if socket.peer_is_ipv6() { 40 } else { 20 };
+                let candidates: Vec<i32> = mtu_probe_ladder(
+                    base_mtu,
+                    outer_overhead,
+                    socket.peer_is_ipv6(),
+                )
+                .into_iter()
+                .filter(|candidate| {
+                    udp_payload_budget_for_probe(
+                        *candidate,
+                        socket.seal_overhead(),
+                        quic_enabled,
+                    ) > uplink_udp_payload_budget
+                })
+                .collect();
+                if !candidates.is_empty() {
+                    if begin_mtu_probe(&socket) {
+                        log::debug!(
+                            "UDP live PMTU re-probe started ({} candidate rungs above {}-byte budget)",
+                            candidates.len(),
+                            uplink_udp_payload_budget,
+                        );
+                        live_mtu_probe.start(candidates);
+                    } else {
+                        log::debug!("UDP live PMTU re-probe skipped: DF control is unavailable");
+                    }
+                }
+            }
+
+            _ = live_mtu_tick.tick(), if live_mtu_reprobe_enabled && live_mtu_probe.is_active() => {
+                if let Some((probe_id, candidate)) =
+                    live_mtu_probe.next_send(tokio::time::Instant::now())
+                {
+                    if let Some(probe) = crate::protocol::udp_frag::mtu_probe_datagram(
+                        probe_id,
+                        candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
+                    ) {
+                        let send_data: &[u8] = if quic_enabled {
+                            quic_pn = quic_pn.wrapping_add(1);
+                            wrap_quic_short_into(
+                                &probe,
+                                &connection_id,
+                                quic_pn - 1,
+                                &mut quic_record,
+                            );
+                            &quic_record
+                        } else {
+                            &probe
+                        };
+                        if let Err(error) = socket.send(send_data).await {
+                            log::trace!("UDP live PMTU probe send failed: {error}");
+                        }
+                    }
+                }
+                if !live_mtu_probe.is_active() {
+                    // All larger rungs failed. Preserve the already-certified budget and
+                    // restore the DF state that was active before this re-probe.
+                    finish_mtu_probe(&socket, keep_df_after_live_probe);
+                    log::debug!(
+                        "UDP live PMTU re-probe found no wider path; keeping {}-byte budget",
+                        uplink_udp_payload_budget,
+                    );
+                }
             }
 
             packet = tun_pump.recv_from_tun() => {
@@ -5554,6 +5887,75 @@ pub(crate) async fn run_udp_tunnel(
                 } else {
                     &recv_buf[..n]
                 };
+                // The periodic uplink PMTU state machine shares this receive loop. Consume
+                // only an exact echo of its current challenge; stale/foreign ACKs continue
+                // through the normal authenticated packet path and are rejected there.
+                if let Some((probe_id, probe_size)) =
+                    crate::protocol::udp_frag::parse_mtu_probe_ack(payload)
+                {
+                    let matches_live_challenge = live_mtu_probe
+                        .challenge
+                        .map(|challenge| {
+                            challenge.id == probe_id && challenge.outer_size == probe_size
+                        })
+                        .unwrap_or(false);
+                    if matches_live_challenge {
+                        if let Some(candidate) =
+                            live_mtu_probe.acknowledge(probe_id, probe_size)
+                        {
+                            let new_payload_budget = udp_payload_budget_for_probe(
+                                candidate,
+                                socket.seal_overhead(),
+                                quic_enabled,
+                            );
+                            let new_record_budget =
+                                crate::protocol::data_frag::unfragmented_record_budget(
+                                    new_payload_budget,
+                                    socket.seal_overhead(),
+                                    quic_enabled,
+                                );
+                            let new_padding_budget = new_record_budget.as_ref().ok().and_then(
+                                |budget| {
+                                    client_tx
+                                        .max_padding_for_record_budget(0, *budget)
+                                        .ok()
+                                },
+                            );
+                            match (new_record_budget, new_padding_budget) {
+                                (Ok(record_budget), Some(padding_budget)) => {
+                                    uplink_udp_payload_budget = new_payload_budget;
+                                    data_record_budget = record_budget;
+                                    max_empty_record_padding = padding_budget;
+                                    udp_payload_budget_report_value =
+                                        u16::try_from(new_payload_budget).ok();
+                                    control_report_resends = UDP_CONTROL_REPORT_RESENDS;
+                                    keep_df_after_live_probe = true;
+                                    finish_mtu_probe(&socket, true);
+                                    log::info!(
+                                        "UDP live PMTU widened uplink payload budget to {} bytes (probe rung {})",
+                                        new_payload_budget,
+                                        candidate,
+                                    );
+                                }
+                                (Err(error), _) => {
+                                    finish_mtu_probe(&socket, keep_df_after_live_probe);
+                                    log::warn!(
+                                        "UDP live PMTU result could not form a data budget: {error}"
+                                    );
+                                }
+                                (Ok(_), None) => {
+                                    finish_mtu_probe(&socket, keep_df_after_live_probe);
+                                    log::warn!(
+                                        "UDP live PMTU result cannot carry authenticated control traffic"
+                                    );
+                                }
+                            }
+                        }
+                        // The ACK is bare carrier control, not a PacketCodec record. Partial
+                        // confirmations prepare a fresh random challenge for the timer branch.
+                        continue;
+                    }
+                }
                 // A current server never derives its downlink budget from the opposite
                 // client-to-server path. It sends a full-size DF probe of its own and widens
                 // only after this tiny echo returns. Handle it before DATA_FRAG/PacketCodec:

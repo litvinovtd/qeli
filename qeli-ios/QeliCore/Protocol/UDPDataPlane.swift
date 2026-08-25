@@ -60,7 +60,7 @@ struct UDPPathMTUProbePolicy: Equatable, Sendable {
         let low = floor
         // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet
         // number. While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once
-        // the ceiling became 16638 the same ladder went straight from 16638 to 1360, so a path
+        // the ceiling became record-sized the same ladder went straight to 1360, so a path
         // that carries 9000 — an ordinary jumbo LAN, which is exactly who configures a large
         // MTU — was certified at 1360 and lost ~85% of its frame. These cost nothing on a
         // normal path: they are all above a 1500 ceiling and the filter drops them.

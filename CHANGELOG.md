@@ -153,6 +153,27 @@
   Исправление симметрично применено к client→server и reverse server→client probe: обнаруженный
   бюджет больше не может оказаться крупнее датаграммы, которую обычный `IP_PMTUDISC_DO` способен
   отправить; при узком пути сохраняется безопасный DATA_FRAG fallback.
+- Долгоживущая UDP DATA_FRAG-сессия с авто-MTU теперь раз в 10 минут повторно проверяет только
+  более широкие ступени пути через единственный socket receive-loop. Расширение применяется
+  после трёх независимых точных challenge/ACK, атомарно обновляет uplink record/fragment/padding
+  budgets и повторно сообщает серверу новый потолок; потеря ответов сохраняет последний
+  подтверждённый бюджет и прежний DF-режим.
+- Общий record ceiling приведён к пределу TLSCiphertext из RFC 8446: максимальный inner MTU
+  теперь `16602` во всех Rust/C#/Kotlin/Swift, панели, пакетных рецептах и conformance-fixtures.
+  Размер packet bridge выводится из финального authenticated NetworkPlan и учитывает также
+  normalization/padding даже для прямого native/iOS plan path.
+- TCP data plane унифицировал liveness по успешно аутентифицированным RX+TX данным и использует
+  negotiated MTU для normalization. Сервер атомарно сериализует revoke/лимит/attach bonded JOIN
+  до `JOINOK`, а профиль без heartbeat, shaping, idle timeout и TCP keepalive отклоняется до
+  старта. Cover token bucket теперь общий для всей bonded-сессии, поэтому JOIN-потоки не
+  умножают допустимый объём маскирующего трафика.
+- WebSocket fronting проверяет связанный `Sec-WebSocket-Accept`, направление MASK, RSV/opcode,
+  fragmentation/control invariants и сообщает EOF посреди кадра. REALITY stream превращает
+  `close_notify` в чистый EOF, явно отклоняет неподдерживаемый `KeyUpdate`, а decoy bridge
+  передаёт half-close в обе стороны вместо отмены обратного потока.
+- Reconnect backoff получил ограниченный 80–100% jitter во всех клиентах. Windows/macOS больше
+  не превращают нормальную гонку отменённого native request (`STALE_REQUEST`) в ложный MITM,
+  а Android JNI различает пустую event queue и реальную ошибку native poll.
 - Kill-switch корректно считает отсутствующей ещё не созданную собственную `QELI_KS*`-цепочку
   iptables-legacy при exit code 2 / `Couldn't load target ... No such file or directory`.
   Проверка привязана к точному ожидаемому имени QELI-цепочки, поэтому отсутствие стороннего

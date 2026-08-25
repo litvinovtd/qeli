@@ -287,6 +287,8 @@ pub struct SessionShared {
     /// direction enforces `bandwidth_limit_mbps` across the whole session, not
     /// per stream, without consuming the other direction's allowance.
     pub rates: DirectionalRateBuckets,
+    /// Aggregate server→client cover budget shared by all bonded TCP writers.
+    pub(crate) cover_budget: crate::protocol::SharedCoverBudget,
     /// Compiled `allowed_networks` (user's own, else the group's) — the destination
     /// ACL applied to every inner packet before it reaches the TUN. Empty =
     /// unrestricted, which is the documented default and costs nothing per packet.
@@ -414,9 +416,13 @@ impl SessionShared {
     /// handles below only cover the TCP reader and the (UDP or TCP) writer. See the
     /// `revoked` field for why the two paths need separate treatment.
     pub fn kick_all(&self) {
-        self.revoked
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        // Serialize revocation with try_add_stream. Whichever operation obtains the streams
+        // lock first wins: an already-attached stream is kicked, while a later JOIN observes
+        // revoked=true and is rejected. There is no window in which a stream can attach after
+        // the kick snapshot and escape both mechanisms.
         let streams = lock_or_recover(&self.streams, "kick_all");
+        self.revoked
+            .store(true, std::sync::atomic::Ordering::Release);
         for s in streams.iter() {
             let _ = s.kick_tx.try_send(());
             // ...and the reader, which kick_tx never reached.
@@ -426,16 +432,17 @@ impl SessionShared {
 
     /// True once this session has been kicked / cut off / superseded.
     pub fn is_revoked(&self) -> bool {
-        self.revoked.load(std::sync::atomic::Ordering::Relaxed)
+        self.revoked.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Atomically attach a stream iff the session is still under its
-    /// `max_streams` cap. Returns `false` (and adds nothing) when the cap is
-    /// already reached: the length check and the push share one lock, so N
-    /// concurrent JOINs can never race past the limit (T8).
+    /// Atomically attach a stream iff the session is live and under its `max_streams` cap.
+    /// Revocation, the length check and the push are serialized by the same lock, so neither
+    /// a concurrent kick nor N concurrent JOINs can race past the decision.
     fn try_add_stream(&self, h: StreamHandle) -> bool {
         let mut streams = lock_or_recover(&self.streams, "try_add_stream");
-        if streams.len() >= self.max_streams as usize {
+        if self.revoked.load(std::sync::atomic::Ordering::Acquire)
+            || streams.len() >= self.max_streams as usize
+        {
             return false;
         }
         streams.push(h);
@@ -512,7 +519,7 @@ where
         1
     };
 
-    let (session, _is_primary): (Arc<SessionShared>, bool) = match first {
+    let (session, join_stream_index): (Arc<SessionShared>, Option<u8>) = match first {
         FirstMessage::Auth {
             proof,
             username,
@@ -881,6 +888,10 @@ where
                 dropped: Arc::new(AtomicU64::new(0)),
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
                 rates: DirectionalRateBuckets::new(),
+                cover_budget: crate::protocol::Shaper::shared_budget(
+                    &pcfg.obfuscation.traffic_shaping.to_shaping(),
+                    std::time::Instant::now(),
+                ),
                 dst_acl,
                 src_guard,
                 exit_access,
@@ -1030,7 +1041,7 @@ where
                 initial_bandwidth_mbps,
                 max_streams
             );
-            (session, true)
+            (session, None)
         }
         FirstMessage::Join {
             token,
@@ -1045,25 +1056,16 @@ where
             };
             let session = session
                 .ok_or_else(|| anyhow::anyhow!("JOIN with unknown/stale token from {}", addr))?;
-            if session.stream_count() >= session.max_streams as usize {
+            if session.is_revoked() || session.stream_count() >= session.max_streams as usize {
                 return Err(anyhow::anyhow!(
-                    "JOIN exceeds max_streams ({}) for user '{}'",
+                    "JOIN rejected for revoked/full session (max_streams={}) for user '{}'",
                     session.max_streams,
                     crate::util::log_identity(&session.username)
                 ));
             }
-            // Ack so the client confirms attachment before pumping data.
-            let ack = server_tx_codec.encrypt_packet(b"JOINOK", &[])?;
-            stream.write_all(&ack).await?;
-            log::info!(
-                "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
-                stream_index,
-                crate::util::log_identity(&session.username),
-                session.client_ip,
-                profile.name,
-                addr
-            );
-            (session, false)
+            // The authoritative check and JOINOK are deliberately deferred until run_stream
+            // has atomically inserted this connection into the session.
+            (session, Some(stream_index))
         }
     };
 
@@ -1077,7 +1079,16 @@ where
     let server_tx = Arc::new(std::sync::Mutex::new(server_tx_codec));
     let (read_half, write_half) = stream.split_io();
     run_stream(
-        profile, session, addr, tun_tx, read_half, write_half, server_tx, server_rx, framing,
+        profile,
+        session,
+        addr,
+        tun_tx,
+        read_half,
+        write_half,
+        server_tx,
+        server_rx,
+        framing,
+        join_stream_index,
     )
     .await;
     Ok(())
@@ -1251,6 +1262,7 @@ async fn run_stream<R, W>(
     server_tx: Arc<std::sync::Mutex<PacketCodec>>,
     server_rx: PacketCodec,
     framing: Framing,
+    join_stream_index: Option<u8>,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send,
@@ -1276,16 +1288,52 @@ async fn run_stream<R, W>(
         kick_tx,
         shutdown_tx: shutdown_tx.clone(),
     }) {
-        // Lost the race against a concurrent JOIN that filled the last slot
-        // (the early stream_count check is only a fast-path). Drop this stream
-        // rather than exceed max_streams.
+        // The lookup/count in handle_client is only a fast-path. This is the authoritative,
+        // lock-serialized admission against both max_streams and session revocation.
         log::warn!(
-            "Stream from {} dropped: session for '{}' already at max_streams ({})",
+            "Stream from {} dropped: session for '{}' is revoked or at max_streams ({})",
             addr,
             crate::util::log_identity(&session.username),
             session.max_streams
         );
         return;
+    }
+
+    // A JOIN is acknowledged only after its StreamHandle occupies a real slot. Previously
+    // JOINOK was sent before try_add_stream, so two concurrent JOINs could both be told they
+    // succeeded even though one was then dropped at the cap.
+    if let Some(stream_index) = join_stream_index {
+        let ack = {
+            let mut codec = lock_or_recover(&server_tx, "handler::join_ack");
+            codec.encrypt_packet(b"JOINOK", &[])
+        };
+        let ack_result = match ack {
+            Ok(bytes) => write_half
+                .write_all(&bytes)
+                .await
+                .map_err(anyhow::Error::from),
+            Err(error) => Err(anyhow::Error::from(error)),
+        };
+        if let Err(error) = ack_result {
+            log::warn!(
+                "Stream #{} for '{}' failed before JOINOK on profile '{}' from {}: {}",
+                stream_index,
+                crate::util::log_identity(&session.username),
+                profile.name,
+                addr,
+                error
+            );
+            detach_stream(&profile, &session, stream_id, addr).await;
+            return;
+        }
+        log::info!(
+            "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
+            stream_index,
+            crate::util::log_identity(&session.username),
+            session.client_ip,
+            profile.name,
+            addr
+        );
     }
 
     let base = tokio::time::Instant::now();
@@ -1316,6 +1364,12 @@ async fn run_stream<R, W>(
                         None => break,
                     },
                 };
+                // Cancellation-safety invariant: cancelling read_record_into may leave the
+                // framing reader between a header and its payload. That is safe here only
+                // because shutdown_rx is terminal for this stream: after this branch we break,
+                // drop read_half and never attempt another record read on it. Do not add a
+                // "soft" pause/reload branch to this select without moving the reader into an
+                // owning task or retaining its partial-record state across cancellation.
                 let record = tokio::select! {
                     biased;
                     _ = shutdown_rx.changed() => break,
@@ -1328,9 +1382,11 @@ async fn run_stream<R, W>(
                 match record {
                     Ok(()) => {
                         let now = base.elapsed().as_millis() as u64;
-                        last_act.store(now, Ordering::Relaxed);
                         match server_rx.decrypt_packet_in_place(plaintext.as_vec_mut()) {
                             Ok(()) => {
+                                // Outer framing alone is not activity: only a record that
+                                // passes the inner AEAD may retain the lease/client slot.
+                                last_act.store(now, Ordering::Relaxed);
                                 // rx-liveness advances ONLY on a successful decrypt:
                                 // undecryptable traffic must not keep a dead session
                                 // (and its pool IP) alive past the rx-dead reaper.
@@ -1456,7 +1512,8 @@ async fn run_stream<R, W>(
     let mut shaper = crate::protocol::Shaper::new(
         pcfg.obfuscation.traffic_shaping.to_shaping(),
         std::time::Instant::now(),
-    );
+    )
+    .with_shared_budget(session.cover_budget.clone());
     let shaping_on = shaper.enabled();
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
     let rx_dead_ms = crate::protocol::liveness_deadline(
@@ -1647,7 +1704,18 @@ async fn run_stream<R, W>(
     // that died on a timeout could leave a reader forwarding uploads indefinitely.
     let _ = shutdown_tx.send(true);
 
-    // Detach this stream; tear down the session when it was the last one.
+    detach_stream(&profile, &session, stream_id, addr).await;
+}
+
+/// Detach one bonded stream and perform the fire-once session teardown when it was the last.
+/// Kept in one helper so failures before the pump starts (notably JOINOK write failure) cannot
+/// leave a token, pool lease or client route orphaned.
+async fn detach_stream(
+    profile: &Arc<ProfileRuntime>,
+    session: &Arc<SessionShared>,
+    stream_id: u64,
+    addr: SocketAddr,
+) {
     let was_last = session.remove_stream(stream_id);
     if was_last {
         // Serialize the authoritative session removal and pool release with every new

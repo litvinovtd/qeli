@@ -10,7 +10,11 @@ pub const RAW_RECORD_HEADER: usize = 2;
 pub const NONCE_SIZE: usize = 12;
 pub const TAG_SIZE: usize = 16;
 pub const COUNTER_SIZE: usize = 8;
-pub const MAX_RECORD_SIZE: usize = 16384 + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE + 256;
+/// RFC 8446 section 5.2: TLSCiphertext.length must not exceed 2^14 + 256 bytes.
+pub const TLS_CIPHERTEXT_MAX: usize = (1 << 14) + 256;
+/// One shared record cap for raw and TLS-shaped framing. Raw could encode more, but keeping the
+/// lower TLS limit makes every negotiated MTU valid in every supported wire mode.
+pub const MAX_RECORD_SIZE: usize = TLS_CIPHERTEXT_MAX;
 
 /// The largest INNER (tunnel) packet the record format can carry.
 ///

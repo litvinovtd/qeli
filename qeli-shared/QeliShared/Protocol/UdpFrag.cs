@@ -97,7 +97,7 @@ public static class UdpFrag
     /// <para>
     /// There is no ambiguity against a real record, in either framing: TLS framing opens
     /// <c>0x17 0x03 0x03</c>, and raw framing opens with a u16 payload length bounded by
-    /// MAX_RECORD_SIZE (0x4124), so its high byte is at most 0x41 — <c>0xF0</c> is unreachable
+    /// MAX_RECORD_SIZE (0x4100), so its high byte is at most 0x41 — <c>0xF0</c> is unreachable
     /// both ways. Same property <see cref="IsFragment"/> already relies on to tell a
     /// fragmented ClientHello from a legacy single-datagram one.
     /// </para>

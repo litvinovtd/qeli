@@ -78,7 +78,7 @@ done
 MTU="$(sed -n 's/^mtu=\([0-9][0-9]*\)$/\1/p' "$TUNIP" 2>/dev/null | head -n1)"
 case "$MTU" in
   ''|*[!0-9]*) MTU=1400 ;;
-  *) [ "$MTU" -ge 576 ] && [ "$MTU" -le 16638 ] || MTU=1400 ;;
+  *) [ "$MTU" -ge 576 ] && [ "$MTU" -le 16602 ] || MTU=1400 ;;
 esac
 
 # (3) Ставим L3 через ndm — ndm ДОЛЖЕН владеть адресом/линком, иначе connected:no и нет

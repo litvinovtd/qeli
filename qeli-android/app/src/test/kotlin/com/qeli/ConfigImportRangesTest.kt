@@ -372,8 +372,8 @@ class ConfigImportRangesTest {
         assertEquals(9000, VpnConfig.fromIni(ini("mtu = 9000")).mtu)
         // The real ceiling, derived in Rust from the record format. Pinned so this port cannot
         // silently keep an older, lower bound than the server accepts. (Audit 2026-08-01, §1.)
-        assertEquals(16638, VpnConfig.MTU_MAX)
-        assertEquals(16638, VpnConfig.fromIni(ini("mtu = 16638")).mtu)
+        assertEquals(16602, VpnConfig.MTU_MAX)
+        assertEquals(16602, VpnConfig.fromIni(ini("mtu = 16602")).mtu)
         // 9001 used to be refused; it is inside the range now. Kept as a case so the old
         // ceiling cannot creep back in unnoticed.
         assertEquals(9001, VpnConfig.fromIni(ini("mtu = 9001")).mtu)

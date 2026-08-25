@@ -753,6 +753,16 @@ public abstract class VpnTunnelBase
         return settling ? Math.Min(attempt + 1, SettlingAttemptCap) : attempt + 1;
     }
 
+    /// <summary>Bounded 80–100% reconnect jitter. It never exceeds the configured schedule,
+    /// while preventing a fleet that lost one endpoint simultaneously from retrying on the same
+    /// deterministic exponential boundaries.</summary>
+    internal static long JitterReconnectDelay(long scheduledMs)
+    {
+        if (scheduledMs <= 1) return Math.Max(0, scheduledMs);
+        long minimum = scheduledMs - scheduledMs / 5;
+        return Random.Shared.NextInt64(minimum, scheduledMs + 1);
+    }
+
     /// <summary>Put the platform data plane into a safe retry state after either a native
     /// error or a clean native return that was not a user disconnect. Both outcomes occur
     /// when ForceReconnect stops a generation, so handling only the exception path loses
@@ -814,8 +824,9 @@ public abstract class VpnTunnelBase
                     if (attempt > 0)
                     {
                         long pow = (long)Math.Pow(2, Math.Min(attempt - 1, 7));
-                        long delayMs = Math.Max(Math.Min(baseMs * Math.Min(pow, 100), maxMs), 1000);
-                        Log($"Reconnect attempt {attempt} in {delayMs / 1000}s");
+                        long scheduledMs = Math.Max(Math.Min(baseMs * Math.Min(pow, 100), maxMs), 1000);
+                        long delayMs = JitterReconnectDelay(scheduledMs);
+                        Log($"Reconnect attempt {attempt} in {delayMs / 1000.0:F1}s");
                         if (ct.WaitHandle.WaitOne((int)delayMs)) break; // cancelled
                     }
                     else
@@ -2018,7 +2029,7 @@ public abstract class VpnTunnelBase
         int floor = Math.Clamp(PathFloor - outerOverhead, 576, Math.Max(ceiling, 576));
         // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet
         // number. While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once
-        // the ceiling became 16638 the same ladder went straight from 16638 to 1360, so a path
+        // the ceiling became record-sized the same ladder went straight to 1360, so a path
         // that carries 9000 — an ordinary jumbo LAN, which is exactly who configures a large
         // MTU — was certified at 1360 and lost ~85% of its frame. These cost nothing on a
         // normal path: they are all above a 1500 ceiling and the filter drops them.

@@ -2531,6 +2531,10 @@ async fn handle_udp_auth(
         dropped,
         bandwidth_limit_mbps,
         rates,
+        cover_budget: crate::protocol::Shaper::shared_budget(
+            &profile.config.obfuscation.traffic_shaping.to_shaping(),
+            std::time::Instant::now(),
+        ),
         dst_acl: dst_acl.clone(),
         src_guard,
         exit_access,

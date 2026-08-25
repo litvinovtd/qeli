@@ -4,6 +4,11 @@ use rand::prelude::*;
 
 const TLS_HEADER_SIZE: usize = 5;
 const MAX_HANDSHAKE_SIZE: usize = 16384;
+const MAX_SNI_BYTES: usize = 253;
+
+fn tls_u16_len(len: usize, field: &str) -> u16 {
+    u16::try_from(len).unwrap_or_else(|_| panic!("{field} exceeds the TLS u16 length field"))
+}
 
 pub struct FakeTlsHandshake;
 
@@ -89,6 +94,20 @@ impl FakeTlsHandshake {
         reality_session_id: Option<&[u8; 32]>,
         ml_ek: &[u8],
     ) -> Vec<u8> {
+        assert!(
+            matches!(server_name, "" | "!" | "~" | "@")
+                || (server_name.is_ascii() && server_name.len() <= MAX_SNI_BYTES),
+            "SNI must be a supported marker or an ASCII hostname of at most {MAX_SNI_BYTES} bytes"
+        );
+        assert!(
+            pad_to_min <= TLS_HEADER_SIZE + MAX_HANDSHAKE_SIZE,
+            "ClientHello padding target exceeds the local TLS handshake limit"
+        );
+        assert_eq!(
+            ml_ek.len(),
+            crate::crypto::mlkem::MLKEM768_EK_LEN,
+            "ML-KEM-768 encapsulation key has the wrong length"
+        );
         use rand::seq::SliceRandom;
         let mut rng = rand::rng();
         let random: [u8; 32] = rng.random();
@@ -161,7 +180,8 @@ impl FakeTlsHandshake {
         if pad_to_min > projected + 4 {
             let pad_data = pad_to_min - projected - 4; // 4 = padding ext header
             extensions.extend_from_slice(&[0x00, 0x15]); // padding extension type
-            extensions.extend_from_slice(&(pad_data as u16).to_be_bytes());
+            extensions
+                .extend_from_slice(&tls_u16_len(pad_data, "ClientHello padding").to_be_bytes());
             extensions.extend(std::iter::repeat_n(0u8, pad_data));
         }
 
@@ -189,11 +209,15 @@ impl FakeTlsHandshake {
         body.push(0x01); // compression methods length
         body.push(0x00); // null compression
 
-        let ext_len = extensions.len() as u16;
+        let ext_len = tls_u16_len(extensions.len(), "ClientHello extensions");
         body.extend_from_slice(&ext_len.to_be_bytes());
         body.extend_from_slice(&extensions);
 
         let body_len = body.len() - 4;
+        assert!(
+            body.len() <= MAX_HANDSHAKE_SIZE,
+            "ClientHello body exceeds the local TLS handshake limit"
+        );
         body[1] = (body_len >> 16) as u8;
         body[2] = (body_len >> 8) as u8;
         body[3] = body_len as u8;
@@ -540,15 +564,19 @@ impl FakeTlsHandshake {
 
     fn build_sni_extension(buf: &mut Vec<u8>, server_name: &str) {
         let name_bytes = server_name.as_bytes();
+        assert!(
+            server_name.is_ascii() && name_bytes.len() <= MAX_SNI_BYTES,
+            "invalid SNI reached the TLS extension builder"
+        );
         buf.extend_from_slice(&[0x00, 0x00]); // SNI extension type
 
         // SNI extension data = server_name_list_length(2) + name_type(1) + name_length(2) + name
         let ext_data_total = 2 + 1 + 2 + name_bytes.len();
 
-        buf.extend_from_slice(&(ext_data_total as u16).to_be_bytes()); // extension data length
-        buf.extend_from_slice(&((ext_data_total - 2) as u16).to_be_bytes()); // server_name_list_length
+        buf.extend_from_slice(&tls_u16_len(ext_data_total, "SNI extension").to_be_bytes());
+        buf.extend_from_slice(&tls_u16_len(ext_data_total - 2, "server_name_list").to_be_bytes());
         buf.push(0x00); // hostname type
-        buf.extend_from_slice(&(name_bytes.len() as u16).to_be_bytes());
+        buf.extend_from_slice(&tls_u16_len(name_bytes.len(), "server_name").to_be_bytes());
         buf.extend_from_slice(name_bytes);
     }
 
@@ -861,10 +889,14 @@ impl FakeTlsHandshake {
     }
 
     fn wrap_in_record(content_type: u8, data: &[u8]) -> Vec<u8> {
+        assert!(
+            data.len() <= MAX_HANDSHAKE_SIZE,
+            "TLS record exceeds the local handshake limit"
+        );
         let mut record = Vec::with_capacity(TLS_HEADER_SIZE + data.len());
         record.push(content_type);
         record.extend_from_slice(&[0x03, 0x03]);
-        record.extend_from_slice(&(data.len() as u16).to_be_bytes());
+        record.extend_from_slice(&tls_u16_len(data.len(), "TLS record").to_be_bytes());
         record.extend_from_slice(data);
         record
     }
@@ -1124,6 +1156,34 @@ mod tests {
         assert_eq!(
             client_keys, server_keys,
             "hybrid tunnel keys match end-to-end"
+        );
+    }
+
+    #[test]
+    fn maximum_valid_builder_inputs_keep_record_lengths_honest() {
+        let kp = Keypair::generate();
+        let sni = "a".repeat(MAX_SNI_BYTES);
+        let hello = FakeTlsHandshake::build_client_hello(
+            kp.public(),
+            &sni,
+            TLS_HEADER_SIZE + MAX_HANDSHAKE_SIZE,
+            None,
+        );
+        let declared = u16::from_be_bytes([hello[3], hello[4]]) as usize;
+        assert_eq!(declared + TLS_HEADER_SIZE, hello.len());
+        assert!(declared <= MAX_HANDSHAKE_SIZE);
+        assert!(FakeTlsHandshake::parse_client_hello(&hello).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "SNI must be a supported marker")]
+    fn oversized_sni_is_rejected_before_any_length_cast() {
+        let kp = Keypair::generate();
+        let _ = FakeTlsHandshake::build_client_hello(
+            kp.public(),
+            &"a".repeat(MAX_SNI_BYTES + 1),
+            0,
+            None,
         );
     }
 }

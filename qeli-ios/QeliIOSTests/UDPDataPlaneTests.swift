@@ -113,9 +113,9 @@ final class UDPDataPlaneTests: XCTestCase {
     /// A JUMBO ceiling must not fall straight to 1360.
     ///
     /// The ladder was written when the ceiling was an Ethernet-sized number, so the rung below
-    /// it was 1360 and the gap was 140 bytes. Raising the ceiling to 16638 turned that same gap
+    /// it was 1360 and the gap was 140 bytes. Raising to the record-sized ceiling made that gap
     /// into 15278: a path carrying 9000 — an ordinary jumbo LAN, and precisely the setup where
-    /// someone configures a large MTU — probed 16638, failed, and was certified at 1360.
+    /// someone configures a large MTU — the ceiling failed, and the path was certified at 1360.
     /// (Audit 2026-08-01, §8.)
     func testAJumboCeilingHasRungsBetweenItAnd1360() {
         let overhead = 48 + 13 + 9 + 8 + 40
