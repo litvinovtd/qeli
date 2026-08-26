@@ -7106,6 +7106,10 @@ pool.cidr = 10.{net}.0.0/24
                 "obf.fragmentation.enabled = true\nobf.fragmentation.min_chunk_size = 900\nobf.fragmentation.max_chunk_size = 300\n",
             ),
             (
+                "unordered normalization buckets",
+                "obf.traffic_normalization.enabled = true\nobf.traffic_normalization.round_sizes = 512,256\n",
+            ),
+            (
                 "shaping gap min > max",
                 "obf.traffic_shaping.enabled = true\nobf.traffic_shaping.idle_gap_min_ms = 9000\nobf.traffic_shaping.idle_gap_max_ms = 100\n",
             ),

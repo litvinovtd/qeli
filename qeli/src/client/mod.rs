@@ -7456,6 +7456,11 @@ mod obf_push_tests {
                 "heartbeat.interval_ms",
             ),
             (
+                "unordered normalization buckets",
+                r#"{"traffic_normalization":{"enabled":true,"round_sizes":[512,256]}}"#,
+                "strictly increasing",
+            ),
+            (
                 "inverted shaping gaps",
                 r#"{"traffic_shaping":{"enabled":true,"idle_gap_min_ms":50,"idle_gap_max_ms":40}}"#,
                 "idle_gap_min_ms",

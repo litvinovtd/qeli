@@ -369,6 +369,14 @@ impl PushedObf {
                 crate::protocol::packet::MAX_TUNNEL_MTU
             );
         }
+        if normalization.enabled
+            && normalization
+                .round_sizes
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+        {
+            anyhow::bail!("{label}.traffic_normalization.round_sizes must be strictly increasing");
+        }
 
         let shaping = &self.traffic_shaping;
         if shaping.enabled {
