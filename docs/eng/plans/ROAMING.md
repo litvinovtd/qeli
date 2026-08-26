@@ -254,7 +254,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
   lifecycle cleanup, and mock fault injection. No production adapter advertises the
   capability yet; the active data plane is unchanged and lab/e2e has not run.
-- **Phase 2:** TCP resume/handover with fresh keys, proof, stable slots, and orphan caps.
+- **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
+  Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
+  generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
+  slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
+  proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
+  release, cap exhaustion, abort, and late drain acknowledgements.
+- **Phase 2B:** wire lifecycle/resume secrets into the live server handler and shared client
+  supervisor, then enable negotiated TCP_RESUME/HANDOVER on mock/Linux.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.

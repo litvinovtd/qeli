@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–1, ещё не включена)
+### Основа роуминга (stages 0–2A, ещё не включена)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`, но production client/server их пока не рекламируют. Добавлены строгий
@@ -67,6 +67,16 @@
   воспроизводимая матрица на лабе остаётся обязательным pre-release gate и ещё не запускалась.
   Platform FFI `clippy -D warnings` также больше не компилирует Linux-only reconnect jitter
   helper и не считает test-only константу stats V2 частью production-кода.
+
+- Stage 2A добавляет под тем же default-off feature общий TCP lifecycle
+  `Active → Orphaned → Resuming → Active/Closing/Revoked`. Resume proof проверяется
+  одновременно против fresh-handshake transcript, locator, монотонного `u64` epoch и
+  стабильного logical slot. Orphan ownership ограничивается числом сессий и retained bytes
+  и помечается `session_id + generation`: запоздалый reaper не освобождает ожившую сессию,
+  а повторный revoke/reap не уменьшает счётчики дважды. JOIN reservation атомарна, epoch
+  сгорает до JOINOK, make-before-break держит старый transport в Draining до точного
+  generation-ACK. Race/security unit-тесты добавлены; live handler, client supervisor,
+  capability advertisement и lab/e2e ещё не включены.
 
 ### Reality-TLS: настоящий HTTP/2 carrier и переход со старой схемы
 

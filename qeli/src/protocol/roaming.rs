@@ -134,6 +134,26 @@ impl ResumeProofInput {
             handover,
         }
     }
+
+    pub fn transcript_hash(&self) -> &[u8; 32] {
+        &self.transcript_hash
+    }
+
+    pub fn session_locator(&self) -> &[u8; SESSION_LOCATOR_LEN] {
+        &self.session_locator
+    }
+
+    pub fn resume_epoch(&self) -> u64 {
+        self.resume_epoch
+    }
+
+    pub fn logical_slot_id(&self) -> u32 {
+        self.logical_slot_id
+    }
+
+    pub fn is_handover(&self) -> bool {
+        self.handover
+    }
 }
 
 pub fn make_resume_proof(
@@ -180,6 +200,10 @@ impl TcpResumeJoin {
 
     pub fn verify(&self, resume_secret: &[u8; 32]) -> bool {
         verify_resume_proof(resume_secret, &self.input, &self.proof)
+    }
+
+    pub fn matches_transcript(&self, transcript_hash: &[u8; 32]) -> bool {
+        self.input.transcript_hash.ct_eq(transcript_hash).into()
     }
 
     pub fn encode(&self) -> [u8; TCP_RESUME_JOIN_LEN] {

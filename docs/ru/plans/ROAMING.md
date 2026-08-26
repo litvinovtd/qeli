@@ -454,7 +454,16 @@ ABI 1.12 и stats V3 сохраняют старые префиксы; mock faul
 PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламируют capability до этапа 4,
 платформенные и lab/e2e проверки ещё не выполнялись.
 
-### Этап 2. TCP resume и handover
+### Этап 2A. TCP lifecycle — ✅ исходники
+
+Общее default-off ядро реализует состояния Active/Orphaned/Resuming/Closing/Revoked,
+двойной лимит orphan-сессий и retained bytes, generation-tagged reaper ownership,
+монотонное потребление resume epoch, стабильные logical slots, атомарную JOIN reservation
+и make-before-break drain. Unit-тесты покрывают stale proof/transcript/epoch/locator,
+гонки JOIN/reaper и revoke/JOIN, исчерпание лимитов, abort, exact-once release и поздний
+drain ACK. Capability по-прежнему не рекламируется, живой data plane не изменён.
+
+### Этап 2B. TCP resume и handover — следующий срез
 
 - SessionKeyMaterial/resume secret;
 - серверный lifecycle и orphan limits;
@@ -464,7 +473,8 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 - make-before-break и hard-handover grace;
 - CLOSE/revoke/reaper races.
 
-Результат: TCP роуминг на mock/Linux path; остальные платформы пока за feature gate.
+Результат этапа 2B: TCP роуминг на mock/Linux path; остальные платформы пока за
+feature gate.
 
 ### Этап 3. UDP migration
 

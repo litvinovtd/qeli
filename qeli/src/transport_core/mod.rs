@@ -86,6 +86,9 @@ pub(crate) mod network;
 
 pub mod path;
 
+#[cfg(feature = "experimental-roaming")]
+pub mod tcp_roaming;
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod session;
 
