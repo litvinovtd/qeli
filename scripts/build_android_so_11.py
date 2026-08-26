@@ -45,6 +45,9 @@ REMOTE_BUILD_ROOT = "/tmp/qeli-native-repro"
 NDK = f"/root/android-sdk/ndk/{DEFAULT_ANDROID_NDK}"
 HOST = ("10.66.116.11", os.environ.get("QELI_LAB_USER", "root"))
 ABIS = ("arm64-v8a", "x86_64")
+EXPECTED_REALITY_EXPORTS = "6"
+EXPECTED_CLIENT_EXPORTS = "22"
+EXPECTED_JNI_EXPORTS = "21"
 
 ARTIFACTS = {
     f"native-libs/android/{abi}/libqeli.so": {
@@ -169,7 +172,11 @@ def verify_exports(client: LabConnection) -> None:
             f"[{abi}] libqeli.so={size} bytes, qeli_realtls exports={reality}, "
             f"qeli_client exports={core}, TransportCore JNI exports={jni}"
         )
-        if reality.strip() != "6" or core.strip() != "20" or jni.strip() != "19":
+        if (
+            reality.strip() != EXPECTED_REALITY_EXPORTS
+            or core.strip() != EXPECTED_CLIENT_EXPORTS
+            or jni.strip() != EXPECTED_JNI_EXPORTS
+        ):
             raise RuntimeError(f"{abi} artifact has an incomplete native export surface")
 
 

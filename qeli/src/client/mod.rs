@@ -825,6 +825,11 @@ impl LinuxCoreAdapter {
                         "unexpected server-identity event: Linux verifies trust in-process"
                     ));
                 }
+                EventKind::PathCommand => {
+                    return Err(anyhow::anyhow!(
+                        "unexpected path command: this Linux adapter does not advertise roaming"
+                    ));
+                }
             }
         }
         Ok(found)
@@ -901,6 +906,7 @@ static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 
 /// Desynchronise clients that lose the same server/carrier at once. Jitter only shortens the
 /// scheduled delay (by at most 20%), so the configured maximum is never exceeded.
+#[cfg(any(target_os = "linux", test))]
 fn jitter_reconnect_delay(scheduled: Duration) -> Duration {
     let millis = u64::try_from(scheduled.as_millis()).unwrap_or(u64::MAX);
     let spread = millis / 5;

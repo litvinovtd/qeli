@@ -77,8 +77,10 @@ ffi-cdylib = []
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
 transport-core-ffi = ["ffi-cdylib", "client"]
-# Protocol-only foundation for roaming. Off by default and intentionally does not advertise
-# any roaming capability yet; the data-plane/runtime integration lands in later stages.
+# Stage 0 wire contracts plus the Stage 1 candidate-path control transaction. Off by default;
+# when enabled the core advertises only its PATH_TRANSACTIONS ABI capability. Production peers
+# and platform adapters still advertise no roaming capability, and live data-plane migration
+# lands in later stages.
 experimental-roaming = []
 
 [dependencies]

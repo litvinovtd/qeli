@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stage 0, ещё не включена)
+### Основа роуминга (stages 0–1, ещё не включена)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`, но production client/server их пока не рекламируют. Добавлены строгий
@@ -51,6 +51,22 @@
   static-bound режимов и одновременно фиксируют неизменность существующих data keys.
 - Это только проверяемые wire-контракты для последующих этапов: переключение живого пути,
   восстановление TCP-сессии и handover в data plane пока не активированы.
+- Source ABI 1.12 добавляет под `experimental-roaming` ограниченный generation-scoped
+  `PathUpdate` и транзакцию `PREPARE/BIND/COMMIT/ABORT`. Вход строго ограничен по размеру,
+  адресам, TTL и идентификаторам; stale/duplicate update не создаёт работу, а superseding
+  update либо отменяет невыданную команду, либо ждёт обязательного rollback. Действующий
+  NetworkPlan и data plane на этом этапе не переключаются.
+- Статистика V3 получила отдельные roam attempts/successes/failures/candidates/latency и
+  reconnect fallbacks без смешивания с обычным `reconnects`; совместимые V1/V2-префиксы
+  размером 64/96 байт сохранены. `stop/start` и terminal failure удаляют невыданные команды.
+- Добавлены C ABI roundtrip и mock adapter fault-injection тесты отказов
+  PREPARE/BIND/COMMIT/ABORT. Production-клиенты не рекламируют новые platform capability
+  до реализации адаптеров и lab/e2e этапа 4.
+- Release export gates синхронизированы с ABI 1.12: Windows/macOS/Android ожидают 22
+  `qeli_client_*` вместо 20, Android — 21 `TransportCore` JNI symbol вместо 19. Новая
+  воспроизводимая матрица на лабе остаётся обязательным pre-release gate и ещё не запускалась.
+  Platform FFI `clippy -D warnings` также больше не компилирует Linux-only reconnect jitter
+  helper и не считает test-only константу stats V2 частью production-кода.
 
 ### Reality-TLS: настоящий HTTP/2 carrier и переход со старой схемы
 

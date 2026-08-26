@@ -458,11 +458,14 @@ development implementation, а не релиз.
 называть полной до прохождения всей IPv6-only/dual-stack release matrix. Пользовательские
 конфиги остаются flat INI; внутренние wire/FFI-сообщения не являются JSON-конфигами.
 
-### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, не начато)
+### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, этапы 0–1 готовы в исходниках)
 
 **Нормативный план: [ROAMING.md](ROAMING.md).** Сегодня смена Wi-Fi↔LTE/IP — это быстрый
 reconnect с новым handshake и Argon2, а не роуминг. Полная реализация сохраняет session id,
 внутренние IPv4/IPv6, NetworkPlan, TUN/TAP, маршруты и квоту.
+Этапы 0–1 уже фиксируют закрытые wire-контракты и ABI 1.12 транзакции candidate path под
+`experimental-roaming`; они не меняют live data plane. TCP/UDP migration, платформенные
+capability, конфигурация, lab/e2e и rollout относятся к этапам 2–6.
 
 - Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; generation-scoped динамический

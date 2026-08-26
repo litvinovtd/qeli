@@ -517,11 +517,15 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("def dns_resolves", source)
         self.assertNotIn("| head -1 || echo FAIL", source)
 
-    def test_android_native_recipe_requires_the_cancellable_probe_exports(self):
+    def test_native_recipes_require_the_abi_1_12_roaming_exports(self):
         source = (Path(__file__).parent / "build_android_so_11.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('jni.strip() != "19"', source)
+        self.assertEqual(desktop.EXPECTED_CLIENT_EXPORTS, "22")
+        self.assertIn('EXPECTED_CLIENT_EXPORTS = "22"', source)
+        self.assertIn('EXPECTED_JNI_EXPORTS = "21"', source)
+        self.assertIn("core.strip() != EXPECTED_CLIENT_EXPORTS", source)
+        self.assertIn("jni.strip() != EXPECTED_JNI_EXPORTS", source)
 
     def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
         source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")

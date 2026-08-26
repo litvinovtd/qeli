@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000b)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000c)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -48,7 +48,8 @@ enum qeli_client_event_kind {
     QELI_CLIENT_NETWORK_PLAN = 2,
     QELI_CLIENT_ERROR = 3,
     QELI_CLIENT_SOCKET_PROTECT = 4,
-    QELI_CLIENT_SERVER_IDENTITY = 5
+    QELI_CLIENT_SERVER_IDENTITY = 5,
+    QELI_CLIENT_PATH_COMMAND = 6
 };
 
 enum qeli_client_payload_format {
@@ -57,8 +58,9 @@ enum qeli_client_payload_format {
     QELI_CLIENT_PAYLOAD_UTF8 = 2
 };
 
-/* ABI 1.11 adds the dual-family platform capability contract. NetworkPlan v2 itself is an
- * additive JSON payload, so the fixed event/stats structure prefixes remain unchanged. */
+/* ABI 1.11 adds the dual-family platform capability contract. ABI 1.12 adds opt-in path
+ * transactions and exact candidate socket binding. Unknown bits must be ignored; neither
+ * roaming bit may be advertised before the platform implements atomic rollback. */
 enum qeli_client_platform_capability {
     QELI_PLATFORM_ROUTES = UINT64_C(1) << 0,
     QELI_PLATFORM_DNS = UINT64_C(1) << 1,
@@ -71,7 +73,9 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_IPV6_TUN = UINT64_C(1) << 8,
     QELI_PLATFORM_IPV6_ROUTES = UINT64_C(1) << 9,
     QELI_PLATFORM_IPV6_DNS = UINT64_C(1) << 10,
-    QELI_PLATFORM_IPV6_KILL_SWITCH = UINT64_C(1) << 11
+    QELI_PLATFORM_IPV6_KILL_SWITCH = UINT64_C(1) << 11,
+    QELI_PLATFORM_PATH_TRANSACTIONS = UINT64_C(1) << 12,
+    QELI_PLATFORM_PATH_SOCKET_BINDING = UINT64_C(1) << 13
 };
 
 enum qeli_client_core_capability {
@@ -86,7 +90,9 @@ enum qeli_client_core_capability {
     QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8,
     QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9,
     QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10,
-    QELI_CORE_WINTUN_IO = UINT64_C(1) << 11
+    QELI_CORE_WINTUN_IO = UINT64_C(1) << 11,
+    QELI_CORE_NETWORK_PLAN_V2 = UINT64_C(1) << 12,
+    QELI_CORE_PATH_TRANSACTIONS = UINT64_C(1) << 13
 };
 
 typedef struct qeli_client_event {
@@ -110,6 +116,9 @@ typedef struct qeli_client_event {
  * ABI 1.10 appends UDP receive-path observability after the unchanged V1 prefix.
  * Drop/grow fields are cumulative for the handle; udp_recv_buffer_bytes is the latest
  * effective SO_RCVBUF value granted by the OS (not merely the requested value).
+ * ABI 1.12 appends six roaming fields after the unchanged V2 prefix. Attempts, successes,
+ * failures and reconnect fallbacks are cumulative; roam_candidates is a gauge and
+ * last_roam_latency_ms is the latest successful transaction latency.
  */
 typedef struct qeli_client_stats {
     uint32_t struct_size;
@@ -126,22 +135,29 @@ typedef struct qeli_client_stats {
     uint64_t udp_internal_drops;
     uint64_t udp_buffer_grows;
     uint64_t udp_recv_buffer_bytes;
+    uint64_t roam_attempts;
+    uint64_t roam_successes;
+    uint64_t roam_failures;
+    uint64_t roam_reconnect_fallbacks;
+    uint64_t roam_candidates;
+    uint64_t last_roam_latency_ms;
 } qeli_client_stats_t;
 
 #define QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)
 #define QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)
+#define QELI_CLIENT_STATS_V3_SIZE UINT32_C(144)
 #define QELI_CLIENT_STATS_INIT                                                    \
-    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
 #if defined(__cplusplus) && __cplusplus >= 201103L
 static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
               "qeli_client_event_t ABI layout mismatch");
-static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
+static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V3_SIZE,
               "qeli_client_stats_t ABI layout mismatch");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
                "qeli_client_event_t ABI layout mismatch");
-_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
+_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V3_SIZE,
                "qeli_client_stats_t ABI layout mismatch");
 #endif
 
@@ -252,6 +268,44 @@ int32_t qeli_client_set_wintun_adapter(uint64_t handle,
                                       size_t adapter_name_len);
 int32_t qeli_client_network_plan_result(uint64_t handle,
                                         uint64_t generation,
+                                        int32_t result_code,
+                                        const uint8_t *reason,
+                                        size_t reason_len);
+/*
+ * ABI 1.12 experimental roaming control plane. `input` is bounded UTF-8 JSON:
+ * {
+ *   "generation": N, "update_id": N, "platform_path_id": "opaque",
+ *   "reason": "network_changed" | "default_route_changed" | "wake" |
+ *             "same_network_nat_failure" | "manual_probe",
+ *   "network_token": "opaque", "interface_index": N,
+ *   "local_addresses": ["literal IP"],
+ *   "resolved_addresses": [{"address":"literal A/AAAA","ttl_secs":N}],
+ *   "flags": {"default_route_changed":bool,"wake":bool,
+ *             "same_network_nat_failure":bool}
+ * }
+ * Exactly one stable network token or non-zero interface index is sufficient. The generation
+ * must equal the active NetworkPlan generation; update_id is monotonic and repeated values are
+ * idempotent. On success out_candidate_id receives a non-zero transaction id.
+ *
+ * QELI_CLIENT_PATH_COMMAND carries JSON with generation, candidate_id, action, the validated
+ * path object and optional socket_fd/reason. Actions are "prepare_path", "bind_socket",
+ * "commit_path" and "abort_path". Every command must be acknowledged with all three
+ * correlation values below. Rejecting PREPARE/BIND/COMMIT produces ABORT; rejecting ABORT is
+ * a platform error requiring a full reconnect and increments the reconnect-fallback counter.
+ * The adapter must tear down any temporary candidate state before reconnecting.
+ *
+ * The library advertises QELI_CORE_PATH_TRANSACTIONS only in an experimental-roaming build.
+ * A handle must advertise both QELI_PLATFORM_PATH_TRANSACTIONS and
+ * QELI_PLATFORM_PATH_SOCKET_BINDING. Stage 1 does not switch the current data plane.
+ */
+int32_t qeli_client_path_update(uint64_t handle,
+                                const uint8_t *input,
+                                size_t input_len,
+                                uint64_t *out_candidate_id);
+int32_t qeli_client_path_command_result(uint64_t handle,
+                                        uint64_t generation,
+                                        uint64_t candidate_id,
+                                        uint64_t request_sequence,
                                         int32_t result_code,
                                         const uint8_t *reason,
                                         size_t reason_len);

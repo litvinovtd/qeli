@@ -11,10 +11,10 @@ multipath, автоматический fallback и обработку конф�
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.11. При этом
+общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.12. При этом
 закоммиченные `.so`/`.dll`/`.dylib` остаются воспроизводимым baseline ABI 1.10 из commit
 `b1e220d`, зафиксированным в `native-libs/PROVENANCE`. Это намеренно разделённые состояния:
-до релиза 0.8.0 native cores должны быть заново собраны из финального дерева ABI 1.11,
+до релиза 0.8.0 native cores должны быть заново собраны из финального дерева ABI 1.12,
 синхронизированы во все consumed-копии и пройти provenance/hash/ABI/platform gates.
 Без этого дерево source-complete, но пакет не release-ready. Остались также платформенные
 приёмочные gate: administrator Wintun full-tunnel, живой macOS utun и physical-device
@@ -30,6 +30,12 @@ dual-family NetworkPlan/platform-capability contract без изменения �
 увеличений receive buffer и фактически выданный ОС размер. При отсутствующем ключе общий
 контроллер начинает с 4 МиБ и растёт 4→8→16 МиБ только по локальному overflow либо
 измеренному rate/stall budget; явный размер остаётся фиксированным, `0` оставляет настройку ОС.
+
+ABI 1.12 добавляет закрытую feature gate `experimental-roaming` транзакцию candidate path:
+ограниченный generation-scoped `PathUpdate`, команды `PREPARE/BIND/COMMIT/ABORT`, строгую
+корреляцию по generation/candidate/sequence и статистику V3 размером 144 байта. Префиксы
+V1/V2 размером 64/96 байт сохранены. Ни один production-адаптер пока не рекламирует новые
+capability-биты, а этап 1 не переключает действующий data plane.
 
 ---
 
@@ -211,7 +217,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x0001000B
+qeli_client_abi_version()                                      -> 0x0001000C
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -224,6 +230,8 @@ qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_set_wintun_adapter(handle, generation, name, len)  -> rc  // ABI 1.9
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
+qeli_client_path_update(handle, json, len, *candidate)          -> rc  // ABI 1.12
+qeli_client_path_command_result(handle, generation, candidate, sequence, rc, reason) -> rc  // ABI 1.12
 qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.2
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
@@ -249,14 +257,21 @@ Running/Failed/Created → Stopping → Stopped
   сбой фонового runner повторить нельзя, поэтому он вытесняет самые старые события и всегда
   публикует Error с состоянием Failed (и StateChanged при ёмкости не меньше 2);
 - заголовок события имеет фиксированную C-layout структуру и version; payload плана,
-  socket-protect и server-identity запросов — UTF-8 JSON, ошибка — UTF-8, смена состояния —
-  без payload;
+  socket-protect, server-identity и path-command запросов — UTF-8 JSON, ошибка — UTF-8,
+  смена состояния — без payload;
 - до `new` адаптер сверяет ABI через `QELI_CLIENT_ABI_IS_COMPATIBLE`: major обязан совпасть,
   minor библиотеки должен быть не ниже minor заголовка; неизвестные capability bits, event
   kinds и добавочные JSON-поля не являются ошибкой;
 - `QELI_CLIENT_EVENT_INIT` и `QELI_CLIENT_STATS_INIT` задают caller-owned `struct_size`.
   Ядро сохраняет его, пишет только известный обеим сторонам префикс и отвергает короткую
-  ABI-1.0 структуру, не потребляя событие. Header проверяет layout 48/64 байта compile-time;
+  ABI-1.0 структуру, не потребляя событие. Header проверяет 48-байтовый event и префиксы
+  stats V1/V2/V3 размером 64/96/144 байта compile-time;
+- ABI 1.12 принимает только ограниченный `PathUpdate` с активной generation, монотонным
+  `update_id`, идентификатором физической сети или ненулевым interface index, локальными
+  адресами, результатами A/AAAA с TTL, причиной и согласованными флагами. Отказ
+  `PREPARE/BIND/COMMIT` обязательно порождает `ABORT`; отказ rollback возвращает platform
+  error, увеличивает `roam_reconnect_fallbacks` и требует от адаптера очистить candidate
+  state перед полным reconnect. `stop/start` и terminal failure удаляют невыданные команды;
 - если caller buffer мал, API возвращает требуемый размер и **не извлекает** событие;
 - план несёт generation, адрес/префикс, MTU, tunnel gateway, фактический IP carrier,
   маршруты с gateway/metric,
@@ -563,7 +578,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | ✅ библиотека ABI 1.9 пересобрана; source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены; live handshake/NetworkPlan зелёный | platform gate: admin Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ universal2 dylib ABI 1.9 пересобран и упакован; source path передаёт utun fd Rust-ядру и не трогает payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter использует текущий ABI 1.11 и общее Rust-ядро | code complete; Xcode/device gate остаётся |
+| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter совместим с additive ABI 1.12 и использует общее Rust-ядро | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
 расхождения там доказан; iOS последним — единственная платформа без fd и с потолком памяти.
@@ -575,7 +590,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на текущий ABI 1.11; реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Предыдущая матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с 6 Reality + 20 client exports; source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export. `aarch64-apple-ios` whole-client cargo check был зелёным, минимальный ABI build script остаётся 1.11; обновлённую матрицу нужно повторить перед релизом, реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
@@ -613,7 +628,7 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 
 Аргумент в пользу «сейчас, а не потом»:
 
-- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — код ещё не начат;
+- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — этапы 0–1 реализованы под feature gate; data-plane этапы 2–6 не начаты;
 - **multipath** — реализован только у Rust-клиента.
 
 Если ядро делать после них, обе возможности придётся написать четыре раза. Если до —

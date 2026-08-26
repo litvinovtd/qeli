@@ -11,10 +11,10 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
 **Initiative status: ✅ source refactor complete.** All production clients use the shared
-Rust transport core; the current source API is additive ABI 1.11. The committed
+Rust transport core; the current source API is additive ABI 1.12. The committed
 `.so`/`.dll`/`.dylib` files are still the reproducible ABI 1.10 baseline from commit
 `b1e220d` recorded by `native-libs/PROVENANCE`. These are deliberately separate states:
-before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.11 tree,
+before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.12 tree,
 synchronized to every consumed copy, and pass provenance/hash/ABI/platform gates.
 Until then the tree is source-complete but not package-release-ready. Remaining acceptance
 gates also include administrator Wintun full-tunnel, live macOS utun and physical-device
@@ -30,6 +30,12 @@ UDP kernel drops, internal bounded-queue drops, receive-buffer grow events and t
 actually granted. With no size key, the shared controller starts at 4 MiB and grows
 4→8→16 MiB only on local overflow or a measured rate/stall budget; an explicit size remains
 fixed and `0` leaves the OS setting alone.
+
+ABI 1.12 adds a gated `experimental-roaming` candidate-path transaction: a bounded,
+generation-scoped `PathUpdate`, `PREPARE/BIND/COMMIT/ABORT` commands, strict
+generation/candidate/sequence correlation, and a 144-byte V3 statistics layout. The 64/96-byte
+V1/V2 prefixes remain compatible. No production adapter advertises the new capability bits
+yet, and Stage 1 never switches the active data plane.
 
 ---
 
@@ -211,7 +217,7 @@ in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits 
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x0001000B
+qeli_client_abi_version()                                      -> 0x0001000C
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -224,6 +230,8 @@ qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_set_wintun_adapter(handle, generation, name, len)  -> rc  // ABI 1.9
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
+qeli_client_path_update(handle, json, len, *candidate)          -> rc  // ABI 1.12
+qeli_client_path_command_result(handle, generation, candidate, sequence, rc, reason) -> rc  // ABI 1.12
 qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.2
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
@@ -248,15 +256,21 @@ Running/Failed/Created → Stopping → Stopped
   failure cannot be retried by its caller, so it preempts the oldest queued events and always
   publishes an Error carrying the Failed state (plus StateChanged when capacity is at least 2);
 - the event header has a fixed C-layout structure and version; plan, socket-protect and
-  server-identity payloads are UTF-8 JSON, an error is UTF-8, and a state transition has no
-  payload;
+  server-identity and path-command payloads are UTF-8 JSON, an error is UTF-8, and a state
+  transition has no payload;
 - before `new`, an adapter checks the ABI with `QELI_CLIENT_ABI_IS_COMPATIBLE`: the major
   must match and the library minor must be at least the header minor; unknown capability bits,
   event kinds and additive JSON fields are not errors;
 - `QELI_CLIENT_EVENT_INIT` and `QELI_CLIENT_STATS_INIT` set caller-owned `struct_size`.
   The core preserves it, writes only the prefix known to both sides, and rejects a short
-  ABI-1.0 struct without consuming an event. The header compile-time checks the 48/64-byte
-  layouts;
+  ABI-1.0 struct without consuming an event. The header compile-time checks the 48-byte event
+  and the 64/96/144-byte V1/V2/V3 statistics prefixes;
+- ABI 1.12 accepts only a bounded `PathUpdate` for the active generation, with a monotonic
+  `update_id`, a physical-network token or non-zero interface index, local addresses, A/AAAA
+  results with TTL, a reason, and consistent flags. Rejecting `PREPARE/BIND/COMMIT` always
+  emits `ABORT`; rejecting rollback returns a platform error, increments
+  `roam_reconnect_fallbacks`, and requires the adapter to clear candidate state before a full
+  reconnect. `stop/start` and terminal failure discard commands that have not crossed the ABI;
 - if the caller buffer is too small, the API reports the required length and does **not**
   consume the event;
 - a plan carries its generation, address/prefix, MTU, tunnel gateway, the actual carrier IP,
@@ -566,7 +580,7 @@ platform code touching not one byte of payload.
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
 | TC-3.2 | Windows | ✅ ABI 1.9 library rebuilt; source path owns Wintun session/rings in Rust; managed runtime and packet methods removed; live handshake/NetworkPlan green | platform gate: administrator Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ ABI 1.9 universal2 dylib rebuilt and packaged; source path hands the utun fd to Rust and touches no payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter uses current ABI 1.11 and the shared Rust transport | code complete; Xcode/device gate remains |
+| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter is compatible with additive ABI 1.12 and uses the shared Rust transport | code complete; Xcode/device gate remains |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
 divergence risk there is demonstrated; iOS last — the only platform with no fd and with a
@@ -579,7 +593,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets current ABI 1.11, while a real device+simulator XCFramework/Xcode build still requires macOS |
+| TC-4.1 | The previous whole-client cross-build matrix passed for Android arm64/x86_64, Windows x64, and macOS universal2 with 6 Reality + 20 client exports; source ABI 1.12 raises the gate to 22 client exports and 21 Android JNI exports. The `aarch64-apple-ios` whole-client cargo check was green and the build-script minimum remains ABI 1.11; the updated matrix must be rerun before release, while a real device+simulator XCFramework/Xcode build still requires macOS |
 | TC-4.2 | ✅ All four libraries passed live byte-identical A/B builds on labs `.10`/`.11`; the shared mock-tested harness performs scoped source sync, exact-target preflight and verified atomic pulls. Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 and cargo-ndk 4.1.2 are pinned. macOS normalizes the install name, content-derived UUID and Zig's invalid non-deterministic GOT index before deterministic ad-hoc signing; SHA256, exports and provenance are fail-closed gates |
 | TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 
@@ -617,7 +631,7 @@ and live testing are counted.
 
 The argument for doing this now rather than later:
 
-- **roaming** ([ROAMING.md](../plans/ROAMING.md)) — no code written yet;
+- **roaming** ([ROAMING.md](../plans/ROAMING.md)) — Stages 0–1 exist behind the feature gate; data-plane Stages 2–6 have not started;
 - **multipath** — implemented only in the Rust client.
 
 Build the core after those and both features get written four times. Build it before and

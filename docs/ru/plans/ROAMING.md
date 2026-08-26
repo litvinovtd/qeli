@@ -1,7 +1,8 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v3-safe -->
 
-> Статус: проектирование завершено, реализация не начата. Целевая версия — 0.8.x.
+> Статус: проектирование завершено; этапы 0–1 реализованы локально под
+> `experimental-roaming`, этапы 2–6 не начаты. Лаба не запускалась. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -428,7 +429,7 @@ disconnect/connect и не запускает обычные пользоват�
 Ни один production-этап не допускает небезопасный роуминг без proof, path validation,
 anti-amplification и PMTU reset.
 
-### Этап 0. Протокольная спецификация
+### Этап 0. Протокольная спецификация — ✅ исходники
 
 - зафиксировать capability bits и wire constants;
 - KDF labels и known-answer vectors для всех auth modes;
@@ -439,7 +440,7 @@ anti-amplification и PMTU reset.
 
 Результат: спецификация и тестовые векторы, но feature недоступна пользователю.
 
-### Этап 1. ABI и транзакция пути
+### Этап 1. ABI и транзакция пути — ✅ исходники
 
 - generation-scoped PathUpdate/command channel;
 - PREPARE/COMMIT/ABORT contract;
@@ -449,6 +450,9 @@ anti-amplification и PMTU reset.
 
 Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
 текущего data plane.
+ABI 1.12 и stats V3 сохраняют старые префиксы; mock fault injection покрывает отказы
+PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламируют capability до этапа 4,
+платформенные и lab/e2e проверки ещё не выполнялись.
 
 ### Этап 2. TCP resume и handover
 

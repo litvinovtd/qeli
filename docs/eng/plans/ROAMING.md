@@ -1,7 +1,8 @@
 # Client roaming (seamless network change) — implementation plan
 <!-- normative-sync: roaming-v3-safe -->
 
-> **Status: design complete; implementation not started. Target: 0.8.x.**
+> **Status: design complete; Phases 0–1 are implemented locally behind
+> `experimental-roaming`; Phases 2–6 have not started. No lab run yet. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -247,8 +248,12 @@ anyway); Windows `IP_UNICAST_IF` (or bind to the interface address); macOS
 No production stage may expose roaming without authenticated JOIN proof, path validation,
 anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 
-- **Phase 0:** freeze capabilities, CONTROL_V2, KDF labels, proofs, wire limits, and KATs.
-- **Phase 1:** generation-scoped PREPARE/COMMIT/ABORT path transaction and platform hooks.
+- **Phase 0 — ✅ source complete:** capabilities, CONTROL_V2, KDF labels, proofs, wire
+  limits, and KATs are frozen behind the default-off feature gate.
+- **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
+  PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
+  lifecycle cleanup, and mock fault injection. No production adapter advertises the
+  capability yet; the active data plane is unchanged and lab/e2e has not run.
 - **Phase 2:** TCP resume/handover with fresh keys, proof, stable slots, and orphan caps.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.

@@ -7,8 +7,13 @@
 //! and the same common sessions run behind the in-process Linux adapter. ABI 1.8 exposes the
 //! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust;
 //! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure; ABI 1.11
-//! adds the dual-family NetworkPlan representation while retaining the legacy IPv4 projection.
+//! adds the dual-family NetworkPlan representation while retaining the legacy IPv4 projection;
+//! ABI 1.12 adds the experimental generation-scoped path transaction contract and telemetry.
 
+use self::path::{
+    PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathUpdate,
+    QueuedPathCandidate,
+};
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
@@ -79,6 +84,8 @@ pub(crate) mod udp_receive;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
 
+pub mod path;
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod session;
 
@@ -89,7 +96,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 11;
+pub const ABI_VERSION_MINOR: u16 = 12;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -119,6 +126,11 @@ pub mod core_capability {
     pub const UDP_DIAGNOSTIC: u64 = 1 << 10;
     pub const WINTUN_IO: u64 = 1 << 11;
     pub const NETWORK_PLAN_V2: u64 = 1 << 12;
+    pub const PATH_TRANSACTIONS: u64 = 1 << 13;
+    #[cfg(feature = "experimental-roaming")]
+    const EXPERIMENTAL: u64 = PATH_TRANSACTIONS;
+    #[cfg(not(feature = "experimental-roaming"))]
+    const EXPERIMENTAL: u64 = 0;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
@@ -128,7 +140,8 @@ pub mod core_capability {
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
-        | UDP_DIAGNOSTIC;
+        | UDP_DIAGNOSTIC
+        | EXPERIMENTAL;
     #[cfg(target_os = "windows")]
     pub const ALL: u64 = BASE
         | DEVICE_ID_INPUT
@@ -137,7 +150,8 @@ pub mod core_capability {
         | NATIVE_DATA_PLANE
         | TUN_PACKET_IO
         | UDP_DIAGNOSTIC
-        | WINTUN_IO;
+        | WINTUN_IO
+        | EXPERIMENTAL;
     #[cfg(target_os = "macos")]
     pub const ALL: u64 = BASE
         | TUN_FD_OWNERSHIP
@@ -146,7 +160,8 @@ pub mod core_capability {
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
         | TUN_PACKET_IO
-        | UDP_DIAGNOSTIC;
+        | UDP_DIAGNOSTIC
+        | EXPERIMENTAL;
     #[cfg(target_os = "ios")]
     pub const ALL: u64 = BASE
         | DEVICE_ID_INPUT
@@ -154,7 +169,8 @@ pub mod core_capability {
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
         | TUN_PACKET_IO
-        | UDP_DIAGNOSTIC;
+        | UDP_DIAGNOSTIC
+        | EXPERIMENTAL;
     #[cfg(not(any(
         target_os = "android",
         target_os = "windows",
@@ -166,7 +182,8 @@ pub mod core_capability {
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
-        | UDP_DIAGNOSTIC;
+        | UDP_DIAGNOSTIC
+        | EXPERIMENTAL;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -187,6 +204,11 @@ pub mod platform_capability {
     pub const IPV6_DNS: u64 = 1 << 10;
     /// The adapter can enforce the IPv6 side of a kill switch.
     pub const IPV6_KILL_SWITCH: u64 = 1 << 11;
+    /// The adapter can atomically prepare, commit and roll back candidate path rules.
+    pub const PATH_TRANSACTIONS: u64 = 1 << 12;
+    /// The adapter can bind/protect a core-owned socket to the exact candidate path.
+    pub const PATH_SOCKET_BINDING: u64 = 1 << 13;
+    pub const ROAMING_PATH: u64 = PATH_TRANSACTIONS | PATH_SOCKET_BINDING;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
 
@@ -210,6 +232,7 @@ pub enum EventKind {
     Error = 3,
     SocketProtect = 4,
     ServerIdentity = 5,
+    PathCommand = 6,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -752,6 +775,7 @@ pub struct ClientEvent {
     pub plan: Option<NetworkPlan>,
     pub socket_protect: Option<SocketProtectRequest>,
     pub server_identity: Option<ServerIdentityRequest>,
+    pub path_command: Option<PathCommand>,
     pub fault: Option<CoreFault>,
 }
 
@@ -768,6 +792,12 @@ pub struct CoreStats {
     pub udp_internal_drops: u64,
     pub udp_buffer_grows: u64,
     pub udp_recv_buffer_bytes: u64,
+    pub roam_attempts: u64,
+    pub roam_successes: u64,
+    pub roam_failures: u64,
+    pub roam_reconnect_fallbacks: u64,
+    pub roam_candidates: u64,
+    pub last_roam_latency_ms: u64,
 }
 
 /// Lock-free counters shared with a running native packet pump.
@@ -814,6 +844,17 @@ pub struct ClientCore {
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     last_plan_generation: u64,
+    path_candidate: Option<PathCandidate>,
+    queued_path_candidate: Option<QueuedPathCandidate>,
+    next_path_candidate_id: u64,
+    last_path_update_generation: u64,
+    last_path_update_id: u64,
+    last_path_candidate_id: u64,
+    roam_attempts: u64,
+    roam_successes: u64,
+    roam_failures: u64,
+    roam_reconnect_fallbacks: u64,
+    last_roam_latency_ms: u64,
     /// Largest inbound wire record this session can produce, computed when the plan is built
     /// (see `publish_network_plan`) and used to size the packet bridge's buffers instead of
     /// reserving the protocol maximum per slot. Zero until the first plan; the bridge clamps.
@@ -883,6 +924,17 @@ impl ClientCore {
             pending_socket_protect: BTreeMap::new(),
             pending_server_identity: BTreeMap::new(),
             last_plan_generation: 0,
+            path_candidate: None,
+            queued_path_candidate: None,
+            next_path_candidate_id: 1,
+            last_path_update_generation: 0,
+            last_path_update_id: 0,
+            last_path_candidate_id: 0,
+            roam_attempts: 0,
+            roam_successes: 0,
+            roam_failures: 0,
+            roam_reconnect_fallbacks: 0,
+            last_roam_latency_ms: 0,
             last_downlink_record_bytes: 0,
             #[cfg(unix)]
             attached_tun: None,
@@ -959,11 +1011,14 @@ impl ClientCore {
                 })
             }
         }
+        self.discard_queued_path_events();
         self.require_event_slots(1)?;
 
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        self.path_candidate = None;
+        self.queued_path_candidate = None;
         #[cfg(unix)]
         {
             self.attached_tun = None;
@@ -1015,6 +1070,12 @@ impl ClientCore {
             return Err(CoreError::InvalidState {
                 state: self.state,
                 operation: "publish_network_plan",
+            });
+        }
+        if self.path_candidate.is_some() || self.queued_path_candidate.is_some() {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "publish_network_plan while a path transaction is active",
             });
         }
         if self.pending_plan.is_some() {
@@ -1624,6 +1685,425 @@ impl ClientCore {
         Ok(())
     }
 
+    fn ensure_path_transactions_enabled(&self) -> Result<(), CoreError> {
+        if !cfg!(feature = "experimental-roaming") {
+            return Err(CoreError::Unsupported(
+                "path transactions require the experimental-roaming build feature",
+            ));
+        }
+        let missing = platform_capability::ROAMING_PATH & !self.platform_capabilities;
+        if missing != 0 {
+            return Err(CoreError::MissingCapability { missing });
+        }
+        Ok(())
+    }
+
+    fn validate_active_path_generation(&self, generation: u64) -> Result<(), CoreError> {
+        if self.state != ClientState::Running {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "path transaction outside Running",
+            });
+        }
+        if generation != self.last_plan_generation {
+            return Err(CoreError::StalePlan {
+                expected: self.last_plan_generation,
+                got: generation,
+            });
+        }
+        Ok(())
+    }
+
+    fn allocate_path_candidate_id(&mut self) -> Result<u64, CoreError> {
+        let candidate_id = self.next_path_candidate_id;
+        if candidate_id > i64::MAX as u64 {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "allocate path candidate after signed ABI id exhaustion",
+            });
+        }
+        self.next_path_candidate_id =
+            candidate_id.checked_add(1).ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "allocate path candidate after id exhaustion",
+            })?;
+        Ok(candidate_id)
+    }
+
+    fn push_path_event(&mut self, command: PathCommand) -> u64 {
+        debug_assert!(self.events.len() < self.event_capacity);
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.events.push_back(ClientEvent {
+            sequence,
+            kind: EventKind::PathCommand,
+            state: self.state,
+            plan: None,
+            socket_protect: None,
+            server_identity: None,
+            path_command: Some(command),
+            fault: None,
+        });
+        sequence
+    }
+
+    fn start_path_candidate(&mut self, queued: QueuedPathCandidate) {
+        let mut candidate = PathCandidate {
+            candidate_id: queued.candidate_id,
+            update: queued.update,
+            phase: PathCandidatePhase::Preparing,
+            pending_sequence: None,
+            started_at: Instant::now(),
+            failure_recorded: false,
+        };
+        let command = candidate.command(PathCommandAction::PreparePath, None, None);
+        let sequence = self.push_path_event(command);
+        candidate.pending_sequence = Some(sequence);
+        self.roam_attempts = self.roam_attempts.saturating_add(1);
+        self.path_candidate = Some(candidate);
+    }
+
+    fn record_path_failure(&mut self) {
+        let should_record = self
+            .path_candidate
+            .as_ref()
+            .is_some_and(|candidate| !candidate.failure_recorded);
+        if should_record {
+            self.roam_failures = self.roam_failures.saturating_add(1);
+            if let Some(candidate) = self.path_candidate.as_mut() {
+                candidate.failure_recorded = true;
+            }
+        }
+    }
+
+    fn begin_path_abort(&mut self, reason: String) {
+        self.record_path_failure();
+        let command = self
+            .path_candidate
+            .as_ref()
+            .expect("active candidate is present")
+            .command(PathCommandAction::AbortPath, None, Some(reason));
+        let sequence = self.push_path_event(command);
+        let candidate = self
+            .path_candidate
+            .as_mut()
+            .expect("active candidate is present");
+        candidate.phase = PathCandidatePhase::Aborting;
+        candidate.pending_sequence = Some(sequence);
+    }
+
+    fn remove_queued_path_event(&mut self, sequence: u64) -> bool {
+        let Some(position) = self
+            .events
+            .iter()
+            .position(|event| event.kind == EventKind::PathCommand && event.sequence == sequence)
+        else {
+            return false;
+        };
+        self.events.remove(position);
+        true
+    }
+
+    fn discard_queued_path_events(&mut self) {
+        self.events
+            .retain(|event| event.kind != EventKind::PathCommand);
+    }
+
+    /// Accept one bounded, generation-scoped path observation from a platform adapter.
+    ///
+    /// Repeating the same `update_id` is idempotent. A newer observation cancels an older
+    /// candidate; if PREPARE already crossed the ABI, explicit ABORT is required before the
+    /// queued replacement can begin. The active transport and NetworkPlan are never changed.
+    pub fn submit_path_update(&mut self, input_json: &str) -> Result<u64, CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        let update = PathUpdate::parse(input_json)?;
+        self.validate_active_path_generation(update.generation)?;
+
+        if self.last_path_update_generation == update.generation {
+            if update.update_id < self.last_path_update_id {
+                return Err(CoreError::StaleRequest {
+                    got: update.update_id,
+                });
+            }
+            if update.update_id == self.last_path_update_id {
+                return Ok(self.last_path_candidate_id);
+            }
+        }
+
+        let candidate_id = self.allocate_path_candidate_id()?;
+        let pending_event_is_queued = self
+            .path_candidate
+            .as_ref()
+            .and_then(|candidate| candidate.pending_sequence)
+            .is_some_and(|sequence| {
+                self.events
+                    .iter()
+                    .any(|event| event.kind == EventKind::PathCommand && event.sequence == sequence)
+            });
+        let active_phase = self
+            .path_candidate
+            .as_ref()
+            .map(|candidate| candidate.phase);
+        let required_events = match active_phase {
+            None => 1,
+            Some(PathCandidatePhase::Aborting) => 0,
+            Some(_) if pending_event_is_queued => 0,
+            Some(_) => 1,
+        };
+        self.require_event_slots(required_events)?;
+
+        self.last_path_update_generation = update.generation;
+        self.last_path_update_id = update.update_id;
+        self.last_path_candidate_id = candidate_id;
+        let queued = QueuedPathCandidate {
+            candidate_id,
+            update,
+        };
+
+        match active_phase {
+            None => self.start_path_candidate(queued),
+            Some(PathCandidatePhase::Aborting) => {
+                self.queued_path_candidate = Some(queued);
+            }
+            Some(_) => {
+                let pending_sequence = self
+                    .path_candidate
+                    .as_ref()
+                    .and_then(|candidate| candidate.pending_sequence);
+                if pending_sequence.is_some_and(|sequence| self.remove_queued_path_event(sequence))
+                {
+                    // The platform never observed the pending command, so no temporary rule can
+                    // exist and an ABORT round trip would be both noisy and misleading.
+                    self.record_path_failure();
+                    self.path_candidate = None;
+                    self.start_path_candidate(queued);
+                } else {
+                    self.queued_path_candidate = Some(queued);
+                    self.begin_path_abort("superseded by a newer path update".into());
+                }
+            }
+        }
+        Ok(candidate_id)
+    }
+
+    /// Ask the platform to bind/protect a core-owned candidate socket to the prepared path.
+    /// The descriptor remains owned by the transport and is only borrowed for the platform
+    /// call represented by the emitted event.
+    #[allow(dead_code)]
+    pub(crate) fn request_candidate_socket_binding(
+        &mut self,
+        generation: u64,
+        candidate_id: u64,
+        fd: i32,
+    ) -> Result<u64, CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        self.validate_active_path_generation(generation)?;
+        if fd < 0 {
+            return Err(CoreError::InvalidArgument(
+                "candidate socket descriptor must be non-negative".into(),
+            ));
+        }
+        let candidate = self
+            .path_candidate
+            .as_ref()
+            .ok_or(CoreError::StaleRequest { got: candidate_id })?;
+        if candidate.candidate_id != candidate_id || candidate.update.generation != generation {
+            return Err(CoreError::StaleRequest { got: candidate_id });
+        }
+        if candidate.phase != PathCandidatePhase::Prepared || candidate.pending_sequence.is_some() {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "bind candidate socket before PREPARE_PATH acknowledgement",
+            });
+        }
+        self.require_event_slots(1)?;
+        let command = candidate.command(PathCommandAction::BindSocket, Some(fd), None);
+        let sequence = self.push_path_event(command);
+        let candidate = self
+            .path_candidate
+            .as_mut()
+            .expect("validated candidate is present");
+        candidate.phase = PathCandidatePhase::Binding;
+        candidate.pending_sequence = Some(sequence);
+        Ok(sequence)
+    }
+
+    /// Publish transport proof for a bound candidate. Stage 1 exposes the COMMIT contract,
+    /// but deliberately does not switch a live socket; TCP/UDP proof producers land later.
+    #[allow(dead_code)]
+    pub(crate) fn candidate_path_validated(
+        &mut self,
+        generation: u64,
+        candidate_id: u64,
+    ) -> Result<u64, CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        self.validate_active_path_generation(generation)?;
+        let candidate = self
+            .path_candidate
+            .as_ref()
+            .ok_or(CoreError::StaleRequest { got: candidate_id })?;
+        if candidate.candidate_id != candidate_id || candidate.update.generation != generation {
+            return Err(CoreError::StaleRequest { got: candidate_id });
+        }
+        if candidate.phase != PathCandidatePhase::Bound || candidate.pending_sequence.is_some() {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "commit candidate path before binding and transport validation",
+            });
+        }
+        self.require_event_slots(1)?;
+        let command = candidate.command(PathCommandAction::CommitPath, None, None);
+        let sequence = self.push_path_event(command);
+        let candidate = self
+            .path_candidate
+            .as_mut()
+            .expect("validated candidate is present");
+        candidate.phase = PathCandidatePhase::Committing;
+        candidate.pending_sequence = Some(sequence);
+        Ok(sequence)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn abort_candidate_path(
+        &mut self,
+        generation: u64,
+        candidate_id: u64,
+        reason: &str,
+    ) -> Result<u64, CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        self.validate_active_path_generation(generation)?;
+        let candidate = self
+            .path_candidate
+            .as_ref()
+            .ok_or(CoreError::StaleRequest { got: candidate_id })?;
+        if candidate.candidate_id != candidate_id || candidate.update.generation != generation {
+            return Err(CoreError::StaleRequest { got: candidate_id });
+        }
+        if candidate.phase == PathCandidatePhase::Aborting {
+            return candidate
+                .pending_sequence
+                .ok_or(CoreError::StaleRequest { got: candidate_id });
+        }
+        self.require_event_slots(1)?;
+        let reason: String = reason.chars().take(MAX_PLATFORM_ERROR_CHARS).collect();
+        self.begin_path_abort(if reason.is_empty() {
+            "candidate path aborted by transport".into()
+        } else {
+            reason
+        });
+        Ok(self
+            .path_candidate
+            .as_ref()
+            .and_then(|candidate| candidate.pending_sequence)
+            .expect("ABORT_PATH event has a sequence"))
+    }
+
+    /// Acknowledge exactly one PREPARE/BIND/COMMIT/ABORT event.
+    ///
+    /// Rejections before ABORT schedule a mandatory rollback. A rejected rollback records a
+    /// reconnect fallback and returns `PlatformRejected`; the queued candidate is discarded.
+    pub fn ack_path_command(
+        &mut self,
+        generation: u64,
+        candidate_id: u64,
+        request_sequence: u64,
+        accepted: bool,
+        reason: Option<&str>,
+    ) -> Result<(), CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        self.validate_active_path_generation(generation)?;
+        let candidate = self
+            .path_candidate
+            .as_ref()
+            .ok_or(CoreError::StaleRequest {
+                got: request_sequence,
+            })?;
+        if candidate.candidate_id != candidate_id
+            || candidate.update.generation != generation
+            || candidate.pending_sequence != Some(request_sequence)
+        {
+            return Err(CoreError::StaleRequest {
+                got: request_sequence,
+            });
+        }
+        let phase = candidate.phase;
+        let starts_queued = matches!(
+            phase,
+            PathCandidatePhase::Committing | PathCandidatePhase::Aborting
+        ) && accepted
+            && self.queued_path_candidate.is_some();
+        let schedules_abort = !accepted && phase != PathCandidatePhase::Aborting;
+        self.require_event_slots(usize::from(starts_queued || schedules_abort))?;
+
+        if accepted {
+            match phase {
+                PathCandidatePhase::Preparing => {
+                    let candidate = self.path_candidate.as_mut().expect("candidate is present");
+                    candidate.phase = PathCandidatePhase::Prepared;
+                    candidate.pending_sequence = None;
+                }
+                PathCandidatePhase::Binding => {
+                    let candidate = self.path_candidate.as_mut().expect("candidate is present");
+                    candidate.phase = PathCandidatePhase::Bound;
+                    candidate.pending_sequence = None;
+                }
+                PathCandidatePhase::Committing => {
+                    let candidate = self.path_candidate.take().expect("candidate is present");
+                    self.roam_successes = self.roam_successes.saturating_add(1);
+                    self.last_roam_latency_ms = candidate
+                        .started_at
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX))
+                        as u64;
+                    if let Some(queued) = self.queued_path_candidate.take() {
+                        self.start_path_candidate(queued);
+                    }
+                }
+                PathCandidatePhase::Aborting => {
+                    self.path_candidate = None;
+                    if let Some(queued) = self.queued_path_candidate.take() {
+                        self.start_path_candidate(queued);
+                    }
+                }
+                PathCandidatePhase::Prepared | PathCandidatePhase::Bound => {
+                    return Err(CoreError::StaleRequest {
+                        got: request_sequence,
+                    });
+                }
+            }
+            return Ok(());
+        }
+
+        let reason: String = reason
+            .unwrap_or("platform rejected path command")
+            .chars()
+            .take(MAX_PLATFORM_ERROR_CHARS)
+            .collect();
+        if phase == PathCandidatePhase::Aborting {
+            self.record_path_failure();
+            self.roam_reconnect_fallbacks = self.roam_reconnect_fallbacks.saturating_add(1);
+            self.path_candidate = None;
+            self.queued_path_candidate = None;
+            return Err(CoreError::Platform(format!(
+                "candidate path rollback failed: {reason}"
+            )));
+        }
+
+        let failed_action = match phase {
+            PathCandidatePhase::Preparing => "PREPARE_PATH",
+            PathCandidatePhase::Binding => "BIND_SOCKET",
+            PathCandidatePhase::Committing => "COMMIT_PATH",
+            PathCandidatePhase::Prepared
+            | PathCandidatePhase::Bound
+            | PathCandidatePhase::Aborting => {
+                unreachable!("only pending command phases can be acknowledged")
+            }
+        };
+        self.begin_path_abort(format!("{failed_action} rejected: {reason}"));
+        Ok(())
+    }
+
     pub fn stop(&mut self) -> Result<(), CoreError> {
         if self.state == ClientState::Stopped {
             return Ok(());
@@ -1631,11 +2111,17 @@ impl ClientCore {
         // Cancellation is not an event and must never be held hostage by a full event queue:
         // a blocking native runner owns socket/TUN descriptors that teardown must release.
         self.runtime_cancel.store(true, Ordering::Release);
+        self.discard_queued_path_events();
         self.require_event_slots(2)?;
         self.runtime_active = false;
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        if self.path_candidate.is_some() {
+            self.record_path_failure();
+        }
+        self.path_candidate = None;
+        self.queued_path_candidate = None;
         #[cfg(unix)]
         {
             self.attached_tun = None;
@@ -1682,12 +2168,18 @@ impl ClientCore {
     ))]
     pub(crate) fn publish_runtime_failure(&mut self, message: String) {
         let required = 2;
+        self.discard_queued_path_events();
         while self.events.len().saturating_add(required) > self.event_capacity {
             self.events.pop_front();
         }
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        if self.path_candidate.is_some() {
+            self.record_path_failure();
+        }
+        self.path_candidate = None;
+        self.queued_path_candidate = None;
         #[cfg(unix)]
         {
             self.attached_tun = None;
@@ -1751,6 +2243,13 @@ impl ClientCore {
                 .udp_buffer_grows
                 .saturating_add(udp.map_or(0, |s| s.grow_events)),
             udp_recv_buffer_bytes: udp.map_or(self.udp_recv_buffer_bytes, |s| s.granted_recv_bytes),
+            roam_attempts: self.roam_attempts,
+            roam_successes: self.roam_successes,
+            roam_failures: self.roam_failures,
+            roam_reconnect_fallbacks: self.roam_reconnect_fallbacks,
+            roam_candidates: u64::from(self.path_candidate.is_some())
+                .saturating_add(u64::from(self.queued_path_candidate.is_some())),
+            last_roam_latency_ms: self.last_roam_latency_ms,
         }
     }
 
@@ -1816,6 +2315,7 @@ impl ClientCore {
             plan,
             socket_protect,
             server_identity,
+            path_command: None,
             fault,
         });
         sequence
@@ -2538,5 +3038,305 @@ mod tests {
             core.take_attached_tun_fds(7),
             Err(CoreError::InvalidState { .. })
         ));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn running_path_core(generation: u64) -> ClientCore {
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES
+                    | platform_capability::ROAMING_PATH,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core.publish_network_plan(plan(generation)).unwrap();
+        assert_eq!(core.poll_event().unwrap().kind, EventKind::StateChanged);
+        assert_eq!(core.poll_event().unwrap().kind, EventKind::NetworkPlan);
+        core.ack_network_plan(generation, true, None).unwrap();
+        assert_eq!(core.poll_event().unwrap().state, ClientState::Running);
+        core
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn path_update(generation: u64, update_id: u64, path_id: &str) -> String {
+        serde_json::json!({
+            "generation": generation,
+            "update_id": update_id,
+            "platform_path_id": path_id,
+            "reason": "network_changed",
+            "network_token": format!("network-{path_id}"),
+            "interface_index": 7,
+            "local_addresses": ["192.0.2.10", "2001:db8::10"],
+            "resolved_addresses": [
+                {"address": "198.51.100.20", "ttl_secs": 60},
+                {"address": "2001:db8::20", "ttl_secs": 30}
+            ],
+            "flags": {
+                "default_route_changed": true,
+                "wake": false,
+                "same_network_nat_failure": false
+            }
+        })
+        .to_string()
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn path_command(core: &mut ClientCore, action: PathCommandAction) -> ClientEvent {
+        let event = core.poll_event().expect("path command event");
+        assert_eq!(event.kind, EventKind::PathCommand);
+        assert_eq!(
+            event.path_command.as_ref().map(|command| command.action),
+            Some(action)
+        );
+        event
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn acknowledge_path_event(
+        core: &mut ClientCore,
+        event: &ClientEvent,
+        accepted: bool,
+        reason: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let command = event.path_command.as_ref().expect("path command payload");
+        core.ack_path_command(
+            command.generation,
+            command.candidate_id,
+            event.sequence,
+            accepted,
+            reason,
+        )
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_update_is_generation_scoped_bounded_and_idempotent() {
+        let mut core = running_path_core(7);
+        assert!(matches!(
+            core.submit_path_update(&path_update(6, 1, "stale")),
+            Err(CoreError::StalePlan {
+                expected: 7,
+                got: 6
+            })
+        ));
+        assert!(matches!(
+            core.submit_path_update("{}"),
+            Err(CoreError::InvalidArgument(_))
+        ));
+        let mut loopback: serde_json::Value =
+            serde_json::from_str(&path_update(7, 1, "loopback")).unwrap();
+        loopback["local_addresses"][0] = serde_json::Value::String("127.0.0.1".into());
+        assert!(matches!(
+            core.submit_path_update(&loopback.to_string()),
+            Err(CoreError::InvalidArgument(_))
+        ));
+        let mut inconsistent: serde_json::Value =
+            serde_json::from_str(&path_update(7, 1, "wake")).unwrap();
+        inconsistent["reason"] = serde_json::Value::String("wake".into());
+        assert!(matches!(
+            core.submit_path_update(&inconsistent.to_string()),
+            Err(CoreError::InvalidArgument(_))
+        ));
+
+        let candidate = core.submit_path_update(&path_update(7, 1, "wifi")).unwrap();
+        assert_eq!(
+            core.submit_path_update(&path_update(7, 1, "wifi")).unwrap(),
+            candidate
+        );
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        let payload = prepare.path_command.as_ref().unwrap();
+        assert_eq!(payload.generation, 7);
+        assert_eq!(payload.candidate_id, candidate);
+        assert_eq!(payload.path.platform_path_id, "wifi");
+        assert_eq!(payload.path.resolved_addresses.len(), 2);
+        assert!(
+            core.poll_event().is_none(),
+            "duplicate must not enqueue work"
+        );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_transaction_commits_without_replacing_running_data_plane() {
+        let mut core = running_path_core(11);
+        let candidate = core
+            .submit_path_update(&path_update(11, 1, "cellular"))
+            .unwrap();
+
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, true, None).unwrap();
+        assert!(matches!(
+            core.candidate_path_validated(11, candidate),
+            Err(CoreError::InvalidState { .. })
+        ));
+
+        core.request_candidate_socket_binding(11, candidate, 42)
+            .unwrap();
+        let bind = path_command(&mut core, PathCommandAction::BindSocket);
+        assert_eq!(bind.path_command.as_ref().unwrap().socket_fd, Some(42));
+        acknowledge_path_event(&mut core, &bind, true, None).unwrap();
+
+        core.candidate_path_validated(11, candidate).unwrap();
+        let commit = path_command(&mut core, PathCommandAction::CommitPath);
+        acknowledge_path_event(&mut core, &commit, true, None).unwrap();
+
+        let stats = core.stats();
+        assert_eq!(core.state(), ClientState::Running);
+        assert_eq!(core.last_plan_generation, 11);
+        assert_eq!(stats.roam_attempts, 1);
+        assert_eq!(stats.roam_successes, 1);
+        assert_eq!(stats.roam_failures, 0);
+        assert_eq!(stats.reconnects, 0);
+        assert_eq!(stats.roam_candidates, 0);
+        assert!(core.poll_event().is_none());
+        assert!(matches!(
+            acknowledge_path_event(&mut core, &commit, true, None),
+            Err(CoreError::StaleRequest { .. })
+        ));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    struct FaultInjectingPathAdapter {
+        fail_at: PathCommandAction,
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    impl FaultInjectingPathAdapter {
+        fn apply(&self, core: &mut ClientCore, event: &ClientEvent) {
+            let action = event.path_command.as_ref().unwrap().action;
+            acknowledge_path_event(
+                core,
+                event,
+                action != self.fail_at,
+                (action == self.fail_at).then_some("injected platform fault"),
+            )
+            .unwrap();
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn run_path_fault(fail_at: PathCommandAction) -> CoreStats {
+        let adapter = FaultInjectingPathAdapter { fail_at };
+        let mut core = running_path_core(17);
+        let candidate = core
+            .submit_path_update(&path_update(17, 1, "fault-path"))
+            .unwrap();
+
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        adapter.apply(&mut core, &prepare);
+        if fail_at != PathCommandAction::PreparePath {
+            core.request_candidate_socket_binding(17, candidate, 9)
+                .unwrap();
+            let bind = path_command(&mut core, PathCommandAction::BindSocket);
+            adapter.apply(&mut core, &bind);
+            if fail_at != PathCommandAction::BindSocket {
+                core.candidate_path_validated(17, candidate).unwrap();
+                let commit = path_command(&mut core, PathCommandAction::CommitPath);
+                adapter.apply(&mut core, &commit);
+            }
+        }
+
+        let abort = path_command(&mut core, PathCommandAction::AbortPath);
+        acknowledge_path_event(&mut core, &abort, true, None).unwrap();
+        assert_eq!(core.state(), ClientState::Running);
+        core.stats()
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn mock_adapter_rolls_back_prepare_bind_and_commit_faults() {
+        for action in [
+            PathCommandAction::PreparePath,
+            PathCommandAction::BindSocket,
+            PathCommandAction::CommitPath,
+        ] {
+            let stats = run_path_fault(action);
+            assert_eq!(stats.roam_attempts, 1, "{action:?}");
+            assert_eq!(stats.roam_successes, 0, "{action:?}");
+            assert_eq!(stats.roam_failures, 1, "{action:?}");
+            assert_eq!(stats.roam_reconnect_fallbacks, 0, "{action:?}");
+            assert_eq!(stats.roam_candidates, 0, "{action:?}");
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn failed_abort_is_a_reconnect_fallback_and_discards_queued_candidate() {
+        let mut core = running_path_core(21);
+        core.submit_path_update(&path_update(21, 1, "bad-path"))
+            .unwrap();
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, false, Some("route failed")).unwrap();
+        let abort = path_command(&mut core, PathCommandAction::AbortPath);
+        assert!(matches!(
+            acknowledge_path_event(&mut core, &abort, false, Some("rollback failed")),
+            Err(CoreError::Platform(_))
+        ));
+        let stats = core.stats();
+        assert_eq!(stats.roam_failures, 1);
+        assert_eq!(stats.roam_reconnect_fallbacks, 1);
+        assert_eq!(stats.roam_candidates, 0);
+        assert_eq!(core.state(), ClientState::Running);
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn newer_update_cancels_an_unobserved_prepare_without_stale_platform_work() {
+        let mut core = running_path_core(31);
+        let first = core
+            .submit_path_update(&path_update(31, 1, "wifi-a"))
+            .unwrap();
+        while core.events.len() < core.event_capacity {
+            core.push_event(EventKind::StateChanged, None, None, None, None);
+        }
+        let second = core
+            .submit_path_update(&path_update(31, 2, "wifi-b"))
+            .unwrap();
+        assert_eq!(core.events.len(), core.event_capacity);
+        core.events
+            .retain(|event| event.kind == EventKind::PathCommand);
+        assert_ne!(first, second);
+        let event = path_command(&mut core, PathCommandAction::PreparePath);
+        assert_eq!(event.path_command.as_ref().unwrap().candidate_id, second);
+        assert_eq!(
+            event.path_command.as_ref().unwrap().path.platform_path_id,
+            "wifi-b"
+        );
+        assert!(core.poll_event().is_none());
+        let stats = core.stats();
+        assert_eq!(stats.roam_attempts, 2);
+        assert_eq!(stats.roam_failures, 1);
+        assert_eq!(stats.roam_candidates, 1);
+        assert!(matches!(
+            core.submit_path_update(&path_update(31, 1, "wifi-a")),
+            Err(CoreError::StaleRequest { got: 1 })
+        ));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn stop_discards_unobserved_path_commands() {
+        let mut core = running_path_core(37);
+        core.submit_path_update(&path_update(37, 1, "wifi"))
+            .unwrap();
+
+        core.stop().unwrap();
+
+        let events: Vec<_> = std::iter::from_fn(|| core.poll_event()).collect();
+        assert_eq!(events.len(), 2);
+        assert!(events
+            .iter()
+            .all(|event| event.kind == EventKind::StateChanged));
+        assert_eq!(
+            events.last().map(|event| event.state),
+            Some(ClientState::Stopped)
+        );
+        assert_eq!(core.stats().roam_failures, 1);
+        assert_eq!(core.stats().roam_candidates, 0);
     }
 }
