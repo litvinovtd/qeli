@@ -2175,6 +2175,9 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 
 **Transport-independent data-plane morphology (`PACKET_MUX_V1`):**
 
+For the complete layer order, compatibility matrix, recommended profiles and migration procedure,
+see [Obfuscation and PACKET_MUX recordizer](OBFUSCATION.md).
+
 After successful authentication the server can enable one common recordizer for every carrier:
 TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG and UDP `fake-tls`, QUIC-shape,
 `obfs`/AWG. This is not a new transport mode: it coalesces IP packets, changes encrypted-record

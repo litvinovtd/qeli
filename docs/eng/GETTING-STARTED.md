@@ -375,6 +375,22 @@ pool.cidr    = 10.9.0.0/24
 
 # on-the-wire masking mode (see §11)
 obf.mode = fake-tls
+
+# transport-independent packet/record boundary masking
+obf.recordizer.policy = prefer
+obf.recordizer.batch.delay_min_ms = 2
+obf.recordizer.batch.delay_max_ms = 8
+obf.recordizer.batch.max_packets = 16
+obf.recordizer.batch.max_queue_bytes = 262144
+obf.recordizer.record.max_payload_bytes = 0
+obf.recordizer.record.small_min_ratio = 0.25
+obf.recordizer.record.small_max_ratio = 0.875
+obf.recordizer.record.full_probability = 0.72
+obf.recordizer.fragment.enabled = true
+obf.recordizer.fragment.reassembly_timeout_ms = 3000
+obf.recordizer.fragment.max_inflight_packets = 64
+obf.recordizer.fragment.max_reassembly_bytes = 4194304
+obf.recordizer.fragment.max_fragments_per_packet = 64
 ```
 
 Everything else (DNS proxy, padding, heartbeat, limits) already has sensible defaults

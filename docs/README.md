@@ -6,6 +6,9 @@
 The documentation is maintained in two languages. Start from your locale's map, where every
 document is grouped by audience.
 
+Recordizer and masking-layer setup: [Русское руководство](ru/OBFUSCATION.md) ·
+[English guide](eng/OBFUSCATION.md).
+
 | | |
 |---|---|
 | 🇷🇺 **Русский** | **[ru/index.md](ru/index.md)** — карта · [Установка с нуля](ru/GETTING-STARTED.md) · [Конфигурация](ru/CONFIG.md) · [Диагностика](ru/TROUBLESHOOTING.md) |

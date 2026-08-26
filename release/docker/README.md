@@ -179,6 +179,20 @@ pool.exclude = 10.8.0.1
 routing.nat.enabled = true
 dns.enabled = false
 obf.mode = fake-tls
+obf.recordizer.policy = prefer
+obf.recordizer.batch.delay_min_ms = 2
+obf.recordizer.batch.delay_max_ms = 8
+obf.recordizer.batch.max_packets = 16
+obf.recordizer.batch.max_queue_bytes = 262144
+obf.recordizer.record.max_payload_bytes = 0
+obf.recordizer.record.small_min_ratio = 0.25
+obf.recordizer.record.small_max_ratio = 0.875
+obf.recordizer.record.full_probability = 0.72
+obf.recordizer.fragment.enabled = true
+obf.recordizer.fragment.reassembly_timeout_ms = 3000
+obf.recordizer.fragment.max_inflight_packets = 64
+obf.recordizer.fragment.max_reassembly_bytes = 4194304
+obf.recordizer.fragment.max_fragments_per_packet = 64
 obf.tls.server_name = www.microsoft.com
 EOF
 ```

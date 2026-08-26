@@ -22,6 +22,7 @@
 | Документ | О чём |
 |---|---|
 | [CONFIG.md](CONFIG.md) | Конфигурация (flat-INI): все параметры сервера и клиента |
+| [OBFUSCATION.md](OBFUSCATION.md) | Настройка recordizer, совместимость уровней маскировки, профили тюнинга и переход |
 | [IPV6.md](IPV6.md) | Полная настройка IPv4/IPv6/dual-stack, NAT66/route, Quick Start и диагностика |
 | [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | Актуальный контракт 80 клиентских ключей по платформам и история миграции |
 | [PANEL.md](PANEL.md) | Веб-панель: установка и использование |

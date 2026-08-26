@@ -81,6 +81,66 @@ fn shipped_server_examples_have_no_unread_keys() {
     }
 }
 
+#[test]
+fn every_shipped_server_profile_spells_out_the_balanced_recordizer_block() {
+    const KEYS: &[&str] = &[
+        "obf.recordizer.policy",
+        "obf.recordizer.batch.delay_min_ms",
+        "obf.recordizer.batch.delay_max_ms",
+        "obf.recordizer.batch.max_packets",
+        "obf.recordizer.batch.max_queue_bytes",
+        "obf.recordizer.record.max_payload_bytes",
+        "obf.recordizer.record.small_min_ratio",
+        "obf.recordizer.record.small_max_ratio",
+        "obf.recordizer.record.full_probability",
+        "obf.recordizer.fragment.enabled",
+        "obf.recordizer.fragment.reassembly_timeout_ms",
+        "obf.recordizer.fragment.max_inflight_packets",
+        "obf.recordizer.fragment.max_reassembly_bytes",
+        "obf.recordizer.fragment.max_fragments_per_packet",
+    ];
+
+    for (name, text) in [
+        ("server.conf", include_str!("../config/server.conf")),
+        (
+            "server-multiprofile.conf",
+            include_str!("../config/server-multiprofile.conf"),
+        ),
+        (
+            "server-ipv6.conf",
+            include_str!("../config/server-ipv6.conf"),
+        ),
+        (
+            "server-maxobf.conf",
+            include_str!("../config/server-maxobf.conf"),
+        ),
+        (
+            "release/reality-tls/server-reality.conf",
+            include_str!("../../release/reality-tls/server-reality.conf"),
+        ),
+    ] {
+        let doc = IniDoc::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut count = 0usize;
+        for profile in doc.sections_of("profile") {
+            count += 1;
+            for key in KEYS {
+                assert!(
+                    profile.entries.iter().any(|(present, _)| present == key),
+                    "{name} {} is missing explicit {key}",
+                    profile.header()
+                );
+            }
+            let policy = profile
+                .entries
+                .iter()
+                .find(|(key, _)| key == "obf.recordizer.policy")
+                .map(|(_, value)| value.as_str());
+            assert_eq!(policy, Some("prefer"), "{name} {}", profile.header());
+        }
+        assert!(count > 0, "{name} contains no server profile");
+    }
+}
+
 /// The REALITY template must keep FAILING until its placeholder is replaced.
 ///
 /// `release/reality-tls/server-reality.conf` ships `REPLACE_WITH_OWN_SHORT_ID` on purpose —

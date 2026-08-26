@@ -2129,6 +2129,9 @@ ip route add default dev "$QELI_TUN" table 100
 
 **Транспорт-независимая морфология data-plane (`PACKET_MUX_V1`):**
 
+Полный порядок уровней, матрица совместимости, рекомендуемые профили и переход описаны в
+руководстве [«Обфускация и PACKET_MUX recordizer»](OBFUSCATION.md).
+
 После успешной аутентификации сервер может включить один общий recordizer для любого carrier:
 TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, QUIC-shape,
 `obfs`/AWG. Это не новый транспортный режим: recordizer объединяет несколько IP-пакетов,
