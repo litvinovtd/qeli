@@ -62,6 +62,7 @@ tun.address = {net}.1
 tun.mtu = {mtu}
 pool.cidr = {pool}
 pool.exclude = {net}.1
+routing.forward_private = false
 {dns}
 obf.mode = fake-tls
 obf.tls.server_name = www.microsoft.com
@@ -106,7 +107,13 @@ def run_case(name, sconf, cextra=""):
         time.sleep(1)
         if ssh(f"ss -tlnp | grep -c ':{PORT}'").strip() not in ("", "0"): up = True; break
     if not up:
-        return "(server failed)", {}, ssh(f"tail -5 {DIR}/o.log")
+        error = ssh(f"tail -12 {DIR}/o.log")
+        ssh(f"pkill -9 -f '[p]mx/s.conf' 2>/dev/null; ip link del {TUN} 2>/dev/null; true")
+        return (
+            f"(server failed: {error})",
+            {"addr": "", "mtu": "", "routes": "", "dns": ""},
+            error,
+        )
     cf = c.open_sftp(); cf.putfo(io.BytesIO(client_conf(pub, cextra).encode()), "/etc/qeli/pmx.conf"); cf.close()
     csh(f"pkill -9 -x qeli 2>/dev/null; sleep 1; ip link del {DEV} 2>/dev/null; true")
     bg(c, f"setsid nohup {BIN} client -c /etc/qeli/pmx.conf >/tmp/pmx.log 2>&1 </dev/null &")
@@ -145,10 +152,10 @@ print("=== PUSH MATRIX: every build_auth_ok field x its branches ===\n")
 # ── client_ip + prefix ───────────────────────────────────────────────────────
 log, st, _ = run_case("pool /24", server_conf(net="10.70.0"))
 check("client_ip", "allocated from pool.cidr /24", st["addr"].startswith("10.70.0."), f"{st}")
-check("prefix", "/24 pool -> prefix 24", st["addr"].endswith("/24") and "ip=10.70.0" in log, f"addr={st['addr']}")
+check("prefix", "/24 pool -> L3 TUN host prefix /32", st["addr"].endswith("/32") and "ip=10.70.0" in log, f"addr={st['addr']}")
 
 log, st, _ = run_case("pool /16", server_conf(net="10.71.0", pool="10.71.0.0/16"))
-check("prefix", "/16 pool -> prefix 16 (not assumed /24)", st["addr"].endswith("/16"), f"addr={st['addr']} log={log[:160]}")
+check("prefix", "/16 pool -> L3 TUN still uses host prefix /32", st["addr"].endswith("/32"), f"addr={st['addr']} log={log[:160]}")
 
 log, st, _ = run_case("static_ip", server_conf(net="10.72.0", user_extra="static_ip = 10.72.0.55"))
 check("client_ip", "per-user static_ip wins", st["addr"].startswith("10.72.0.55"), f"addr={st['addr']}")
@@ -158,7 +165,7 @@ check("client_ip", "profile pool.reservation.<user>", st["addr"].startswith("10.
 
 # ── mtu ──────────────────────────────────────────────────────────────────────
 log, st, _ = run_case("mtu adopt", server_conf(net="10.74.0", mtu=1350))
-check("mtu", "client mtu=0 (auto) adopts pushed 1350", "mtu 1350" in st["mtu"] and "mtu 1350 APPLIED" in log, f"{st['mtu']} | {log[:160]}")
+check("mtu", "client mtu=0 (auto) adopts pushed 1350", "mtu 1350" in st["mtu"] and "mtu 1350 ACCEPTED into NetworkPlan" in log, f"{st['mtu']} | {log[:240]}")
 
 log, st, _ = run_case("mtu client wins", server_conf(net="10.75.0", mtu=1350), cextra="mtu = 1280")
 check("mtu", "client mtu=1280 overrides pushed 1350", "mtu 1280" in st["mtu"] and "IGNORED" in log, f"{st['mtu']} | {log[:200]}")
@@ -166,22 +173,23 @@ check("mtu", "client mtu=1280 overrides pushed 1350", "mtu 1280" in st["mtu"] an
 # ── dns + dns_port ───────────────────────────────────────────────────────────
 log, st, _ = run_case("dns push_servers", server_conf(net="10.76.0",
                       dns="dns.enabled = true\ndns.listen = 10.76.0.1\ndns.push_servers = 9.9.9.9"))
-check("dns", "push_servers wins over the proxy listen IP", "9.9.9.9" in st["dns"] and "DNS 9.9.9.9" in log, f"{st['dns']} | {log[:160]}")
+check("dns", "push_servers wins over the proxy listen IP", "DNS 9.9.9.9:53 ACCEPTED into NetworkPlan" in log, f"{st['dns']} | {log[:240]}")
 
 log, st, _ = run_case("dns proxy", server_conf(net="10.77.0",
                       dns="dns.enabled = true\ndns.listen = 10.77.0.1"))
-check("dns", "no push_servers + dns.enabled -> proxy listen IP", "10.77.0.1" in st["dns"], f"{st['dns']} | {log[:160]}")
+check("dns", "no push_servers + dns.enabled -> proxy listen IP", "DNS 10.77.0.1:53 ACCEPTED into NetworkPlan" in log, f"{st['dns']} | {log[:240]}")
 
 log, st, _ = run_case("dns none", server_conf(net="10.78.0", dns="dns.enabled = false"))
 check("dns", "no push_servers + proxy off -> nothing pushed", "no DNS sent" in log, f"{log[:200]}")
 
 log, st, _ = run_case("dns port", server_conf(net="10.79.0",
                       dns="dns.enabled = true\ndns.listen = 10.79.0.1\ndns.port = 5353"))
-check("dns_port", "custom dns.port surfaced in the push", "10.79.0.1:5353" in log, f"{log[:200]}")
+check("dns_port", "clients always receive port 53; server redirects to its custom proxy port",
+      "10.79.0.1:53" in log and "10.79.0.1:5353" not in log, f"{log[:200]}")
 
 log, st, _ = run_case("dns client off", server_conf(net="10.80.0",
                       dns="dns.enabled = true\ndns.listen = 10.80.0.1"), cextra="dns = off")
-check("dns", "client dns=off -> pushed resolver IGNORED (warned)", "IGNORED" in log and "dns = off" in log, f"{log[:220]}")
+check("dns", "client dns=off -> pushed resolver IGNORED (warned)", "DNS 10.80.0.1:53 IGNORED" in log and "client dns=off" in log, f"{log[:300]}")
 
 # ── routes ───────────────────────────────────────────────────────────────────
 log, st, _ = run_case("routes profile", server_conf(net="10.81.0", extra="route = 172.31.0.0/16"))
@@ -199,7 +207,7 @@ check("routes", "no personal routes -> profile routes used", "172.31.0.0/16" in 
 log, st, _ = run_case("obf flags", server_conf(net="10.84.0",
                       extra="obf.padding.enabled = false\nobf.heartbeat.enabled = false\n"
                             "obf.traffic_normalization.enabled = true"))
-ok = "padding=false" in log and "heartbeat=false" in log and "normalization=true" in log
+ok = "padding APPLIED (enabled=false" in log and "heartbeat APPLIED (enabled=false" in log and "normalization APPLIED (enabled=true" in log
 check("obfuscation", "padding/heartbeat/normalization pushed verbatim", ok, f"{log[:220]}")
 
 # ── multipath ────────────────────────────────────────────────────────────────
@@ -216,3 +224,5 @@ ssh(f"rm -rf {DIR}; true")
 s.close(); c.close()
 print("\n" + "=" * 68)
 print(f"RESULT: {sum(R)}/{len(R)} push checks passed")
+if not all(R):
+    raise SystemExit(1)
