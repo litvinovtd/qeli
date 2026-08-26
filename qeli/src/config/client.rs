@@ -1351,12 +1351,13 @@ impl ClientConfig {
             }
         }
         if self.obfuscation.padding.min_bytes > self.obfuscation.padding.max_bytes
-            || self.obfuscation.padding.max_bytes > 1_400
+            || self.obfuscation.padding.max_bytes > crate::config::MAX_PADDING_BYTES
         {
             anyhow::bail!(
-                "padding range invalid: {}..{} (expected 0..1400)",
+                "padding range invalid: {}..{} (expected 0..{})",
                 self.obfuscation.padding.min_bytes,
-                self.obfuscation.padding.max_bytes
+                self.obfuscation.padding.max_bytes,
+                crate::config::MAX_PADDING_BYTES
             );
         }
         if self.obfuscation.heartbeat.interval_ms == 0 {
