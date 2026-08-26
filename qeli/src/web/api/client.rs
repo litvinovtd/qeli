@@ -692,11 +692,11 @@ mod diagnostic_tests {
         assert!(config.routing.allow_ipv6_leak);
         assert_eq!(
             config.routing.include,
-            ["10.20.0.0/16", "2001:db8:20::/48"]
+            vec!["10.20.0.0/16".to_string(), "2001:db8:20::/48".to_string()]
         );
         assert_eq!(
             config.routing.exclude,
-            ["192.168.50.0/24", "2001:db8:50::/48"]
+            vec!["192.168.50.0/24".to_string(), "2001:db8:50::/48".to_string()]
         );
         assert_eq!(config.routing.lan_subnet_ipv6, "fd42:50::/64");
         assert!(ini.contains("ipv6 = required\n"));

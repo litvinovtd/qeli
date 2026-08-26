@@ -344,6 +344,15 @@
       'Allow native IPv4 outside tunnel': 'Разрешён нативный IPv4 вне туннеля',
       'Allow native IPv6 outside tunnel': 'Разрешён нативный IPv6 вне туннеля',
       'Inner IPv6 policy': 'Политика IPv6 внутри туннеля',
+      'Tunnel include routes': 'Маршруты через туннель',
+      'Comma-separated IPv4/IPv6 CIDRs routed through this tunnel in split mode.':
+        'IPv4/IPv6 CIDR через запятую, направляемые в этот туннель в split-режиме.',
+      'Tunnel exclude routes': 'Маршруты в обход туннеля',
+      'Comma-separated IPv4/IPv6 CIDRs kept on their matching-family physical path.':
+        'IPv4/IPv6 CIDR через запятую, оставляемые на физическом пути того же семейства адресов.',
+      'IPv6 LAN behind this client': 'IPv6-сеть за этим клиентом',
+      "One routed IPv6 CIDR for gateway mode. Configure the same prefix as this user's client_subnet on the server.":
+        'Один маршрутизируемый IPv6 CIDR для режима шлюза. Укажите тот же префикс в client_subnet пользователя на сервере.',
       "auto — accept the server's IPv4/dual/IPv6 plan":
         'auto — принимать IPv4/dual/IPv6-план сервера',
       'required — refuse a plan without IPv6': 'required — отклонять план без IPv6',
