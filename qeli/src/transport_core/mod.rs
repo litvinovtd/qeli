@@ -74,6 +74,7 @@ pub(crate) mod wintun;
 ))]
 pub(crate) mod runtime;
 pub(crate) mod udp_buffer;
+pub(crate) mod udp_receive;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
