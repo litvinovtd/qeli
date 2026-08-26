@@ -18,6 +18,10 @@ release/prod-client-configs/
 # ── Private (not for GitHub) ──
 site/
 site.zip
+# Raw packet captures may contain environment-specific traffic. Commit only
+# sanitized reports, manifests and aggregate analysis derived from them.
+*.pcap
+*.pcapng
 
 # ── Obsolete one-off ops/debug scripts (kept locally only) ──
 scripts/archive/
@@ -86,6 +90,7 @@ qeli-android/gradle-*-bin.zip
 
 # ── Misc ──
 *.log
+*.orig
 .DS_Store
 Thumbs.db
 
