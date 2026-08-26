@@ -142,7 +142,7 @@ rustls-pemfile = { version = "2", optional = true }
 # CIDR parsing is part of the base config validation surface: even no-feature parser/fuzz
 # builds validate client LAN CIDRs, while server builds also use it for panel allowlists.
 ipnet = "2"
-base64 = "0.22"
+base64 = "0.23"
 # Pure-Rust QR generation for the web UI share/QR feature (SVG output, no JS/CDN).
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 
