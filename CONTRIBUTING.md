@@ -318,7 +318,7 @@ By making a contribution to this project, I certify that:
   **`--features jemalloc` для СЕРВЕРНОГО бинаря обязателен**: без него RSS воркера
   упирается в ~180 МБ под churn'ом хендшейков (glibc держит освобождённые арены)
   вместо ~40–60 МБ с jemalloc — см.
-  [GETTING-STARTED](docs/ru/GETTING-STARTED.md). Клиентской сборке фича не нужна,
+  [GETTING-STARTED](docs/ru/manuals/GETTING-STARTED.md). Клиентской сборке фича не нужна,
   а `qeli/debian/Makefile` включает её сам (`CARGO_FEATURES`).
 - Клиенты: см. `.github/workflows/ci.yml` (Android gradle, Windows/macOS `dotnet`).
 - Документация — начните с карты: [docs/ru/index.md](docs/ru/index.md) · [docs/eng/index.md](docs/eng/index.md).

@@ -11,7 +11,7 @@ VPNs, with a built-in web admin panel.
 - **Wire modes**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + a genuine HTTP/2 carrier; `handrolled` borrows the target certificate) · QUIC-shaped UDP compatibility masking, not real QUIC/HTTP3
 - **Rust daemon/CLI TUN/TAP backend**: Linux only (`libc::ioctl(TUNSETIFF)`); native clients
   use their platform VPN APIs (Wintun, utun, Android `VpnService`, iOS Network Extension)
-- **Web admin**: `axum` + `alpine.js`; native HTTPS (rustls, self-signed or your own cert), Argon2id password (fail-closed), IP allowlist, security headers/HSTS, same-origin CSRF, RU/EN localization, `qeli://` link/QR issuance without typing the password; assets embedded (no CDN). Guide — [PANEL.md](PANEL.md)
+- **Web admin**: `axum` + `alpine.js`; native HTTPS (rustls, self-signed or your own cert), Argon2id password (fail-closed), IP allowlist, security headers/HSTS, same-origin CSRF, RU/EN localization, `qeli://` link/QR issuance without typing the password; assets embedded (no CDN). Guide — [PANEL.md](manuals/PANEL.md)
 - **Configs**: a single flat-INI (`server.conf` / `client.conf` / `users.conf`); the client is a `[qeli]` section, expanded from a `qeli://` link (QR)
 
 ## Why this was built
@@ -126,7 +126,7 @@ qeli_vpn/
 4. **Data.** PacketCodec remains end-to-end ChaCha20-Poly1305 with PRP-masked nonces. Legacy
    camouflage modes retain their own framing; current `reality-tls` carries raw private qeli
    records inside H2. This is still outer TLS AEAD plus inner qeli AEAD, but no nested fake-TLS.
-Security details — [AUDIT.md](AUDIT.md). Against **active** probing, REALITY does
+Security details — [AUDIT.md](reports/AUDIT.md). Against **active** probing, REALITY does
 the work: `reality` bridges foreign parties to a real site, while `reality-tls`
 carries the tunnel inside real TLS 1.3 (with `handrolled` — the target's borrowed
 real certificate). The X25519MLKEM768 PQ hybrid is now also in the **inner** qeli
@@ -158,11 +158,11 @@ Fully documented examples with all parameters:
 [server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (ready 10-mode template) ·
 [server-ipv6.conf](../../qeli/config/server-ipv6.conf) (runnable dual-stack deployment) ·
 [client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
-Config reference — [CONFIG.md](CONFIG.md).
+Config reference — [CONFIG.md](manuals/CONFIG.md).
 
 > 📘 **New here?** A step-by-step from-scratch guide — from installing the server to
 > creating users with routes and connecting a client, via both the CLI and the web
-> panel — is in [GETTING-STARTED.md](GETTING-STARTED.md).
+> panel — is in [GETTING-STARTED.md](manuals/GETTING-STARTED.md).
 
 ## Commands
 
@@ -203,12 +203,12 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 
 Most used:
 
-- **[GETTING-STARTED.md](GETTING-STARTED.md)** — install and first run, step by step.
-- **[CONFIG.md](CONFIG.md)** — configuration (flat-INI), every parameter.
-- **[IPV6.md](IPV6.md)** — complete dual-stack/IPv6-only, NAT66/route setup and troubleshooting.
-- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — the current 80 client keys and refactor history.
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — diagnostics and error reference.
-- **[PANEL.md](PANEL.md)** — web panel: installation and usage.
+- **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — install and first run, step by step.
+- **[CONFIG.md](manuals/CONFIG.md)** — configuration (flat-INI), every parameter.
+- **[IPV6.md](manuals/IPV6.md)** — complete dual-stack/IPv6-only, NAT66/route setup and troubleshooting.
+- **[CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md)** — the current 80 client keys and refactor history.
+- **[TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md)** — diagnostics and error reference.
+- **[PANEL.md](manuals/PANEL.md)** — web panel: installation and usage.
 
 ## Status
 
@@ -224,7 +224,7 @@ channel-binding, server key pinning, per-profile authorization, and end-to-end r
 every wire mode.
 
 Performance (2-VM lab, latest structured run: v0.7.16, 2026-08-16). Methodology and raw data —
-[BENCHMARK.md](BENCHMARK.md):
+[BENCHMARK.md](reports/BENCHMARK.md):
 
 - **TCP, legacy carrier through 0.7.16**: 462–551 ↑ / 358–678 ↓ Mbps. The published
   `reality-tls` result (472 ↑ / 358 ↓ Mbps) used the former inner fake-TLS carrier and must not

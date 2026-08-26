@@ -172,8 +172,8 @@ class ClientConfigKeyContractTests(unittest.TestCase):
 
     def test_ru_and_english_before_after_matrices_cover_the_live_contract(self):
         expected = rust_contract()
-        ru = documented_client_matrix("docs/ru/CLIENT-CONFIG-MATRIX.md")
-        eng = documented_client_matrix("docs/eng/CLIENT-CONFIG-MATRIX.md")
+        ru = documented_client_matrix("docs/ru/reference/CLIENT-CONFIG-MATRIX.md")
+        eng = documented_client_matrix("docs/eng/reference/CLIENT-CONFIG-MATRIX.md")
         self.assertEqual(set(ru), expected)
         self.assertEqual(set(eng), expected)
         self.assertEqual(ru, eng)

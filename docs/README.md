@@ -1,35 +1,44 @@
 # Документация qeli · qeli documentation
 
-Документация ведётся на двух языках. Начните с карты своей локали — там все документы
-сгруппированы по аудитории.
-
-The documentation is maintained in two languages. Start from your locale's map, where every
-document is grouped by audience.
-
-Recordizer and masking-layer setup: [Русское руководство](ru/OBFUSCATION.md) ·
-[English guide](eng/OBFUSCATION.md).
+Документация ведётся на русском и английском языках с одинаковой структурой каталогов.
+Начните с карты нужной локали. The documentation is maintained in Russian and English with
+the same directory layout; start from your locale's map.
 
 | | |
 |---|---|
-| 🇷🇺 **Русский** | **[ru/index.md](ru/index.md)** — карта · [Установка с нуля](ru/GETTING-STARTED.md) · [Конфигурация](ru/CONFIG.md) · [Диагностика](ru/TROUBLESHOOTING.md) |
-| 🇬🇧 **English** | **[eng/index.md](eng/index.md)** — map · [Getting started](eng/GETTING-STARTED.md) · [Configuration](eng/CONFIG.md) · [Troubleshooting](eng/TROUBLESHOOTING.md) |
+| 🇷🇺 **Русский** | **[ru/index.md](ru/index.md)** — карта · [Установка](ru/manuals/GETTING-STARTED.md) · [Конфигурация](ru/manuals/CONFIG.md) · [Диагностика](ru/manuals/TROUBLESHOOTING.md) |
+| 🇬🇧 **English** | **[eng/index.md](eng/index.md)** — map · [Getting started](eng/manuals/GETTING-STARTED.md) · [Configuration](eng/manuals/CONFIG.md) · [Troubleshooting](eng/manuals/TROUBLESHOOTING.md) |
 
-Обзор проекта, быстрый старт одной командой и состав репозитория — в корневом
-[README.md](../README.md).
-The project overview, the one-command quick start and the repository layout live in the
-root [README.md](../README.md).
+Обзор проекта, быстрый старт одной командой и состав репозитория находятся в корневом
+[README.md](../README.md). The project overview, one-command quick start and repository
+layout live in the root [README.md](../README.md).
 
-## Что лежит здесь · What lives here
+## Структура · Structure
 
-- `ru/`, `eng/` — параллельные деревья документации. Наборы файлов в них **совпадают**:
-  новый документ добавляется сразу в оба и в `index.md` (это проверяет
-  `scripts/check_docs.py`).
-  Parallel documentation trees. Their file sets are **identical**: a new document goes into
-  both trees and into `index.md` — enforced by `scripts/check_docs.py`.
-- `ru/archive/`, `eng/archive/` — зафиксированные отчёты прошлых проверок. Актуальное
-  состояние безопасности — в `AUDIT.md`, а не в архиве.
-  Frozen reports from past reviews. The current security state is in `AUDIT.md`, not here.
-- [AUDIT-FIXES-2026-07-05.md](AUDIT-FIXES-2026-07-05.md) — трекер устранения находок аудита
-  2026-07-05 (**закрыт**, только на русском; хранится как история).
-  Tracking document for the 2026-07-05 audit findings (**closed**, Russian only; kept as a
-  historical record).
+Каталоги `ru/` и `eng/` зеркальны. The `ru/` and `eng/` trees are mirrors:
+
+- `manuals/` — практические руководства по установке, настройке и эксплуатации;
+  practical installation, configuration and operations guides.
+- `reference/` — технические контракты, модель угроз и архитектура;
+  technical contracts, threat model and architecture.
+- `plans/` — актуальные roadmap и планы реализации; active roadmaps and implementation plans.
+- `reports/` — актуальные аудиты, DPI-анализ, сравнения и замеры;
+  current audits, DPI analysis, comparisons and measurements.
+- `archive/plans/`, `archive/audits/` — завершённые планы и датированные отчёты, которые
+  не переписываются задним числом; frozen completed plans and point-in-time audit reports.
+
+Новый двуязычный документ добавляется в одинаковый путь обеих локалей и в `index.md`.
+Паритет деревьев, охват оглавлением и относительные ссылки проверяет
+[`scripts/check_docs.py`](../scripts/check_docs.py).
+
+Актуальная безопасность: [RU](ru/reports/AUDIT.md) · [EN](eng/reports/AUDIT.md).
+Настройка recordizer: [RU](ru/manuals/OBFUSCATION.md) · [EN](eng/manuals/OBFUSCATION.md).
+
+## Общий исторический архив · Shared historical archive
+
+Документы, существующие только на одном языке, лежат вне зеркальных деревьев:
+
+- [AUDIT-FIXES-2026-07-05.md](archive/audits/AUDIT-FIXES-2026-07-05.md) — закрытый трекер
+  находок аудита 2026-07-05.
+- [AUDIT-2026-07-27-FIXES.md](archive/audits/AUDIT-2026-07-27-FIXES.md) — зафиксированный
+  чек-лист исправлений аудита 2026-07-27.

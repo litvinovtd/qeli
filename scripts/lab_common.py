@@ -2,7 +2,7 @@
 
 Centralizes the paramiko connection boilerplate and the lab/prod host constants that
 were copy-pasted across ~97 scripts in this folder (each defined its own ``connect`` /
-``ssh`` / ``run`` and hardcoded the VM IPs). See docs/REFACTOR-PLAN.md (R7).
+``ssh`` / ``run`` and hardcoded the VM IPs). See docs/*/archive/plans/REFACTOR-PLAN.md (R7).
 
 Passwords are read from the ``QELI_LAB_PASS`` env var — never hardcode credentials.
 

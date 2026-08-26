@@ -4,7 +4,7 @@
 — работает только в сети мейнтейнера. Если запустил и получил `Error reading SSH protocol
 banner` / ошибку подключения — причина в этом (ты не в сети того хоста). Чтобы получить
 клиент под Keenetic: возьми готовый per-arch бинарь из GitHub Releases (aarch64/mipsel
--unknown-linux-musl), см. docs/*/KEENETIC-DEPLOY.md.
+-unknown-linux-musl), см. docs/*/manuals/KEENETIC-DEPLOY.md.
 
 Кросс-сборка client-only бинаря qeli под роутеры Keenetic — обе арки за прогон.
 
@@ -165,7 +165,7 @@ def main():
             f"\nне достучаться до приватного лаб-хоста мейнтейнера {LAB_SRV[0]}: {type(e).__name__}: {e}\n\n"
             "Это ВНУТРЕННИЙ скрипт мейнтейнера — он собирает на приватном лаб-хосте по SSH,\n"
             "это НЕ способ собрать qeli под Keenetic самому. Возьми готовый per-arch бинарь\n"
-            "из GitHub Releases (aarch64 / mipsel -unknown-linux-musl); см. docs/*/KEENETIC-DEPLOY.md.\n"
+            "из GitHub Releases (aarch64 / mipsel -unknown-linux-musl); см. docs/*/manuals/KEENETIC-DEPLOY.md.\n"
         )
     print("Подключено к", LAB_SRV[0], "\n")
     if do_sync:

@@ -223,7 +223,7 @@ class VpnServiceImpl : VpnService() {
         // after the handshake: the server pushes DNS/MTU/routes/streams, and the system
         // owns the lockdown switch. Published as snapshot fields (same pattern as liveIp)
         // rather than parsed out of the log — log lines are the documented error-catalog
-        // surface (docs/*/TROUBLESHOOTING.md), not a data channel.
+        // surface (docs/*/manuals/TROUBLESHOOTING.md), not a data channel.
         /** Resolver the server pushed, empty when it pushed none. */
         @Volatile
         @JvmField

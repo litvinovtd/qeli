@@ -1,6 +1,6 @@
 #![no_main]
 //! Fuzz the hand-rolled realtls TLS-record decrypt path on arbitrary bytes. This
-//! is part of the largest unaudited surface (see docs/eng/THREAT-MODEL.md). The
+//! is part of the largest unaudited surface (see docs/eng/reference/THREAT-MODEL.md). The
 //! key/IV are fixed — the AEAD will reject random data, so what we are stressing
 //! is the record-length and bounds handling that runs *before* the tag check.
 //! decrypt must return None (or empty) on malformed input, never panic.

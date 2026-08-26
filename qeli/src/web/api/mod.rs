@@ -136,7 +136,7 @@ pub fn routes() -> Router<Arc<ServerState>> {
 }
 
 /// Standard API error body: `{"ok": false, "error": <msg>}`. Centralizes the
-/// response shape repeated across the API handlers (docs/REFACTOR-PLAN.md R8).
+/// response shape repeated across the API handlers (docs/*/archive/plans/REFACTOR-PLAN.md R8).
 pub(crate) fn err_json(msg: impl Into<String>) -> Value {
     json!({"ok": false, "error": msg.into()})
 }

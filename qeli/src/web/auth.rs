@@ -404,7 +404,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// Axum extractor that enforces authentication on a route: a handler taking an
 /// `AuthGuard` parameter only runs for authenticated requests, otherwise the request
 /// is rejected with the same 401 JSON as `check_auth`. Replaces the per-handler
-/// `auth::check_auth(&headers, ...)?` boilerplate (docs/REFACTOR-PLAN.md R9).
+/// `auth::check_auth(&headers, ...)?` boilerplate (docs/*/archive/plans/REFACTOR-PLAN.md R9).
 pub struct AuthGuard;
 
 // axum 0.8: `FromRequestParts` uses a native `async fn` (no `#[async_trait]`).

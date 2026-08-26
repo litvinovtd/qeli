@@ -5,9 +5,9 @@ Android-клиент qeli: системный VPN через `VpnService` (ве�
 выполняются общим Rust-ядром; Kotlin остаётся адаптером Android API и UI.
 
 - Общая карта документации — [docs/ru/index.md](../docs/ru/index.md)
-- Подключение «с нуля» (выдача `qeli://` на сервере) — [GETTING-STARTED §8.1](../docs/ru/GETTING-STARTED.md)
-- Все ключи конфигурации — [CONFIG.md](../docs/ru/CONFIG.md)
-- Если не подключается — [TROUBLESHOOTING.md](../docs/ru/TROUBLESHOOTING.md)
+- Подключение «с нуля» (выдача `qeli://` на сервере) — [GETTING-STARTED §8.1](../docs/ru/manuals/GETTING-STARTED.md)
+- Все ключи конфигурации — [CONFIG.md](../docs/ru/manuals/CONFIG.md)
+- Если не подключается — [TROUBLESHOOTING.md](../docs/ru/manuals/TROUBLESHOOTING.md)
 
 ## Технологии
 

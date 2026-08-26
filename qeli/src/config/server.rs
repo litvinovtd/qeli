@@ -1357,12 +1357,12 @@ pub struct WebConfig {
     /// a dismissible "update available" banner. OFF by default. The check is performed
     /// BY THE OPERATOR'S BROWSER (like the marketing site does) — no server-side beacon,
     /// no telemetry, no identifying data; the panel only runs it when this is true.
-    /// See docs/CONFIG.md.
+    /// See docs/*/manuals/CONFIG.md.
     #[serde(default = "default_false")]
     pub update_check: bool,
     /// Base path when the panel is served behind a reverse proxy under a sub-path
     /// (e.g. "/qeli"). Empty = served at the web root. A request's
-    /// `X-Forwarded-Prefix` header overrides this per-request. See docs/CONFIG.md.
+    /// `X-Forwarded-Prefix` header overrides this per-request. See docs/*/manuals/CONFIG.md.
     #[serde(default)]
     pub base_path: String,
     /// CSRF same-origin protection for mutating panel requests. **Keep `true`.**
@@ -1370,7 +1370,7 @@ pub struct WebConfig {
     /// loopback-only bind reached via an SSH forward, NEVER on a public/LAN bind (any
     /// site you open in the same browser could then drive your logged-in panel).
     /// Loopback origins are already trusted on any port, so a normal SSH forward works
-    /// WITHOUT disabling this. See docs/CONFIG.md.
+    /// WITHOUT disabling this. See docs/*/manuals/CONFIG.md.
     #[serde(default = "default_true")]
     pub csrf: bool,
     /// Panel login-session lifetime in seconds — governs BOTH the session cookie's
@@ -1382,7 +1382,7 @@ pub struct WebConfig {
     /// Brute-force lockout policy for **web-panel admin login** — independent of the
     /// VPN-auth policy in `[auth] brute_force`. Own attempt count, window and lockout
     /// so the panel and the tunnel can be tuned separately; set `enabled = false` to
-    /// turn panel-login rate-limiting off entirely. See docs/CONFIG.md.
+    /// turn panel-login rate-limiting off entirely. See docs/*/manuals/CONFIG.md.
     #[serde(default)]
     pub brute_force: BruteForceConfig,
 }

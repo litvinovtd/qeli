@@ -7,7 +7,7 @@ namespace Qeli.Shared;
 /// entries (Windows service vs launchd daemon, tray vs menu bar, Wintun vs utun, …)
 /// at startup via <see cref="AddOrReplace"/>. The framework-specific bindable source
 /// and {l:Loc} markup extension stay per-client (WPF vs Avalonia); UI layers refresh
-/// on the <see cref="LanguageChanged"/> event. See docs/REFACTOR-PLAN.md (R4).
+/// on the <see cref="LanguageChanged"/> event. See docs/*/archive/plans/REFACTOR-PLAN.md (R4).
 /// </summary>
 public static class Loc
 {

@@ -90,8 +90,8 @@
       '— set obfs_key to this on every client': '— задайте этим obfs_key на каждом клиенте',
       "Clients also need the server's pinned public key — run qeli show-identity on the server. Then add users below and share a QR/link from the Users page.":
         'Клиентам также нужен пиннингованный публичный ключ сервера — выполните qeli show-identity на сервере. Затем добавьте пользователей ниже и поделитесь QR/ссылкой со страницы «Пользователи».',
-      'Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-qeli-server.sh installer does this automatically.':
-        'Клиенты на Mobile / LTE: крупное рукопожатие может «провалиться» при path MTU ниже 1500. На сервере примените тюнинг ОС (MSS-clamp по внешнему порту + BBR/PMTU-зондирование) — см. docs/PANEL.md → «Mobile / LTE» или CONFIG.md → «sysctl + iptables». Установщик install-qeli-server.sh делает это автоматически.',
+      'Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/*/manuals/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-qeli-server.sh installer does this automatically.':
+        'Клиенты на Mobile / LTE: крупное рукопожатие может «провалиться» при path MTU ниже 1500. На сервере примените тюнинг ОС (MSS-clamp по внешнему порту + BBR/PMTU-зондирование) — см. docs/*/manuals/PANEL.md → «Mobile / LTE» или CONFIG.md → «sysctl + iptables». Установщик install-qeli-server.sh делает это автоматически.',
       'Open config': 'Открыть конфиг',
       'Add users': 'Добавить пользователей',
       'Close': 'Закрыть',

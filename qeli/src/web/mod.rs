@@ -345,7 +345,7 @@ async fn csrf_same_origin(
                  SSH port-forward, add that origin to `allowed_origins` in the [web] \
                  config, e.g.:\n\n    [web]\n    allowed_origins = {origin}\n\n\
                  then reload the panel. (CSRF protection stops other websites from \
-                 driving your logged-in panel — see docs/CONFIG.md.)\n"
+                 driving your logged-in panel — see docs/*/manuals/CONFIG.md.)\n"
             );
             let mut resp = Response::new(Body::from(body));
             *resp.status_mut() = StatusCode::FORBIDDEN;

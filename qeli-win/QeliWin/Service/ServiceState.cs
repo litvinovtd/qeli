@@ -114,7 +114,7 @@ public static class ServiceState
         // it and the service (LocalSystem) reads it, so a cross-user scope is required.
         // This removes the trivial plaintext exposure of the password/obfs_key (a
         // copied file / backup / forensic image / casual `type` no longer reveals
-        // them). See docs/RELEASE-FIXES.md E1.
+        // them). See docs/*/archive/plans/RELEASE-FIXES.md E1.
         var json = JsonSerializer.Serialize(cfg);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
         File.WriteAllBytes(ProfileFile, enc);

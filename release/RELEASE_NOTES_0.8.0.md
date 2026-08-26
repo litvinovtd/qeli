@@ -29,8 +29,8 @@ obf.recordizer.policy = prefer
 `required` отклоняет старого клиента до выдачи lease, а `off` полностью сохраняет старую форму.
 Все параметры batch/record/fragment задаются на сервере и приходят клиенту в аутентифицированном
 push; менять qeli-ссылки или добавлять клиентские recordizer-ключи не нужно. Полный список и
-ограничения: [справочник конфигурации](../docs/ru/CONFIG.md); порядок слоёв, совместимость и
-профили тюнинга: [руководство по обфускации](../docs/ru/OBFUSCATION.md).
+ограничения: [справочник конфигурации](../docs/ru/manuals/CONFIG.md); порядок слоёв, совместимость и
+профили тюнинга: [руководство по обфускации](../docs/ru/manuals/OBFUSCATION.md).
 
 ## Как перейти
 
@@ -53,7 +53,7 @@ push; менять qeli-ссылки или добавлять клиентск�
    настоящий TLS/H2 или защиту Reality от active probe; при необходимости держите отдельный профиль/порт.
 
 Полные примеры: [сервер](reality-tls/server-reality.conf),
-[клиент](reality-tls/client-reality.conf) и [справочник конфигурации](../docs/ru/CONFIG.md).
+[клиент](reality-tls/client-reality.conf) и [справочник конфигурации](../docs/ru/manuals/CONFIG.md).
 
 ## Новые установки: dual-stack, ULA и NAT66
 
@@ -82,7 +82,7 @@ GUA-префикс, вместо ULA/NAT66 настройте этот преф�
 добавьте `tun.ip_mode = dual`, `tun.ipv6_address`, уникальный `pool.ipv6.cidr`,
 `routing.ipv6.mode = nat66` и совпадающий `dns.listen_ipv6`; на клиенте оставьте
 `ipv6 = auto`. Перед рестартом выполните `qeli check-config`, после — проверьте `ping -6`,
-внешний IPv6, DNS и `ip6tables`. Подробная процедура: [IPv6 guide](../docs/ru/IPV6.md).
+внешний IPv6, DNS и `ip6tables`. Подробная процедура: [IPv6 guide](../docs/ru/manuals/IPV6.md).
 
 ## Изменившиеся defaults и эксплуатация
 

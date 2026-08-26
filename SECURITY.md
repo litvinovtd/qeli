@@ -61,7 +61,7 @@ In scope (please report):
 Out of scope:
 
 - The documented residual leaks and non-goals in the
-  [threat model](docs/eng/THREAT-MODEL.md) (e.g. DNS metadata on the physical
+  [threat model](docs/eng/reference/THREAT-MODEL.md) (e.g. DNS metadata on the physical
   link while the kill-switch allows port 53, or traffic-volume/timing
   correlation by a global passive adversary).
 - Findings that require an already-root local attacker, or physical access.

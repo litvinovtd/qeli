@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!-- Log lines must be greppable against the English error catalog in
-         docs/*/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
+         docs/*/manuals/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
          OS language, so a Russian Windows produced logs mixing qeli's own English strings
          with .NET messages like "Удаленный хост принудительно разорвал…" — unsearchable,
          and confusing when a user reports them. Shipping only the English resources keeps
@@ -52,7 +52,7 @@
          Version kept in lockstep with qeli-mac (R0 unification). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- DPAPI (ProtectedData) encrypts the at-rest profile store under the current
-         user's login secret (docs/RELEASE-FIXES.md E1) and is still used by
+         user's login secret (docs/*/archive/plans/RELEASE-FIXES.md E1) and is still used by
          Model/ProfileStore.cs + Service/ServiceState.cs. It needs NO PackageReference:
          net10.0-windows ships System.Security.Cryptography.ProtectedData in-box, so an
          explicit one is redundant and warned about as NU1510. -->

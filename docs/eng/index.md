@@ -1,101 +1,99 @@
 # Qeli documentation — map
 
-The single navigation point. Documents are grouped **by audience**: what a user and an
-operator need first, then internal and historical material.
+The documentation is organized by **document type**. The same directory layout is used for
+English and Russian, and every active page is linked from this map.
 
-> New here? Start with **[Getting started](GETTING-STARTED.md)**, then
-> **[Configuration](CONFIG.md)**. If something doesn't work — **[Troubleshooting](TROUBLESHOOTING.md)**.
+> New here? Start with **[Getting started](manuals/GETTING-STARTED.md)**, then
+> **[Configuration](manuals/CONFIG.md)**. If something does not work, open
+> **[Troubleshooting](manuals/TROUBLESHOOTING.md)**.
 
 **Русская версия → [../ru/index.md](../ru/index.md)**
 
----
-
-## 👤 For users
+## Overview
 
 | Document | What it covers |
 |---|---|
-| [GETTING-STARTED.md](GETTING-STARTED.md) | Installation and first run, step by step from scratch |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Connection diagnostics and error reference |
+| [README.md](README.md) | Project overview: purpose, wire modes, crypto stack and repository layout |
 
-## 🛠 For server operators
+## Manuals (`manuals/`)
 
-| Document | What it covers |
-|---|---|
-| [CONFIG.md](CONFIG.md) | Configuration (flat-INI): every server and client parameter |
-| [OBFUSCATION.md](OBFUSCATION.md) | Recordizer setup, masking-layer compatibility, tuning profiles and rollout |
-| [IPV6.md](IPV6.md) | Complete IPv4/IPv6/dual-stack setup, NAT66/route, Quick Start and troubleshooting |
-| [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | Current 80-key client contract by platform and migration history |
-| [PANEL.md](PANEL.md) | Web panel: installation and usage |
-| [OPERATIONS.md](OPERATIONS.md) | Operations: compatibility, upgrades and rollback, backup, firewall |
-
-## 📡 Routers (Keenetic / OpenWrt)
+Practical installation, configuration and operations guides.
 
 | Document | What it covers |
 |---|---|
-| [KEENETIC-DEPLOY.md](KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
-| [KEENETIC-PORT.md](KEENETIC-PORT.md) | Porting the client to Keenetic (dual-arch: mipsel + aarch64) |
+| [GETTING-STARTED.md](manuals/GETTING-STARTED.md) | Installation and first run, step by step |
+| [CONFIG.md](manuals/CONFIG.md) | Complete flat-INI server and client configuration reference |
+| [OPERATIONS.md](manuals/OPERATIONS.md) | Compatibility, upgrades, rollback, backup and firewall operations |
+| [PANEL.md](manuals/PANEL.md) | Web panel installation and use |
+| [IPV6.md](manuals/IPV6.md) | IPv4/IPv6/dual-stack setup, NAT66, routing and diagnostics |
+| [OBFUSCATION.md](manuals/OBFUSCATION.md) | Recordizer setup, masking-layer compatibility and tuning profiles |
+| [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Connection diagnostics and error reference |
+| [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
 
-## 🔐 Security
+## Reference (`reference/`)
 
-| Document | What it covers |
-|---|---|
-| [AUDIT.md](AUDIT.md) | Security model and current status |
-| [THREAT-MODEL.md](THREAT-MODEL.md) | Threat model |
-| [DPI-AUDIT.md](DPI-AUDIT.md) | DPI detectability audit: tells and their mitigation |
-
-## 📖 Design, comparison, measurements
-
-| Document | What it covers |
-|---|---|
-| [README.md](README.md) | Project overview: what it is, why, wire modes, crypto stack |
-| [COMPARISON.md](COMPARISON.md) | Comparison with WireGuard / OpenVPN / V2Ray |
-| [BENCHMARK.md](BENCHMARK.md) | Load testing and per-mode measurements |
-| [ROAMING.md](ROAMING.md) | Client roaming (seamless network change) |
-
-## 🧭 Development and process
-
-> Internal documents: plans and status, not end-user guides.
+Technical contracts and architecture that describe the current implementation.
 
 | Document | What it covers |
 |---|---|
-| [ROADMAP.md](ROADMAP.md) | Roadmap |
-| [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md) | Full IPv6 support: architecture, stages, and release gates |
-| [TRANSPORT-CORE.md](TRANSPORT-CORE.md) | Shared Rust core: current source/ABI contract and release gates |
+| [CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md) | Current client-key contract by platform and migration history |
+| [THREAT-MODEL.md](reference/THREAT-MODEL.md) | Threat model, trust boundaries and assurance status |
+| [TRANSPORT-CORE.md](reference/TRANSPORT-CORE.md) | Shared Rust transport core, source/ABI contract and release gates |
+| [KEENETIC-PORT.md](reference/KEENETIC-PORT.md) | Keenetic port architecture and dual-arch build rationale |
 
-## 🗂 Historical design/work logs
+## Plans (`plans/`)
 
-> These explain past decisions but are not current status or a release checklist.
+Active development direction and implementation plans. These are not end-user instructions.
+
+| Document | What it covers |
+|---|---|
+| [ROADMAP.md](plans/ROADMAP.md) | Product and engineering roadmap |
+| [ROAMING.md](plans/ROAMING.md) | Normative client-roaming implementation plan |
+| [IPV6-IMPLEMENTATION-PLAN.md](plans/IPV6-IMPLEMENTATION-PLAN.md) | IPv6 architecture, stages and release gates |
+
+## Reports (`reports/`)
+
+Current analyses and measured results. Dated, frozen reports live in the archive.
+
+| Document | What it covers |
+|---|---|
+| [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
+| [DPI-AUDIT.md](reports/DPI-AUDIT.md) | DPI detectability analysis and mitigations |
+| [BENCHMARK.md](reports/BENCHMARK.md) | Load-testing method and per-mode measurements |
+| [COMPARISON.md](reports/COMPARISON.md) | Comparison with WireGuard, OpenVPN and V2Ray |
+
+## Archive (`archive/`)
+
+Frozen historical documents are preserved for traceability and are not maintained as current
+guidance. Start with the **[archive map](archive/README.md)**.
+
+### Completed plans and design logs
 
 | Document | Frozen context |
 |---|---|
-| [REFACTOR-PLAN.md](REFACTOR-PLAN.md) | Plan and log of the completed production-duplicate removal |
-| [DESIGN-remaining.md](DESIGN-remaining.md) | June 2026 REALITY development snapshot |
-| [RELEASE-FIXES.md](RELEASE-FIXES.md) | Historical stabilization plan for early pre-1.0 releases |
+| [REFACTOR-PLAN.md](archive/plans/REFACTOR-PLAN.md) | Completed production-duplicate removal plan and log |
+| [DESIGN-remaining.md](archive/plans/DESIGN-remaining.md) | June 2026 REALITY development snapshot |
+| [RELEASE-FIXES.md](archive/plans/RELEASE-FIXES.md) | Historical stabilization plan for early pre-1.0 releases |
 
-## 🗄 Archive: historical audits
-
-> Point-in-time reports of past reviews, kept for the record — for the **current** security
-> posture read [AUDIT.md](AUDIT.md), not these.
+### Historical audits
 
 | Document | Date |
 |---|---|
-| [AUDIT-2026-06-10.md](archive/AUDIT-2026-06-10.md) | 2026-06-10 — security and reliability audit |
-| [AUDIT-2026-06-11.md](archive/AUDIT-2026-06-11.md) | 2026-06-11 — external audit review and fixes |
-| [AUDIT-2026-06-11-external2.md](archive/AUDIT-2026-06-11-external2.md) | 2026-06-11 — review of the second external audit |
-| [AUDIT-2026-06-12.md](archive/AUDIT-2026-06-12.md) | 2026-06-12 — audit and fixes (release 0.7.1) |
+| [AUDIT-2026-06-10.md](archive/audits/AUDIT-2026-06-10.md) | 2026-06-10 — security and reliability audit |
+| [AUDIT-2026-06-11.md](archive/audits/AUDIT-2026-06-11.md) | 2026-06-11 — external audit review and fixes |
+| [AUDIT-2026-06-11-external2.md](archive/audits/AUDIT-2026-06-11-external2.md) | 2026-06-11 — second external audit review |
+| [AUDIT-2026-06-12.md](archive/audits/AUDIT-2026-06-12.md) | 2026-06-12 — audit and fixes for 0.7.1 |
 
----
-
-## Client documentation (lives next to each client's code)
+## Client documentation (next to client code)
 
 | Client | Document |
 |---|---|
 | Windows | [qeli-win/README.md](../../qeli-win/README.md) |
 | macOS | [qeli-mac/README.md](../../qeli-mac/README.md) |
 | iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [qeli-ios/MDM/README.md](../../qeli-ios/MDM/README.md) — feature-complete but **never run on a device**, and nothing ships from it |
-| Routers (OpenWrt) | [qeli-openwrt/README.md](../../qeli-openwrt/README.md) · Keenetic: [KEENETIC-DEPLOY.md](KEENETIC-DEPLOY.md) |
+| Routers (OpenWrt) | [qeli-openwrt/README.md](../../qeli-openwrt/README.md) · Keenetic: [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) |
 | Android | [qeli-android/README.md](../../qeli-android/README.md) (in Russian) |
-| Linux CLI | [GETTING-STARTED §8.2](GETTING-STARTED.md) |
+| Linux CLI | [GETTING-STARTED §8.2](manuals/GETTING-STARTED.md) |
 
 ## Outside this directory
 

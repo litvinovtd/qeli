@@ -109,32 +109,32 @@ BANNER_RE = {
 # banner. Checking only the banner let a 0.7.14 guide keep installing/attesting 0.7.13.
 RELEASE_ARTIFACT_TARGETS: list[tuple[str, str, str]] = [
     (
-        "docs/eng/GETTING-STARTED.md",
+        "docs/eng/manuals/GETTING-STARTED.md",
         r"releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/",
         "release download URL (eng)",
     ),
     (
-        "docs/ru/GETTING-STARTED.md",
+        "docs/ru/manuals/GETTING-STARTED.md",
         r"releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/",
         "release download URL (ru)",
     ),
     (
-        "docs/eng/GETTING-STARTED.md",
+        "docs/eng/manuals/GETTING-STARTED.md",
         r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
         "release package commands (eng)",
     ),
     (
-        "docs/ru/GETTING-STARTED.md",
+        "docs/ru/manuals/GETTING-STARTED.md",
         r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
         "release package commands (ru)",
     ),
     (
-        "docs/eng/OPERATIONS.md",
+        "docs/eng/manuals/OPERATIONS.md",
         r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
         "release attestation command (eng)",
     ),
     (
-        "docs/ru/OPERATIONS.md",
+        "docs/ru/manuals/OPERATIONS.md",
         r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
         "release attestation command (ru)",
     ),
@@ -370,7 +370,7 @@ def main() -> int:
     def banners(field: str) -> list[tuple[str, str, str]]:
         return [
             (
-                f"docs/{lang}/{doc}.md",
+                f"docs/{lang}/manuals/{doc}.md",
                 BANNER_RE[lang][field],
                 f"docs banner {field} ({lang})",
             )

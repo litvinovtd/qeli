@@ -6,7 +6,7 @@
        NO OS/UI dependencies: net10.0 (not -windows). -->
   <PropertyGroup>
     <!-- Log lines must be greppable against the English error catalog in
-         docs/*/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
+         docs/*/manuals/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
          OS language, so a Russian Windows produced logs mixing qeli's own English strings
          with .NET messages like "Удаленный хост принудительно разорвал…" — unsearchable,
          and confusing when a user reports them. Shipping only the English resources keeps

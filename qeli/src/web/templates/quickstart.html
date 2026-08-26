@@ -96,7 +96,7 @@
         <template x-if="doneValue('tcp')">
           <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);color:var(--txt-mut)">
             <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:#f59e0b" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-            <span>Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-qeli-server.sh installer does this automatically.</span>
+            <span>Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/*/manuals/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-qeli-server.sh installer does this automatically.</span>
           </div>
         </template>
       </div>

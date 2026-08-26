@@ -11,7 +11,7 @@ namespace QeliMac.Model;
 /// obfs_key, so they must not sit in plaintext; the AES key comes from the macOS
 /// Keychain (see <see cref="SecureKey"/>). A legacy plaintext file (pre-E1) is read
 /// transparently and re-written encrypted. On-disk layout: [nonce:12][tag:16][ct].
-/// See docs/RELEASE-FIXES.md E1.</summary>
+/// See docs/*/archive/plans/RELEASE-FIXES.md E1.</summary>
 public static class ProfileStore
 {
     private static readonly string Dir = Paths.UserDir;

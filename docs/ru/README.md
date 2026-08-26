@@ -10,7 +10,7 @@
 - **Wire-режимы**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + настоящий HTTP/2 carrier; `handrolled` одалживает сертификат target) · QUIC-shaped совместимость для UDP, не настоящий QUIC/HTTP3
 - **TUN/TAP-бэкенд Rust daemon/CLI**: только Linux (`libc::ioctl(TUNSETIFF)`); нативные
   клиенты используют API своей платформы (Wintun, utun, Android `VpnService`, iOS Network Extension)
-- **Веб-админка**: `axum` + `alpine.js`; встроенный HTTPS (rustls, self-signed или свой серт), пароль Argon2id (fail-closed), IP-allowlist, security-заголовки/HSTS, same-origin CSRF, RU/EN-локализация, выдача `qeli://`-ссылок/QR без ввода пароля; ассеты встроены (без CDN). Гайд — [PANEL.md](PANEL.md)
+- **Веб-админка**: `axum` + `alpine.js`; встроенный HTTPS (rustls, self-signed или свой серт), пароль Argon2id (fail-closed), IP-allowlist, security-заголовки/HSTS, same-origin CSRF, RU/EN-локализация, выдача `qeli://`-ссылок/QR без ввода пароля; ассеты встроены (без CDN). Гайд — [PANEL.md](manuals/PANEL.md)
 - **Конфиги**: единый flat-INI (`server.conf` / `client.conf` / `users.conf`); клиент — секция `[qeli]`, разворачивается из `qeli://`-ссылки (QR)
 
 ## Зачем это создано
@@ -123,7 +123,7 @@ qeli_vpn/
 4. **Данные.** PacketCodec остаётся end-to-end ChaCha20-Poly1305 с PRP-маскировкой nonce.
    Legacy-режимы сохраняют своё framing; текущий `reality-tls` несёт raw private qeli records
    внутри H2. Внешний TLS AEAD и внутренний qeli AEAD остаются, но вложенного fake-TLS нет.
-Подробности безопасности — [AUDIT.md](AUDIT.md). Против **активного** пробинга
+Подробности безопасности — [AUDIT.md](reports/AUDIT.md). Против **активного** пробинга
 работает REALITY: `reality` мостит чужих на реальный сайт, а `reality-tls` несёт
 туннель внутри настоящего TLS 1.3 (с `handrolled` — одолженный реальный серт
 target'а). PQ-гибрид X25519MLKEM768 теперь и во **внутреннем** qeli-туннеле: ключи
@@ -154,11 +154,11 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 [server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (готовый шаблон на 10 режимов) ·
 [server-ipv6.conf](../../qeli/config/server-ipv6.conf) (готовый dual-stack deployment) ·
 [client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
-Справочник по конфигу — [CONFIG.md](CONFIG.md).
+Справочник по конфигу — [CONFIG.md](manuals/CONFIG.md).
 
 > 📘 **Новичку:** пошаговое руководство «с нуля» — от установки сервера до заведения
 > пользователей с маршрутами и подключения клиента, и через CLI, и через веб-панель —
-> в [GETTING-STARTED.md](GETTING-STARTED.md).
+> в [GETTING-STARTED.md](manuals/GETTING-STARTED.md).
 
 ## Команды
 
@@ -200,12 +200,12 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 Чаще всего нужны:
 
-- **[GETTING-STARTED.md](GETTING-STARTED.md)** — установка и начало работы, пошагово.
-- **[CONFIG.md](CONFIG.md)** — конфигурация (flat-INI), все параметры.
-- **[IPV6.md](IPV6.md)** — полная настройка dual-stack/IPv6-only, NAT66/route и диагностика.
-- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — актуальные 80 ключей по клиентам и история рефакторинга.
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — диагностика и справочник по ошибкам.
-- **[PANEL.md](PANEL.md)** — веб-панель: установка и использование.
+- **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — установка и начало работы, пошагово.
+- **[CONFIG.md](manuals/CONFIG.md)** — конфигурация (flat-INI), все параметры.
+- **[IPV6.md](manuals/IPV6.md)** — полная настройка dual-stack/IPv6-only, NAT66/route и диагностика.
+- **[CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md)** — актуальные 80 ключей по клиентам и история рефакторинга.
+- **[TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md)** — диагностика и справочник по ошибкам.
+- **[PANEL.md](manuals/PANEL.md)** — веб-панель: установка и использование.
 
 ## Статус
 
@@ -221,7 +221,7 @@ channel-binding, пиннинг ключа сервера, авторизаци�
 
 Производительность (2-VM лаба, последний структурированный прогон: v0.7.16 от
 2026-08-16). Методика и raw-данные —
-[BENCHMARK.md](BENCHMARK.md):
+[BENCHMARK.md](reports/BENCHMARK.md):
 
 - **TCP, legacy carrier до 0.7.16 включительно**: 462–551 ↑ / 358–678 ↓ Mbps. Опубликованный
   результат `reality-tls` 472 ↑ / 358 ↓ Mbps измерял прежний внутренний fake-TLS carrier и не

@@ -113,31 +113,43 @@ def check_links(files: list[Path]) -> None:
 
 
 def check_index_coverage() -> None:
+    allowed_roots = {"manuals", "reference", "plans", "reports", "archive"}
     for lang in LANGS:
         d = ROOT / "docs" / lang
         index = d / "index.md"
         if not index.exists():
             fail("index", f"docs/{lang}/index.md is missing")
             continue
-        body = index.read_text(encoding="utf-8", errors="replace")
-        for doc in sorted(d.glob("*.md")):
-            if doc.name == "index.md":
+        body = strip_code(index.read_text(encoding="utf-8", errors="replace"))
+        linked: set[str] = set()
+        for raw_target in LINK_RE.findall(body):
+            target = raw_target.strip()
+            if target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
-            if f"({doc.name})" not in body:
-                fail("index", f"docs/{lang}/{doc.name} is not linked from index.md")
-        archive = d / "archive"
-        if archive.is_dir():
-            arch_readme = archive / "README.md"
-            arch_body = (
-                arch_readme.read_text(encoding="utf-8", errors="replace")
-                if arch_readme.exists()
-                else ""
-            )
-            for doc in sorted(archive.glob("*.md")):
-                if doc.name == "README.md":
-                    continue
-                if f"({doc.name})" not in arch_body and f"(archive/{doc.name})" not in body:
-                    fail("index", f"docs/{lang}/archive/{doc.name} is not linked anywhere")
+            target = target.split("#", 1)[0]
+            if not target:
+                continue
+            resolved = (index.parent / target).resolve()
+            try:
+                linked.add(resolved.relative_to(d.resolve()).as_posix())
+            except ValueError:
+                continue
+
+        for doc in sorted(d.rglob("*.md")):
+            rel = doc.relative_to(d)
+            rel_posix = rel.as_posix()
+            if rel_posix == "index.md":
+                continue
+            if len(rel.parts) == 1 and rel_posix != "README.md":
+                fail(
+                    "index",
+                    f"docs/{lang}/{rel_posix} is uncategorized; move it under "
+                    "manuals/, reference/, plans/, reports/ or archive/",
+                )
+            elif len(rel.parts) > 1 and rel.parts[0] not in allowed_roots:
+                fail("index", f"docs/{lang}/{rel_posix} uses an unknown document category")
+            if rel_posix not in linked:
+                fail("index", f"docs/{lang}/{rel_posix} is not linked from index.md")
 
 
 def check_parity() -> None:
@@ -237,18 +249,18 @@ def check_config_keys() -> None:
     client_keys = _client_keys()
 
     for lang in LANGS:
-        cfg = ROOT / "docs" / lang / "CONFIG.md"
+        cfg = ROOT / "docs" / lang / "manuals" / "CONFIG.md"
         if not cfg.exists():
-            fail("config", f"docs/{lang}/CONFIG.md is missing")
+            fail("config", f"docs/{lang}/manuals/CONFIG.md is missing")
             continue
         body = cfg.read_text(encoding="utf-8", errors="replace")
         for k in sorted(k for k in keys if not _documented(body, k)):
-            fail("config", f"key '{k}' is emitted by the server but absent from docs/{lang}/CONFIG.md")
+            fail("config", f"key '{k}' is emitted by the server but absent from docs/{lang}/manuals/CONFIG.md")
         for p in sorted(p for p in prefixes if f"{p}." not in body):
             fail(
                 "config",
                 f"dynamic key prefix '{p}.<…>' is emitted by the server but absent "
-                f"from docs/{lang}/CONFIG.md",
+                f"from docs/{lang}/manuals/CONFIG.md",
             )
         # Client keys are short, generic words (`key`, `mode`, `dev`, `user`) that a bare
         # substring search would find anywhere in a 1300-line reference, making the check
@@ -258,7 +270,7 @@ def check_config_keys() -> None:
             fail(
                 "config",
                 f"client key '[qeli] {k}' is read by client.rs but absent "
-                f"from docs/{lang}/CONFIG.md",
+                f"from docs/{lang}/manuals/CONFIG.md",
             )
 
 
@@ -325,7 +337,11 @@ def check_source_line_anchors(files: list[Path]) -> None:
             fail("anchors", f"{rel} contains a refactor-fragile source line anchor")
 
 
-NORMATIVE_SYNC_DOCS = ("ROAMING.md", "AUDIT.md", "THREAT-MODEL.md")
+NORMATIVE_SYNC_DOCS = (
+    "plans/ROAMING.md",
+    "reports/AUDIT.md",
+    "reference/THREAT-MODEL.md",
+)
 NORMATIVE_SYNC_RE = re.compile(r"<!--\s*normative-sync:\s*([a-z0-9._-]+)\s*-->")
 
 

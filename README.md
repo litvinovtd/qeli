@@ -73,16 +73,16 @@ Then install a client from Releases and paste or scan the link.
 
 **Prefer to do it step by step?**
 
-1. Install the server and create the first user — **[Getting started (EN)](docs/eng/GETTING-STARTED.md)** ·
-   **[Установка с нуля (RU)](docs/ru/GETTING-STARTED.md)**.
-2. Configure it — **[CONFIG (EN)](docs/eng/CONFIG.md)** · **[CONFIG (RU)](docs/ru/CONFIG.md)**.
-3. Enable and verify dual-stack or IPv6-only operation — **[IPv6 guide (EN)](docs/eng/IPV6.md)** ·
-   **[Руководство по IPv6 (RU)](docs/ru/IPV6.md)**.
+1. Install the server and create the first user — **[Getting started (EN)](docs/eng/manuals/GETTING-STARTED.md)** ·
+   **[Установка с нуля (RU)](docs/ru/manuals/GETTING-STARTED.md)**.
+2. Configure it — **[CONFIG (EN)](docs/eng/manuals/CONFIG.md)** · **[CONFIG (RU)](docs/ru/manuals/CONFIG.md)**.
+3. Enable and verify dual-stack or IPv6-only operation — **[IPv6 guide (EN)](docs/eng/manuals/IPV6.md)** ·
+   **[Руководство по IPv6 (RU)](docs/ru/manuals/IPV6.md)**.
 4. Issue a `qeli://` link or QR from the web panel and import it into a client —
-   **[PANEL (EN)](docs/eng/PANEL.md)** · **[PANEL (RU)](docs/ru/PANEL.md)**.
+   **[PANEL (EN)](docs/eng/manuals/PANEL.md)** · **[PANEL (RU)](docs/ru/manuals/PANEL.md)**.
 
-Something went wrong? → **[Troubleshooting (EN)](docs/eng/TROUBLESHOOTING.md)** ·
-**[Диагностика (RU)](docs/ru/TROUBLESHOOTING.md)**.
+Something went wrong? → **[Troubleshooting (EN)](docs/eng/manuals/TROUBLESHOOTING.md)** ·
+**[Диагностика (RU)](docs/ru/manuals/TROUBLESHOOTING.md)**.
 
 ## Repository layout
 
@@ -106,8 +106,8 @@ exception: `libqeli.so` / `qeli.dll` / `libqeli.dylib` (plus third-party `wintun
 committed under `native-libs/` and mirrored into each client tree, so the platform CI jobs
 need only their own toolchain. Their hashes are pinned in `native-libs/SHA256SUMS` and
 checked by the `native-libs` CI gate. This is an explicit trade-off against reproducibility
-— see [THREAT-MODEL §4](docs/eng/THREAT-MODEL.md#4-assurance-status) ·
-[Модель угроз §4](docs/ru/THREAT-MODEL.md#4-уровень-проверенности).
+— see [THREAT-MODEL §4](docs/eng/reference/THREAT-MODEL.md#4-assurance-status) ·
+[Модель угроз §4](docs/ru/reference/THREAT-MODEL.md#4-уровень-проверенности).
 
 - Changes: **[CHANGELOG.md](CHANGELOG.md)**
 - Security policy: **[SECURITY.md](SECURITY.md)**

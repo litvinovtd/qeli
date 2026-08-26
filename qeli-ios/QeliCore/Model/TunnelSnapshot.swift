@@ -89,7 +89,7 @@ struct TunnelSnapshot: Codable, Equatable, Sendable {
     // The protection card states what is actually in force, and these are only known after
     // the handshake: the server pushes DNS/MTU/routes/streams. Carried here rather than
     // scraped out of the log — log lines are the documented error-catalog surface
-    // (docs/*/TROUBLESHOOTING.md), not a data channel. Mirrors the Android `live*` snapshot
+    // (docs/*/manuals/TROUBLESHOOTING.md), not a data channel. Mirrors the Android `live*` snapshot
     // fields on VpnServiceImpl.
 
     /// Resolver the server pushed; nil when it pushed none.

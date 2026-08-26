@@ -3,7 +3,7 @@
 //! web admin, no `rustls`/`ring` — so it cross-compiles to mipsel/aarch64 musl.
 //!
 //! Built ONLY under the off-by-default `client-bin` feature (see Cargo.toml and
-//! docs/KEENETIC-PORT.md):
+//! docs/*/reference/KEENETIC-PORT.md):
 //!
 //! ```sh
 //! cargo build --release --bin qeli-client \

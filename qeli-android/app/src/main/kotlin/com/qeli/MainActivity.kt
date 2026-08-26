@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
      *  obfs_key, so they must not sit in plaintext SharedPreferences. The master
      *  key lives in the Android Keystore (TEE/StrongBox where available). On first
      *  use this migrates any legacy plaintext profiles, then wipes the legacy copy
-     *  so secrets no longer linger unencrypted. (docs/RELEASE-FIXES.md E1) */
+     *  so secrets no longer linger unencrypted. (docs/ru/archive/plans/RELEASE-FIXES.md E1) */
     private val secureStore: ProfileStore.SecureStore by lazy {
         // Same store the Quick Settings tile reads — see ProfileStore for the shared params.
         val store = ProfileStore.open(this)

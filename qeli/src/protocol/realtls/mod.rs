@@ -1,5 +1,5 @@
 //! `realtls` — a hand-rolled, byte-grade browser TLS 1.3 stack for true REALITY
-//! (Ось 1, см. `docs/DESIGN-remaining.md`). Unlike `protocol::tls` (fake-TLS: a
+//! (Ось 1, см. `docs/*/archive/plans/DESIGN-remaining.md`). Unlike `protocol::tls` (fake-TLS: a
 //! browser-*ish* ClientHello followed by the qeli protocol), `realtls` emits a
 //! Chrome-exact ClientHello and (M2.2+) carries the tunnel inside a genuine
 //! TLS 1.3 session.

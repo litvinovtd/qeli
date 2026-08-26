@@ -3,7 +3,7 @@
       Русская локализация. Названия продукта (Qeli), протокольные термины (qeli://,
       RFC 3339, INI, LAN, VPN) и строки лога намеренно НЕ переводятся: лог и тексты
       ошибок остаются английскими, потому что по ним построен каталог ошибок в
-      docs/*/TROUBLESHOOTING.md — перевод сделал бы документацию нерабочей.
+      docs/*/manuals/TROUBLESHOOTING.md — перевод сделал бы документацию нерабочей.
     -->
     <string name="app_name">Qeli</string>
     <string name="app_subtitle">Quick Easy Link IP</string>

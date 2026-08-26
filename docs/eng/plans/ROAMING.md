@@ -1,0 +1,280 @@
+# Client roaming (seamless network change) — implementation plan
+<!-- normative-sync: roaming-v3-safe -->
+
+> **Status: design complete; implementation not started. Target: 0.8.x.**
+>
+> Rechecked against the current unified Rust-core architecture. This document defines
+> mandatory implementation invariants and intentionally avoids fragile source-line anchors.
+
+Goal: when the client's IP/interface changes (Wi-Fi↔LTE, cell handover, new DHCP
+lease) the **user's connections do not drop**. The real traffic rides on the tun-IP,
+which is preserved, so the inner flows are insulated from the outer-path change — the
+job is to keep the **outer** tunnel alive (or rebuild it instantly) without losing
+the session or paying Argon2 again.
+
+## 0. Seamlessness per transport
+
+| Transport | Achievable | How |
+|---|---|---|
+| **UDP + QUIC masking** | Fully seamless (connection migration) | A new authenticated path becomes a candidate; PATH_CHALLENGE/PATH_RESPONSE validation commits the peer address |
+| **TCP** (reality-tls / fake-tls / obfs / plain) | Seamless with make-before-break; otherwise a short gap | Multipath JOIN over the new network *before* the old dies; fallback — grace + JOIN-resume |
+| **UDP plain** (no quic) | Out of scope | No on-wire identifier → roaming requires `quic=1` |
+
+**Non-goals:** zero byte loss on a hard handover where only one network is alive at
+the moment of transition (inner-TCP retransmit covers it); MPTCP; buffering +
+re-encrypting un-flown downstream packets (not worth the complexity).
+
+## 1. Current pre-roaming behavior
+
+A network change today = **fast reconnect, not roaming**: the client detects the
+change (Android — `registerDefaultNetworkCallback` → `forceReconnect`), does a **full
+new handshake** (ephemeral X25519+ML-KEM + a fresh Argon2 login); the server
+supersedes its own previous session by **device-id** and hands back the same tun-IP
+(the pool is sticky by `device_key`) and routes. Result — a ~(RTT + Argon2 time) dip
+and packet loss in the window. Roaming removes that hiccup.
+
+## 2. Protocol / wire design
+
+### 2.1 UDP connection-id (CID) — demux by packet content
+
+Today: the client picks **its own stable 4-byte CID** once
+([client/mod.rs](../../../qeli/src/client/mod.rs)) and puts it on every upstream
+packet; the server **extracts and discards** that CID (`_connection_id`,
+[udp_handler.rs](../../../qeli/src/server/udp_handler.rs)) and demuxes sessions by the
+source `SocketAddr` ([udp_handler.rs](../../../qeli/src/server/udp_handler.rs) /
+[udp_handler.rs](../../../qeli/src/server/udp_handler.rs)). An address change → map miss → treated as a
+new client → full handshake.
+
+Change: the server **records the client CID** at handshake and can find the session by
+CID when the source address is unknown. The CID lives in the QUIC short header **in the
+clear** (it must — the server has to identify the session **before** decrypting, to
+pick the key).
+
+### 2.2 CID rotation (unlinkability) — mandatory
+
+A constant cleartext CID that survives a network change is a **correlation tell**: a
+passive observer links your Wi-Fi to your LTE. So the CID **rotates**, as in QUIC.
+Adopted design — **deterministic rotation (Design B):**
+
+```
+roam_cid(n) = HKDF-Expand(session_secret, "qeli-roam-cid" ‖ LE64(n))[..8]
+```
+
+- `session_secret` — derived from the same ECDH secrets as the data keys (via a
+  separate HKDF label), known only to the endpoints.
+- `n` — the path epoch, incremented on each migration. On the original path `n=0`.
+- For a candidate path the client selects `roam_cid(n+1)`; the server keeps a **sliding
+  window** of bounded current/previous/future CID aliases. A packet from an unknown
+  address whose CID is expected and passes AEAD+replay creates only a bounded candidate.
+  The active CID and monotonic path epoch advance only after return-path validation and
+  atomic PATH_COMMIT.
+
+Properties: the on-wire CID differs per path (anti-link), the derivation is
+deterministic (no CID-pool exchange), the server precompute is bounded by the window.
+**8 bytes wide** (vs today's 4) — for collision safety; this is a wire change to the
+masking header ([protocol/quic.rs](../../../qeli/src/protocol/quic.rs),
+`wrap_quic_short`/`unwrap_quic`), scheduled for the roaming-capable 0.8.x protocol
+revision after the full-IPv6 0.8.0 release (real QUIC CIDs run up to 20 bytes).
+
+> Alternative (Design A, QUIC-style "CID pool"): the server hands the client a set of
+> future CIDs in advance (encrypted, post-auth). More flexible, but more state and
+> protocol. Rejected in favor of deterministic rotation as simpler and stateless.
+
+### 2.3 Migration trigger & validation (anti-hijack)
+
+The server **does not update** the active peer address merely because a packet matched an
+expected CID and passed AEAD plus replay checks. Those checks authenticate the session
+and permit creation of one bounded candidate path; they do not prove that the sender owns
+the return path. An attacker without the key cannot create a candidate, and an
+authenticated but unusable/spoofed return path cannot become active without the
+challenge/response transaction below.
+
+**QUIC-style path validation is mandatory in the first production version.** A packet
+with an authenticated next CID creates only a bounded candidate path. The server sends
+PATH_CHALLENGE within a 3× anti-amplification budget, waits for PATH_RESPONSE, and only
+then atomically commits downstream to the candidate. Stale epochs, duplicate challenges,
+parallel candidates, and late responses from an old path must not roll back the active
+path. AEAD plus replay protection authenticates the session; challenge/response proves
+that the peer also owns the return path.
+
+### 2.4 TCP: JOIN-resume + grace period
+
+The outer TCP socket can't migrate — but there's a ready primitive, the **JOIN token**
+(stream bonding): a new TCP connection from the new IP does its own handshake and sends
+`JOIN(session_token)` instead of AUTH → the server attaches it to the live session
+(same tun-IP, routes, **no second Argon2**). What's missing:
+
+1. **Grace period.** Today, when the last stream detaches the session is torn down
+   **immediately** ([handler.rs](../../../qeli/src/server/handler.rs)): `by_ip`/`by_token`
+   cleared, IP returned to the pool. Needed: on last-stream detach, mark the session
+   `orphaned_at = now` and **keep** it for `roaming.grace_secs`; a JOIN in that window
+   revives it (for `max_streams=1` the check passes: 0 < 1,
+   [handler.rs](../../../qeli/src/server/handler.rs)).
+2. **Authenticated JOIN is mandatory from the first production version.** The existing
+   token is only a session locator and never a bearer credential. A new key exchange
+   creates fresh AEAD keys, while a proof binds the resume secret, transcript hash,
+   session locator, wide resume epoch, logical slot id, and handover flag. A repeated
+   proof, a proof for another slot/epoch, or a modified transcript is rejected. A leaked
+   locator alone is therefore insufficient to resume a session.
+3. **Anti-DoS caps.** Orphaned sessions **still count** against `max_clients` and the
+   per-user limit during grace; cap `roaming.max_orphaned`. Otherwise connect→drop
+   churn accumulates dangling sessions and exhausts the IP pool/slots (directly against
+   the anti-ghost-session work already done).
+
+### 2.5 TCP make-before-break (the seamless path)
+
+When the new network appears **before** the old dies (typical Wi-Fi→LTE, both briefly
+up), the client **proactively** opens a JOIN stream **over the new network**; the
+scheduler ([server/mod.rs](../../../qeli/src/server/mod.rs) `pick_stream`/`flow_hash`) shifts
+flows only after the new logical slot is ready, then drains the old stream. Existing
+multipath is a foundation, not a complete implementation: the server and shared core
+still need authenticated JOIN proof, stable logical slots, the generation-scoped path
+transaction, bounded queues, and race-safe JOIN/reaper/kick ownership. The client also
+needs exact per-interface socket binding (see 4.4).
+
+## 3. Server implementation (Rust)
+
+### 3.1 UDP demux ([udp_handler.rs](../../../qeli/src/server/udp_handler.rs))
+- A secondary index `cid_index: HashMap<[u8;8], SocketAddr>` next to the primary
+  `HashMap<SocketAddr, UdpClient>`. The primary stays the fast path (most packets come
+  from a known address), with no per-packet cost change.
+- `handle_udp_datagram`: (1) lookup by address — as today; (2) miss + `quic_enabled` →
+  unwrap → CID → lookup in `cid_index` (incl. the expected roam-CID window) → candidate
+  session → trial-decrypt with its `rx_codec` → if Ok and replay-ok, enqueue PATH_INIT
+  for the per-session actor and create at most one bounded **CANDIDATE**.
+- The actor sends PATH_CHALLENGE under the 3× anti-amplification budget. Only a valid,
+  epoch-bound PATH_RESPONSE may perform atomic PATH_COMMIT: switch the active address,
+  receiving/egress socket and outer family, rotate bounded CID aliases, reset PMTU, then
+  drain the old receive path. An abort removes only resources owned by that candidate
+  generation.
+- Replace the writer's captured address/socket with actor-owned `ActiveUdpPath`; every
+  egress send reads the committed path. This must represent IPv4 and IPv6 without a
+  packed-IPv4 shortcut.
+- **Crypto state is preserved** (codec, counter, replay window) — that's the whole
+  point of seamlessness.
+
+### 3.2 TCP grace + JOIN-resume ([handler.rs](../../../qeli/src/server/handler.rs))
+- In `run_stream` (teardown, `was_last`): instead of immediate removal, mark
+  `orphaned_at = Some(now)`, keep it in the maps.
+- A reaper (extend the existing cleanup tick) removes orphaned sessions older than
+  `grace_secs` (then release IP/token).
+- The JOIN path on attach: clear `orphaned_at` (session revived).
+- New field on `SessionShared`: `orphaned_at: Mutex<Option<Instant>>`.
+
+### 3.3 Flat-INI config and panel
+User-facing server settings are profile-scoped:
+```ini
+[profile:mobile-udp]
+roaming.enabled = true
+roaming.grace_secs = 30
+roaming.max_orphaned = 256
+roaming.max_orphan_bytes = 67108864
+```
+
+Client policy is part of `[qeli]`:
+```ini
+[qeli]
+roaming = auto
+```
+
+Allowed values are `off` (always reconnect), `auto` (roam when safely negotiated,
+otherwise reconnect), and `required` (fail if safe roaming is unavailable).
+Low-level cryptography, path validation, anti-amplification, PMTU reset,
+and CID rotation are protocol invariants, not operator switches.
+
+### 3.4 PMTU and DATA_FRAG after roaming
+A new path can have a smaller outer MTU and otherwise black-hole large records. The first
+production version resets the outer payload budget to the safe minimum for the new family
+after PATH_COMMIT and starts a bidirectional live PMTU probe bound to path epoch, source,
+and egress socket. Old-path measurements and late ACKs cannot raise the new budget.
+DATA_FRAG_V1 keeps the existing inner TUN/TAP MTU and NetworkPlan unchanged.
+
+## 4. Client implementation (all five applications)
+
+Rust (Linux/OpenWrt), Android (Kotlin), Windows and macOS (shared C# layer), and iOS
+(Swift platform adapter) all use the same Rust session supervisor and path transaction.
+
+### 4.1 Network-change detection
+- **Rust** (Linux/router): netlink `RTM_NEWADDR`/route monitor, or poll the default route.
+- **Android**: `registerDefaultNetworkCallback` (already used for `forceReconnect`) —
+  repurpose for the soft-rebind.
+- **Windows**: `NetworkChange.NetworkAddressChanged` / `NotifyAddrChange`.
+- **macOS**: `nw_path_monitor` / `SCNetworkReachability`.
+
+### 4.2 UDP soft-rebind (the seamless path)
+On a network change: create a **new** UDP socket on the new interface, **keeping** the
+existing `PacketCodec`/counter/CID state; advance the roam-CID epoch; resume sending.
+**Critical: do NOT recreate the codec** — that's nonce reuse (catastrophic for AEAD).
+Architecturally — a single session-state object that survives socket replacement.
+
+### 4.3 TCP make-before-break
+- "New network available" (both up): open a JOIN stream bound to the new interface;
+  after the ack, mark the old stream draining; the old dying → no gap.
+- "Only the new network" (hard handover): the old stream is already dead → JOIN-resume
+  over the new within the grace window; grace expired → full reconnect (today's path).
+
+### 4.4 Per-interface socket binding
+Android `Network.bindSocket`; Linux `SO_BINDTODEVICE` (the client is root for TUN
+anyway); Windows `IP_UNICAST_IF` (or bind to the interface address); macOS
+`IP_BOUND_IF`.
+
+## 5. Security (summary)
+- **Anti-hijack:** AEAD+replay may create a candidate; mandatory return-path validation
+  and atomic PATH_COMMIT are required before downstream or the active address changes.
+- **Anti-linkability:** CID rotation (UDP). The TCP token is in-tunnel, no wire tell —
+  but the **server** sees both IPs under one session (as it already does via device-id),
+  and a global observer correlates by timing/volume — **add to THREAT-MODEL.md**.
+- **Anti-DoS:** grace/orphaned caps; orphaned counts against limits; UDP migration is
+  O(1) lookups; CID aliases, candidates, and anti-amplification are bounded.
+- **Nonce reuse (the #1 footgun):** the client must carry the codec **verbatim** across
+  the rebind — assertion + test.
+- **MTU blackhole:** re-probe / conservative default.
+
+## 6. Testing & lab
+- **Unit:** roam-CID derivation/rotation KATs; migration accept/reject (a valid packet
+  migrates, a spoofed/replayed one doesn't); grace timer; JOIN-resume attach at
+  `max_streams=1`.
+- **Fuzz:** extend [qeli/fuzz](../../../qeli/fuzz) along the CID/migration path.
+- **e2e on the lab (.10/.11):** a script flips the client's src-addr mid-flow
+  (netns/iptables SNAT) and asserts: UDP+QUIC → 0 reconnects, the flow continues; TCP →
+  make-before-break 0-gap with two live networks, JOIN-resume <grace on a hard
+  handover; measure gap/loss/"Argon2 skipped".
+- **Regression:** throughput unchanged (the CID lookup runs only on an address miss,
+  not per packet).
+
+## 7. Phasing
+
+No production stage may expose roaming without authenticated JOIN proof, path validation,
+anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
+
+- **Phase 0:** freeze capabilities, CONTROL_V2, KDF labels, proofs, wire limits, and KATs.
+- **Phase 1:** generation-scoped PREPARE/COMMIT/ABORT path transaction and platform hooks.
+- **Phase 2:** TCP resume/handover with fresh keys, proof, stable slots, and orphan caps.
+- **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
+- **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
+- **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
+- **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
+
+## 8. Compatibility / rollout
+Each roaming feature is negotiated through the existing authenticated capability trailer;
+the server advertises only what the selected profile can safely provide. Legacy peers keep
+the normal full-reconnect path, so rollout does not require a lockstep server/client upgrade.
+The initial server default is off and client policy is auto. Any failed or unsupported
+transaction rolls back candidate resources and falls back to a full reconnect.
+
+## 9. Effort estimate (rough)
+
+Full delivery across the server, shared core, five client applications, panel,
+documentation, and lab is approximately **20–30 engineering weeks**.
+
+| Component | Size | Risk |
+|---|---|---|
+| CONTROL_V2, capabilities, KDF/proofs | Medium | High (protocol/security) |
+| Server UDP registry/actor + PMTU/DATA_FRAG | Large | High (data plane) |
+| Server TCP lifecycle + authenticated handover | Medium-large | High (races) |
+| Shared-core supervisor and path transaction | Large | High |
+| Five platform adapters, apps, panel, and config | Large | Medium-high |
+| Lab matrix, soak, rollback, and rollout | Large | High |
+
+Primary risks are cross-worker UDP state, TCP orphan/JOIN/reaper races, nonce reuse,
+platform binding rollback, outer-family PMTU changes, iOS behavior, and interactions

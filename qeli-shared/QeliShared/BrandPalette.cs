@@ -4,7 +4,7 @@ namespace Qeli.Shared;
 /// Single source of truth for the qeli brand + status-dot palette, as raw RGB. Shared
 /// by the Windows brand renderer (System.Drawing.Color) and the macOS one (SkiaSharp
 /// SKColor) — each builds its own colour type from these triples, so the values live in
-/// one place. The rendering itself stays per-client (GDI+ vs Skia). See docs/REFACTOR-PLAN.md (R6).
+/// one place. The rendering itself stays per-client (GDI+ vs Skia). See docs/*/archive/plans/REFACTOR-PLAN.md (R6).
 /// </summary>
 public static class BrandPalette
 {

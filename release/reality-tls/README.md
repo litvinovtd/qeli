@@ -18,7 +18,7 @@ Xray или конкретному target по всем TLS/H2/тайминго�
 - `client-reality.conf` — полный клиентский INI с `mode=reality-tls`.
 
 Подробная история перехода: [release notes 0.8.0](../RELEASE_NOTES_0.8.0.md),
-[CHANGELOG](../../CHANGELOG.md) и [CONFIG](../../docs/ru/CONFIG.md).
+[CHANGELOG](../../CHANGELOG.md) и [CONFIG](../../docs/ru/manuals/CONFIG.md).
 
 ## Совместимость и порядок обновления
 
