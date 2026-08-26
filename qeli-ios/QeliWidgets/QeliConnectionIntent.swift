@@ -26,9 +26,7 @@ struct QeliToggleConnectionIntent: AppIntent {
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
     func perform() async throws -> some IntentResult {
-        let current = SharedTunnelStore().snapshot()
-        let command: QeliConnectionCommand = current.phase.isActive ? .disconnect : .connect
-        try issue(command)
+        try issue(.toggle)
         return .result()
     }
 }

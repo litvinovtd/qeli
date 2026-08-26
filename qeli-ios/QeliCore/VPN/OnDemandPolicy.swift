@@ -1,8 +1,8 @@
 import NetworkExtension
 
 /// Side-effect-free construction and inspection of the system On-Demand rule set.
-/// Both the container app and the widget extension use this implementation so a silent
-/// widget action cannot install a policy different from a foreground action.
+/// The entitled container app uses this helper from every lifecycle entry point, so a
+/// queued widget command cannot install a policy different from a foreground action.
 enum OnDemandPolicy {
     static func makeRules(settings: AppSettings) -> [NEOnDemandRule] {
         guard settings.onDemandEnabled, settings.connectionDesired else { return [] }

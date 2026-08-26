@@ -578,6 +578,14 @@ final class AppModel: ObservableObject {
         }
 
         switch command {
+        case .toggle:
+            // Resolve a toggle only after prepare() refreshed the real NEVPNStatus.
+            // App Group snapshots are display caches and may survive a provider crash.
+            if systemIsActive {
+                await disconnectManually()
+            } else {
+                await toggleConnection()
+            }
         case .connect:
             if !systemIsActive {
                 await toggleConnection()

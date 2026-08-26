@@ -1,6 +1,7 @@
 import Foundation
 
 enum QeliConnectionCommand: String, Codable, Sendable {
+    case toggle
     case connect
     case disconnect
 }
