@@ -1,4 +1,5 @@
 pub mod capabilities;
+pub mod control_v2;
 pub mod ctrl;
 pub mod data_frag;
 pub mod h2_carrier;
@@ -10,6 +11,7 @@ pub mod packet;
 pub mod quic;
 pub mod realtls;
 pub mod recordizer;
+pub mod roaming;
 pub mod shaper;
 pub mod tls;
 pub mod udp_frag;

@@ -14,7 +14,8 @@ pub use auth::{
 pub use cipher::Cipher;
 pub use derive::{
     derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
-    derive_keys_hybrid_bound,
+    derive_keys_hybrid_bound, derive_session_material, derive_session_material_bound,
+    derive_session_material_hybrid, derive_session_material_hybrid_bound, SessionKeyMaterial,
 };
 pub use exchange::{compute_auth_proof, Keypair, PublicKey, StaticKeypair};
 

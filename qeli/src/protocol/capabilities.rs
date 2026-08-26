@@ -24,6 +24,14 @@ pub mod server_capability {
     pub const NETWORK_PLAN_V2: u64 = 1 << 2;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 3;
     pub const PACKET_MUX_V1: u64 = 1 << 4;
+    /// Reserved wire bits for the staged roaming implementation. These constants freeze the
+    /// authenticated handshake ABI, but are deliberately absent from
+    /// `implemented_server_capabilities()` until their complete data planes are available.
+    pub const CONTROL_V2: u64 = 1 << 5;
+    pub const UDP_ROAM_V1: u64 = 1 << 6;
+    pub const TCP_RESUME_V1: u64 = 1 << 7;
+    pub const TCP_HANDOVER_V1: u64 = 1 << 8;
+    pub const ROAMING_RESERVED: u64 = CONTROL_V2 | UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1;
 }
 
 /// Features implemented by the client core. Platform operations are advertised separately.
@@ -32,6 +40,13 @@ pub mod client_capability {
     pub const NETWORK_PLAN_V2: u64 = 1 << 1;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 2;
     pub const PACKET_MUX_V1: u64 = 1 << 3;
+    /// Reserved only. See the server-side constants above; none of these bits are advertised
+    /// by `implemented_client_core_capabilities()` during protocol-only stage 0.
+    pub const CONTROL_V2: u64 = 1 << 4;
+    pub const UDP_ROAM_V1: u64 = 1 << 5;
+    pub const TCP_RESUME_V1: u64 = 1 << 6;
+    pub const TCP_HANDOVER_V1: u64 = 1 << 7;
+    pub const ROAMING_RESERVED: u64 = CONTROL_V2 | UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
