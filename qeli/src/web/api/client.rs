@@ -301,6 +301,12 @@ fn ini_from_fields(b: &Value) -> String {
     if flag("route_local") {
         s.push_str("route_local = true\n");
     }
+    for key in ["include", "exclude", "lan_subnet_ipv6"] {
+        let value = g(key);
+        if !value.is_empty() {
+            s.push_str(&format!("{key} = {value}\n"));
+        }
+    }
     if flag("kill_switch") {
         s.push_str("kill_switch = true\n");
     }
@@ -664,12 +670,15 @@ mod diagnostic_tests {
     }
 
     #[test]
-    fn field_form_serializes_ipv6_policy_and_fail_closed_exceptions() {
+    fn field_form_serializes_ipv6_policy_routes_and_fail_closed_exceptions() {
         let ini = ini_from_fields(&json!({
             "server": "vpn.example.com:443",
             "user": "alice",
             "pass": "secret",
             "ipv6": "required",
+            "include": "10.20.0.0/16, 2001:db8:20::/48",
+            "exclude": "192.168.50.0/24, 2001:db8:50::/48",
+            "lan_subnet_ipv6": "fd42:50::/64",
             "gateway": true,
             "allow_ipv4_leak": true,
             "allow_ipv6_leak": true
@@ -681,7 +690,19 @@ mod diagnostic_tests {
         assert!(config.routing.add_default_gateway);
         assert!(config.routing.allow_ipv4_leak);
         assert!(config.routing.allow_ipv6_leak);
+        assert_eq!(
+            config.routing.include,
+            ["10.20.0.0/16", "2001:db8:20::/48"]
+        );
+        assert_eq!(
+            config.routing.exclude,
+            ["192.168.50.0/24", "2001:db8:50::/48"]
+        );
+        assert_eq!(config.routing.lan_subnet_ipv6, "fd42:50::/64");
         assert!(ini.contains("ipv6 = required\n"));
+        assert!(ini.contains("include = 10.20.0.0/16, 2001:db8:20::/48\n"));
+        assert!(ini.contains("exclude = 192.168.50.0/24, 2001:db8:50::/48\n"));
+        assert!(ini.contains("lan_subnet_ipv6 = fd42:50::/64\n"));
         assert!(ini.contains("allow_ipv4_leak = true\n"));
         assert!(ini.contains("allow_ipv6_leak = true\n"));
     }

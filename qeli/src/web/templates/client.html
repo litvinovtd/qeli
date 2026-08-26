@@ -255,6 +255,21 @@
                   <option value="off">off — refuse IPv6 inside the tunnel</option>
                 </select>
               </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">Tunnel include routes</label>
+                <p class="text-[11px] text-slate-500 mb-1.5">Comma-separated IPv4/IPv6 CIDRs routed through this tunnel in split mode.</p>
+                <input class="inp font-mono" type="text" x-model="form.include" placeholder="10.20.0.0/16, 2001:db8:20::/48">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">Tunnel exclude routes</label>
+                <p class="text-[11px] text-slate-500 mb-1.5">Comma-separated IPv4/IPv6 CIDRs kept on their matching-family physical path.</p>
+                <input class="inp font-mono" type="text" x-model="form.exclude" placeholder="192.168.50.0/24, 2001:db8:50::/48">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">IPv6 LAN behind this client</label>
+                <p class="text-[11px] text-slate-500 mb-1.5">One routed IPv6 CIDR for gateway mode. Configure the same prefix as this user's client_subnet on the server.</p>
+                <input class="inp font-mono" type="text" x-model="form.lan_subnet_ipv6" placeholder="fd42:50::/64">
+              </div>
             </div>
 
             <div class="space-y-2.5">
@@ -304,8 +319,8 @@ function clientPage() {
     importOpen: false, importLink: '', importName: '',
     diagOpen: false, diagProfile: null,
     formOpen: false,
-    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
-    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
+    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
 
     async load() { this.loading = true; await this.refresh(); this.loading = false; },
     async refresh() {
@@ -357,7 +372,7 @@ function clientPage() {
 
     // tiny [qeli] INI parser → form fields
     parseIni(raw, f) {
-      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front'};
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6'};
       // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
       // bind_static/…) and every other section is preserved verbatim so a Field-view
       // save round-trips losslessly instead of silently dropping them.
@@ -406,6 +421,9 @@ function clientPage() {
       // `dev` is a managed field (parseIni consumes it into form.dev, so it is NOT kept in
       // _extraQeli) — emit it here or a Field→Raw toggle silently drops the TUN device name.
       if (f.dev) s += `dev = ${f.dev}\n`;
+      if (f.include) s += `include = ${f.include}\n`;
+      if (f.exclude) s += `exclude = ${f.exclude}\n`;
+      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${f.lan_subnet_ipv6}\n`;
       if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
       if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
       if (f.ipv6) s += `ipv6 = ${f.ipv6}\n`;

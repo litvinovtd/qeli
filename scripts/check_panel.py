@@ -215,6 +215,19 @@ if 'p.connected && p.log_tail' in client_source or 'x-text="p.log_tail"' in clie
 if "lastLine(p.log_tail)" not in client_source:
     fail(client_path, 1, "legacy client errors need a bounded one-line log fallback")
 
+# IPv6 route policy is common enough to be first-class in the outbound profile form. Keep the
+# Field editor, its lossless parser and the Rust serializer in sync; otherwise a newly-created
+# profile can use these keys only through Raw INI, or a later Field save can drop them.
+client_api_path = ROOT / "qeli" / "src" / "web" / "api" / "client.rs"
+client_api_source = client_api_path.read_text(encoding="utf-8")
+for key in ("include", "exclude", "lan_subnet_ipv6"):
+    if f'x-model="form.{key}"' not in client_source:
+        fail(client_path, 1, f"outbound profile form must expose {key}")
+    if f"{key}:'{key}'" not in client_source:
+        fail(client_path, 1, f"Field/Raw parser must round-trip {key}")
+    if f'"{key}"' not in client_api_source:
+        fail(client_api_path, 1, f"profile API must serialize {key}")
+
 # The Users table promises tunnel addresses, so it must merge active session IPs from the same
 # /api/clients source as the dashboard instead of displaying configured static values alone.
 users_path = TEMPLATES / "users.html"
