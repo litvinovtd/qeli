@@ -1,0 +1,76 @@
+{
+  "corpus": {
+    "modes": 4,
+    "all_auth_ok": true,
+    "all_recordizer_active": true
+  },
+  "historical_classifier": {
+    "training_rows": 48,
+    "training_correct": 48,
+    "detected_modes": 0,
+    "centroid_detected_modes": 0,
+    "warning": "One new sample per mode; scores are outputs of the old corpus model, not real-world detection probabilities."
+  },
+  "modes": [
+    {
+      "mode": "udp-faketls",
+      "old_model_qeli_score": 0.0019016404491996226,
+      "old_model_qeli": false,
+      "centroid_qeli": false,
+      "distance_qeli": 10.05389367832589,
+      "distance_control": 6.570683686499975,
+      "old_size_entropy": 0.3434381281120156,
+      "new_size_entropy": 3.762422343299747,
+      "entropy_delta": 3.418984215187731,
+      "old_size_unique_share": 0.011357183418512209,
+      "new_size_unique_share": 0.06942199645963211,
+      "data_size_q50": 1448.0,
+      "data_size_q90": 1448.0
+    },
+    {
+      "mode": "udp-padding",
+      "old_model_qeli_score": 0.0023261830289014545,
+      "old_model_qeli": false,
+      "centroid_qeli": false,
+      "distance_qeli": 9.922578688255687,
+      "distance_control": 6.3497201093617495,
+      "old_size_entropy": 2.482334625189728,
+      "new_size_entropy": 3.7325082287392783,
+      "entropy_delta": 1.2501736035495505,
+      "old_size_unique_share": 0.22998296422487224,
+      "new_size_unique_share": 0.07923160006171887,
+      "data_size_q50": 1448.0,
+      "data_size_q90": 1448.0
+    },
+    {
+      "mode": "udp-quic",
+      "old_model_qeli_score": 0.0012009448059158115,
+      "old_model_qeli": false,
+      "centroid_qeli": false,
+      "distance_qeli": 10.240311575394804,
+      "distance_control": 6.566421602142371,
+      "old_size_entropy": 0.3423775552859197,
+      "new_size_entropy": 3.726467183335172,
+      "entropy_delta": 3.384089628049252,
+      "old_size_unique_share": 0.011641113003975015,
+      "new_size_unique_share": 0.06956589027315639,
+      "data_size_q50": 1457.0,
+      "data_size_q90": 1457.0
+    },
+    {
+      "mode": "udp-faketls-awg",
+      "old_model_qeli_score": 0.0020929503025233346,
+      "old_model_qeli": false,
+      "centroid_qeli": false,
+      "distance_qeli": 9.967297145758064,
+      "distance_control": 6.483323629812234,
+      "old_size_entropy": 0.3434381281120156,
+      "new_size_entropy": 3.7765612899852457,
+      "entropy_delta": 3.43312316187323,
+      "old_size_unique_share": 0.011641113003975015,
+      "new_size_unique_share": 0.06966170917777606,
+      "data_size_q50": 1448.0,
+      "data_size_q90": 1448.0
+    }
+  ]
+}

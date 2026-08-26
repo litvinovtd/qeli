@@ -198,10 +198,6 @@ final class AppModel: ObservableObject {
     @discardableResult
     func handleWidgetControlURL(_ url: URL) async -> Bool {
         guard WidgetControlBridge.isControlURL(url) else { return false }
-        if WidgetControlBridge.isStatusURL(url) { return true }
-        if let request = WidgetControlBridge.consume(url: url) {
-            await applyWidgetCommand(request.command)
-        }
         return true
     }
 

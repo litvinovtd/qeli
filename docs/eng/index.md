@@ -99,6 +99,9 @@ operator need first, then internal and historical material.
 ## Outside this directory
 
 - **[../../CHANGELOG.md](../../CHANGELOG.md)** — all changes by version.
+- **[../../release/RELEASE_NOTES_0.8.0.md](../../release/RELEASE_NOTES_0.8.0.md)** — development
+  Reality/H2 migration, defaults, upgrade order and verification.
+- **[../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md)** — dated H2 PCAP/DPI result and limitations.
 - **[../../release/RELEASE_NOTES_0.7.16.md](../../release/RELEASE_NOTES_0.7.16.md)** — bilingual
   `0.7.16` release notes and upgrade impact.
 - **[../../SECURITY.md](../../SECURITY.md)** — security policy and reporting.

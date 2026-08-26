@@ -2,6 +2,22 @@
 
 Приоритеты: **P1** — заметно влияет на безопасность/функциональность, **P2** —
 качество, **P3** — long-term/экспериментальное.
+## 0.8.0 (dev, 2026-08-26) — настоящий H2 carrier для Reality
+
+- ✅ `reality-tls` теперь несёт приватный поток qeli records в одном долгоживущем настоящем
+  HTTP/2 POST (`/v1/events/stream`, ALPN `h2`) со случайным batching 2–8 мс; прежнего второго
+  fake-TLS handshake/framing больше нет. Пользовательского переключателя H2 нет.
+- ✅ Поставляемые Reality/max-obfuscation шаблоны выключают qeli heartbeat и включают shaping.
+  H2 carrier принудительно выключает qeli heartbeat даже при старом local/pushed значении.
+- ✅ Миграция — **сначала сервер**: новый сервер принимает H2 и legacy Reality carrier;
+  новый клиент использует только H2 и не делает downgrade. Bare `fake-tls` остаётся отдельным режимом.
+- ✅ Датированный lab PCAP: завершены 6/6 сессий; старый carrier-classifier совпал в 0/6
+  (контроли 0/6). Это проверка данного capture/classifier, а не универсальная вероятность обнаружения.
+- 🟡 Осталось: TLS/H2 профили семейств браузеров, H2 settings под target, hostile active probes,
+  malformed/reconnect/long-lived сценарии, чистый full-speed H2 benchmark и настоящий H3.
+
+См. [DPI-AUDIT.md](DPI-AUDIT.md), [CONFIG.md](CONFIG.md) и
+[датированный PCAP-отчёт](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
 
 ## 0.7.5 (2026-06-29) — фиксы стабильности + экспериментальный OpenWrt-клиент
 
@@ -276,7 +292,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 - ✅ **CI собирает клиентов** — добавлены android/windows/macos build-jobs в `ci.yml`.
 - ✅ **Полный прогон бенчмарка всех 10 режимов** (incl. `plain` + `reality-tls`) с
   метриками CPU/RSS процесса — см. [BENCHMARK.md](BENCHMARK.md).
-- 🟡 **reality-tls download ~430 Мбит/с** (было ~320 на 0.6.0; hand-rolled TLS с 0.7.0 поднял ~320→417→430, замер 0.7.4) — диагностировано на лабе: вложенный TLS =
+- 🟡 **Legacy carrier reality-tls download ~430 Мбит/с (≤0.7.16)** (было ~320 на 0.6.0; hand-rolled TLS с 0.7.0 поднял ~320→417→430, замер 0.7.4) — диагностировано на лабе: outer TLS + inner fake-TLS path =
   двойной AEAD + двойной фрейминг серийно в клиентском reader (CPU клиента ~67%
   ядра, AES-NI на VM есть → не software-AES, не CPU-потолок). Оптимизация
   `RealTlsStream::poll_read` (батч-дешифровка всех записей за poll + 64-КиБ буфер +

@@ -148,16 +148,16 @@
       <div class="flex flex-wrap items-center gap-2">
         <input class="inp text-xs py-1.5 px-2 h-8" style="width:12rem" type="search"
                placeholder="Search clients…" x-model="search"
-               @input.debounce.200ms="page = 1; refreshView()">
+               @input.debounce.200ms="[page = 1, refreshView()]">
         <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:11rem"
-                x-model="filterProfile" @change="page = 1; refreshView()">
+                x-model="filterProfile" @change="[page = 1, refreshView()]">
           <option value="">All profiles</option>
           <template x-for="p in profiles" :key="p.name">
             <option data-i18n-skip :value="p.name" x-text="p.name"></option>
           </template>
         </select>
         <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:10.5rem"
-                x-model="sortMode" @change="page = 1; refreshView()">
+                x-model="sortMode" @change="[page = 1, refreshView()]">
           <option value="uptime_desc">Longest online</option>
           <option value="username_asc">Username A–Z</option>
           <option value="profile_asc">Profile A–Z</option>
@@ -328,6 +328,10 @@ function dashboard() {
     clientKey(c) { return [c.profile, c.username, c.ip, c.peer || '', c.client_platform || ''].join('|'); },
     get totalClients() { return this.clients.length; },
     fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
+    // The CSP-compatible Alpine evaluator resolves template calls only against
+    // component data. Keep the shared formatter behind a component method so
+    // x-text="dur(...)" does not silently render an empty cell.
+    dur(value) { return window.dur ? window.dur(Number(value) || 0) : '0s'; },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },

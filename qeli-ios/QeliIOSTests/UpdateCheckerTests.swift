@@ -16,7 +16,7 @@ final class UpdateCheckerTests: XCTestCase {
         user = alice
         pass = secret
         """
-        XCTAssertTrue(UpdateChecker.hasPrivatePath(try VPNConfig(parsing: base)))
+        XCTAssertTrue((try VPNConfig(parsing: base)).hasPrivateUpdatePath())
 
         for narrowing in [
             "gateway = false",
@@ -26,10 +26,10 @@ final class UpdateCheckerTests: XCTestCase {
             "exclude = 203.0.113.0/24",
         ] {
             let config = try VPNConfig(parsing: base + "\n" + narrowing)
-            XCTAssertFalse(UpdateChecker.hasPrivatePath(config), narrowing)
+            XCTAssertFalse(config.hasPrivateUpdatePath(), narrowing)
         }
-        XCTAssertFalse(UpdateChecker.hasPrivatePath(
-            try VPNConfig(parsing: base), globalAllowLAN: true
-        ))
+        XCTAssertFalse(
+            (try VPNConfig(parsing: base)).hasPrivateUpdatePath(globalAllowLAN: true)
+        )
     }
 }

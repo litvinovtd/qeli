@@ -441,7 +441,6 @@ ipv6 = auto
             ?: vpnNetworks.singleOrNull()
     }
 
-    private fun hasPrivateUpdatePath(): Boolean = privateUpdateNetwork() != null
 
     /** Reveal an available update in the footer + a toast; the footer opens the dialog. */
     private fun showUpdateAvailable(info: UpdateInfo) {

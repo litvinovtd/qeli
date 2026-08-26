@@ -34,7 +34,7 @@ public static class WireConformance
         ok &= RunMtuLadder(check);
         ok &= RunIniBounds(check);
         ok &= RunEditorPresetSelection(check);
-        Qeli.Shared.Vpn.VpnTunnelBase.RunNetworkPolicySelfTests(check);
+        NetworkPolicyConformance.Run(check);
         return ok;
     }
 
@@ -642,7 +642,7 @@ public static class WireConformance
         bool floorFits = true, descending = true, nonEmpty = true;
         foreach (int overhead in new[] { 48 + 8 + 20, 48 + 13 + 9 + 8 + 40 })
         {
-            var ladder = Vpn.VpnTunnelBase.MtuProbeLadder(1400, overhead);
+            var ladder = MtuProbeLadder(1400, overhead);
             nonEmpty &= ladder.Length > 0;
             if (ladder.Length == 0) continue;
             // The narrowest rung's WIRE size must fit a 1280-byte path.
@@ -655,7 +655,7 @@ public static class WireConformance
 
         // A ceiling already below the floor must still yield something to try, not an empty
         // ladder (which would report "no result" and silently keep the pushed MTU).
-        var tiny = Vpn.VpnTunnelBase.MtuProbeLadder(700, 48 + 13 + 9 + 8 + 40);
+        var tiny = MtuProbeLadder(700, 48 + 13 + 9 + 8 + 40);
         check("mtu-ladder: a low ceiling still produces a rung", tiny.Length > 0 && tiny[0] <= 700);
 
         // A JUMBO ceiling must not fall straight to 1360. The ladder was written when the
@@ -663,7 +663,7 @@ public static class WireConformance
         // 140 bytes; raising the ceiling to 16602 turned that gap into 15242, and a path
         // carrying 9000 was certified at 1360. (Audit 2026-08-01, §8.)
         int jumboOverhead = 48 + 13 + 9 + 8 + 40;
-        var jumbo = Vpn.VpnTunnelBase.MtuProbeLadder(16602, jumboOverhead);
+        var jumbo = MtuProbeLadder(16602, jumboOverhead);
         bool hasMiddle = jumbo.Count(m => m >= 1360 && m < 16602) >= 3;
         int under9000 = jumbo.FirstOrDefault(m => m + jumboOverhead <= 9000);
         bool jumboUseful = under9000 >= 4000;
@@ -671,7 +671,7 @@ public static class WireConformance
         check("mtu-ladder: a 9000-byte path certifies near 9000, not 1360", jumboUseful);
         // ...and a normal path is probed exactly as before, so the jumbo rungs cost no extra
         // round-trips for the common case.
-        bool normalUnchanged = Vpn.VpnTunnelBase.MtuProbeLadder(1400, jumboOverhead)
+        bool normalUnchanged = MtuProbeLadder(1400, jumboOverhead)
             .SequenceEqual(new[] { 1400, 1360, 1320, 1280, 1200, 1280 - jumboOverhead });
         check("mtu-ladder: a normal ceiling gains no extra rungs", normalUnchanged);
 
@@ -683,9 +683,9 @@ public static class WireConformance
         static (int Result, int Probes) Search(int lo, int hi, int real)
         {
             int probes = 0;
-            for (int i = 0; i < Vpn.VpnTunnelBase.MtuRefineMaxProbes; i++)
+            for (int i = 0; i < MtuRefineMaxProbes; i++)
             {
-                int mid = Vpn.VpnTunnelBase.MtuRefineStep(lo, hi);
+                int mid = MtuRefineStep(lo, hi);
                 if (mid < 0) break;
                 probes++;
                 if (mid <= real) lo = mid; else hi = mid;
@@ -697,19 +697,36 @@ public static class WireConformance
         {
             var (got, probes) = Search(lo0, hi0, real);
             neverOver &= got <= real;
-            converges &= real - got <= Vpn.VpnTunnelBase.MtuRefineStepBytes && got > lo0;
-            bounded &= probes <= Vpn.VpnTunnelBase.MtuRefineMaxProbes;
+            converges &= real - got <= MtuRefineStepBytes && got > lo0;
+            bounded &= probes <= MtuRefineMaxProbes;
         }
         // A path barely above the rung must not be made worse, and a narrow bracket must stop.
         var (atRung, _) = Search(6000, 9000, 6001);
         check("mtu-refine: converges to within one step of the real path MTU", converges);
         check("mtu-refine: never certifies above what the path carries", neverOver && atRung == 6000);
-        check("mtu-refine: probe budget is bounded", bounded && Vpn.VpnTunnelBase.MtuRefineStep(6000, 6200) < 0);
+        check("mtu-refine: probe budget is bounded", bounded && MtuRefineStep(6000, 6200) < 0);
         normalUnchanged &= converges && neverOver && bounded;
 
         return floorFits && descending && nonEmpty && tiny.Length > 0
             && hasMiddle && jumboUseful && normalUnchanged;
     }
+
+    // Conformance mirror of Rust's live MTU probe policy. These helpers deliberately stay
+    // out of QeliShared.dll: desktop production uses the negotiated Rust NetworkPlan.
+    private static int[] MtuProbeLadder(int ceiling, int outerOverhead)
+    {
+        const int pathFloor = 1280;
+        int floor = Math.Clamp(pathFloor - outerOverhead, 576, Math.Max(ceiling, 576));
+        return new[] { ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500,
+                1360, 1320, 1280, 1200, floor }
+            .Where(m => m >= floor && m <= ceiling)
+            .Distinct().OrderByDescending(m => m).ToArray();
+    }
+
+    private const int MtuRefineStepBytes = 256;
+    private const int MtuRefineMaxProbes = 5;
+    private static int MtuRefineStep(int lo, int hi) =>
+        hi - lo <= MtuRefineStepBytes ? -1 : lo + (hi - lo) / 2;
 
     /// <summary>In-tunnel control frames. Not fixture-driven — the frame is six bytes, so the
     /// bytes themselves are pinned here and in the Rust/Kotlin/Swift tests. What this catches is

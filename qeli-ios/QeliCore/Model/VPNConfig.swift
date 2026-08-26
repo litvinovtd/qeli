@@ -161,11 +161,9 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// legacy fixture while the production packet tunnel remains Rust-only.
     static let authCredentialBudget = 1_114
 
-    /// Largest `padding_max` that can be encoded, mirroring the Rust client's cap.
-    ///
-    /// Padding rides on EVERY record, so this bounds the record, not a one-off. It applies to
-    /// both a local profile (`validate()`) and a server-pushed value (`clampPushedObfuscation`)
-    /// — the local one used to go unchecked, and applies FIRST. (Audit 2026-08-02, §9.)
+    /// Largest `padding_max` accepted from a local profile, mirroring the Rust client cap.
+    /// Padding rides on every record, so this bounds the record rather than a one-off.
+    /// Server-pushed transport values are parsed and validated inside the Rust core.
     static let paddingMaxCeiling = 1_400
     var heartbeatEnabled = true
     var heartbeatIntervalMilliseconds = 15_000
@@ -241,42 +239,6 @@ struct VPNConfig: Codable, Equatable, Sendable {
         try validate()
     }
 
-    /// Clamp every obfuscation/shaping value the SERVER pushes in AuthOK into a usable
-    /// range.
-    ///
-    /// `validate()` covers what the user types (port, timeout, mtu, padding) but nothing
-    /// that arrives over the wire, and the AuthOK parsers assigned these fields straight
-    /// from the JSON. Two consequences, both remote and post-authentication:
-    ///
-    /// * a large `idle_gap_mean_ms` made `TrafficShaper.nextGapMilliseconds` produce a
-    ///   `Double` outside `Int`'s range, and `Int(_:)` TRAPS rather than saturating —
-    ///   killing the Network Extension process on the first heartbeat tick;
-    /// * a large `padding.max_bytes` pushed records past `MaxRecordSize`, so
-    ///   `PacketCodec.encrypt` threw, the uplink died, the client reconnected, got the
-    ///   same value and looped forever.
-    ///
-    /// Clamping rather than rejecting: a server that pushes an odd value is far more
-    /// likely misconfigured than hostile, and refusing to connect would be a worse
-    /// outcome than shaping slightly differently than asked. (Audit 2026-07-27, C10.)
-    mutating func clampPushedObfuscation() {
-        // Padding must leave room inside one record; the ceiling mirrors the Rust client's.
-        paddingMin = min(max(paddingMin, 0), Self.paddingMaxCeiling)
-        paddingMax = min(max(paddingMax, paddingMin), Self.paddingMaxCeiling)
-
-        shapingGapMeanMilliseconds = min(max(shapingGapMeanMilliseconds, 1), 60_000)
-        shapingGapMinMilliseconds = min(max(shapingGapMinMilliseconds, 0), 60_000)
-        shapingGapMaxMilliseconds = min(
-            max(shapingGapMaxMilliseconds, shapingGapMinMilliseconds),
-            60_000
-        )
-        shapingMinSize = min(max(shapingMinSize, 0), 1_400)
-        shapingMaxSize = min(max(shapingMaxSize, shapingMinSize), 1_400)
-        shapingBudgetBytesPerSecond = min(max(shapingBudgetBytesPerSecond, 0), 100_000_000)
-        shapingStealthRateMbps = min(max(shapingStealthRateMbps, 1), 10_000)
-
-        heartbeatIntervalMilliseconds = min(max(heartbeatIntervalMilliseconds, 1_000), 600_000)
-        heartbeatJitterMilliseconds = min(max(heartbeatJitterMilliseconds, 0), 60_000)
-    }
 
     func validate() throws {
         // A boolean nobody could parse is a typo, and every one of them used to read as `false`

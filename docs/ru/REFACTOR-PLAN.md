@@ -14,6 +14,22 @@
 > каждого пункта = **байт-в-байт тот же провод/поведение** + зелёная сборка всех
 > затронутых клиентов + e2e на лабе там, где затронута дата-плоскость.
 
+## Актуализация 2026-08-25 — повторная чистка клиентов
+
+Следующий аудит после перехода приложений на единое Rust-ядро выполнен. Цель — убрать оставшиеся вторые реализации и build/test-код из production-пакетов, не меняя провод и платформенные системные адаптеры.
+
+| Шаг | Результат | Статус |
+|---|---|:---:|
+| CLI/CI macOS pf | Генератор production-правил доступен как `pf-selftest-rules`; CI отклоняет пустой файл и проверяет load/read/flush anchor | готово |
+| Desktop conformance | Managed crypto/protocol KAT и benchmark вынесены из `QeliShared`/GUI в отдельный `QeliConformance`; BouncyCastle отсутствует в production deps | готово |
+| macOS build tools | `uishot` и `Avalonia.Headless` собираются только с `QeliBuildTools=true`; production-граф их не содержит | готово |
+| Desktop NetworkPlan | Удалена JSON-прокладка Rust → `Session` → OS: адреса, DNS и маршруты типизированы и ненулевые; неиспользуемые `MaxStreams`/`Adaptive` удалены | готово |
+| Android shrink | Включён `shrinkResources`; broad R8 keep всего `model.**`/сервиса заменён точными правилами Serializable/JNI ABI | готово |
+| Мёртвый код/ресурсы | Удалены подтверждённо неиспользуемые C#/Kotlin/Swift API, Android resources и iOS test-only heartbeat/shaping/multipath mirrors | готово |
+| Граница общего ядра | Transport/wire/reconnect data plane остаётся в Rust. UI-проекции, Trusted Wi-Fi, хранилища и OS route/DNS/TUN adapters намеренно остаются платформенными | готово |
+
+Локально пройдены Windows/macOS Release builds, desktop platform selftests, обязательный managed conformance и benchmark, Android unit/release/R8/lint, а также 36 architecture/config consistency tests. Rust `cargo`-гейты выполняет Linux CI, iOS build/tests — macOS CI: эти toolchains недоступны на Windows-хосте аудита.
+
 ---
 
 ## Почему это нужно

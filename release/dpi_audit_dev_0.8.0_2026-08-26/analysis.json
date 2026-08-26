@@ -1,0 +1,887 @@
+{
+  "meta": {
+    "started_utc": "2026-08-25T21:45:18Z",
+    "project_head": "2026-08-25T21:45:19Z",
+    "expected_sha256": "e0e8257b0a52cc0efcabc8e289d90c34d6e33e0bfffa8fd627119eba6638a5a6",
+    "samples_per_mode": 3,
+    "controls_per_protocol": 6,
+    "capture_point": "client VM 10.66.116.11 ens18",
+    "resumed_utc": "2026-08-25T22:08:50Z",
+    "completed_utc": "2026-08-25T22:22:52Z",
+    "valid_controls_completed_utc": "2026-08-25T22:26:29Z",
+    "wire_h2_completed_utc": "2026-08-25T22:30:50Z"
+  },
+  "corpus_counts": {
+    "feature_rows": 84,
+    "valid_rows": 84
+  },
+  "qeli_flow_by_mode": {
+    "tcp-plain-raw": {
+      "data_size_mean": 926.3474030584088,
+      "data_size_std": 184.13401071871525,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04409471826478797,
+      "data_gap_mean_ms": 1.9201486084536394,
+      "data_gap_cv": 3.5721934484626217,
+      "burst_gap_share": 0.9988608837928102,
+      "direction_switch_share": 0.026194820948025537,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-faketls": {
+      "data_size_mean": 929.7892275581312,
+      "data_size_std": 183.20633089492654,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.043552054210661106,
+      "data_gap_mean_ms": 1.9258286444822559,
+      "data_gap_cv": 3.6494231621416198,
+      "burst_gap_share": 0.9974356528905842,
+      "direction_switch_share": 0.025641038128445894,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-padding": {
+      "data_size_mean": 1045.6495569664023,
+      "data_size_std": 192.89043208531288,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.008555056077818772,
+      "data_gap_mean_ms": 1.9191742058703747,
+      "data_gap_cv": 3.4819164304326304,
+      "burst_gap_share": 0.9965760736009908,
+      "direction_switch_share": 0.026255232053964905,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-frag": {
+      "data_size_mean": 1048.712087136751,
+      "data_size_std": 196.07523487325102,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.011698490762848478,
+      "data_gap_mean_ms": 1.9190400617437822,
+      "data_gap_cv": 3.461751090491664,
+      "burst_gap_share": 0.9988569772600947,
+      "direction_switch_share": 0.025706991210035234,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-obfs": {
+      "data_size_mean": 1053.0039389943333,
+      "data_size_std": 193.60299695779747,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.01027740088436177,
+      "data_gap_mean_ms": 1.9191616813846897,
+      "data_gap_cv": 3.437374398349135,
+      "burst_gap_share": 0.9974285697502291,
+      "direction_switch_share": 0.025714302497709063,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-reality": {
+      "data_size_mean": 929.8461820295528,
+      "data_size_std": 183.21297163035217,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04356375284219947,
+      "data_gap_mean_ms": 1.9146797367442334,
+      "data_gap_cv": 3.4557037241326367,
+      "burst_gap_share": 0.9988596664710628,
+      "direction_switch_share": 0.025648362032496888,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-reality-tls": {
+      "data_size_mean": 952.3473503786912,
+      "data_size_std": 183.42350120056759,
+      "full_mtu_share": 0.0002849002849002849,
+      "small_data_share": 0.04158352006345175,
+      "data_gap_mean_ms": 1.9153345659636267,
+      "data_gap_cv": 3.4541533442302463,
+      "burst_gap_share": 0.9971490474484487,
+      "direction_switch_share": 0.025655648410139426,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "udp-faketls": {
+      "data_size_mean": 927.4758659852356,
+      "data_size_std": 188.3876688796383,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04599659284497445,
+      "data_gap_mean_ms": 1.9123594203297474,
+      "data_gap_cv": 3.510379932894923,
+      "burst_gap_share": 0.9982949701619779,
+      "direction_switch_share": 0.02557544757033248,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.005110732538330494,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "udp-padding": {
+      "data_size_mean": 1043.1572969903464,
+      "data_size_std": 207.240433057586,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.018739352640545145,
+      "data_gap_mean_ms": 1.905210250546628,
+      "data_gap_cv": 3.3935675662193496,
+      "burst_gap_share": 0.9946007388462631,
+      "direction_switch_share": 0.02557544757033248,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.002271436683702442,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "udp-quic": {
+      "data_size_mean": 936.4826802952867,
+      "data_size_std": 188.36845354669154,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04599659284497445,
+      "data_gap_mean_ms": 1.9052309825969846,
+      "data_gap_cv": 3.4025908673735548,
+      "burst_gap_share": 0.996874111963626,
+      "direction_switch_share": 0.02557544757033248,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-obfs-awg": {
+      "data_size_mean": 935.9883351321918,
+      "data_size_std": 183.04396963120303,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04327956205089311,
+      "data_gap_mean_ms": 1.9120765133232014,
+      "data_gap_cv": 3.40740754856526,
+      "burst_gap_share": 0.9980054530441375,
+      "direction_switch_share": 0.025648349513002783,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "udp-faketls-awg": {
+      "data_size_mean": 927.4775695627485,
+      "data_size_std": 188.38303100421652,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04599659284497445,
+      "data_gap_mean_ms": 1.9057661540537403,
+      "data_gap_cv": 3.406458313482265,
+      "burst_gap_share": 0.996874111963626,
+      "direction_switch_share": 0.02557544757033248,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.005110732538330494,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    }
+  },
+  "controls_by_protocol": {
+    "http3": {
+      "data_size_mean": 1101.5349818654342,
+      "data_size_std": 310.88096672747855,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.07899809296512582,
+      "data_gap_mean_ms": 1.4275903395619027,
+      "data_gap_cv": 9.597038970999092,
+      "burst_gap_share": 0.9631603358607981,
+      "direction_switch_share": 0.05879370061162112,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.024853465719173212,
+      "samples": 6
+    },
+    "http2": {
+      "data_size_mean": 1388.1304528731125,
+      "data_size_std": 240.18765632694078,
+      "full_mtu_share": 0.9369077316512948,
+      "small_data_share": 0.01615940150943471,
+      "data_gap_mean_ms": 1.5123551451684296,
+      "data_gap_cv": 12.688865019909768,
+      "burst_gap_share": 0.9654866079503313,
+      "direction_switch_share": 0.014262305234000116,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 6
+    }
+  },
+  "idle": {
+    "tcp-faketls:default": {
+      "events": 22,
+      "directions": {
+        "client_to_server": {
+          "events": 14,
+          "gaps": 13,
+          "gap_mean_s": 2.3108819998227634,
+          "gap_std_s": 7.605871527064135,
+          "gap_cv": 3.2913283878828423,
+          "gap_min_s": 2.1457672119140625e-06,
+          "gap_max_s": 28.6555278301239,
+          "sizes": [
+            [
+              49,
+              1
+            ],
+            [
+              57,
+              1
+            ],
+            [
+              58,
+              1
+            ],
+            [
+              70,
+              1
+            ],
+            [
+              83,
+              2
+            ],
+            [
+              95,
+              3
+            ],
+            [
+              127,
+              3
+            ],
+            [
+              133,
+              1
+            ],
+            [
+              1448,
+              1
+            ]
+          ]
+        },
+        "server_to_client": {
+          "events": 8,
+          "gaps": 7,
+          "gap_mean_s": 4.292370285306658,
+          "gap_std_s": 9.954328385550275,
+          "gap_cv": 2.3190749455202493,
+          "gap_min_s": 4.00543212890625e-05,
+          "gap_max_s": 28.660501956939697,
+          "sizes": [
+            [
+              86,
+              1
+            ],
+            [
+              121,
+              1
+            ],
+            [
+              127,
+              3
+            ],
+            [
+              875,
+              1
+            ],
+            [
+              880,
+              1
+            ],
+            [
+              1217,
+              1
+            ]
+          ]
+        }
+      }
+    },
+    "tcp-reality-tls:shaped": {
+      "events": 71,
+      "directions": {
+        "client_to_server": {
+          "events": 38,
+          "gaps": 37,
+          "gap_mean_s": 0.5189658951114964,
+          "gap_std_s": 0.36765225598559126,
+          "gap_cv": 0.708432402685351,
+          "gap_min_s": 0.10847091674804688,
+          "gap_max_s": 1.356369972229004,
+          "sizes": [
+            [
+              117,
+              1
+            ],
+            [
+              135,
+              1
+            ],
+            [
+              139,
+              1
+            ],
+            [
+              149,
+              3
+            ],
+            [
+              165,
+              1
+            ],
+            [
+              203,
+              1
+            ],
+            [
+              237,
+              1
+            ],
+            [
+              288,
+              1
+            ],
+            [
+              292,
+              1
+            ],
+            [
+              296,
+              1
+            ],
+            [
+              308,
+              1
+            ],
+            [
+              413,
+              1
+            ],
+            [
+              426,
+              1
+            ],
+            [
+              453,
+              1
+            ],
+            [
+              464,
+              1
+            ],
+            [
+              508,
+              1
+            ],
+            [
+              509,
+              1
+            ],
+            [
+              531,
+              1
+            ],
+            [
+              550,
+              1
+            ],
+            [
+              572,
+              1
+            ],
+            [
+              597,
+              1
+            ],
+            [
+              644,
+              1
+            ],
+            [
+              724,
+              1
+            ],
+            [
+              753,
+              1
+            ],
+            [
+              773,
+              1
+            ],
+            [
+              813,
+              1
+            ],
+            [
+              829,
+              1
+            ],
+            [
+              845,
+              1
+            ],
+            [
+              875,
+              1
+            ],
+            [
+              886,
+              1
+            ],
+            [
+              889,
+              1
+            ],
+            [
+              918,
+              1
+            ],
+            [
+              957,
+              1
+            ],
+            [
+              970,
+              1
+            ],
+            [
+              999,
+              1
+            ],
+            [
+              1037,
+              1
+            ]
+          ]
+        },
+        "server_to_client": {
+          "events": 33,
+          "gaps": 32,
+          "gap_mean_s": 0.6112642511725426,
+          "gap_std_s": 0.33466474287168174,
+          "gap_cv": 0.5474960170330906,
+          "gap_min_s": 0.07228517532348633,
+          "gap_max_s": 1.3850910663604736,
+          "sizes": [
+            [
+              149,
+              3
+            ],
+            [
+              161,
+              1
+            ],
+            [
+              178,
+              1
+            ],
+            [
+              181,
+              1
+            ],
+            [
+              192,
+              1
+            ],
+            [
+              211,
+              1
+            ],
+            [
+              213,
+              1
+            ],
+            [
+              258,
+              1
+            ],
+            [
+              298,
+              1
+            ],
+            [
+              364,
+              1
+            ],
+            [
+              410,
+              1
+            ],
+            [
+              438,
+              1
+            ],
+            [
+              467,
+              1
+            ],
+            [
+              482,
+              1
+            ],
+            [
+              578,
+              1
+            ],
+            [
+              580,
+              1
+            ],
+            [
+              584,
+              1
+            ],
+            [
+              620,
+              1
+            ],
+            [
+              655,
+              1
+            ],
+            [
+              669,
+              1
+            ],
+            [
+              706,
+              1
+            ],
+            [
+              738,
+              1
+            ],
+            [
+              742,
+              1
+            ],
+            [
+              744,
+              1
+            ],
+            [
+              775,
+              1
+            ],
+            [
+              785,
+              1
+            ],
+            [
+              816,
+              1
+            ],
+            [
+              818,
+              1
+            ],
+            [
+              901,
+              1
+            ],
+            [
+              914,
+              1
+            ],
+            [
+              957,
+              1
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "leave_one_mode_out": {
+    "logistic": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "held_mode": "tcp-faketls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9895160868602387
+        },
+        {
+          "held_mode": "tcp-frag",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9837179281997382
+        },
+        {
+          "held_mode": "tcp-obfs",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9829760361661727
+        },
+        {
+          "held_mode": "tcp-obfs-awg",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9894437280229881
+        },
+        {
+          "held_mode": "tcp-padding",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9854040515197314
+        },
+        {
+          "held_mode": "tcp-plain-raw",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9904912878758362
+        },
+        {
+          "held_mode": "tcp-reality",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9905342231991318
+        },
+        {
+          "held_mode": "tcp-reality-tls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9855788632944137
+        },
+        {
+          "held_mode": "udp-faketls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9910307987424289
+        },
+        {
+          "held_mode": "udp-faketls-awg",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9910042225769903
+        },
+        {
+          "held_mode": "udp-padding",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9520259202146552
+        },
+        {
+          "held_mode": "udp-quic",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9824681050843908
+        }
+      ]
+    },
+    "nearest_centroid": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "held_mode": "tcp-faketls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9487047923405897
+        },
+        {
+          "held_mode": "tcp-frag",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8512236474549155
+        },
+        {
+          "held_mode": "tcp-obfs",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8403585338454947
+        },
+        {
+          "held_mode": "tcp-obfs-awg",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9506959938562628
+        },
+        {
+          "held_mode": "tcp-padding",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8512445088551512
+        },
+        {
+          "held_mode": "tcp-plain-raw",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9479557698348561
+        },
+        {
+          "held_mode": "tcp-reality",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9481819735755135
+        },
+        {
+          "held_mode": "tcp-reality-tls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.9519084380601549
+        },
+        {
+          "held_mode": "udp-faketls",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8245951746231994
+        },
+        {
+          "held_mode": "udp-faketls-awg",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8269434756775041
+        },
+        {
+          "held_mode": "udp-padding",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.7719896049498693
+        },
+        {
+          "held_mode": "udp-quic",
+          "qeli_detected": 3,
+          "qeli_total": 3,
+          "control_false_positive": 0,
+          "control_total": 1,
+          "qeli_probability_mean": 0.8800443193619699
+        }
+      ]
+    }
+  },
+  "stealth_throughput": [
+    {
+      "kind": "stealth-throughput",
+      "rate_mbps": 2,
+      "handshake": {
+        "remote_bytes": 17763,
+        "local_bytes": 17763
+      },
+      "auth_ok": true,
+      "auth_seconds": 0.75,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 305ms\nrtt min/avg/max/mdev = 0.802/0.971/1.208/0.172 ms",
+      "client_tail": "2026-08-26 01:20:55.194 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 01:20:55.194 INFO  qeli::client: server push: shaping APPLIED (enabled=true gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=true stealth_Mbps=2)\n2026-08-26 01:20:55.194 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 01:20:55.194 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 01:20:55.194 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 01:20:55.194 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 01:20:55.197 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 01:20:55.199 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 01:20:55.202 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 01:20:55.202 INFO  qeli::transport_core::linux_tun: TUN writer started",
+      "server_tail": "==> /tmp/qs.log <==\n\n==> /var/log/qeli/server.log <==\n2026-08-26 01:20:52.554 INFO  qeli::server: Profile 'bench' listening on 0.0.0.0:443 (TCP)\n2026-08-26 01:20:52.554 INFO  qeli::server: TUN reader q0 for profile 'bench' started\n2026-08-26 01:20:52.555 INFO  qeli::server: TUN writer q0 for profile 'bench' started\n2026-08-26 01:20:52.556 INFO  qeli::server: TUN reader q1 for profile 'bench' started\n2026-08-26 01:20:52.556 INFO  qeli::server: TUN writer q1 for profile 'bench' started\n2026-08-26 01:20:55.136 INFO  qeli::server: New TCP connection from 10.66.116.11:20840 on profile 'bench'\n2026-08-26 01:20:55.136 INFO  qeli::server::reality: REALITY: Qeli client detected from 10.66.116.11:20840 on profile 'bench'\n2026-08-26 01:20:55.138 INFO  qeli::server::handler: AUTH attempt from 10.66.116.11:20840 on profile 'bench': user=user#1b32c28cb38c05480eccc1bd\n2026-08-26 01:20:55.162 INFO  qeli::server::handler: AUTH OK TCP 10.66.116.11:20840: user=user#1b32c28cb38c05480eccc1bd on profile 'bench'\n2026-08-26 01:20:55.162 INFO  qeli::server::handler: Client 10.66.116.11:20840 (user#1b32c28cb38c05480eccc1bd) connected on profile 'bench', IP: 10.9.0.2, bandwidth_limit: 0 Mbps, streams<=1\n2026-08-26 01:20:55.172 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reported tunnel MTU 1400\n2026-08-26 01:20:55.172 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reports qeli 0.8.0 on linux",
+      "up": {
+        "ok": true,
+        "bps": 2051961.8,
+        "lost_percent": null
+      },
+      "down": {
+        "ok": true,
+        "bps": 2095009.6,
+        "lost_percent": null
+      }
+    },
+    {
+      "kind": "stealth-throughput",
+      "rate_mbps": 10,
+      "handshake": {
+        "remote_bytes": 17177,
+        "local_bytes": 17177
+      },
+      "auth_ok": true,
+      "auth_seconds": 0.75,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 301ms\nrtt min/avg/max/mdev = 0.801/1.048/1.271/0.192 ms",
+      "client_tail": "2026-08-26 01:21:47.735 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 01:21:47.735 INFO  qeli::client: server push: shaping APPLIED (enabled=true gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=true stealth_Mbps=10)\n2026-08-26 01:21:47.735 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 01:21:47.735 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 01:21:47.735 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 01:21:47.735 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 01:21:47.738 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 01:21:47.741 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 01:21:47.744 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 01:21:47.745 INFO  qeli::transport_core::linux_tun: TUN writer started",
+      "server_tail": "==> /tmp/qs.log <==\n\n==> /var/log/qeli/server.log <==\n2026-08-26 01:21:45.090 INFO  qeli::server: Profile 'bench' listening on 0.0.0.0:443 (TCP)\n2026-08-26 01:21:45.090 INFO  qeli::server: TUN reader q0 for profile 'bench' started\n2026-08-26 01:21:45.090 INFO  qeli::server: TUN writer q0 for profile 'bench' started\n2026-08-26 01:21:45.091 INFO  qeli::server: TUN writer q1 for profile 'bench' started\n2026-08-26 01:21:45.092 INFO  qeli::server: TUN reader q1 for profile 'bench' started\n2026-08-26 01:21:47.674 INFO  qeli::server: New TCP connection from 10.66.116.11:15810 on profile 'bench'\n2026-08-26 01:21:47.674 INFO  qeli::server::reality: REALITY: Qeli client detected from 10.66.116.11:15810 on profile 'bench'\n2026-08-26 01:21:47.677 INFO  qeli::server::handler: AUTH attempt from 10.66.116.11:15810 on profile 'bench': user=user#1b32c28cb38c05480eccc1bd\n2026-08-26 01:21:47.702 INFO  qeli::server::handler: AUTH OK TCP 10.66.116.11:15810: user=user#1b32c28cb38c05480eccc1bd on profile 'bench'\n2026-08-26 01:21:47.702 INFO  qeli::server::handler: Client 10.66.116.11:15810 (user#1b32c28cb38c05480eccc1bd) connected on profile 'bench', IP: 10.9.0.2, bandwidth_limit: 0 Mbps, streams<=1\n2026-08-26 01:21:47.713 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reported tunnel MTU 1400\n2026-08-26 01:21:47.713 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reports qeli 0.8.0 on linux",
+      "up": {
+        "ok": true,
+        "bps": 11075940.4,
+        "lost_percent": null
+      },
+      "down": {
+        "ok": true,
+        "bps": 11107279.3,
+        "lost_percent": null
+      }
+    },
+    {
+      "kind": "stealth-throughput",
+      "rate_mbps": 25,
+      "handshake": {
+        "remote_bytes": 16041,
+        "local_bytes": 16041
+      },
+      "auth_ok": true,
+      "auth_seconds": 0.75,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 304ms\nrtt min/avg/max/mdev = 0.668/0.866/1.102/0.179 ms",
+      "client_tail": "2026-08-26 01:22:38.379 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 01:22:38.379 INFO  qeli::client: server push: shaping APPLIED (enabled=true gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=true stealth_Mbps=25)\n2026-08-26 01:22:38.379 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 01:22:38.379 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 01:22:38.379 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 01:22:38.379 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 01:22:38.383 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 01:22:38.386 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 01:22:38.388 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 01:22:38.389 INFO  qeli::transport_core::linux_tun: TUN reader started",
+      "server_tail": "==> /tmp/qs.log <==\n\n==> /var/log/qeli/server.log <==\n2026-08-26 01:22:35.741 INFO  qeli::server: Profile 'bench' listening on 0.0.0.0:443 (TCP)\n2026-08-26 01:22:35.742 INFO  qeli::server: TUN reader q0 for profile 'bench' started\n2026-08-26 01:22:35.743 INFO  qeli::server: TUN reader q1 for profile 'bench' started\n2026-08-26 01:22:35.743 INFO  qeli::server: TUN writer q0 for profile 'bench' started\n2026-08-26 01:22:35.744 INFO  qeli::server: TUN writer q1 for profile 'bench' started\n2026-08-26 01:22:38.320 INFO  qeli::server: New TCP connection from 10.66.116.11:56852 on profile 'bench'\n2026-08-26 01:22:38.320 INFO  qeli::server::reality: REALITY: Qeli client detected from 10.66.116.11:56852 on profile 'bench'\n2026-08-26 01:22:38.322 INFO  qeli::server::handler: AUTH attempt from 10.66.116.11:56852 on profile 'bench': user=user#1b32c28cb38c05480eccc1bd\n2026-08-26 01:22:38.346 INFO  qeli::server::handler: AUTH OK TCP 10.66.116.11:56852: user=user#1b32c28cb38c05480eccc1bd on profile 'bench'\n2026-08-26 01:22:38.346 INFO  qeli::server::handler: Client 10.66.116.11:56852 (user#1b32c28cb38c05480eccc1bd) connected on profile 'bench', IP: 10.9.0.2, bandwidth_limit: 0 Mbps, streams<=1\n2026-08-26 01:22:38.356 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reported tunnel MTU 1400\n2026-08-26 01:22:38.357 INFO  qeli::server::handler: client 'user#1b32c28cb38c05480eccc1bd' (10.9.0.2) reports qeli 0.8.0 on linux",
+      "up": {
+        "ok": true,
+        "bps": 27999978.5,
+        "lost_percent": null
+      },
+      "down": {
+        "ok": true,
+        "bps": 27864084.8,
+        "lost_percent": null
+      }
+    }
+  ]
+}

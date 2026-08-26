@@ -13,8 +13,8 @@ namespace Qeli.Shared.Model;
 /// Writing these fixtures immediately exposed one such split: Swift and C# rejected an
 /// out-of-range port while Rust accepted 0 and Kotlin accepted anything at all.
 ///
-/// Lives in the shared library so the Windows and macOS <c>selftest</c> verbs both run it
-/// (CI executes that verb on both platforms).
+/// Compiled only by the standalone <c>QeliConformance selftest</c> runner on both
+/// desktop CI hosts; production clients do not carry fixture discovery or test code.
 /// </summary>
 public static class LinkConformance
 {

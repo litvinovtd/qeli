@@ -353,7 +353,9 @@ REALITY crypto is silent: an invalid client is **transparently proxied to `targe
 | Message | Level | Meaning |
 |---|---|---|
 | `REALITY: Qeli client detected from <addr> …` | INFO | the client passed the short_id discriminator + anti-replay |
-| `REALITY: Qeli client <addr> … failed after the handshake discriminator (likely config/version/core mismatch): <e>` | WARN | the short_id matched, but the **inner** qeli handshake failed — almost always a config/version/core mismatch (not a probe). Check `key`, `reality_sid`, versions |
+| `REALITY: Qeli client <addr> … failed after the handshake discriminator (likely config/version/core mismatch): <e>` | WARN | the short_id matched, but the authenticated carrier or subsequent qeli exchange failed — usually a config/version/core mismatch (not a probe). Check `key`, `reality_sid`, versions and upgrade order |
+| `REALITY: genuine HTTP/2 carrier established with <addr>` | DEBUG | the current H2 carrier is established; normal qeli auth follows |
+| `REALITY HTTP/2 carrier timed out/failed for <addr>: <e>` | WARN/error context | Reality discrimination succeeded but H2 did not. Check server-first upgrade order and remove any upstream TLS termination/H2 conversion |
 | `REALITY: replayed session_id … — bridging as probe` | WARN | a session_id repeated within the window (captured-ClientHello replay) — bridged as a probe |
 | `REALITY: failed to connect to backend <target>: <e>` | WARN | the server couldn't reach the decoy site |
 
@@ -362,6 +364,10 @@ ClientHello didn't parse; key_share ≠ 32 B; the AEAD session_id didn't open **
 timestamp is outside ±120 s (check the clock!); **short_id not in the allow-list**
 (`short_ids`). The last is the most common "reality won't let me in" cause: the
 client's `reality_sid` must be in the server's `obf.tls.reality_proxy.short_ids`.
+
+For the current path the client also logs `REALITY-TLS carrier: genuine HTTP/2 stream` at INFO.
+Upgrade the server first: the new server accepts H2 and the legacy Reality carrier, while the
+new client is H2-only. A reverse proxy/LB in front of qeli must use transparent TCP pass-through.
 
 ### 4.7 Web panel
 
@@ -444,7 +450,9 @@ retries; Android — `[SECURITY]` + stop):**
 ### 5.3 Liveness / reconnect (why it drops and reconnects)
 
 The RX watchdog counts only records that pass framing, length and AEAD authentication.
-For heartbeat its deadline is `max(3×(interval+jitter), 30s)`; for shaping it is
+Reality/H2 forces qeli heartbeat off even when an old local/pushed config enables it; its liveness
+comes from the carrier and normal authenticated traffic. In other modes, for heartbeat the deadline
+is `max(3×(interval+jitter), 30s)`; for shaping it is
 `max(3×(idle_gap_max+1s), 30s)`. On an authenticated-downlink loss the client tears the
 link down and reconnects. With both mechanisms disabled there is no RX watchdog. Backoff
 is exponential (cap 60s), retries are infinite by default.

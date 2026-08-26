@@ -364,7 +364,7 @@ leak verification are documented in the [IPv6 guide](IPV6.md).
   `off|route|nat66` + pushed routes, dual-family DNS + blocklist,
   DHCP (TAP only — see below),
   obfuscation (mode/cipher/fronting, TLS masking + SNI pool, REALITY +
-  `handrolled`/`peek`, padding, heartbeat, fragmentation, http2, traffic-norm,
+  `handrolled`/`peek`, padding, heartbeat, fragmentation, the automatic Reality/H2 carrier (no user switch), traffic-norm,
   anti-fingerprint, QUIC, **multipath**), performance (limits, rate-limit/
   new-session, TCP/TUN buffers).
 - **Global** — Authentication (incl. `bind_static_to_session` H-1), Web UI (TLS,

@@ -22,6 +22,7 @@
 //! the connection reconnects with a fresh nonce — fail-safe, never reusing
 //! keystream. Document for very-high-volume long-lived links.
 
+use bytes::BytesMut;
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use chacha20::ChaCha20;
 use rand::prelude::*;
@@ -1029,6 +1030,24 @@ pub fn obfs_datagram_open(key: &[u8; 32], datagram: &[u8]) -> Option<Vec<u8>> {
     Some(body)
 }
 
+/// Open one sealed datagram in the caller's receive buffer.
+///
+/// The wire format is identical to [`obfs_datagram_open`]. Moving the encrypted body over its
+/// small nonce prefix lets the UDP hot path reuse a pooled receive slot instead of allocating a
+/// temporary `Vec` for every keyed-obfs datagram.
+fn obfs_datagram_open_in_place(key: &[u8; 32], datagram: &mut [u8]) -> Option<usize> {
+    if datagram.len() < 1 + NONCE_LEN {
+        return None;
+    }
+    let mut nonce = [0u8; NONCE_LEN];
+    nonce.copy_from_slice(&datagram[1..1 + NONCE_LEN]);
+    let body_start = 1 + NONCE_LEN;
+    let body_len = datagram.len() - body_start;
+    datagram.copy_within(body_start.., 0);
+    cipher_from(key, &nonce).apply_keystream(&mut datagram[..body_len]);
+    Some(body_len)
+}
+
 /// A `tokio::net::UdpSocket` with transparent per-datagram obfs. When `key` is
 /// `None` it is a pass-through, so the UDP data-plane code is written once and
 /// works for both `fake-tls` and `obfs` wire modes. Mirrors the subset of the
@@ -1070,13 +1089,31 @@ impl ObfsUdp {
     pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, std::net::SocketAddr)> {
         let (n, addr) = self.sock.recv_from(buf).await?;
         match &self.key {
-            Some(k) => match obfs_datagram_open(k, &buf[..n]) {
-                Some(plain) => {
-                    let m = plain.len().min(buf.len());
-                    buf[..m].copy_from_slice(&plain[..m]);
-                    Ok((m, addr)) // m may be < real len if buf too small (won't happen: payload<recv buf)
-                }
+            Some(k) => match obfs_datagram_open_in_place(k, &mut buf[..n]) {
+                Some(m) => Ok((m, addr)),
                 None => Ok((0, addr)), // malformed obfs frame → caller skips (n==0)
+            },
+            None => Ok((n, addr)),
+        }
+    }
+
+    /// Receive into spare `BytesMut` capacity and open keyed obfs in place.
+    pub async fn recv_buf_from(
+        &self,
+        buf: &mut BytesMut,
+    ) -> io::Result<(usize, std::net::SocketAddr)> {
+        let start = buf.len();
+        let (n, addr) = self.sock.recv_buf_from(buf).await?;
+        match &self.key {
+            Some(key) => match obfs_datagram_open_in_place(key, &mut buf[start..start + n]) {
+                Some(plain_len) => {
+                    buf.truncate(start + plain_len);
+                    Ok((plain_len, addr))
+                }
+                None => {
+                    buf.truncate(start);
+                    Ok((0, addr))
+                }
             },
             None => Ok((n, addr)),
         }
@@ -1092,13 +1129,28 @@ impl ObfsUdp {
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.sock.recv(buf).await?;
         match &self.key {
-            Some(k) => match obfs_datagram_open(k, &buf[..n]) {
-                Some(plain) => {
-                    let m = plain.len().min(buf.len());
-                    buf[..m].copy_from_slice(&plain[..m]);
-                    Ok(m)
-                }
+            Some(k) => match obfs_datagram_open_in_place(k, &mut buf[..n]) {
+                Some(m) => Ok(m),
                 None => Ok(0),
+            },
+            None => Ok(n),
+        }
+    }
+
+    /// Connected-socket counterpart of [`Self::recv_buf_from`].
+    pub async fn recv_buf(&self, buf: &mut BytesMut) -> io::Result<usize> {
+        let start = buf.len();
+        let n = self.sock.recv_buf(buf).await?;
+        match &self.key {
+            Some(key) => match obfs_datagram_open_in_place(key, &mut buf[start..start + n]) {
+                Some(plain_len) => {
+                    buf.truncate(start + plain_len);
+                    Ok(plain_len)
+                }
+                None => {
+                    buf.truncate(start);
+                    Ok(0)
+                }
             },
             None => Ok(n),
         }
@@ -1835,6 +1887,11 @@ mod tests {
         assert_eq!(sealed.len(), 1 + NONCE_LEN + plain.len());
         // round-trips
         assert_eq!(obfs_datagram_open(&key, &sealed).unwrap(), plain);
+        let mut in_place = sealed.clone();
+        let plain_len = obfs_datagram_open_in_place(&key, &mut in_place).unwrap();
+        assert_eq!(plain_len, plain.len());
+        assert_eq!(&in_place[..plain_len], plain);
+        assert_eq!(in_place.len(), sealed.len());
         // two seals of the same payload differ (fresh nonce each time)
         assert_ne!(
             obfs_datagram_seal(&key, plain),

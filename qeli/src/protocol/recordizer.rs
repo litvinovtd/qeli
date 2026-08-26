@@ -303,13 +303,14 @@ fn random_duration(min: Duration, max: Duration) -> Duration {
 #[derive(Debug)]
 struct Chunk {
     offset: usize,
-    bytes: Vec<u8>,
+    len: usize,
 }
 
 #[derive(Debug)]
 struct PendingPacket {
     created_at: Instant,
     total_len: usize,
+    bytes: Vec<u8>,
     chunks: Vec<Chunk>,
     received_bytes: usize,
 }
@@ -332,10 +333,33 @@ impl Reassembler {
     }
 
     pub fn decode(&mut self, record: &[u8]) -> Result<Vec<Vec<u8>>, RecordizerError> {
-        self.decode_at(record, Instant::now())
+        let mut completed = Vec::new();
+        self.decode_with_at(record, Instant::now(), |packet| {
+            completed.push(packet.to_vec());
+        })?;
+        Ok(completed)
     }
 
-    fn decode_at(&mut self, record: &[u8], now: Instant) -> Result<Vec<Vec<u8>>, RecordizerError> {
+    /// Decode one mux envelope and synchronously visit every completed inner packet.
+    ///
+    /// Whole packets borrow the authenticated record directly, avoiding the old allocation per
+    /// UDP datagram. Fragmented packets are assembled in one pre-sized buffer and borrowed from
+    /// that allocation for the duration of the callback. The compatibility [`Self::decode`]
+    /// wrapper remains for callers that need owned packets.
+    pub fn decode_with(
+        &mut self,
+        record: &[u8],
+        completed: impl FnMut(&[u8]),
+    ) -> Result<(), RecordizerError> {
+        self.decode_with_at(record, Instant::now(), completed)
+    }
+
+    fn decode_with_at(
+        &mut self,
+        record: &[u8],
+        now: Instant,
+        mut completed: impl FnMut(&[u8]),
+    ) -> Result<(), RecordizerError> {
         self.expire(now);
         if record.len() < MAGIC.len() {
             return Err(RecordizerError::Truncated);
@@ -344,7 +368,6 @@ impl Reassembler {
             return Err(RecordizerError::Unsupported);
         }
         let mut cursor = MAGIC.len();
-        let mut completed = Vec::new();
         while cursor < record.len() {
             if record.len() - cursor < FRAME_HEADER_LEN {
                 return Err(RecordizerError::Truncated);
@@ -381,7 +404,7 @@ impl Reassembler {
                     self.remove(packet_id);
                     return Err(RecordizerError::Conflict);
                 }
-                completed.push(payload.to_vec());
+                completed(payload);
                 continue;
             }
             if let Some(packet) = self.pending.get(&packet_id) {
@@ -389,12 +412,13 @@ impl Reassembler {
                     self.remove(packet_id);
                     return Err(RecordizerError::Conflict);
                 }
-                if let Some(chunk) = packet
+                if packet
                     .chunks
                     .iter()
-                    .find(|chunk| chunk.offset == offset && chunk.bytes.len() == payload_len)
+                    .find(|chunk| chunk.offset == offset && chunk.len == payload_len)
+                    .is_some()
                 {
-                    if chunk.bytes == payload {
+                    if &packet.bytes[offset..offset + payload_len] == payload {
                         continue;
                     }
                     self.remove(packet_id);
@@ -402,7 +426,7 @@ impl Reassembler {
                 }
                 let new_end = offset + payload_len;
                 if packet.chunks.iter().any(|chunk| {
-                    let old_end = chunk.offset + chunk.bytes.len();
+                    let old_end = chunk.offset + chunk.len;
                     offset < old_end && chunk.offset < new_end
                 }) {
                     self.remove(packet_id);
@@ -412,19 +436,21 @@ impl Reassembler {
                 if self.pending.len() >= self.config.max_inflight_packets {
                     return Err(RecordizerError::ResourceLimit);
                 }
+                if self.buffered_bytes.saturating_add(total_len) > self.config.max_reassembly_bytes
+                {
+                    return Err(RecordizerError::ResourceLimit);
+                }
                 self.pending.insert(
                     packet_id,
                     PendingPacket {
                         created_at: now,
                         total_len,
+                        bytes: vec![0; total_len],
                         chunks: Vec::new(),
                         received_bytes: 0,
                     },
                 );
-            }
-            if self.buffered_bytes.saturating_add(payload_len) > self.config.max_reassembly_bytes {
-                self.remove(packet_id);
-                return Err(RecordizerError::ResourceLimit);
+                self.buffered_bytes += total_len;
             }
             if self
                 .pending
@@ -435,37 +461,26 @@ impl Reassembler {
                 return Err(RecordizerError::ResourceLimit);
             }
             let packet = self.pending.get_mut(&packet_id).expect("packet exists");
+            packet.bytes[offset..offset + payload_len].copy_from_slice(payload);
             packet.chunks.push(Chunk {
                 offset,
-                bytes: payload.to_vec(),
+                len: payload_len,
             });
             packet.received_bytes += payload_len;
-            self.buffered_bytes += payload_len;
 
             if packet.received_bytes == packet.total_len {
-                let mut packet = self
+                let packet = self
                     .pending
                     .remove(&packet_id)
                     .expect("complete packet exists");
-                self.buffered_bytes = self.buffered_bytes.saturating_sub(packet.received_bytes);
-                packet.chunks.sort_by_key(|chunk| chunk.offset);
-                let mut bytes = Vec::with_capacity(packet.total_len);
-                for chunk in packet.chunks {
-                    if chunk.offset != bytes.len() {
-                        return Err(RecordizerError::Conflict);
-                    }
-                    bytes.extend_from_slice(&chunk.bytes);
-                }
-                if bytes.len() != packet.total_len {
-                    return Err(RecordizerError::Conflict);
-                }
-                completed.push(bytes);
+                self.buffered_bytes = self.buffered_bytes.saturating_sub(packet.total_len);
+                completed(&packet.bytes);
             }
         }
         if cursor == MAGIC.len() {
             return Err(RecordizerError::InvalidMetadata);
         }
-        Ok(completed)
+        Ok(())
     }
 
     fn expire(&mut self, now: Instant) {
@@ -484,7 +499,7 @@ impl Reassembler {
 
     fn remove(&mut self, packet_id: u32) {
         if let Some(packet) = self.pending.remove(&packet_id) {
-            self.buffered_bytes = self.buffered_bytes.saturating_sub(packet.received_bytes);
+            self.buffered_bytes = self.buffered_bytes.saturating_sub(packet.total_len);
         }
     }
 }
@@ -527,6 +542,31 @@ mod tests {
             rx.decode(&record).unwrap(),
             vec![b"one".to_vec(), b"two".to_vec()]
         );
+    }
+
+    #[test]
+    fn whole_packet_decode_with_borrows_the_authenticated_record() {
+        let payload = b"borrowed packet";
+        let mut record = Vec::from(MAGIC.as_slice());
+        record.extend_from_slice(&7u32.to_be_bytes());
+        record.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        record.extend_from_slice(&0u16.to_be_bytes());
+        record.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        record.extend_from_slice(payload);
+
+        let record_start = record.as_ptr() as usize;
+        let record_end = record_start + record.len();
+        let mut calls = 0;
+        Reassembler::new(config(256))
+            .decode_with(&record, |packet| {
+                calls += 1;
+                assert_eq!(packet, payload);
+                let packet_start = packet.as_ptr() as usize;
+                assert!(packet_start >= record_start);
+                assert!(packet_start + packet.len() <= record_end);
+            })
+            .unwrap();
+        assert_eq!(calls, 1);
     }
 
     #[test]

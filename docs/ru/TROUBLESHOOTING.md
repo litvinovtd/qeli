@@ -353,7 +353,9 @@ IP-адреса; неизвестному юзеру всё равно «тра�
 | Сообщение | Уровень | Что значит |
 |---|---|---|
 | `REALITY: Qeli client detected from <addr> …` | INFO | клиент прошёл short_id-дискриминатор + anti-replay |
-| `REALITY: Qeli client <addr> … failed after the handshake discriminator (likely config/version/core mismatch): <e>` | WARN | short_id совпал, но **внутренний** qeli-хендшейк упал — почти всегда рассинхрон конфига/версии/ядра (а не probe). Сверьте `key`, `reality_sid`, версии |
+| `REALITY: Qeli client <addr> … failed after the handshake discriminator (likely config/version/core mismatch): <e>` | WARN | short_id совпал, но аутентифицированный carrier или следующий qeli-обмен упал — обычно рассинхрон конфига/версии/ядра (не probe). Сверьте `key`, `reality_sid`, версии и порядок обновления |
+| `REALITY: genuine HTTP/2 carrier established with <addr>` | DEBUG | текущий H2 carrier установлен; далее идёт обычная qeli-аутентификация |
+| `REALITY HTTP/2 carrier timed out/failed for <addr>: <e>` | WARN/error context | REALITY discriminator прошёл, но H2 не поднялся. Проверьте server-first порядок и уберите TLS termination/H2 conversion перед qeli |
 | `REALITY: replayed session_id … — bridging as probe` | WARN | повтор session_id в окне (replay захваченного ClientHello) — забриджено как probe |
 | `REALITY: failed to connect to backend <target>: <e>` | WARN | сервер не смог достучаться до decoy-сайта |
 
@@ -362,6 +364,10 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 ±120 с (проверьте часы!); **short_id не в allow-list** (`short_ids`). Последнее —
 самая частая причина «reality не пускает»: `reality_sid` клиента должен быть в
 `obf.tls.reality_proxy.short_ids` сервера.
+
+На актуальном пути клиент также пишет INFO `REALITY-TLS carrier: genuine HTTP/2 stream`.
+Обновляйте сначала сервер: новый сервер принимает H2 и legacy Reality carrier, новый клиент —
+только H2. Reverse proxy/LB перед qeli должен работать как прозрачный TCP pass-through.
 
 ### 4.7 Веб-панель
 
@@ -444,7 +450,9 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 ### 5.3 Liveness / реконнект (почему рвётся и переподключается)
 
 RX-watchdog считает только записи, прошедшие framing, проверку длины и AEAD-аутентификацию.
-Для heartbeat порог равен `max(3×(interval+jitter), 30с)`, для shaping —
+Reality/H2 принудительно выключает qeli heartbeat даже при старом local/pushed значении; liveness
+обеспечивают carrier и обычный аутентифицированный трафик. В остальных режимах для heartbeat
+порог равен `max(3×(interval+jitter), 30с)`, для shaping —
 `max(3×(idle_gap_max+1с), 30с)`. При потере аутентифицированного downlink клиент рвёт линк
 и переподключается. Если оба механизма выключены, RX-watchdog отсутствует. Backoff
 экспоненциальный (потолок 60с), ретраи по умолчанию бесконечны.

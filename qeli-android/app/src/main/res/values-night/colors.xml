@@ -24,10 +24,6 @@
     <color name="status_connecting">#FFB300</color>
     <color name="status_error">#FF6B6B</color>
 
-    <color name="error">#FF6B6B</color>
     <color name="accent">#19E07C</color>
 
-    <color name="colorPrimary">#5AA8FF</color>
-    <color name="colorPrimaryDark">#0F1018</color>
-    <color name="colorAccent">#19E07C</color>
 </resources>

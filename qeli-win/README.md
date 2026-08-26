@@ -7,11 +7,11 @@ Wintun session/rings; C# управляет lifecycle/reconnect, создани�
 маршрутами/DNS/kill-switch, trust и UI. Только для per-app-профиля C# передаёт
 перехваченные WinDivert-пакеты в то же Rust-ядро через общий packet-device ABI.
 
-Режим **`reality-tls`** несёт туннель внутри *настоящего* браузерного TLS 1.3
-(byte-exact Chrome ClientHello, JA4 `t13d1516h2_8daaf6152771`): qeli-протокол
-работает **вложенно** внутри этой TLS-сессии, на проводе DPI видит только реальный
-Chrome-handshake. Весь transport, включая внешний TLS-слой, выполняет общее Rust-ядро
-через P/Invoke — нативная `qeli.dll` с whole-client ABI, вшитая в exe.
+Режим **`reality-tls`** использует браузероподобный TLS 1.3 и настоящий HTTP/2 carrier:
+один streaming POST с ALPN `h2` и случайным batching, без прежнего внутреннего fake-TLS
+handshake/framing. Внешний TLS и внутренний qeli AEAD сохраняются. Весь transport выполняет
+общее Rust-ядро через P/Invoke — версия попадёт пользователю только после пересборки и
+установки exe с обновлённой `qeli.dll`; сервер не обновляет ядро установленного клиента.
 
 ## Технологии
 
@@ -38,7 +38,7 @@ qeli-win/
 │   ├── wintun/wintun.dll  (встраивается в exe как ресурс)
 │   └── windivert/         WinDivert.dll + WinDivert64.sys (встраиваются в exe)
 ├── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
-└── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
+└── ../qeli-shared/    production lifecycle/model + отдельный QeliConformance runner
 ```
 
 ## Запуск
@@ -113,12 +113,12 @@ IPv6 tunnel resolver и наоборот через семейство-прео�
 | SNI | пресеты доменов + произвольный |
 | QUIC-маскировка | вкл/выкл (для UDP) |
 | Паддинг (маскировка размера) | выкл / стандартный / усиленный / максимальный |
-| Heartbeat (keep-alive) | выкл / 15с / 30с / 60с |
+| Heartbeat (keep-alive) | выкл / 15с / 30с / 60с; Reality/H2 принудительно игнорирует |
 | Ключ obfs (PSK) | для режима obfs |
 
-`reality-tls` — полноценный клиентский режим (см. выше: настоящий Chrome-TLS 1.3
-через `qeli.dll`). REALITY-**proxy**, fragmentation, traffic-normalization,
-http2-masking, anti-fingerprinting — **серверные** механизмы, для клиента прозрачны.
+`reality-tls` — полноценный клиентский режим (TLS 1.3 + автоматический настоящий H2
+через `qeli.dll`). Отдельного `http2-masking` переключателя нет; REALITY bridge/proxy,
+fragmentation, traffic-normalization и anti-fingerprinting настраиваются сервером.
 
 ### Значок в трее
 
@@ -198,9 +198,14 @@ Wintun DLL вшита в exe как ресурс (`EmbeddedResource`), но `Win
 
 | Команда                                   | Что делает                                            | Админ |
 |-------------------------------------------|-------------------------------------------------------|-------|
-| `selftest`                                | Проверки крипто/кодека/парсинга (без сети)            | нет   |
+| `selftest`                                | WinDivert/Wintun/routes/DNS platform checks            | нет   |
+| `windivert-smoke`                         | Открывает и сразу закрывает production WinDivert filter | да    |
 | `handshake <link\|ini\|file>`             | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|ini\|file> [секунды]`     | Поднимает полный туннель на N секунд                  | да    |
+
+Managed crypto/codec/config KAT и benchmark вынесены из production EXE:
+`dotnet run --project ../qeli-shared/QeliConformance -c Release -- selftest` и
+`... -- packetbench --ci`.
 
 ## Состояние сборки и release gate 0.8.0
 

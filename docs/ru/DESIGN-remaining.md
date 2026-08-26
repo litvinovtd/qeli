@@ -5,7 +5,12 @@
 > список остатка не являются текущим статусом. Он сохранён только как design/work log.
 > Текущее состояние смотрите в [ROADMAP.md](ROADMAP.md),
 > [TRANSPORT-CORE.md](TRANSPORT-CORE.md), [ROAMING.md](ROAMING.md) и `CHANGELOG.md`.
-
+> **Текущая поправка для dev 0.8.0:** `reality-tls` больше не запускает внутренний fake-TLS
+> carrier, описанный в этом снимке. Теперь это один настоящий H2 POST со случайным batching;
+> новый сервер принимает H2 и legacy Reality carrier, новый клиент — только H2. Актуальный
+> остаток DPI-работы ведётся в [DPI-AUDIT.md](DPI-AUDIT.md) и
+> [датированном H2 PCAP-отчёте](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
+>
 ## ✅ Сделано и проверено — СЕРВЕРНАЯ сторона REALITY ЗАКРЫТА
 
 **Базовый realtls-стек (бывшие M1–M3, A1–A2):** M1 крипто-детект в `session_id`;

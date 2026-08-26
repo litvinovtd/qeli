@@ -1,74 +1,73 @@
-# reality-tls (настоящий REALITY) — дефолт на :443
+# reality-tls — REALITY TLS 1.3 + genuine HTTP/2 on :443
 
-Перевод qeli с **fake-tls** (мимикрия под TLS, но с DPI-теллами 1.1–1.6 из
-[docs/DPI-AUDIT.md](../../docs/ru/DPI-AUDIT.md)) на **reality-tls** — настоящий
-Chrome-грейд TLS 1.3 на проводе, который сервер терминирует и несёт qeli-туннель
-внутри. С `handrolled=true` (дефолт в шаблоне ниже) сервер **одалживает настоящую
-цепочку серта target'а** (cert-borrowing) + зеркалит JA3S — паритет с Xray-REALITY;
-`handrolled=false` → rustls-путь с self-signed сертом. Код готов и протестирован
-e2e (Rust/Android/Windows/macOS), но раньше нигде не включался по умолчанию (все
-боевые конфиги были `fake-tls`).
+Этот каталог содержит готовую пару конфигов для актуального `reality-tls`. После
+аутентифицированного браузероподобного TLS 1.3 qeli открывает настоящий HTTP/2 carrier:
+один долгоживущий двунаправленный `POST /v1/events/stream` с ALPN `h2`, настоящими
+SETTINGS/HEADERS/DATA и случайным batching 2–8 мс. Прежнего второго fake-TLS
+handshake/framing внутри внешнего TLS больше нет; PacketCodec AEAD остаётся как
+независимый внутренний слой защиты.
 
-**Дефолт — один основной профиль на :443 в режиме reality.** Другие профили/порты
-включаются вручную отдельными секциями `[profile:...]` по необходимости.
+`handrolled=true` включает cert-borrowing и зеркалирование формы ServerHello/JA3S target'а.
+Это уменьшает расхождения с сайтом-приманкой, но не означает полную идентичность браузеру,
+Xray или конкретному target по всем TLS/H2/тайминговым признакам. Невалидные ClientHello
+прозрачно мостятся на `target`.
 
-Файлы рядом:
-- `server-reality.conf` — основной профиль `maxobf` на :443 (`real_tls=true`,
-  `handrolled=true` → cert-borrowing, `short_ids`).
-- `client-reality.conf` — клиентский INI (`mode=reality-tls` + `reality_sid`).
+Файлы:
 
-## Важно про переключение живого :443
+- `server-reality.conf` — основной серверный профиль `reality-tls` на TCP :443;
+- `client-reality.conf` — полный клиентский INI с `mode=reality-tls`.
 
-`real_tls=true` требует, чтобы КЛИЕНТ говорил `mode=reality-tls`. Старые fake-tls
-клиенты на :443 перестанут подключаться сразу после включения — их нужно перевести
-на `client-reality.conf`. Если нужен бесшовный поэтапный переход, временно поднимите
-ВТОРОЙ профиль (старый fake-tls) на другом порту, мигрируйте клиентов по одному,
-затем уберите его. По умолчанию же :443 = reality.
+Подробная история перехода: [release notes 0.8.0](../RELEASE_NOTES_0.8.0.md),
+[CHANGELOG](../../CHANGELOG.md) и [CONFIG](../../docs/ru/CONFIG.md).
 
-## Важно про часы (±120 с)
+## Совместимость и порядок обновления
 
-REALITY-токен несёт timestamp с окном **±120 секунд** (anti-replay). Если часы
-клиента и сервера расходятся сильнее, сервер **молча** мостит клиента на target,
-как чужого: симптом — «не подключается, ошибок нет», а `curl` до сервера
-показывает настоящий сайт. На сервере и устройствах должна работать
-автосинхронизация времени (NTP); чаще всего сбивается на Android без автовремени
-и в VM после suspend. Подробнее — [docs/ru/CONFIG.md](../../docs/ru/CONFIG.md),
-секция REALITY.
+Обновляйте **сначала сервер, затем клиентов**. Новый сервер различает H2 и прежний
+Reality carrier после внешнего TLS и принимает оба. Новый клиент использует только H2 и
+не делает downgrade, поэтому со старым сервером он не подключится.
 
-## Шаг 1. Проверка на тестовом стенде (перед продом)
+Это не означает, что любой bare `fake-tls` клиент стал совместим с Reality. Bare `fake-tls`
+остаётся отдельным wire-режимом; при необходимости держите его на отдельном профиле/порту.
+Канонический новый профиль задаёт `obf.mode = reality-tls`, `reality_proxy.enabled = true`
+и `real_tls = true`. Legacy-написание серверного профиля через `obf.mode = fake-tls` с теми
+же Reality-флагами временно принимается только для миграции.
 
-На отдельной паре «сервер + клиент», не на боевой:
+## Конфиг
 
-1. Сгенерировать свой short_id вместо примера: `openssl rand -hex 8` →
-   подставить в `server-reality.conf` (`short_ids`) и `client-reality.conf`
-   (`reality_sid`).
-2. Собрать свежий бинарь: `cargo build --release` (на .10), задеплоить.
-3. Запустить сервер с `server-reality.conf`, клиент с `client-reality.conf`.
-4. Логи сервера: `REALITY: Qeli client detected ...` (токен опознан из
-   real-ClientHello) + `REALITY real-TLS termination enabled` / `real TLS established`.
-5. Клиент: `Wire mode: reality-tls` → `Server identity verified` → `Auth OK, IP …`.
-6. `ping` сквозь туннель (0% loss), двусторонний трафик.
-7. **tcpdump на :443** — настоящий TLS 1.3: record-типы `16 03` (CH/SH),
-   `14 03` (CCS), `17 03` (зашифрованный flight + туннель), SNI =
-   `www.microsoft.com`, сертификат **зашифрован** (не виден в ServerHello).
-8. **Активный пробинг** без токена (`openssl s_client -connect host:443
-   -servername www.microsoft.com`) → **прозрачно сброшен в реальный
-   microsoft.com** (валидный серт), а не qeli-ответ.
-9. Реплей перехваченного ClientHello в окне 120 c → лог
-   `replayed session_id ... bridging as probe` (anti-replay).
+1. Создайте short_id: `openssl rand -hex 8`.
+2. В `server-reality.conf` замените `REPLACE_WITH_OWN_SHORT_ID`, настройте `target`/SNI,
+   пути identity/users и сеть TUN.
+3. Получите публичный ключ: `qeli show-identity --config server-reality.conf`.
+4. В `client-reality.conf` задайте endpoint, логин/пароль, тот же short_id в
+   `reality_sid`, публичный ключ в `key` и SNI, совпадающий с target.
+5. Проверьте оба файла через `qeli check-config` / `qeli check-config --client`.
 
-## Шаг 2. Прод
+H2 включается автоматически режимом `reality-tls`; отдельного H2-параметра нет.
+Старые `obf.http2_masking.*` выведены из эксплуатации и не должны добавляться в конфиг.
+В поставляемом профиле heartbeat выключен, shaping включён. Сам H2 path принудительно
+игнорирует включённый qeli heartbeat, в том числе пришедший из старого pushed config.
 
-1. Залить новый бинарь + `server-reality.conf` на боевой сервер и перезапустить службу:
-   `systemctl restart qeli`. Юнит называется **`qeli.service`** — так его ставит и `.deb`
-   (`qeli/debian/qeli.service`), и `install-qeli-server.sh`. Имя `qeli-server`
-   встречается только как имя контейнера в `docker-compose.yml` — это не systemd-юнит.
-2. Перевести клиентов на `client-reality.conf` (:443).
-3. (Опционально) для бесшовности — временный fake-tls профиль на другом порту,
-   как описано выше.
+REALITY-токен содержит timestamp с окном ±120 секунд. На сервере и клиентах должен работать
+NTP; при большем рассинхроне настоящий клиент выглядит как probe и молча мостится на target.
 
-## qeli:// ссылка / QR
+## Проверка на стенде
 
-С момента закрытия пробела ссылка `qeli://` несёт `rsid=<short_id>`, так что
-reality-tls можно раздавать QR-кодом (а не только полным INI). Сервер генерирует
-ссылку с `rsid` автоматически (`/api/share`), когда у профиля задан `short_ids`.
+1. Запустите новый сервер до обновления клиента.
+2. Старым Reality-клиентом подтвердите legacy-совместимость.
+3. Запустите новый клиент и найдите:
+   - клиент INFO: `REALITY-TLS carrier: genuine HTTP/2 stream`;
+   - сервер DEBUG: `REALITY: genuine HTTP/2 carrier established with <addr>`;
+   - затем обычные `Server identity verified` и `Auth OK`.
+4. Проверьте двусторонний IPv4/IPv6-трафик, реконнект и длительную сессию.
+5. В PCAP должен быть настоящий TLS 1.3 с ALPN `h2`; после расшифровки тестовыми ключами —
+   H2 preface/SETTINGS и один streaming POST, без второго fake-TLS handshake.
+6. Probe без корректного токена должен получить настоящий target. Reverse proxy/LB перед qeli
+   допустим только как прозрачный TCP pass-through: TLS termination, H2 conversion и HTTP routing
+   ломают REALITY-аутентификацию/carrier.
+
+Ошибки `REALITY HTTP/2 carrier timed out/failed` означают несовместимый или повреждённый H2
+carrier после успешного Reality discriminator; сверяйте порядок обновления и отсутствие TLS/H2
+терминации перед qeli.
+
+Датированный lab PCAP: [6/6 завершённых H2-сессий, старый classifier 0/6](../dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
+Это результат конкретного capture/classifier, не обещание «0% обнаружения» и не speed benchmark.

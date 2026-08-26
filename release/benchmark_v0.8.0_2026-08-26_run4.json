@@ -1,0 +1,252 @@
+{
+  "meta": {
+    "date": "2026-08-26T11:58:19Z",
+    "sha256_16": "2f69b48f10257151",
+    "version": "qeli 0.8.0",
+    "recordizer_policy": "prefer",
+    "server": "6.12.88+deb13-amd64",
+    "iperf3": "iperf 3.18 (cJSON 1.7.15)"
+  },
+  "baseline": {
+    "tcp": {
+      "mbps": 19114.7,
+      "retransmits": 0,
+      "cpu_client": 59.2,
+      "cpu_server": 96.9
+    },
+    "udp_sweep": {
+      "500M": {
+        "mbps": 500.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 260683,
+        "kernel_rcvbuf_drops": 0
+      },
+      "1000M": {
+        "mbps": 997.7,
+        "loss_pct": 0.11,
+        "lost_packets": 562,
+        "packets": 520097,
+        "kernel_rcvbuf_drops": 0
+      }
+    }
+  },
+  "modes": {
+    "tcp-plain-raw": {
+      "client_mode": "plain",
+      "server_mode": "plain",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.630/12.920/18.177/2.971 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 936.9,
+        "retransmits": 45869,
+        "cpu_client": 2.1,
+        "cpu_server": 18.1,
+        "qeli_cpu_avg_pct": 36.3,
+        "qeli_cpu_max_pct": 60.8,
+        "qeli_rss_mb": 84.8
+      },
+      "tcp_down": {
+        "mbps": 1139.9,
+        "retransmits": 799,
+        "cpu_client": 50.8,
+        "cpu_server": 3.3
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-faketls": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.178/11.838/15.296/2.680 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 713.2,
+        "retransmits": 45453,
+        "cpu_client": 2.0,
+        "cpu_server": 15.4,
+        "qeli_cpu_avg_pct": 30.3,
+        "qeli_cpu_max_pct": 53.3,
+        "qeli_rss_mb": 79.0
+      },
+      "tcp_down": {
+        "mbps": 905.2,
+        "retransmits": 295,
+        "cpu_client": 51.9,
+        "cpu_server": 2.8
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-padding": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 10.526/13.778/19.034/2.413 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 1182.0,
+        "retransmits": 111,
+        "cpu_client": 2.1,
+        "cpu_server": 21.6,
+        "qeli_cpu_avg_pct": 40.6,
+        "qeli_cpu_max_pct": 70.4,
+        "qeli_rss_mb": 92.4
+      },
+      "tcp_down": {
+        "mbps": 1330.0,
+        "retransmits": 373,
+        "cpu_client": 47.4,
+        "cpu_server": 3.5
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-frag": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.160/13.055/18.141/2.860 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 1099.8,
+        "retransmits": 11826,
+        "cpu_client": 2.2,
+        "cpu_server": 21.3,
+        "qeli_cpu_avg_pct": 39.5,
+        "qeli_cpu_max_pct": 67.9,
+        "qeli_rss_mb": 91.0
+      },
+      "tcp_down": {
+        "mbps": 1193.0,
+        "retransmits": 189,
+        "cpu_client": 48.7,
+        "cpu_server": 3.3
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-obfs": {
+      "client_mode": "obfs",
+      "server_mode": "obfs",
+      "ping_rtt": "rtt min/avg/max/mdev = 8.120/13.178/18.491/3.131 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 788.2,
+        "retransmits": 2677,
+        "cpu_client": 1.7,
+        "cpu_server": 20.2,
+        "qeli_cpu_avg_pct": 44.3,
+        "qeli_cpu_max_pct": 74.4,
+        "qeli_rss_mb": 65.8
+      },
+      "tcp_down": {
+        "mbps": 958.9,
+        "retransmits": 488,
+        "cpu_client": 46.1,
+        "cpu_server": 2.7
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-reality": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 8.153/12.553/17.844/2.814 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 1071.8,
+        "retransmits": 19344,
+        "cpu_client": 2.3,
+        "cpu_server": 20.2,
+        "qeli_cpu_avg_pct": 38.6,
+        "qeli_cpu_max_pct": 67.5,
+        "qeli_rss_mb": 88.5
+      },
+      "tcp_down": {
+        "mbps": 1155.1,
+        "retransmits": 36,
+        "cpu_client": 48.0,
+        "cpu_server": 3.3
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-reality-tls": {
+      "client_mode": "reality-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 18.462/24.756/31.768/3.575 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 827.9,
+        "retransmits": 227,
+        "cpu_client": 1.6,
+        "cpu_server": 18.5,
+        "qeli_cpu_avg_pct": 41.1,
+        "qeli_cpu_max_pct": 72.5,
+        "qeli_rss_mb": 90.3
+      },
+      "tcp_down": {
+        "mbps": 647.8,
+        "retransmits": 52,
+        "cpu_client": 30.5,
+        "cpu_server": 1.8
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    },
+    "tcp-obfs-awg": {
+      "client_mode": "obfs",
+      "server_mode": "obfs",
+      "ping_rtt": "rtt min/avg/max/mdev = 9.212/13.774/19.135/2.672 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "mbps": 826.3,
+        "retransmits": 827,
+        "cpu_client": 1.6,
+        "cpu_server": 21.3,
+        "qeli_cpu_avg_pct": 44.0,
+        "qeli_cpu_max_pct": 76.2,
+        "qeli_rss_mb": 68.2
+      },
+      "tcp_down": {
+        "mbps": 990.5,
+        "retransmits": 821,
+        "cpu_client": 49.5,
+        "cpu_server": 2.8
+      },
+      "server_drops": {
+        "after_up": 0,
+        "during_down": 0,
+        "total": 0
+      },
+      "recordizer_active": true
+    }
+  }
+}

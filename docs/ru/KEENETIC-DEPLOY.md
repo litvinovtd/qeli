@@ -1,5 +1,8 @@
 # qeli-client на Keenetic — пошаговый деплой
 
+> **Область benchmark:** все Reality-оценки скорости или двойного фрейминга в этом документе
+> относятся к legacy carrier вплоть до 0.7.16. Нынешнему настоящему H2 нужен отдельный router benchmark.
+
 Развёртывание qeli-VPN-клиента на роутере Keenetic (Entware) как шлюза для всего LAN.
 Архитектура и обоснование порта — [KEENETIC-PORT.md](KEENETIC-PORT.md). Файлы бандла —
 в `release/keenetic/`.

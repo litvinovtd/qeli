@@ -1,0 +1,309 @@
+{
+  "meta": {
+    "started_utc": "2026-08-26T11:00:13.782468+00:00",
+    "version": "qeli 0.8.0",
+    "binary_sha256": "c5bb4e0d8427ed2d0ee03e7925c2ecaa55f5063be5363a67bd2317e29413060a",
+    "recordizer_policy": "prefer",
+    "capture_point": "10.66.116.11 ens18",
+    "workload": "ping + symmetric inner UDP 20 Mbps, 3 s per direction"
+  },
+  "modes": [
+    {
+      "index": 1,
+      "name": "tcp-plain-raw",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 9.601/14.308/19.205/3.475 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-plain-raw.pcap",
+        "bytes": 16877163,
+        "sha256": "ff1496fe888b16d326767ed5ca8899eb0bb52c924acc4f24462848f1621844c9"
+      },
+      "client_log_tail": "2026-08-26 14:00:54.790 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:00:54.791 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:00:54.791 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:00:54.791 INFO  qeli::client: Wire mode: plain (TCP)\n2026-08-26 14:00:54.792 INFO  qeli::transport_core::session: Server identity verified (raw inner)\n2026-08-26 14:00:54.818 INFO  qeli::transport_core::session: Auth OK (raw inner), assigned IP: 10.9.0.2\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:00:54.818 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:00:54.818 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:00:54.818 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:00:54.818 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:00:54.821 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:00:54.824 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:00:54.827 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:00:54.827 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:00:54.827 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 2,
+      "name": "tcp-faketls",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 7.624/10.118/12.406/2.162 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-faketls.pcap",
+        "bytes": 16862469,
+        "sha256": "fb11731e232f3a9fb06afa7dff559b6ab07f6f1f750a8de8a349cbf58e0e76df"
+      },
+      "client_log_tail": "2026-08-26 14:01:14.902 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:01:14.902 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:01:14.902 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:01:14.902 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-26 14:01:14.906 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:01:14.906 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:01:14.946 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:01:14.946 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:01:14.946 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:01:14.946 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:01:14.946 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:01:14.946 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:01:14.951 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:01:14.955 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:01:14.958 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:01:14.959 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:01:14.959 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 3,
+      "name": "tcp-padding",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 10.263/13.160/17.728/2.393 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-padding.pcap",
+        "bytes": 17031466,
+        "sha256": "6a855135c3f03a9ae9c3529f5ba0322daf8d16b79bd79bbdc6d03736e725e548"
+      },
+      "client_log_tail": "2026-08-26 14:01:34.308 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:01:34.308 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:01:34.308 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:01:34.308 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-26 14:01:34.309 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:01:34.309 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:01:34.337 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:01:34.337 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: padding APPLIED (enabled=true min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:01:34.337 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:01:34.337 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:01:34.337 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:01:34.337 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:01:34.340 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:01:34.344 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:01:34.346 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:01:34.347 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:01:34.347 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 4,
+      "name": "tcp-frag",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 9.153/12.937/18.192/2.917 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-frag.pcap",
+        "bytes": 17028243,
+        "sha256": "c50fc9b48822678e90d4e0b66858e2b555488228484882d8016b6d45489ab4aa"
+      },
+      "client_log_tail": "2026-08-26 14:01:53.433 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:01:53.433 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:01:53.433 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:01:53.433 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-26 14:01:53.450 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:01:53.450 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:01:53.479 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:01:53.479 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: padding APPLIED (enabled=true min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:01:53.479 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:01:53.479 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:01:53.479 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:01:53.479 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:01:53.482 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:01:53.486 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:01:53.490 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:01:53.490 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:01:53.490 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 5,
+      "name": "tcp-obfs",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 752ms\nrtt min/avg/max/mdev = 11.096/13.523/19.260/2.906 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-obfs.pcap",
+        "bytes": 17004981,
+        "sha256": "a85be20898053d1517f6b748d9a431b521f12ee20a802608bd85edd32c501197"
+      },
+      "client_log_tail": "2026-08-26 14:02:12.489 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:02:12.489 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:02:12.489 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:02:12.489 INFO  qeli::client: Wire mode: obfs (ChaCha20 stream obfuscation)\n2026-08-26 14:02:12.492 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:02:12.492 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:02:12.518 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:02:12.518 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: padding APPLIED (enabled=true min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:02:12.518 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:02:12.518 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:02:12.518 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:02:12.518 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:02:12.522 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:02:12.525 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:02:12.528 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:02:12.528 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:02:12.528 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 6,
+      "name": "tcp-reality",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 11.406/12.758/15.260/1.239 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-reality.pcap",
+        "bytes": 16871629,
+        "sha256": "5a7ca9d7051ae9f969364ada86971bc9148a69750c540cb14bcda187ff54a351"
+      },
+      "client_log_tail": "2026-08-26 14:02:31.688 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:02:31.688 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:02:31.688 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:02:31.688 INFO  qeli::client: Wire mode: fake-tls (TCP)\n2026-08-26 14:02:31.690 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:02:31.690 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:02:31.716 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:02:31.716 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:02:31.716 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:02:31.716 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:02:31.716 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:02:31.716 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:02:31.719 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:02:31.722 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:02:31.724 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:02:31.724 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:02:31.725 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 7,
+      "name": "tcp-reality-tls",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 21.440/25.863/29.690/2.516 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-reality-tls.pcap",
+        "bytes": 16944070,
+        "sha256": "15b497b2794e8ec78e9b25c9463fecb1adccec6eafd212d7c3d00168b6d54693"
+      },
+      "client_log_tail": "2026-08-26 14:02:50.915 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:02:50.916 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:02:50.916 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:02:50.916 INFO  qeli::client: Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)\n2026-08-26 14:02:50.919 INFO  qeli::client: REALITY-TLS carrier: genuine HTTP/2 stream\n2026-08-26 14:02:50.931 INFO  qeli::transport_core::session: Server identity verified (raw inner)\n2026-08-26 14:02:50.972 INFO  qeli::transport_core::session: Auth OK (raw inner), assigned IP: 10.9.0.2\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:02:50.972 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:02:50.972 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:02:50.972 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:02:50.973 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:02:50.976 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:02:50.979 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:02:50.982 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:02:50.982 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:02:50.982 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 8,
+      "name": "udp-faketls",
+      "transport": "udp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.10.0.1 (10.10.0.1) 56(84) bytes of data.\n\n--- 10.10.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 8.156/12.982/16.415/2.633 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\udp-faketls.pcap",
+        "bytes": 18536589,
+        "sha256": "6bbd31d23dae0ac120fa89899a3ac2784c2ea665b24b738b73eafe31d06e5e8a"
+      },
+      "client_log_tail": "2026-08-26 14:03:10.209 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:03:10.209 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:03:10.209 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:03:10.209 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-26 14:03:10.210 INFO  qeli::client: UDP: Sent ClientHello (2 fragments)\n2026-08-26 14:03:10.211 INFO  qeli::client: UDP: Received server response (2418 bytes)\n2026-08-26 14:03:10.211 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-26 14:03:10.211 INFO  qeli::client: UDP: Server identity verified\n2026-08-26 14:03:10.211 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-26 14:03:10.237 INFO  qeli::client: UDP: Auth OK, assigned IP: 10.10.0.2\n2026-08-26 14:03:10.238 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1448 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: ip=10.10.0.2/24 gw=10.10.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:03:10.238 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:03:10.238 INFO  qeli::client: NetworkPlan 1: mode=split address=10.10.0.2/24 gateway=10.10.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:03:10.238 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:03:10.238 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:03:10.242 INFO  qeli::client: TUN vpn0 is up (addresses: 10.10.0.2/32)\n2026-08-26 14:03:10.245 INFO  qeli::client: UDP: Starting tunnel\n2026-08-26 14:03:10.248 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:03:10.249 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:03:10.249 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on UDP"
+    },
+    {
+      "index": 9,
+      "name": "udp-padding",
+      "transport": "udp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.10.0.1 (10.10.0.1) 56(84) bytes of data.\n\n--- 10.10.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 10.326/13.250/15.208/1.603 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\udp-padding.pcap",
+        "bytes": 19084412,
+        "sha256": "51976f788cfec114bef3e85ffbc2393acff31f182c3b08235ae363d33f7b3a6c"
+      },
+      "client_log_tail": "2026-08-26 14:03:29.658 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:03:29.658 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:03:29.658 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:03:29.658 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-26 14:03:29.658 INFO  qeli::client: UDP: Sent ClientHello (2 fragments)\n2026-08-26 14:03:29.659 INFO  qeli::client: UDP: Received server response (2848 bytes)\n2026-08-26 14:03:29.660 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-26 14:03:29.660 INFO  qeli::client: UDP: Server identity verified\n2026-08-26 14:03:29.660 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-26 14:03:29.693 INFO  qeli::client: UDP: Auth OK, assigned IP: 10.10.0.2\n2026-08-26 14:03:29.694 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1448 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: ip=10.10.0.2/24 gw=10.10.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: padding APPLIED (enabled=true min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:03:29.694 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:03:29.694 INFO  qeli::client: NetworkPlan 1: mode=split address=10.10.0.2/24 gateway=10.10.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:03:29.694 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:03:29.694 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:03:29.699 INFO  qeli::client: TUN vpn0 is up (addresses: 10.10.0.2/32)\n2026-08-26 14:03:29.702 INFO  qeli::client: UDP: Starting tunnel\n2026-08-26 14:03:29.704 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:03:29.705 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:03:29.705 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on UDP"
+    },
+    {
+      "index": 10,
+      "name": "udp-quic",
+      "transport": "udp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.10.0.1 (10.10.0.1) 56(84) bytes of data.\n\n--- 10.10.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 8.158/12.992/16.436/2.578 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\udp-quic.pcap",
+        "bytes": 18787386,
+        "sha256": "946f50e2ac435c85a534e22e506c8e8dd4cc95e36b998fbfaeba917e07e25f9d"
+      },
+      "client_log_tail": "2026-08-26 14:03:49.100 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:03:49.100 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:03:49.101 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:03:49.101 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-26 14:03:49.101 WARN  qeli::client: UDP quic-shape compatibility masking is enabled; it is not a real QUIC/HTTP/3 state machine and is not the maximum-stealth profile. Use TCP reality-tls for hostile DPI.\n2026-08-26 14:03:49.101 INFO  qeli::client: UDP: Sent ClientHello (2 fragments) (QUIC)\n2026-08-26 14:03:49.102 INFO  qeli::client: UDP: Received server response (3172 bytes)\n2026-08-26 14:03:49.102 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-26 14:03:49.102 INFO  qeli::client: UDP: Server identity verified\n2026-08-26 14:03:49.103 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-26 14:03:49.129 INFO  qeli::client: UDP: Auth OK, assigned IP: 10.10.0.2\n2026-08-26 14:03:49.130 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1457 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: ip=10.10.0.2/24 gw=10.10.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:03:49.130 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:03:49.130 INFO  qeli::client: NetworkPlan 1: mode=split address=10.10.0.2/24 gateway=10.10.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:03:49.130 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:03:49.130 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:03:49.133 INFO  qeli::client: TUN vpn0 is up (addresses: 10.10.0.2/32)\n2026-08-26 14:03:49.137 INFO  qeli::client: UDP: Starting tunnel\n2026-08-26 14:03:49.140 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:03:49.140 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:03:49.141 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on UDP"
+    },
+    {
+      "index": 11,
+      "name": "tcp-obfs-awg",
+      "transport": "tcp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.9.0.1 (10.9.0.1) 56(84) bytes of data.\n\n--- 10.9.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 752ms\nrtt min/avg/max/mdev = 9.289/12.681/14.300/1.677 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\tcp-obfs-awg.pcap",
+        "bytes": 16828933,
+        "sha256": "38972a12250a97d077ad344ef422216049995bbc52c4b75aed0b9b1dbaf2d05c"
+      },
+      "client_log_tail": "2026-08-26 14:04:08.743 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:04:08.743 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:04:08.743 INFO  qeli::client: Connecting to 10.66.116.10:443 (TCP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:04:08.743 INFO  qeli::client: Wire mode: obfs (ChaCha20 stream obfuscation)\n2026-08-26 14:04:08.747 INFO  qeli::transport_core::session: Handshake complete, reading server auth proof\n2026-08-26 14:04:08.747 INFO  qeli::transport_core::session: Server identity verified\n2026-08-26 14:04:08.774 INFO  qeli::transport_core::session: Auth OK, assigned IP: 10.9.0.2\n2026-08-26 14:04:08.774 INFO  qeli::transport_core::session: Applying server-pushed obfuscation params\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:04:08.774 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:04:08.774 INFO  qeli::client: NetworkPlan 1: mode=split address=10.9.0.2/24 gateway=10.9.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:04:08.774 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:04:08.774 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:04:08.779 INFO  qeli::client: TUN vpn0 is up (addresses: 10.9.0.2/32)\n2026-08-26 14:04:08.782 INFO  qeli::client: Client TAP MAC: 00:00:00:00:00:00\n2026-08-26 14:04:08.785 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:04:08.786 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:04:08.786 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on TCP"
+    },
+    {
+      "index": 12,
+      "name": "udp-faketls-awg",
+      "transport": "udp",
+      "auth_ok": true,
+      "recordizer_active": true,
+      "ping": "PING 10.10.0.1 (10.10.0.1) 56(84) bytes of data.\n\n--- 10.10.0.1 ping statistics ---\n6 packets transmitted, 6 received, 0% packet loss, time 753ms\nrtt min/avg/max/mdev = 8.224/11.605/17.598/3.328 ms",
+      "inner_udp_up": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "inner_udp_down": {
+        "mbps": 20.0,
+        "loss_pct": 0
+      },
+      "capture": {
+        "path": "C:\\Users\\litvi\\OneDrive\\Documents\\OpenCode\\VPN_CLAUDE\\release\\dpi_audit_recordizer_allmodes_0.8.0_2026-08-26\\pcap\\udp-faketls-awg.pcap",
+        "bytes": 18501899,
+        "sha256": "8579196dd3dfb549f72f979eae412fed2c6103a1df4fffd29c1ee0398bea6c21"
+      },
+      "client_log_tail": "2026-08-26 14:04:27.891 INFO  qeli: Starting client with config: /etc/qeli/bench-client.conf\n2026-08-26 14:04:27.891 WARN  qeli::client: config '/etc/qeli/bench-client.conf' is mode 644 — it contains the VPN password in cleartext and every local account can read it. `chmod 600 /etc/qeli/bench-client.conf`.\n2026-08-26 14:04:27.891 INFO  qeli::client: Connecting to 10.66.116.10:4443 (UDP) as user 'user#1b32c28cb38c05480eccc1bd'\n2026-08-26 14:04:27.892 INFO  qeli::transport_core::udp_buffer: client UDP: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-08-26 14:04:27.892 INFO  qeli::client: UDP: Sent 4 AWG junk datagram(s) before ClientHello\n2026-08-26 14:04:27.892 INFO  qeli::client: UDP: Sent ClientHello (2 fragments)\n2026-08-26 14:04:27.893 INFO  qeli::client: UDP: Received server response (2866 bytes)\n2026-08-26 14:04:27.893 INFO  qeli::client: UDP: Handshake derived keys\n2026-08-26 14:04:27.893 INFO  qeli::client: UDP: Server identity verified\n2026-08-26 14:04:27.893 INFO  qeli::client: UDP: Sent auth credentials\n2026-08-26 14:04:27.919 INFO  qeli::client: UDP: Auth OK, assigned IP: 10.10.0.2\n2026-08-26 14:04:27.920 INFO  qeli::client: UDP path probe: inner MTU 1400, uplink UDP payload budget 1448 (probe rung 1400, DATA_FRAG_V1=true)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: ip=10.10.0.2/24 gw=10.10.0.1 mtu=1400 dns=- routes=0 obf=yes streams=1 adaptive=false\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: mtu 1400 ACCEPTED into NetworkPlan (client mtu=0/auto)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: no routes sent — the server profile/user has no valid route entries\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: padding APPLIED (enabled=false min=32 max=256 randomize=true probability=0.8)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: heartbeat APPLIED (enabled=true interval_ms=15000 size=16 jitter_ms=5000)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: normalization APPLIED (enabled=false round_sizes=[64, 128, 256, 512, 1024, 1500])\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: shaping APPLIED (enabled=false gap_ms=700/40/6000 budget_Bps=16384 size=64-1024 stealth=false stealth_Mbps=2)\n2026-08-26 14:04:27.920 INFO  qeli::client: server push: multipath max_streams=1 adaptive=false\n2026-08-26 14:04:27.920 INFO  qeli::client: NetworkPlan 1: mode=split address=10.10.0.2/24 gateway=10.10.0.1 mtu=1400 dns=[system resolver unchanged] routes=0 pushed_routes=0 kill_switch=false\n2026-08-26 14:04:27.920 INFO  qeli::client: TUN MTU: 1400\n2026-08-26 14:04:27.920 INFO  qeli::client: Creating TUN interface vpn0\n2026-08-26 14:04:27.924 INFO  qeli::client: TUN vpn0 is up (addresses: 10.10.0.2/32)\n2026-08-26 14:04:27.927 INFO  qeli::client: UDP: Starting tunnel\n2026-08-26 14:04:27.931 INFO  qeli::transport_core::linux_tun: TUN reader started\n2026-08-26 14:04:27.932 INFO  qeli::transport_core::linux_tun: TUN writer started\n2026-08-26 14:04:27.932 INFO  qeli::client: Packet recordizer: PACKET_MUX_V1 active on UDP"
+    }
+  ],
+  "preflight": {
+    "server": {
+      "emulator": "0",
+      "qeli_procs": "0",
+      "leftover_ifaces": "(none)",
+      "odd_qdisc": "(none)"
+    },
+    "client": {
+      "emulator": "0",
+      "qeli_procs": "0",
+      "leftover_ifaces": "(none)",
+      "odd_qdisc": "(none)"
+    },
+    "tools": "/usr/bin/tcpdump",
+    "offloads_capture": "Features for ens18:\nrx-checksumming: on [fixed]\ntx-checksumming: on\n\ttx-checksum-ipv4: off [fixed]\n\ttx-checksum-ip-generic: on\n\ttx-checksum-ipv6: off [fixed]\n\ttx-checksum-fcoe-crc: off [fixed]\n\ttx-checksum-sctp: off [fixed]\nscatter-gather: on\n\ttx-scatter-gather: on\n\ttx-scatter-gather-fraglist: off [fixed]\ntcp-segmentation-offload: off\n\ttx-tcp-segmentation: off\n\ttx-tcp-ecn-segmentation: off\n\ttx-tcp-mangleid-segmentation: off\n\ttx-tcp6-segmentation: off\ngeneric-segmentation-offload: off\ngeneric-receive-offload: off\nlarge-receive-offload: off [fixed]\nrx-vlan-offload: off [fixed]\ntx-vlan-offload: off [fixed]\nntuple-filters: off [fixed]\nreceive-hashing: off [fixed]\nhighdma: on [fixed]\nrx-vlan-filter: on [fixed]\nvlan-challenged: off [fixed]\ntx-gso-robust: on [fixed]\ntx-fcoe-segmentation: off [fixed]\ntx-gre-segmentation: off [fixed]\ntx-gre-csum-segmentation: off [fixed]\ntx-ipxip4-segmentation: off [fixed]\ntx-ipxip6-segmentation: off [fixed]\ntx-udp_tnl-segmentation: off [fixed]\ntx-udp_tnl-csum-segmentation: off [fixed]\ntx-gso-partial: off [fixed]\ntx-tunnel-remcsum-segmentation: off [fixed]\ntx-sctp-segmentation: off [fixed]\ntx-esp-segmentation: off [fixed]\ntx-udp-segmentation: off\ntx-gso-list: off [fixed]\ntx-nocache-copy: off\nloopback: off [fixed]\nrx-fcs: off [fixed]\nrx-all: off [fixed]\ntx-vlan-stag-hw-insert: off [fixed]\nrx-vlan-stag-hw-parse: off [fixed]\nrx-vlan-stag-filter: off [fixed]\nl2-fwd-offload: off [fixed]\nhw-tc-offload: off [fixed]\nesp-hw-offload: off [fixed]\nesp-tx-csum-hw-offload: off [fixed]\nrx-udp_tunnel-port-offload: off [fixed]\ntls-hw-tx-offload: off [fixed]\ntls-hw-rx-offload: off [fixed]\nrx-gro-hw: off\ntls-hw-record: off [fixed]\nrx-gro-list: off\nmacsec-hw-offload: off [fixed]\nrx-udp-gro-forwarding: off\nhsr-tag-ins-offload: off [fixed]\nhsr-tag-rm-offload: off [fixed]\nhsr-fwd-offload: off [fixed]\nhsr-dup-offload: off [fixed]"
+  },
+  "postflight": {
+    "server": {
+      "emulator": "0",
+      "qeli_procs": "0",
+      "leftover_ifaces": "(none)",
+      "odd_qdisc": "(none)"
+    },
+    "client": {
+      "emulator": "0",
+      "qeli_procs": "0",
+      "leftover_ifaces": "(none)",
+      "odd_qdisc": "(none)"
+    },
+    "offloads_restored": "Features for ens18:\nrx-checksumming: on [fixed]\ntx-checksumming: on\n\ttx-checksum-ipv4: off [fixed]\n\ttx-checksum-ip-generic: on\n\ttx-checksum-ipv6: off [fixed]\n\ttx-checksum-fcoe-crc: off [fixed]\n\ttx-checksum-sctp: off [fixed]\nscatter-gather: on\n\ttx-scatter-gather: on\n\ttx-scatter-gather-fraglist: off [fixed]\ntcp-segmentation-offload: on\n\ttx-tcp-segmentation: on\n\ttx-tcp-ecn-segmentation: on\n\ttx-tcp-mangleid-segmentation: on\n\ttx-tcp6-segmentation: on\ngeneric-segmentation-offload: on\ngeneric-receive-offload: on\nlarge-receive-offload: off [fixed]\nrx-vlan-offload: off [fixed]\ntx-vlan-offload: off [fixed]\nntuple-filters: off [fixed]\nreceive-hashing: off [fixed]\nhighdma: on [fixed]\nrx-vlan-filter: on [fixed]\nvlan-challenged: off [fixed]\ntx-gso-robust: on [fixed]\ntx-fcoe-segmentation: off [fixed]\ntx-gre-segmentation: off [fixed]\ntx-gre-csum-segmentation: off [fixed]\ntx-ipxip4-segmentation: off [fixed]\ntx-ipxip6-segmentation: off [fixed]\ntx-udp_tnl-segmentation: off [fixed]\ntx-udp_tnl-csum-segmentation: off [fixed]\ntx-gso-partial: off [fixed]\ntx-tunnel-remcsum-segmentation: off [fixed]\ntx-sctp-segmentation: off [fixed]\ntx-esp-segmentation: off [fixed]\ntx-udp-segmentation: off\ntx-gso-list: off [fixed]\ntx-nocache-copy: off\nloopback: off [fixed]\nrx-fcs: off [fixed]\nrx-all: off [fixed]\ntx-vlan-stag-hw-insert: off [fixed]\nrx-vlan-stag-hw-parse: off [fixed]\nrx-vlan-stag-filter: off [fixed]\nl2-fwd-offload: off [fixed]\nhw-tc-offload: off [fixed]\nesp-hw-offload: off [fixed]\nesp-tx-csum-hw-offload: off [fixed]\nrx-udp_tunnel-port-offload: off [fixed]\ntls-hw-tx-offload: off [fixed]\ntls-hw-rx-offload: off [fixed]\nrx-gro-hw: on\ntls-hw-record: off [fixed]\nrx-gro-list: off\nmacsec-hw-offload: off [fixed]\nrx-udp-gro-forwarding: off\nhsr-tag-ins-offload: off [fixed]\nhsr-tag-rm-offload: off [fixed]\nhsr-fwd-offload: off [fixed]\nhsr-dup-offload: off [fixed]",
+    "completed_utc": "2026-08-26T11:05:13.312528+00:00"
+  },
+  "result": "PASS"
+}

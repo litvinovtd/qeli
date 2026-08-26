@@ -1,5 +1,8 @@
 # qeli — plan to finish off toward a stable release (audit 2026-06-06)
 
+> **Historical release log.** For the current 0.8.0 Reality/H2 migration use
+> [CONFIG.md](CONFIG.md), [DPI-AUDIT.md](DPI-AUDIT.md), and [CHANGELOG](../../CHANGELOG.md).
+
 > **Document status:** this is the historical working checklist from the 2026-06-06 audit,
 > including later completion notes. It does not describe the current readiness of the `0.7.16`
 > branch and must not be treated as a present release approval. See the full new fix inventory in

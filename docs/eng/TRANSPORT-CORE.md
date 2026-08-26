@@ -19,6 +19,10 @@ synchronized to every consumed copy, and pass provenance/hash/ABI/platform gates
 Until then the tree is source-complete but not package-release-ready. Remaining acceptance
 gates also include administrator Wintun full-tunnel, live macOS utun and physical-device
 iOS/Xcode. Written 2026-07-30; source refactor completed 2026-08-11.
+**Reality/H2 delivery rule.** The current `reality-tls` H2 carrier is owned by this common Rust
+core, not by platform UI code. A platform receives it only when its native `.so`/`.dll`/`.dylib`
+or XCFramework is rebuilt from the updated source, packaged into the app and installed. A server
+upgrade cannot make an already installed client inherit the new wire implementation.
 
 ABI 1.10 extended statistics while preserving the 64-byte V1 prefix. ABI 1.11 adds the
 dual-family NetworkPlan/platform-capability contract without changing those prefixes. The fields expose
@@ -442,7 +446,8 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 
 The permanent TC-0.3 measurement needs no external benchmark framework:
 `cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci`
-for Rust and `QeliWin/QeliMac packetbench --ci` for the shared managed codec. Both execute a
+for Rust and `dotnet run --project qeli-shared/QeliConformance -c Release -- packetbench --ci`
+for the managed codec. Both execute a
 real 1,400-byte encrypt/decrypt round-trip after warm-up and verify the plaintext. Rust also
 requires the caller-owned `Vec` to stop growing; C# records allocated bytes per round-trip.
 The CI floors (50 MiB/s Rust, 10 MiB/s C#, 32 KiB managed allocation ceiling) deliberately

@@ -5977,6 +5977,49 @@ pub(crate) async fn run_udp_tunnel(
     live_mtu_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     live_mtu_tick.tick().await;
 
+    // Handshake reception is complete. From here one dedicated reader keeps recvmsg moving
+    // while this task performs decrypt/reassembly/TUN work. The bounded FIFO preserves packet
+    // order and does not touch DATA_FRAG or either PMTU state machine.
+    drop(recv_buf);
+    let receive_slots = crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS + 1;
+    let (receive_recycler, mut recycled_receivers) = mpsc::channel(receive_slots);
+    for _ in 0..receive_slots {
+        receive_recycler
+            .try_send(bytes::BytesMut::with_capacity(
+                crate::transport::udp::MAX_UDP_PACKET_SIZE,
+            ))
+            .map_err(|_| anyhow::anyhow!("could not initialize UDP receive pool"))?;
+    }
+    let (received_tx, mut received_rx) =
+        mpsc::channel(crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS);
+    let receive_socket = socket.clone();
+    let receive_recycler_task = receive_recycler.clone();
+    let udp_receive_task = tokio::spawn(async move {
+        while let Some(mut datagram) = recycled_receivers.recv().await {
+            match receive_socket.recv_buf(&mut datagram).await {
+                Ok(0) => {
+                    datagram.clear();
+                    if receive_recycler_task.send(datagram).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(_) => {
+                    let datagram = crate::transport::udp::PooledUdpDatagram::new(
+                        datagram,
+                        receive_recycler_task.clone(),
+                    );
+                    if received_tx.send(datagram).await.is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    log::debug!("UDP receive pump stopped: {error}");
+                    break;
+                }
+            }
+        }
+    });
+
     let mut unsupported_inner_drops = 0u64;
     'udp: loop {
         let mux_deadline = udp_tx_recordizer
@@ -6341,11 +6384,11 @@ pub(crate) async fn run_udp_tunnel(
                 }
             }
 
-            result = socket.recv(&mut recv_buf) => {
-                let n = match result {
-                    Ok(n) => n,
-                    Err(_) => break,
+            received = received_rx.recv() => {
+                let Some(recv_buf) = received else {
+                    break;
                 };
+                let n = recv_buf.len();
                 udp_buffer.note_receive(n);
                 let payload = if quic_enabled {
                     match unwrap_quic_payload(&recv_buf[..n]) {
@@ -6559,17 +6602,44 @@ pub(crate) async fn run_udp_tunnel(
                             if record.is_empty() {
                                 continue;
                             }
-                            let packets = match reassembler.decode(&record) {
-                                Ok(packets) => packets,
-                                Err(error) => {
-                                    log::debug!("UDP recordizer decode error: {error}");
-                                    continue;
+                            let mut first_packet = None;
+                            let mut extra_packets = Vec::new();
+                            let mut pool_exhausted_drops = 0_u64;
+                            let mut oversize_drops = 0_u64;
+                            let decode_result = reassembler.decode_with(&record, |bytes| {
+                                let Some(mut packet) = tun_write_tx.try_acquire() else {
+                                    pool_exhausted_drops =
+                                        pool_exhausted_drops.saturating_add(1);
+                                    return;
+                                };
+                                if bytes.len() > packet.capacity() {
+                                    oversize_drops = oversize_drops.saturating_add(1);
+                                    return;
                                 }
-                            };
+                                packet.as_vec_mut().extend_from_slice(bytes);
+                                if first_packet.is_none() {
+                                    first_packet = Some(packet);
+                                } else {
+                                    extra_packets.push(packet);
+                                }
+                            });
                             drop(record);
-                            for bytes in packets {
+                            if let Err(error) = decode_result {
+                                log::debug!("UDP recordizer decode error: {error}");
+                                continue;
+                            }
+                            for _ in 0..pool_exhausted_drops {
+                                udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
+                            }
+                            for _ in 0..oversize_drops {
+                                udp_buffer.note_internal_drop(InternalDrop::Oversize);
+                            }
+                            for packet in first_packet
+                                .into_iter()
+                                .chain(extra_packets)
+                            {
                                 if !is_supported_inner_packet(
-                                    &bytes,
+                                    packet.as_ref(),
                                     negotiated_family_mode,
                                 ) {
                                     unsupported_inner_drops =
@@ -6583,30 +6653,16 @@ pub(crate) async fn run_udp_tunnel(
                                     }
                                     continue;
                                 }
-                                let mut packet = match tun_write_tx.try_acquire() {
-                                    Some(packet) => packet,
-                                    None => {
-                                        udp_buffer.note_internal_drop(
-                                            InternalDrop::PoolExhausted,
-                                        );
-                                        continue;
-                                    }
-                                };
-                                if bytes.len() > packet.capacity() {
-                                    udp_buffer.note_internal_drop(InternalDrop::Oversize);
-                                    continue;
-                                }
-                                packet.as_vec_mut().extend_from_slice(&bytes);
                                 runtime_counters
                                     .rx_packets
                                     .fetch_add(1, Ordering::Relaxed);
                                 runtime_counters
                                     .rx_bytes
-                                    .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                                    .fetch_add(packet.len() as u64, Ordering::Relaxed);
                                 trace::record(
                                     trace::Dir::Rx,
                                     "client.udp",
-                                    bytes.len(),
+                                    packet.len(),
                                     0,
                                 );
                                 match tun_write_tx.try_send(packet) {
@@ -6832,6 +6888,9 @@ pub(crate) async fn run_udp_tunnel(
             }
         }
     }
+
+    udp_receive_task.abort();
+    let _ = udp_receive_task.await;
 
     #[cfg(target_os = "linux")]
     let dns_cleanup_error = dns::restore_dns_for(&tun_name).err();

@@ -7,7 +7,7 @@
 - **Язык**: Rust 2021, версия 0.8.0 (бета)
 - **Криптостек**: `x25519-dalek`, `ml-kem` (PQ-гибрид X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — серверная терминация настоящего TLS 1.3 в `reality-tls`
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
-- **Wire-режимы**: `plain` (без обфускации — голый шифрованный туннель, TCP) · `fake-tls` (мимикрия под TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (проксирование чужих хендшейков на реальный сайт) · `reality-tls` (настоящий TLS 1.3 несёт туннель; `handrolled` одалживает реальный серт target'а — cert-borrowing, паритет с Xray-REALITY) · QUIC-masking для UDP
+- **Wire-режимы**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + настоящий HTTP/2 carrier; `handrolled` одалживает сертификат target) · QUIC-shaped совместимость для UDP, не настоящий QUIC/HTTP3
 - **TUN/TAP-бэкенд Rust daemon/CLI**: только Linux (`libc::ioctl(TUNSETIFF)`); нативные
   клиенты используют API своей платформы (Wintun, utun, Android `VpnService`, iOS Network Extension)
 - **Веб-админка**: `axum` + `alpine.js`; встроенный HTTPS (rustls, self-signed или свой серт), пароль Argon2id (fail-closed), IP-allowlist, security-заголовки/HSTS, same-origin CSRF, RU/EN-локализация, выдача `qeli://`-ссылок/QR без ввода пароля; ассеты встроены (без CDN). Гайд — [PANEL.md](PANEL.md)
@@ -31,7 +31,8 @@ target и отправляет неавторизованные пробы на 
 **Полностью собственный стек — не обёртка.** Протокол, обфускация и
 REALITY/настоящий TLS 1.3 написаны **с нуля на Rust**: это **НЕ** использование
 готовых REALITY-библиотек и **НЕ** обёртка над Xray/sing-box. Свой fake-TLS, свой
-hand-rolled TLS 1.3 (`realtls`) с cert-borrowing (паритет JA3S с Xray-REALITY),
+hand-rolled TLS 1.3 (`realtls`) с cert-borrowing (сертификат и форма JA3S target'а,
+без заявления полного паритета с Xray/браузером),
 свой крипто-канал (X25519 + ML-KEM-768 PQ-гибрид, ChaCha20-Poly1305,
 channel-binding, key-pinning, PRP-nonce). Полный контроль и аудируемость кода,
 без зависимости от чужих proxy-ядер.
@@ -53,8 +54,8 @@ VPN — не self-hosted. Qeli = self-host full-TUN VPN + REALITY-style маск
 
 - **`realtls` — настоящий TLS 1.3 руками.** Sans-IO ядро (без привязки к сокету) +
   клиент и сервер: ClientHello/ServerHello, key schedule (HKDF), record-слой, AEAD.
-  **Cert-borrowing** — сервер одалживает реальный сертификат target'а, так что JA3S
-  совпадает с настоящим сайтом (паритет с Xray-REALITY). Экспортируется в нативные
+  **Cert-borrowing** — сервер одалживает реальный сертификат target'а, так что форма JA3S
+  совпадает с probed target; это одно измерение, а не полный паритет с Xray/браузером. Экспортируется в нативные
   клиенты через C-ABI FFI и JNI.
 - **fake-TLS** — собственный TLS-1.3-мимикрирующий хендшейк: GREASE, рандомизированный
   порядок расширений (JA3 меняется per-connection), SNI, X25519MLKEM768 key_share
@@ -62,6 +63,10 @@ VPN — не self-hosted. Qeli = self-host full-TUN VPN + REALITY-style маск
 - **REALITY-proxy** — peek-and-decide на accept: крипто-токен в `session_id`
   ClientHello + anti-replay guard; «чужие» хендшейки прозрачно мостятся на реальный
   сайт (защита от активного зондирования).
+- **Настоящий HTTP/2 carrier** — аутентифицированный `reality-tls` использует ALPN `h2`, один
+  долгоживущий двунаправленный `POST /v1/events/stream`, настоящие SETTINGS/HEADERS/DATA/
+  flow-control и случайный batching 2–8 мс. Пользовательского H2-переключателя и второго
+  внутреннего fake-TLS handshake больше нет.
 - **Крипто-канал** — X25519 + **ML-KEM-768** (PQ-гибрид X25519MLKEM768), HKDF-SHA256,
   ChaCha20-Poly1305 / AES-GCM, Argon2id для паролей.
 - **Channel-binding аутентификация** — proof сервера привязан к транскрипту
@@ -88,7 +93,7 @@ qeli_vpn/
 │   │   ├── client/        — TCP/UDP-клиент, маршруты, DNS, reconnect
 │   │   ├── server/        — handler.rs (TCP), udp_handler.rs (UDP), web/, control/, reality.rs
 │   │   ├── crypto/        — X25519, ML-KEM-768, ChaCha20-Poly1305, HKDF, auth (channel-binding/pinning), PRP-nonce
-│   │   ├── protocol/      — fake-tls, obfs (ChaCha20 stream), realtls/ (настоящий TLS 1.3: клиент+сервер+sans-IO/FFI), QUIC-wrap, packet codec
+│   │   ├── protocol/      — fake-tls, obfs, realtls/, h2_carrier.rs, QUIC-shape, packet codec
 │   │   ├── tun/           — TUN/TAP через libc
 │   │   ├── web/           — admin UI + REST API
 │   │   └── config/        — serde-структуры + flat-INI загрузчик (format.rs/server_ini.rs)
@@ -106,25 +111,18 @@ qeli_vpn/
 
 ## Что протокол делает на проводе
 
-1. **Рукопожатие.** Клиент шлёт fake-TLS ClientHello (SNI, x25519 key_share,
-   GREASE, рандомизированный порядок расширений → JA3 меняется per-connection).
-   Сервер отвечает ServerHello/Certificate/Finished. Общий ключ — X25519,
-   AEAD-ключи — HKDF-SHA256. (В режиме `obfs` весь поток дополнительно
-   XOR-ится ChaCha20-keystream; в `reality` «чужие» хендшейки проксируются на
-   реальный сайт.)
-2. **Аутентификация сервера → клиента.** Сервер доказывает владение
-   long-term ключом; proof привязан к **транскрипту рукопожатия** (channel
-   binding). Клиент сверяет с запиненным ключом (`auth.server_public_key`).
-   **До отправки кред** — MITM не перехватит пароль.
-3. **Аутентификация клиента → сервера.** Клиент шлёт (в AEAD-канале) proof
-   знания серверного ключа + `username:password` (Argon2id). При
-   `require_client_key_proof` непиненные клиенты отвергаются.
-4. **Данные.** Каждый IP-пакет → AEAD (ChaCha20-Poly1305; nonce маскируется
-   96-битным Feistel-PRP — на проводе нет инкрементного счётчика) → опц. паддинг
-   → запись: fake-TLS application_data `0x17`; либо голый `[len][nonce][ct]` в
-   режиме `plain` (без TLS-обёртки); либо obfs-поток; либо QUIC-обёртка; либо
-   внутри настоящего TLS 1.3 в `reality-tls`.
-
+1. **Рукопожатие carrier.** `fake-tls` отправляет TLS-shaped ClientHello qeli; `obfs` выполняет
+   выбранный fronting; `plain` начинает приватное рукопожатие напрямую. `reality-tls` вместо
+   этого устанавливает аутентифицированный REALITY TLS 1.3 и согласует ALPN `h2`.
+2. **Reality/H2 carrier.** Клиент открывает ровно один долгоживущий двунаправленный
+   `POST /v1/events/stream`. Приватный поток qeli идёт в настоящих HTTP/2 DATA frames;
+   случайный batching 2–8 мс разрушает корреляцию границ сообщений и записей.
+3. **Взаимная аутентификация qeli.** Proof сервера привязан к transcript и проверяется по
+   pinned-ключу профиля до отправки credentials. Затем клиент доказывает знание ключа и
+   аутентифицируется внутри AEAD-канала qeli.
+4. **Данные.** PacketCodec остаётся end-to-end ChaCha20-Poly1305 с PRP-маскировкой nonce.
+   Legacy-режимы сохраняют своё framing; текущий `reality-tls` несёт raw private qeli records
+   внутри H2. Внешний TLS AEAD и внутренний qeli AEAD остаются, но вложенного fake-TLS нет.
 Подробности безопасности — [AUDIT.md](AUDIT.md). Против **активного** пробинга
 работает REALITY: `reality` мостит чужих на реальный сайт, а `reality-tls` несёт
 туннель внутри настоящего TLS 1.3 (с `handrolled` — одолженный реальный серт
@@ -225,8 +223,9 @@ channel-binding, пиннинг ключа сервера, авторизаци�
 2026-08-16). Методика и raw-данные —
 [BENCHMARK.md](BENCHMARK.md):
 
-- **TCP**: 462–551 ↑ / 358–678 ↓ Mbps по измеренным режимам. `reality-tls` показал
-  472 ↑ / 358 ↓ Mbps; более низкий downlink отражает вложенный TLS/двойной AEAD.
+- **TCP, legacy carrier до 0.7.16 включительно**: 462–551 ↑ / 358–678 ↓ Mbps. Опубликованный
+  результат `reality-tls` 472 ↑ / 358 ↓ Mbps измерял прежний внутренний fake-TLS carrier и не
+  является скоростью текущего H2. Нужен отдельный контролируемый full-speed H2 benchmark.
 - **UDP**: все измеренные варианты шли без потерь до 400 Mbps; на 500 Mbps потери
   составили 6,47–21,39%, на 600 Mbps — 31,25–36,55%.
 - Средний RTT туннеля — 0,831–1,087 ms; измеренный RSS qeli — 75,9–87,1 MB. Это снимок

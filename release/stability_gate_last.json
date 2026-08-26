@@ -1,5 +1,5 @@
 {
-  "date": "2026-08-21T22:49:13Z",
+  "date": "2026-08-26T10:38:41Z",
   "runs": 5,
   "max_spread_pct": 8.0,
   "cpu_steal_pct": "0",
@@ -7,20 +7,20 @@
   "directions": {
     "up": {
       "n": 5,
-      "min": 19248.8,
-      "max": 19595.5,
-      "median": 19502.1,
-      "stdev": 117.9,
-      "spread_pct": 1.8
+      "min": 14255.0,
+      "max": 17215.0,
+      "median": 15373.3,
+      "stdev": 1179.7,
+      "spread_pct": 17.2
     },
     "down": {
       "n": 5,
-      "min": 21851.7,
-      "max": 22728.6,
-      "median": 22162.5,
-      "stdev": 310.3,
-      "spread_pct": 3.9
+      "min": 15654.9,
+      "max": 19777.7,
+      "median": 17490.7,
+      "stdev": 1463.3,
+      "spread_pct": 20.8
     }
   },
-  "verdict_quiet": true
+  "verdict_quiet": false
 }

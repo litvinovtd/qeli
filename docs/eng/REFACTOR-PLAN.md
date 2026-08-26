@@ -14,6 +14,22 @@ Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting 
 > = **the same wire/behavior byte-for-byte** + a green build of all affected clients +
 > e2e on the lab wherever the data plane is touched.
 
+## 2026-08-25 update — follow-up client cleanup
+
+A follow-up audit after moving every application to the shared Rust core is complete. Its scope was to remove remaining second implementations and build/test code from production packages without changing the wire or platform system adapters.
+
+| Step | Result | Status |
+|---|---|:---:|
+| macOS pf CLI/CI | The production-rule generator is reachable as `pf-selftest-rules`; CI rejects an empty file and verifies anchor load/read/flush | done |
+| Desktop conformance | Managed crypto/protocol KATs and the benchmark moved out of `QeliShared`/GUI into `QeliConformance`; BouncyCastle is absent from production deps | done |
+| macOS build tools | `uishot` and `Avalonia.Headless` build only with `QeliBuildTools=true`; the production graph excludes them | done |
+| Desktop NetworkPlan | Removed the Rust → `Session` → OS JSON bridge: addresses, DNS, and routes are typed and non-null; unused `MaxStreams`/`Adaptive` mirrors are gone | done |
+| Android shrinking | Enabled `shrinkResources`; broad R8 keeps for all `model.**`/service code were replaced with exact Serializable/JNI ABI rules | done |
+| Dead code/resources | Removed confirmed-unused C#/Kotlin/Swift APIs, Android resources, and iOS test-only heartbeat/shaping/multipath mirrors | done |
+| Shared-core boundary | Transport/wire/reconnect data plane stays in Rust. UI projections, Trusted Wi-Fi, storage, and OS route/DNS/TUN adapters intentionally remain platform-owned | done |
+
+Local gates passed: Windows/macOS Release builds, desktop platform selftests, required managed conformance and benchmark, Android unit/release/R8/lint, and 36 architecture/config consistency tests. Linux CI owns the Rust `cargo` gates and macOS CI owns the iOS build/tests because those toolchains are unavailable on the audit's Windows host.
+
 ---
 
 ## Why this is needed

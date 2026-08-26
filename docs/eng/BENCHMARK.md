@@ -9,6 +9,10 @@ holds the **latest structured run** — currently **qeli 0.7.16**, 2026-08-16, s
 `benchmark_v0.7.16_2026-08-16.json`, while older files retain historical names such as
 `benchmark_results_2026-06-11_v0.6.0.json`. The orchestrator —
 [scripts/benchmark.py](../../scripts/benchmark.py).
+> **Reality throughput scope.** Every published `reality-tls` speed number through 0.7.16
+> measures the legacy inner fake-TLS carrier. Development 0.8.0 replaces that carrier with
+> genuine HTTP/2. Its dated PCAP/DPI run used a controlled 4 Mbps stream and is not a
+> throughput benchmark; a clean full-speed H2 baseline has not yet been published.
 
 > Release **0.6.0** is a refactoring (the shared C# layer, .NET 10, cleanup); the
 > protocol, crypto, and data plane were **unchanged**. A direct measurement of 0.6.0
@@ -714,12 +718,12 @@ Two reasons:
 So for UDP the base mode is `fake-tls` (the rows above), and it is exactly that which is
 benchmarked as "UDP without extra obfuscation".
 
-## reality-tls download: why ~320 and what to do about it (analyzed on the lab)
+## Legacy reality-tls carrier (≤0.7.16): why download was ~320
 
-> 🆕 **Update:** the numbers below are the original **0.6.0 floor (~320)** diagnosis. Since 0.7.0
-> (the hand-rolled TLS server instead of rustls) download rose to ~417, and the **0.7.4 measurement
-> is ~430 Mbps** (see the version sections above). The bottleneck (double AEAD) is the same — the
-> absolute moved, not the nature.
+> **Historical diagnosis.** The numbers below start from the **0.6.0 floor (~320)** and use the
+> carrier shipped through 0.7.16. Since 0.7.0 the hand-rolled TLS server lifted download to ~417;
+> the **0.7.4 measurement is ~430 Mbps**. Double AEAD remains relevant to current H2, but the old
+> inner fake-TLS framing and its associated double-framing cost were removed in dev 0.8.0.
 
 The tunnel in `reality-tls` runs **inside** real TLS 1.3 (rustls on the server, the
 hand-rolled `realtls` on the client). On **download** the client reader strips **two
@@ -742,7 +746,7 @@ buffer instead of 4-KiB, a cursor instead of a per-record `drain`+allocation) �
 and kept in the code (161 tests green), but it didn't move the download (317 → 322 → 309
 → 319 Mbps — within the noise), since the bottleneck is **not** in buffering/syscalls.
 
-**The real directions (follow-up, design changes):**
+**Historical follow-up considered at the time:**
 1. **Remove the redundant inner AEAD in reality-tls** — the outer TLS already encrypts
    and authenticates, the inner ChaCha20 on the data plane duplicates this. Inside
    reality-tls the data can be pushed in `plain`/Raw framing (without the second AEAD),
@@ -751,9 +755,9 @@ and kept in the code (161 tests green), but it didn't move the download (317 →
 2. **Parallelize the two crypto layers** across tasks/cores (the TLS-decrypt in one, the
    inner in another).
 
-For most scenarios ~320 Mbps download for reality-tls is enough; this is the price for
-"real TLS on the wire"-level DPI resistance (it closes tells 1.1–1.6, see
-[DPI-AUDIT.md](DPI-AUDIT.md)).
+This section must not be used to predict current H2 throughput. For the current carrier and
+its measured DPI scope, see [DPI-AUDIT.md](DPI-AUDIT.md) and the dated
+[H2 PCAP report](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
 
 ## Multi-queue TUN (`tun.queues`) — A/B
 
@@ -826,11 +830,12 @@ in finally.
 | The cost of fake-tls obfuscation | ≈0 | small |
 | The cost of `obfs` | −12% ↑ / −16% ↓ | (obfs TCP only) |
 | The cost of `reality` (proxy) | ≈0 | — |
-| The cost of `reality-tls` | ≈0 ↑ / **−40% ↓** (nested TLS; was −54% on 0.6.0, hand-rolled TLS since 0.7.0 → ~430↓ on 0.7.4) | — |
+| Legacy `reality-tls` cost (≤0.7.16) | ≈0 ↑ / **−40% ↓** (outer TLS + inner fake-TLS; was −54% on 0.6.0, ~430↓ on 0.7.4) | — |
 | `plain` (raw) | ≈ fake-tls | n/a (TCP-only) |
 
-The fastest and cheapest on CPU is `plain`/`fake-tls`; the price for DPI resistance is
-paid by `obfs` (moderately) and `reality-tls` (noticeably on download).
+For the measured legacy set, `plain`/`fake-tls` were the fastest and cheapest on CPU;
+`obfs` paid a moderate cost and legacy `reality-tls` a noticeable download cost. Current H2
+requires a separate clean throughput result.
 
 ## Reproduction
 

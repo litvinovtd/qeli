@@ -1,0 +1,306 @@
+{
+  "variant_features": {
+    "tcp-reality-tls-shaped": {
+      "data_size_mean": 950.0938208616781,
+      "data_size_std": 185.31812180366157,
+      "full_mtu_share": 0.0,
+      "small_data_share": 0.04195011337868481,
+      "data_gap_mean_ms": 2.0781171406414494,
+      "data_gap_cv": 3.6415474139715087,
+      "burst_gap_share": 0.9948936170212765,
+      "direction_switch_share": 0.03234042553191489,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    },
+    "tcp-reality-tls-stealth2": {
+      "data_size_mean": 953.6199190051333,
+      "data_size_std": 234.4267232132504,
+      "full_mtu_share": 0.046123354082426925,
+      "small_data_share": 0.04090980035234012,
+      "data_gap_mean_ms": 2.324126054698328,
+      "data_gap_cv": 3.8237588318844273,
+      "burst_gap_share": 0.934597816557441,
+      "direction_switch_share": 0.027193138087415036,
+      "tls_records": 0.0,
+      "udp_tls_like_share": 0.0,
+      "udp_highbit_share": 0.0,
+      "samples": 3
+    }
+  },
+  "classifier_trained_on_default_12": {
+    "logistic": [
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 1,
+        "qeli_probability": 0.9791899963194254
+      },
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 2,
+        "qeli_probability": 0.9770878962475599
+      },
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 3,
+        "qeli_probability": 0.9872503174769948
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 1,
+        "qeli_probability": 0.9623061874213489
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 2,
+        "qeli_probability": 0.9357221179918992
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 3,
+        "qeli_probability": 0.9510504711508153
+      }
+    ],
+    "nearest_centroid": [
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 1,
+        "qeli_probability": 0.9445788704993723
+      },
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 2,
+        "qeli_probability": 0.9344670278653078
+      },
+      {
+        "mode": "tcp-reality-tls-shaped",
+        "sample": 3,
+        "qeli_probability": 0.9527635278612323
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 1,
+        "qeli_probability": 0.8409175257395369
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 2,
+        "qeli_probability": 0.791269998081263
+      },
+      {
+        "mode": "tcp-reality-tls-stealth2",
+        "sample": 3,
+        "qeli_probability": 0.8133220638078701
+      }
+    ]
+  },
+  "variant_inner_udp": [
+    {
+      "mode": "tcp-reality-tls-shaped",
+      "sample": 1,
+      "up_mbps": 4.0045334,
+      "up_loss_pct": 0,
+      "down_mbps": 4.0032262,
+      "down_loss_pct": 0
+    },
+    {
+      "mode": "tcp-reality-tls-shaped",
+      "sample": 2,
+      "up_mbps": 4.0015154,
+      "up_loss_pct": 0,
+      "down_mbps": 4.0036898,
+      "down_loss_pct": 0
+    },
+    {
+      "mode": "tcp-reality-tls-shaped",
+      "sample": 3,
+      "up_mbps": 4.0044813999999995,
+      "up_loss_pct": 0,
+      "down_mbps": 4.0031303,
+      "down_loss_pct": 0
+    },
+    {
+      "mode": "tcp-reality-tls-stealth2",
+      "sample": 1,
+      "up_mbps": 4.0058654,
+      "up_loss_pct": 0,
+      "down_mbps": 4.0037218,
+      "down_loss_pct": 0
+    },
+    {
+      "mode": "tcp-reality-tls-stealth2",
+      "sample": 2,
+      "up_mbps": 4.0049532999999995,
+      "up_loss_pct": 0,
+      "down_mbps": 4.00349,
+      "down_loss_pct": 0
+    },
+    {
+      "mode": "tcp-reality-tls-stealth2",
+      "sample": 3,
+      "up_mbps": 4.0054333,
+      "up_loss_pct": 0,
+      "down_mbps": 4.0022554,
+      "down_loss_pct": 0
+    }
+  ],
+  "idle_after_5s": {
+    "tcp-reality-tls:shaped": {
+      "client_to_server": {
+        "times_s": [
+          5.19,
+          6.407,
+          6.543,
+          7.397,
+          7.575,
+          8.573,
+          9.418,
+          10.027,
+          10.677,
+          10.786,
+          11.239,
+          11.659,
+          12.954,
+          13.199,
+          13.729,
+          14.145,
+          14.325,
+          15.286,
+          15.526,
+          15.912,
+          16.093,
+          16.382,
+          17.738,
+          17.866,
+          18.009,
+          18.236,
+          18.568,
+          18.827,
+          20.0
+        ],
+        "gaps_s": [
+          1.218,
+          0.136,
+          0.854,
+          0.178,
+          0.998,
+          0.844,
+          0.61,
+          0.65,
+          0.108,
+          0.453,
+          0.42,
+          1.294,
+          0.246,
+          0.53,
+          0.416,
+          0.18,
+          0.962,
+          0.24,
+          0.385,
+          0.182,
+          0.288,
+          1.356,
+          0.128,
+          0.143,
+          0.227,
+          0.331,
+          0.259,
+          1.174
+        ],
+        "gap_mean_s": 0.5289508615221296,
+        "gap_std_s": 0.3908542221105578,
+        "gap_cv": 0.7389235003527936
+      },
+      "server_to_client": {
+        "times_s": [
+          5.618,
+          6.77,
+          7.211,
+          8.325,
+          8.759,
+          9.088,
+          9.851,
+          10.24,
+          11.178,
+          12.007,
+          12.079,
+          12.531,
+          13.916,
+          14.902,
+          15.793,
+          16.339,
+          16.832,
+          17.051,
+          17.637,
+          18.133,
+          18.997,
+          19.436,
+          19.849,
+          20.262,
+          20.654
+        ],
+        "gaps_s": [
+          1.152,
+          0.442,
+          1.114,
+          0.434,
+          0.329,
+          0.763,
+          0.389,
+          0.938,
+          0.829,
+          0.072,
+          0.452,
+          1.385,
+          0.986,
+          0.891,
+          0.546,
+          0.492,
+          0.219,
+          0.586,
+          0.495,
+          0.865,
+          0.439,
+          0.413,
+          0.414,
+          0.392
+        ],
+        "gap_mean_s": 0.6265194614728292,
+        "gap_std_s": 0.3192790469027704,
+        "gap_cv": 0.509607548586289
+      }
+    },
+    "tcp-faketls:default": {
+      "client_to_server": {
+        "times_s": [
+          30.05,
+          60.053,
+          90.052
+        ],
+        "gaps_s": [
+          30.004,
+          29.999
+        ],
+        "gap_mean_s": 30.001184940338135,
+        "gap_std_s": 0.0025000572204589844,
+        "gap_cv": 8.333194923569599e-05
+      },
+      "server_to_client": {
+        "times_s": [
+          30.044,
+          60.042,
+          90.034
+        ],
+        "gaps_s": [
+          29.999,
+          29.991
+        ],
+        "gap_mean_s": 29.995005011558533,
+        "gap_std_s": 0.003780961036682129,
+        "gap_cv": 0.0001260530223357236
+      }
+    }
+  }
+}

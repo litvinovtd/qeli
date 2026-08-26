@@ -302,7 +302,6 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
 
         fun abiVersion(): Int = nativeAbiVersion()
 
-        fun coreCapabilities(): Long = nativeCoreCapabilities()
 
         /**
          * Send the shared Rust UDP ClientHello first flight and return milliseconds to any

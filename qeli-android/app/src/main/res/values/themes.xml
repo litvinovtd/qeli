@@ -36,10 +36,4 @@
         <item name="android:textColor">@color/tab_text</item>
     </style>
 
-    <!-- Input field style for the light dialog -->
-    <style name="DarkInputLayout" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-        <item name="boxStrokeColor">@color/outline</item>
-        <item name="hintTextColor">@color/text_hint</item>
-        <item name="android:textColorHint">@color/text_hint</item>
-    </style>
 </resources>

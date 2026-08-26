@@ -21,7 +21,6 @@
     <string name="move_up">Move up</string>
     <string name="move_down">Move down</string>
     <string name="profile_actions">Actions</string>
-    <string name="check_servers">Check servers</string>
     <string name="no_profiles">No profiles yet. Tap “Import” or “+ New”.</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
@@ -180,25 +179,18 @@
     <string name="protection_apps">Apps</string>
     <string name="protection_always_on">Always-on</string>
     <!-- Headlines -->
-    <string name="protection_all_traffic">All traffic is protected</string>
     <string name="protection_selected_apps">%1$d app(s) protected</string>
     <string name="protection_except_apps">All apps except %1$d protected</string>
     <string name="protection_split">Split tunnel — only selected routes</string>
-    <string name="protection_idle">Will be used on connect</string>
-    <string name="protection_no_profile">No profile selected</string>
-    <string name="protection_invalid">Profile config is invalid</string>
     <!-- Detail bits -->
     <string name="protection_pq">Hybrid post-quantum</string>
     <string name="protection_classic">X25519 (no post-quantum)</string>
     <!-- Same facts, sized for the one-line strip. -->
     <string name="protection_pq_short">PQ</string>
     <string name="protection_classic_short">X25519</string>
-    <string name="protection_dns_tunnel">DNS through VPN</string>
     <string name="protection_dns_system">system DNS</string>
     <string name="protection_key_pinned">server key pinned</string>
     <string name="protection_key_tofu">server key on trust (TOFU)</string>
-    <string name="protection_sep">%1$s · %2$s</string>
-    <string name="protection_mode_line">%1$s · %2$s · %3$s</string>
     <!-- Warnings: things that narrow what the tunnel carries -->
     <string name="protection_warn_lan">Local network stays outside the tunnel</string>
     <string name="protection_warn_ipv4">IPv4 bypasses the tunnel</string>

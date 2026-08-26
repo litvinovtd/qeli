@@ -27,8 +27,6 @@ internal static class PlatformStrings
         ["AppStartSection"] = ("Application startup (without the daemon)", "Запуск приложения (без демона)"),
         ["RunAtLogon"] = ("Start the app at login", "Запускать приложение при входе"),
         ["StartMinimized"] = ("Start hidden in the menu bar", "Запускать скрытым в строке меню"),
-        ["ModeFakeTls"] = ("Fake-TLS (TLS mimicry)", "Fake-TLS (мимикрия TLS)"),
-        ["ModeObfs"] = ("Obfs (ChaCha20 stream)", "Obfs (ChaCha20-поток)"),
         ["ServiceWord"] = ("Daemon", "Демон"),
         ["NoServiceProfile"] = ("No daemon profile — create a profile first.", "Нет профиля для демона — создайте профиль."),
         ["ServiceApplyError"] = ("Could not apply daemon settings:\n{0}", "Не удалось применить настройки демона:\n{0}"),

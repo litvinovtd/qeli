@@ -67,10 +67,8 @@ public static class ServiceState
 
     private const int O_RDONLY = 0x0000;
     private const int O_WRONLY = 0x0001;
-    private const int O_APPEND = 0x0008;
     private const int O_NOFOLLOW = 0x0100;
     private const int O_CREAT = 0x0200;
-    private const int O_TRUNC = 0x0400;
     private const int O_EXCL = 0x0800;
     private const int O_DIRECTORY = 0x100000;
     private const int O_CLOEXEC = 0x1000000;
@@ -270,7 +268,6 @@ public static class ServiceState
     // On-disk layout: [nonce:12][tag:16][ciphertext]. Legacy plaintext is migrated.
     private const int NonceLen = 12;
     private const int TagLen = 16;
-    private static string KeyFile => Path.Combine(Dir, ".service.key");
 
     private static byte[] ServiceKey()
     {

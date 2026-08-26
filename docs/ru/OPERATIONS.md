@@ -34,7 +34,7 @@
 | **Ключ сервера (пиннинг)** | `qeli show-identity` | `key` / `auth.server_public_key` | `SERVER KEY MISMATCH … possible MITM attack!` — с подсказкой, что делать при ротации |
 | **`bind_static` + нулевой ключ** | — | `key = 0000…` (TOFU-заглушка) при `bind_static = true` | Фатально ещё до сети: `bind_static_to_session is on but server_public_key is the all-zero TOFU sentinel` |
 | **Транспорт** | `bind.transport` (`tcp`/`udp`) | `proto` | Соединение просто не устанавливается: TCP-клиент стучится в UDP-порт и наоборот |
-| **Wire-режим** | `obf.mode` | `mode` | Сервер не распознаёт поток: таймаут хендшейка, в debug-логе `handshake timeout` |
+| **Wire-режим** | `obf.mode` | `mode` | Обычно совпадают. Актуальный Reality использует `reality-tls` с обеих сторон; новый сервер временно принимает legacy server-написание/carrier для миграции. Остальные расхождения дают таймаут хендшейка |
 | **`obfs_key` (для `mode = obfs`)** | `obf.obfs_key` | `obfs_key` | Поток расшифровывается в мусор → хендшейк не парсится |
 | **REALITY `short_id`** | `obf.tls.reality_proxy.short_ids` | `reality_sid` | Сервер **молча** считает вас чужим и мостит на target: «не подключается, ошибок нет», а `curl` до сервера показывает настоящий сайт |
 | **AmneziaWG junk** | `obf.awg.jc` / `jmin` / `jmax` | `awg` / `jc` / `jmin` / `jmax` | Хендшейк не проходит: сервер ждёт другое число junk-пакетов. Включать нужно **на обеих** сторонах с одинаковым `jc` |
@@ -218,6 +218,11 @@ docker compose -f release/docker/docker-compose.yml up -d
 параметров из [§1](#1-что-должно-совпадать-у-клиента-и-сервера). Практический вывод:
 обновляйте **сервер первым**, клиенты — по мере возможности; ломается не версия, а
 изменившийся дефолт (так было с `bind_static` в 0.7.1 и с `handrolled` позже).
+
+Для перехода dev 0.8.0 на Reality/H2 этот порядок обязателен: новый сервер принимает legacy
+Reality carrier и H2, но новый клиент работает только через H2 и не делает downgrade.
+Промежуточный reverse proxy/load balancer допустим только как прозрачный TCP pass-through;
+TLS termination, H2 conversion или HTTP routing перед qeli ломают discriminator/carrier.
 
 Перед обновлением прочитайте раздел своей версии в [CHANGELOG.md](../../CHANGELOG.md) —
 смена дефолта всегда отмечена там явно.

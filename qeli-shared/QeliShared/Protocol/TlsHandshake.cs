@@ -73,27 +73,58 @@ public static class TlsHandshake
         string sni = "!", int padToMin = 0)
     {
         ValidateClientHelloInputs(sni, padToMin);
+        ValidateKeyShares(x25519Pub, mlKemEk);
         // Prefer the shared Rust builder (qeli.dll) so every client emits the identical
         // fake-tls hello (GREASE / per-connection shuffle / ALPN). Fall back to the
         // managed builder if the native export is unavailable (e.g. an older bundled
         // qeli.dll) so the client never crashes on a stale native lib.
         try
         {
-            int rc = qeli_build_faketls_clienthello(
-                x25519Pub, mlKemEk, (UIntPtr)mlKemEk.Length,
-                sni, (UIntPtr)padToMin, out IntPtr p, out UIntPtr l);
-            if (rc == 0 && p != IntPtr.Zero && l != UIntPtr.Zero)
-            {
-                int n = (int)l;
-                var hello = new byte[n];
-                Marshal.Copy(p, hello, 0, n);
-                qeli_realtls_buf_free(p, l);
-                return hello;
-            }
+            return BuildClientHelloPqNative(x25519Pub, mlKemEk, sni, padToMin);
         }
         catch (DllNotFoundException) { /* qeli.dll missing → managed builder */ }
         catch (EntryPointNotFoundException) { /* old qeli.dll w/o the export → managed */ }
+        catch (InvalidOperationException) { /* native builder rejected otherwise valid input */ }
         return BuildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin);
+    }
+
+    /// <summary>
+    /// Invoke the Rust fake-TLS builder without the compatibility fallback. Conformance uses
+    /// this entry point so a missing DLL/export or native error fails the gate instead of
+    /// silently exercising the managed implementation.
+    /// </summary>
+    internal static byte[] BuildClientHelloPqNative(byte[] x25519Pub, byte[] mlKemEk,
+        string sni = "!", int padToMin = 0)
+    {
+        ValidateClientHelloInputs(sni, padToMin);
+        ValidateKeyShares(x25519Pub, mlKemEk);
+
+        IntPtr buffer = IntPtr.Zero;
+        UIntPtr length = UIntPtr.Zero;
+        int rc = qeli_build_faketls_clienthello(
+            x25519Pub, mlKemEk, (UIntPtr)mlKemEk.Length,
+            sni, (UIntPtr)padToMin, out buffer, out length);
+        if (rc != 0 || buffer == IntPtr.Zero || length == UIntPtr.Zero)
+        {
+            if (buffer != IntPtr.Zero)
+                qeli_realtls_buf_free(buffer, length);
+            throw new InvalidOperationException(
+                $"native fake-TLS ClientHello builder failed (rc={rc})");
+        }
+
+        try
+        {
+            ulong nativeLength = length.ToUInt64();
+            if (nativeLength > int.MaxValue)
+                throw new InvalidOperationException("native fake-TLS ClientHello is too large");
+            var hello = new byte[(int)nativeLength];
+            Marshal.Copy(buffer, hello, 0, hello.Length);
+            return hello;
+        }
+        finally
+        {
+            qeli_realtls_buf_free(buffer, length);
+        }
     }
 
     private static void ValidateClientHelloInputs(string sni, int padToMin)
@@ -108,13 +139,18 @@ public static class TlsHandshake
                 "ClientHello padding target must be between 0 and 16389 bytes");
     }
 
-    private static byte[] BuildClientHelloInner(byte[] x25519Pub, byte[]? mlKemEk, string sni, int padToMin)
+    private static void ValidateKeyShares(byte[] x25519Pub, byte[]? mlKemEk)
     {
+        ArgumentNullException.ThrowIfNull(x25519Pub);
         if (x25519Pub.Length != 32)
             throw new ArgumentException("x25519 public key must be exactly 32 bytes", nameof(x25519Pub));
         if (mlKemEk != null && mlKemEk.Length != 1184)
             throw new ArgumentException("ML-KEM-768 encapsulation key must be exactly 1184 bytes", nameof(mlKemEk));
+    }
 
+    private static byte[] BuildClientHelloInner(byte[] x25519Pub, byte[]? mlKemEk, string sni, int padToMin)
+    {
+        ValidateKeyShares(x25519Pub, mlKemEk);
         bool pq = mlKemEk != null;
         var sessionId = RandomNumberGenerator.GetBytes(32);
         var randomBytes = RandomNumberGenerator.GetBytes(32);

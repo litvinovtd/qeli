@@ -58,6 +58,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Sign the release only when a keystore is configured; otherwise the
             // APK is left unsigned (so CI / fresh clones still build).

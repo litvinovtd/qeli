@@ -27,7 +27,6 @@
     <string name="move_up">Выше</string>
     <string name="move_down">Ниже</string>
     <string name="profile_actions">Действия</string>
-    <string name="check_servers">Проверить серверы</string>
     <string name="no_profiles">Профилей пока нет. Нажмите «Импорт» или «+ Новый».</string>
     <string name="save">Сохранить</string>
     <string name="cancel">Отмена</string>
@@ -191,24 +190,17 @@
     <string name="chevron">›</string>
     <string name="protection_apps">Приложения</string>
     <string name="protection_always_on">Always-on</string>
-    <string name="protection_all_traffic">Весь трафик защищён</string>
     <string name="protection_selected_apps">Защищено приложений: %1$d</string>
     <string name="protection_except_apps">Защищены все приложения, кроме %1$d</string>
     <string name="protection_split">Раздельный туннель — только выбранные маршруты</string>
-    <string name="protection_idle">Будет использовано при подключении</string>
-    <string name="protection_no_profile">Профиль не выбран</string>
-    <string name="protection_invalid">Конфиг профиля некорректен</string>
     <string name="protection_pq">Гибридное постквантовое</string>
     <string name="protection_classic">X25519 (без постквантового)</string>
     <!-- Те же факты, но в размер однострочной полосы. -->
     <string name="protection_pq_short">PQ</string>
     <string name="protection_classic_short">X25519</string>
-    <string name="protection_dns_tunnel">DNS через VPN</string>
     <string name="protection_dns_system">системный DNS</string>
     <string name="protection_key_pinned">ключ сервера запинен</string>
     <string name="protection_key_tofu">ключ сервера на доверии (TOFU)</string>
-    <string name="protection_sep">%1$s · %2$s</string>
-    <string name="protection_mode_line">%1$s · %2$s · %3$s</string>
     <string name="protection_warn_lan">Локальная сеть остаётся вне туннеля</string>
     <string name="protection_warn_ipv4">IPv4 идёт мимо туннеля</string>
     <string name="protection_warn_ipv6">IPv6 идёт мимо туннеля</string>

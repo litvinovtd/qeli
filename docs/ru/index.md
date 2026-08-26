@@ -99,6 +99,9 @@
 ## Вне этого каталога
 
 - **[../../CHANGELOG.md](../../CHANGELOG.md)** — все изменения по версиям.
+- **[../../release/RELEASE_NOTES_0.8.0.md](../../release/RELEASE_NOTES_0.8.0.md)** — dev-миграция
+  Reality/H2, defaults, порядок обновления и проверка.
+- **[../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md)** — датированный H2 PCAP/DPI-результат и ограничения.
 - **[../../release/RELEASE_NOTES_0.7.16.md](../../release/RELEASE_NOTES_0.7.16.md)** — двуязычный
   выпускной документ `0.7.16` и влияние обновления.
 - **[../../SECURITY.md](../../SECURITY.md)** — политика безопасности и приём отчётов.

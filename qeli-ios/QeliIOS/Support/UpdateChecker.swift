@@ -22,9 +22,6 @@ enum UpdateChecker {
     /// closed before the app can promise that release metadata is fetched through the VPN.
     /// Any custom exclude makes the destination path unknowable without resolving first and
     /// is therefore rejected conservatively.
-    static func hasPrivatePath(_ config: VPNConfig, globalAllowLAN: Bool = false) -> Bool {
-        config.hasPrivateUpdatePath(globalAllowLAN: globalAllowLAN)
-    }
 
     static func check(currentVersion: String) async throws -> UpdateInfo {
         var request = URLRequest(url: releasesURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)

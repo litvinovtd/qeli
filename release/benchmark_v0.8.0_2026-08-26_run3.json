@@ -1,0 +1,288 @@
+{
+  "meta": {
+    "date": "2026-08-26T11:36:58Z",
+    "sha256_16": "2f69b48f10257151",
+    "version": "qeli 0.8.0",
+    "recordizer_policy": "prefer",
+    "server": "6.12.88+deb13-amd64",
+    "iperf3": "iperf 3.18 (cJSON 1.7.15)",
+    "recordizer_pmtu_verification": {
+      "result": "PASS 4/4",
+      "evidence": "dpi_audit_recordizer_udp_pmtu_0.8.0_2026-08-26/manifest.json"
+    }
+  },
+  "baseline": {
+    "tcp": {
+      "mbps": 18413.5,
+      "retransmits": 0,
+      "cpu_client": 57.4,
+      "cpu_server": 96.3
+    },
+    "udp_sweep": {
+      "500M": {
+        "mbps": 500.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 260676,
+        "kernel_rcvbuf_drops": 0
+      },
+      "1000M": {
+        "mbps": 1000.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 521361,
+        "kernel_rcvbuf_drops": 0
+      }
+    }
+  },
+  "modes": {
+    "udp-faketls": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 8.988/12.785/19.149/2.936 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0.01,
+          "lost_packets": 7,
+          "packets": 52117,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 199.9,
+          "loss_pct": 0.3,
+          "lost_packets": 315,
+          "packets": 104326,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 156407,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 0.01,
+          "lost_packets": 21,
+          "packets": 208404,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 19.69,
+          "lost_packets": 51318,
+          "packets": 260679,
+          "kernel_rcvbuf_drops": 40662,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 599.9,
+          "loss_pct": 29.77,
+          "lost_packets": 93087,
+          "packets": 312642,
+          "kernel_rcvbuf_drops": 6281,
+          "server_session_drops": 0
+        }
+      },
+      "recordizer_active": true,
+      "recordizer_pmtu_log_probe": {
+        "client_dynamic_widen_logged": false,
+        "server_stdout_widen_logged": false,
+        "note": "The client normally certifies PMTU before constructing recordizer; the server writes its widening event to /var/log/qeli/server.log, not stdout."
+      }
+    },
+    "udp-padding": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.975/12.922/19.424/3.122 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52103,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 199.9,
+          "loss_pct": 1.84,
+          "lost_packets": 1913,
+          "packets": 104240,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 11.81,
+          "lost_packets": 18459,
+          "packets": 156338,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 0.28,
+          "lost_packets": 580,
+          "packets": 208456,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 500.0,
+          "loss_pct": 13.78,
+          "lost_packets": 35901,
+          "packets": 260563,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 599.9,
+          "loss_pct": 33.21,
+          "lost_packets": 103861,
+          "packets": 312696,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        }
+      },
+      "recordizer_active": true,
+      "recordizer_pmtu_log_probe": {
+        "client_dynamic_widen_logged": false,
+        "server_stdout_widen_logged": false,
+        "note": "The client normally certifies PMTU before constructing recordizer; the server writes its widening event to /var/log/qeli/server.log, not stdout."
+      }
+    },
+    "udp-quic": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 6.216/13.092/18.115/3.013 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52136,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 1.3,
+          "lost_packets": 1357,
+          "packets": 104271,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 2.45,
+          "lost_packets": 3833,
+          "packets": 156357,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 3.12,
+          "lost_packets": 6500,
+          "packets": 208503,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 500.0,
+          "loss_pct": 5.97,
+          "lost_packets": 15543,
+          "packets": 260519,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 599.9,
+          "loss_pct": 31.02,
+          "lost_packets": 97019,
+          "packets": 312746,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        }
+      },
+      "recordizer_active": true,
+      "recordizer_pmtu_log_probe": {
+        "client_dynamic_widen_logged": false,
+        "server_stdout_widen_logged": false,
+        "note": "The client normally certifies PMTU before constructing recordizer; the server writes its widening event to /var/log/qeli/server.log, not stdout."
+      }
+    },
+    "udp-faketls-awg": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 8.126/13.486/19.281/3.227 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52128,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0.49,
+          "lost_packets": 507,
+          "packets": 104214,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 2.09,
+          "lost_packets": 3276,
+          "packets": 156427,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 5.05,
+          "lost_packets": 10523,
+          "packets": 208381,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 8.59,
+          "lost_packets": 22384,
+          "packets": 260628,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 600.0,
+          "loss_pct": 27.88,
+          "lost_packets": 87209,
+          "packets": 312761,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        }
+      },
+      "recordizer_active": true,
+      "recordizer_pmtu_log_probe": {
+        "client_dynamic_widen_logged": false,
+        "server_stdout_widen_logged": false,
+        "note": "The client normally certifies PMTU before constructing recordizer; the server writes its widening event to /var/log/qeli/server.log, not stdout."
+      }
+    }
+  }
+}

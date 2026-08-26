@@ -52,12 +52,10 @@ public static class Loc
         ["Exit"] = ("Exit", "Выход"),
 
         // ── main window ──
-        ["ProfilesHeader"] = ("Profiles", "Профили"),
         ["LogHeader"] = ("Log", "Журнал"),
         ["Profile"] = ("Profile", "Профиль"),
         ["NoProfilesMenu"] = ("No profiles", "Нет профилей"),
         ["SelectProfile"] = ("Select a profile", "Выберите профиль"),
-        ["TunnelIp"] = ("Tunnel addresses: {0}", "Адреса туннеля: {0}"),
         ["NoProfilesHint"] = ("No profiles yet.\nClick “Import” or “New”.", "Нет профилей.\nНажмите «Импорт» или «Новый»."),
 
         // ── statuses ──
@@ -157,8 +155,6 @@ public static class Loc
         ["FieldName"] = ("Name", "Название"),
         ["FieldServer"] = ("Server address", "Адрес сервера"),
         ["FieldPort"] = ("Port", "Порт"),
-        ["FieldProtocol"] = ("Protocol", "Протокол"),
-        ["FieldWireMode"] = ("Wire mode", "Wire-режим"),
         // Connection-mode presets: each sets transport + wire mode + fronting + QUIC.
         ["FieldMode"] = ("Connection mode", "Режим подключения"),
         ["PresetFakeTls"] = ("Fake-TLS · TCP", "Fake-TLS · TCP"),
@@ -173,7 +169,6 @@ public static class Loc
         ["FieldLogin"] = ("Username", "Логин"),
         ["FieldPassword"] = ("Password", "Пароль"),
         ["FieldSni"] = ("SNI (domain masking)", "SNI (маскировка домена)"),
-        ["FieldQuic"] = ("QUIC masking (UDP)", "QUIC-маскировка (UDP)"),
         ["FieldPadding"] = ("Padding (size masking)", "Паддинг (маскировка размера)"),
         ["FieldHeartbeat"] = ("Heartbeat (keep-alive)", "Heartbeat (keep-alive)"),
         ["FieldObfsKey"] = ("Obfs key (PSK)", "Ключ obfs (PSK)"),
@@ -271,7 +266,6 @@ public static class Loc
         ["LogCopy"] = ("Copy log", "Копировать лог"),
         ["LogClear"] = ("Clear log", "Очистить лог"),
         ["Throughput"] = ("Throughput", "Трафик"),
-        ["ChartWindow"] = ("60 s", "60 с"),
         ["Offline"] = ("offline", "офлайн"),
         ["QrTitle"] = ("Share profile", "Поделиться профилём"),
         ["CopyLink"] = ("Copy link", "Копировать ссылку"),

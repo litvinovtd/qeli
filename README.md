@@ -21,8 +21,8 @@ panel.
   selected applications without replacing qeli with an application-layer SOCKS/HTTP proxy.
   Full-tunnel and split-tunnel are both first-class.
 - **Wire modes**: `plain` · `fake-tls` (TLS 1.3 mimicry) · `obfs` (ChaCha20 stream +
-  WebSocket fronting) · `reality` / `reality-tls` (real TLS 1.3 carries the tunnel) ·
-  QUIC-masking for UDP.
+  WebSocket fronting) · `reality` · `reality-tls` (REALITY TLS 1.3 + a genuine HTTP/2
+  carrier) · QUIC-shaped compatibility masking for UDP (not real QUIC/HTTP3).
 - **Post-quantum handshake**: hybrid X25519 + ML-KEM-768, ChaCha20-Poly1305 data plane.
 - **Web admin panel** with `qeli://` link / QR issuance, Argon2id login, native HTTPS.
 - **Server**: Linux (TUN/TAP). **Clients**: Linux CLI · Windows · macOS · Android ·
@@ -33,12 +33,13 @@ panel.
 
 Qeli is built for networks where ordinary VPN protocols (WireGuard, OpenVPN, IKEv2) are
 fingerprinted and blocked — Iran, China (the Great Firewall) and Russia (TSPU). The
-`reality-tls` carries the tunnel inside a real TLS 1.3 exchange shaped from a configured
-third-party target; connections without a valid qeli token are bridged to that target. This
-reduces known passive fingerprints and active-probing tells, but it cannot guarantee bypass
-when the target SNI/IP itself is blocked. Optional traffic shaping adds idle cover traffic to
-reduce a bulk-download pattern; it is off by default and is not a guarantee against statistical
-DPI.
+`reality-tls` carries the private qeli stream through one long-lived genuine HTTP/2 request
+inside a real TLS 1.3 exchange shaped from a configured third-party target; connections without
+a valid qeli token are bridged to that target. This removes the former inner fake-TLS
+choreography and reduces known passive and active-probing tells, but does not make the flow
+universally indistinguishable. The shipped Reality profiles disable the periodic qeli heartbeat
+and enable bounded randomized idle cover; the schema baseline for non-stealth profiles remains
+unchanged. Statistical DPI resistance is a measured property, not a guarantee.
 
 > In spirit a self-hosted alternative to Xray / V2Ray / sing-box (REALITY/VLESS) setups, but
 > with its own protocol, native GUI clients and a post-quantum handshake.
@@ -61,7 +62,7 @@ NAT, creates users and prints ready-to-use `qeli://` links. Three profiles are o
 
 | Profile | When to pick it |
 |---------|-----------------|
-| `reality-tls` | The default the installer provisions. Real TLS 1.3 over TCP:443 — survives active probing. |
+| `reality-tls` | Installer default. REALITY TLS 1.3 + genuine HTTP/2 on TCP:443; unauthenticated probes are bridged to the configured target. |
 | `fake-tls` | Cheaper on CPU; enough against passive/signature DPI. |
 | `udp-quic` | A UDP path with QUIC-shaped datagrams — useful where TCP:443 is throttled, reset or otherwise degraded. |
 

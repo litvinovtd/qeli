@@ -87,6 +87,19 @@ class TemplateAudit(HTMLParser):
         classes = set((data.get("class") or "").split())
         input_type = (data.get("type") or "text").lower()
 
+        for name, value in attrs:
+            if not value:
+                continue
+            if name.startswith(("@", "x-on:")):
+                expression = value.strip()
+                if ";" in expression.rstrip(";"):
+                    fail(self.path, self.line, "CSP Alpine event handlers must contain one expression")
+            forbidden_csp_syntax = ("Object.entries(", "parseInt(", "randHex(", ".replace(/")
+            if name.startswith(("@", ":", "x-")) and any(
+                token in value for token in forbidden_csp_syntax
+            ):
+                fail(self.path, self.line, "Alpine expression uses syntax/global unavailable in the CSP build")
+
         # login.html is a standalone, fully styled page with its own scoped input/select CSS.
         bespoke_login = self.path.name == "login.html"
         if not bespoke_login:
@@ -163,6 +176,16 @@ i18n_pos = layout_source.find('src="assets/i18n.js')
 alpine_pos = layout_source.find('src="assets/alpine.js')
 if i18n_pos < 0 or alpine_pos < 0 or i18n_pos > alpine_pos:
     fail(layout_path, 1, "i18n.js must load before Alpine initializes translated expressions")
+
+# The CSP Alpine evaluator does not resolve arbitrary window globals from x-text. Dashboard
+# uptime used to call the shared global dur() directly, which left every cell empty after the
+# switch to @alpinejs/csp. Keep the expression backed by a component method.
+dashboard_path = TEMPLATES / "dashboard.html"
+dashboard_source = dashboard_path.read_text(encoding="utf-8")
+if 'x-text="dur(c.connected_secs)"' not in dashboard_source:
+    fail(dashboard_path, 1, "dashboard must render the server-provided connected_secs value")
+if not re.search(r"\bdur\(value\)\s*\{[^}]*window\.dur", dashboard_source):
+    fail(dashboard_path, 1, "dashboard duration formatter must be exposed through Alpine component data")
 
 # Profile diagnostics belong in the fixed drawer. An inline x-show inside each grid card makes
 # every sibling in that CSS-grid row grow to the expanded card's height.

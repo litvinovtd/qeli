@@ -36,7 +36,7 @@ fails to decrypt.
 | **Server key (pinning)** | `qeli show-identity` | `key` / `auth.server_public_key` | `SERVER KEY MISMATCH … possible MITM attack!` — with a hint about what to do after a deliberate rotation |
 | **`bind_static` + zero key** | — | `key = 0000…` (TOFU placeholder) with `bind_static = true` | Fatal before any traffic: `bind_static_to_session is on but server_public_key is the all-zero TOFU sentinel` |
 | **Transport** | `bind.transport` (`tcp`/`udp`) | `proto` | The connection simply never establishes: a TCP client knocking on a UDP port and vice versa |
-| **Wire mode** | `obf.mode` | `mode` | The server doesn't recognise the stream: handshake timeout, `handshake timeout` in the debug log |
+| **Wire mode** | `obf.mode` | `mode` | Normally they match. Current Reality uses `reality-tls` on both sides; a new server temporarily accepts the legacy server spelling/carrier for migration. Other mismatches end in handshake timeout |
 | **`obfs_key` (for `mode = obfs`)** | `obf.obfs_key` | `obfs_key` | The stream decrypts to garbage → the handshake won't parse |
 | **REALITY `short_id`** | `obf.tls.reality_proxy.short_ids` | `reality_sid` | The server **silently** treats you as a stranger and bridges you to the target: "won't connect, no errors", while `curl` to the server shows the real site |
 | **AmneziaWG junk** | `obf.awg.jc` / `jmin` / `jmax` | `awg` / `jc` / `jmin` / `jmax` | Handshake fails: the server expects a different junk-packet count. Enable on **both** ends with the same `jc` |
@@ -220,6 +220,11 @@ version, no refusal by version number. Compatibility is decided purely by the pa
 in [§1](#1-what-must-match-between-client-and-server). Practical consequence: upgrade the
 **server first**, clients as you can; what breaks you is never the version number but a
 changed default (as happened with `bind_static` in 0.7.1, and with `handrolled` later).
+
+For the 0.8.0 Reality/H2 transition this order is mandatory: the new server accepts both the
+legacy Reality carrier and H2, but the new client is H2-only and does not downgrade. An
+intermediate reverse proxy/load balancer must use transparent TCP pass-through; terminating TLS,
+converting H2 or routing HTTP before qeli breaks the discriminator and carrier.
 
 Before upgrading, read your version's section in [CHANGELOG.md](../../CHANGELOG.md) — a
 changed default is always called out there explicitly.

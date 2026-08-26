@@ -81,13 +81,13 @@ its weight.
 | Platform | Test | How it finds the file |
 |---|---|---|
 | Rust | `qeli/src/protocol/packet.rs` (tests), `qeli/src/config/share.rs` (tests) | `include_str!` — compiled in, so a moved path breaks the build |
-| C# | `qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs`, `…/Model/LinkConformance.cs`, run from `selftest` on both desktops | walks up from the working directory |
+| C# | `qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs`, `…/Model/LinkConformance.cs`, run by standalone `qeli-shared/QeliConformance selftest` on both desktop CI hosts | walks up from the working directory |
 | Kotlin | `qeli-android/app/src/test/kotlin/com/qeli/QeliLinkConformanceTest.kt` (`qeli-links.json` only) | walks up from the working directory |
 | Swift | `qeli-ios/QeliIOSTests/…` | walks up from `#filePath` |
 
-The C# selftest runs from a shipped app too, where no repository exists next to it, so a
-missing fixture is a SKIP — **except** under `QELI_CONFORMANCE_REQUIRED=1`, which CI sets
-so that a moved file cannot turn the gate into a no-op.
+The standalone C# runner may also be invoked outside a repository, so a missing fixture is
+a SKIP — **except** under `QELI_CONFORMANCE_REQUIRED=1`, which CI sets so that a moved file
+cannot turn the gate into a no-op. Production desktop applications do not compile or ship it.
 
 CI already lists `conformance/**` in its path filters, so touching anything here runs all
 five suites.

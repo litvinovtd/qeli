@@ -6,6 +6,10 @@ obfuscation, as well as an honest list of what is protected and what is not. Pas
 (with open items A1/UDP/C2, etc.) are outdated — the problems listed below are closed or
 reconsidered.
 
+> **0.8.0 carrier note.** Current `reality-tls` terminates REALITY TLS 1.3, negotiates
+> ALPN `h2` and carries raw private qeli records through one genuine long-lived HTTP/2 POST.
+> PacketCodec AEAD remains defence-in-depth; the former second fake-TLS handshake/framing is gone.
+
 ## The cryptographic core
 
 | Element | Implementation |
@@ -19,9 +23,9 @@ reconsidered.
 
 ## The handshake and authentication (the order matters)
 
-1. **The ephemeral exchange.** The client sends a fake-TLS ClientHello (with GREASE and a
-   randomized extension order → the JA3 changes per-connection), the server —
-   ServerHello/Certificate/Finished. The shared secret — X25519 from the key_share.
+1. **The carrier-specific exchange.** `fake-tls` uses its TLS-shaped ClientHello and X25519
+   key_share. `reality-tls` first authenticates REALITY TLS 1.3 and establishes genuine H2;
+   the private qeli handshake and hybrid X25519MLKEM768 exchange then run inside that carrier.
 2. **Channel binding.** The auth_proof mixes in `transcript_hash =
    SHA256(ClientHello‖ServerHello‖Cert‖Finished)`. Tampering with any message in the
    channel breaks the proof (protection against a split-handshake MITM).
@@ -39,14 +43,11 @@ changes):
 - `plain` — without TLS mimicry: a bare exchange of 32-byte X25519 keys, `[len][nonce][ct]`
   records (TCP-only).
 - `fake-tls` / `obfs` / `reality` — a pseudo-TLS-1.3 ClientHello (see above).
-- `reality-tls` — a **real** browser (Chrome JA4) TLS 1.3 ClientHello with a REALITY token
-  in the `session_id` = `HKDF(X25519(eph, reality_pub) ‖ short_id)`. The server
-  cryptographically recognizes "ours" (opens the token with the profile private key,
-  checks against `short_ids`), terminates real TLS 1.3 (rustls **or** hand-rolled), and
-  carries the qeli tunnel INSIDE it; the KEX — the PQ hybrid X25519MLKEM768. A
-  "foreigner"/prober is transparently proxied to the real `target:443`. With
-  `handrolled=true` the server **borrows the target's real cert chain** (cert-borrowing,
-  auto-refresh 12h) and mirrors its JA3S/ServerHello — parity with Xray-REALITY.
+- `reality-tls` — a real browser-shaped TLS 1.3 ClientHello with a REALITY token. The server
+  recognizes the token, terminates TLS, negotiates ALPN `h2`, and accepts one bidirectional
+  HTTP/2 POST carrying the private qeli stream with randomized batching. `handrolled=true`
+  borrows the target certificate chain and mirrors JA3S; unauthenticated connections are bridged
+  to target. This reduces known tells but is not universal Xray/browser behavioral parity.
 
 ## What is implemented for protection
 
@@ -86,20 +87,20 @@ changes):
 | `fake-tls` (TCP/UDP, default) | a pseudo-TLS-1.3 handshake + Application-Data records; GREASE, a random extension order, a PQ key_share | passive/signature-based DPI |
 | `obfs` (TCP) | the whole flow XOR'd with a ChaCha20 keystream (a shared PSK); the start masked as a WebSocket Upgrade (printable HTTP) | DPI that catches *known* protocols (fake-TLS/JA3) + the entropy-based "fully encrypted" detection (GFW/TSPU) |
 | `reality` (TCP) | "our" ClientHello is recognized **cryptographically** (a token in the `session_id`); a "foreigner"/prober is **proxied to the real `target:443`** | active probing (`openssl s_client` sees the real site) |
-| `reality-tls` (TCP) | **real** TLS 1.3 (Chrome JA4) carries the tunnel inside; with `handrolled` — the target's borrowed real cert + a mirrored JA3S | reduces the known active-probing, JA3/JA4 and entropy tells catalogued in DPI-AUDIT; no universal indistinguishability guarantee |
+| `reality-tls` (TCP) | **real** TLS 1.3 + one genuine H2 streaming POST with randomized batching; with `handrolled`, the target's borrowed cert + mirrored JA3S shape | removes the legacy inner fake-TLS/record-boundary tells and reduces known probe/fingerprint signals; no universal indistinguishability guarantee |
 | QUIC-masking (UDP) | datagrams under a QUIC v1 header (over `fake-tls`) | DPI expecting QUIC/HTTP3 |
 
 Additionally: padding (probability/randomize), length normalization, handshake
-fragmentation, an idle-heartbeat with jitter, **a nonce via a 96-bit Feistel permutation**
+fragmentation, a mode-dependent idle heartbeat with jitter (forced off in Reality/H2), **a nonce via a 96-bit Feistel permutation**
 (there's no incrementing counter on the wire — a frequent fingerprint of homegrown VPNs).
 
 ## What qeli does NOT protect (honestly)
 
 - **fake-TLS is not real TLS.** In `fake-tls` mode the certificate is a pseudo-DER stub.
   Against **active** probing REALITY is needed: `reality` (proxy) bridges foreigners to a
-  real site, while **`reality-tls`** carries the tunnel inside real TLS 1.3 and, with
-  **cert-borrowing** (`handrolled=true`), hands the client the target's real captured cert
-  chain (parity with Xray-REALITY; see CONFIG.md/DPI-AUDIT.md). Without REALITY,
+  real site, while **`reality-tls`** uses real TLS 1.3 plus genuine H2 and, with
+  **cert-borrowing** (`handrolled=true`), hands the client the target's captured cert
+  chain and mirrors its JA3S shape (not complete Xray/browser parity; see CONFIG.md/DPI-AUDIT.md). Without REALITY,
   `fake-tls`/`obfs` target passive DPI.
 - **Post-quantum** — the **X25519MLKEM768** hybrid is now a working KEX of the **inner**
   qeli tunnel in ALL modes except `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP): a real

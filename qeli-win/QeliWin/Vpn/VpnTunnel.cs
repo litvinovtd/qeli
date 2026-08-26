@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json.Nodes;
 using Qeli.Shared.Model;
 using Qeli.Shared.Vpn;
 
@@ -66,9 +65,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
         IReadOnlyList<IPAddress> carrierCandidates)
     {
-        var assigned = session.NetworkAddresses
-            ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
-                session.Prefix, null) };
+        var assigned = session.NetworkAddresses;
         // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
         // the same client IP can arrive with different routes, DNS, prefix or MTU.
         if (ReusePersistedTun(config, session, serverIp))
@@ -84,15 +81,15 @@ public sealed class VpnTunnel : VpnTunnelBase
                     retainedIpv6 == null ? null : IPAddress.Parse(retainedIpv6.Address),
                     config.Apps,
                     config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
-                    EffectiveDns(config, session),
+                    EffectiveDns(session),
                     session.AllowIpv4Leak,
                     session.AllowIpv6Leak,
                     config.IsFullTunnel,
                     ConnectedTunnelPrefixes(session),
                     config.RouteLocalNetworks,
-                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
+                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(session)),
                     config.ExcludeRoutes,
-                    PushedRouteCidrs(session.RoutesJson),
+                    PushedRouteCidrs(session.PlannedRoutes),
                     serverIp,
                     config.Port,
                     config.Protocol,
@@ -114,15 +111,15 @@ public sealed class VpnTunnel : VpnTunnelBase
                 ipv6 == null ? null : IPAddress.Parse(ipv6.Address),
                 config.Apps,
                 includeMode: config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
-                dnsServers: EffectiveDns(config, session),
+                dnsServers: EffectiveDns(session),
                 allowIpv4Leak: session.AllowIpv4Leak,
                 allowIpv6Leak: session.AllowIpv6Leak,
                 fullTunnel: config.IsFullTunnel,
                 tunnelSubnets: ConnectedTunnelPrefixes(session),
                 routeLocal: config.RouteLocalNetworks,
-                includeRoutes: config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
+                includeRoutes: config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(session)),
                 excludeRoutes: config.ExcludeRoutes,
-                pushedRoutes: PushedRouteCidrs(session.RoutesJson),
+                pushedRoutes: PushedRouteCidrs(session.PlannedRoutes),
                 carrierIp: serverIp,
                 carrierPort: config.Port,
                 carrierProtocol: config.Protocol,
@@ -250,14 +247,14 @@ public sealed class VpnTunnel : VpnTunnelBase
             foreach (var r in config.IncludeRoutes) _net.AddRoute(r, session.ClientIp, tunIndex);
         }
         if (!config.IsFullTunnel)
-            foreach (var r in EffectiveRouteFileRoutes(config, session))
+            foreach (var r in EffectiveRouteFileRoutes(session))
                 _net.AddRoute(r, session.ClientIp, tunIndex);  // OpenVPN route-file
 
         // Subnets the server advertised (`route = …` on the profile / per-user) are a
         // specific, explicit admin decision — always honoured, like OpenVPN's
         // `push "route …"`. Until 0.7.12 these sat behind RouteLocalNetworks, so a
         // correctly configured route was silently dropped on every default client.
-        ApplyPushedRoutes(session.RoutesJson, session.ClientIp, tunIndex, connectedPrefixes);
+        ApplyPushedRoutes(session.PlannedRoutes, session.ClientIp, tunIndex, connectedPrefixes);
 
         // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
         // default because it would hijack the machine's own LAN (printers, NAS, router).
@@ -290,7 +287,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                 assigned.Any(address => address.Family == "ipv4"),
                 assigned.Any(address => address.Family == "ipv6"));
 
-        _net.SetDns(alias, EffectiveDns(config, session));
+        _net.SetDns(alias, EffectiveDns(session));
 
         // LAST step of bring-up: ask the OS whether the carrier still leaves via the
         // physical interface. Everything above only proved the commands were issued; this
@@ -419,64 +416,29 @@ public sealed class VpnTunnel : VpnTunnelBase
         _ipv6ForwardingWasOn = null;
     }
 
-    private void ApplyPushedRoutes(string routesJson, string clientIp, uint tunIndex,
-        IReadOnlyList<string> alreadyApplied)
+    private void ApplyPushedRoutes(IReadOnlyList<PlannedRoute> routes, string clientIp,
+        uint tunIndex, IReadOnlyList<string> alreadyApplied)
     {
-        if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]") return;
-        try
+        if (routes.Count == 0) return;
+        var seen = new HashSet<string>(alreadyApplied, StringComparer.OrdinalIgnoreCase);
+        foreach (var route in routes)
         {
-            var seen = new HashSet<string>(alreadyApplied, StringComparer.OrdinalIgnoreCase);
-            if (JsonNode.Parse(routesJson) is not JsonArray arr)
-                throw new InvalidOperationException("NetworkPlan routes payload is not an array");
-            foreach (var n in arr)
-                {
-                    string cidr = (n?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
-                    if (cidr.Length == 0)
-                    {
-                        Log("pushed route IGNORED: empty CIDR (fix the server's `route =` line)");
-                        continue;
-                    }
-                    if (!seen.Add(cidr)) continue;
-                    // Report the route EXACTLY as it arrived, then what actually happened to it.
-                    // Our routes are interface-scoped (CreateIpForwardEntry2 against the tun's
-                    // index), so a pushed next-hop/metric cannot be honoured — traffic enters the
-                    // tunnel and the server forwards it, which reaches the same place.
-                    string gw = (n?["gateway"] as JsonValue)?.GetValue<string>() ?? "";
-                    string mt = n?["metric"]?.ToString() ?? "";
-                    string got = cidr
-                               + (gw.Length > 0 ? $" gateway={gw}" : "")
-                               + (mt.Length > 0 && mt != "0" ? $" metric={mt}" : "");
-                    if (!_net!.AddRoute(cidr, clientIp, tunIndex))
-                        throw new InvalidOperationException(
-                            $"canonical NetworkPlan route {cidr} was not applied");
-                    Log(gw.Length > 0 || (mt.Length > 0 && mt != "0")
-                        ? $"pushed route: {got} -> APPLIED via the tunnel interface (next-hop/metric not settable here)"
-                        : $"pushed route: {got} -> APPLIED via the tunnel interface");
-                }
-        }
-        catch (Exception e)
-        {
-            throw new InvalidOperationException(
-                $"could not apply canonical NetworkPlan routes: {e.Message}", e);
+            if (!seen.Add(route.Cidr)) continue;
+            // Desktop routes are interface-scoped, so next-hop/metric are diagnostic only.
+            string got = route.Cidr
+                + (route.Gateway.Length > 0 ? $" gateway={route.Gateway}" : "")
+                + (route.Metric != 0 ? $" metric={route.Metric}" : "");
+            if (!_net!.AddRoute(route.Cidr, clientIp, tunIndex))
+                throw new InvalidOperationException(
+                    $"canonical NetworkPlan route {route.Cidr} was not applied");
+            Log(route.Gateway.Length > 0 || route.Metric != 0
+                ? $"pushed route: {got} -> APPLIED via the tunnel interface (next-hop/metric not settable here)"
+                : $"pushed route: {got} -> APPLIED via the tunnel interface");
         }
     }
 
-    private static IReadOnlyList<string> PushedRouteCidrs(string routesJson)
-    {
-        var routes = new List<string>();
-        if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]") return routes;
-        try
-        {
-            if (JsonNode.Parse(routesJson) is JsonArray arr)
-                foreach (var node in arr)
-                {
-                    string cidr = (node?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
-                    if (cidr.Length > 0) routes.Add(cidr);
-                }
-        }
-        catch { }
-        return routes;
-    }
+    private static IReadOnlyList<string> PushedRouteCidrs(IReadOnlyList<PlannedRoute> routes) =>
+        routes.Select(route => route.Cidr).ToArray();
 
     protected override bool KeepTunDuringReconnect(VpnConfig config) =>
         config.UsesAppFilter || base.KeepTunDuringReconnect(config);

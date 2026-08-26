@@ -6,12 +6,11 @@ DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding
 utun payload; C# управляет lifecycle/reconnect, созданием интерфейса,
 маршрутами/DNS/pf, trust и UI.
 
-Режим **`reality-tls`** (полноценный REALITY) несёт туннель внутри *настоящего*
-браузерного TLS 1.3 (byte-exact Chrome ClientHello, JA4 `t13d1516h2_8daaf6152771`):
-qeli-протокол работает **вложенно** внутри этой TLS-сессии, на проводе DPI видит только
-реальный Chrome-handshake. Весь transport, включая внешний TLS-слой, выполняет то же
-Rust-ядро через whole-client FFI — одна нативная либа на все клиенты (Rust, Android
-`.so`, Windows `qeli.dll`, macOS `libqeli.dylib`).
+Режим **`reality-tls`** использует браузероподобный TLS 1.3 и настоящий HTTP/2 carrier:
+один streaming POST с ALPN `h2` и случайным batching, без прежнего внутреннего fake-TLS
+handshake/framing. Внешний TLS и внутренний qeli AEAD сохраняются. Transport выполняет общее
+Rust-ядро через whole-client FFI. macOS получит эту логику только после пересборки,
+упаковки и установки приложения с обновлённой `libqeli.dylib`; сервер не обновляет клиент.
 
 ## Технологии
 
@@ -50,7 +49,7 @@ qeli-mac/
 ├── build_app.sh       сборка Qeli.app (dylib + publish + .icns + бандл + ad-hoc подпись)
 ├── per-app/           Swift system extension + controller, XcodeGen project и build gate
 ├── README.md
-└── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
+└── ../qeli-shared/    production lifecycle/model + отдельный QeliConformance runner
 ```
 
 ## Сборка (в лабе — Linux, либо на Mac)
@@ -188,16 +187,21 @@ Rust-ядро ABI 1.11. Невыбранные потоки остаются н�
 ## Headless-режимы (отладка/CI)
 
 ```bash
-QeliMac selftest                         # крипто/кодек/парсинг (без сети, без root) — все PASS
+QeliMac selftest                         # DNS/routes/pf/utun platform checks (без root)
 QeliMac pf-selftest-rules /tmp/qeli.pf    # CI: production rules для pfctl parse/load/flush
 QeliMac handshake <link|ini|file>        # TCP/UDP + полное рукопожатие, печатает выданный IP
 sudo QeliMac connect <link|ini|file> [сек]   # поднимает полный туннель на N секунд (нужен root)
 QeliMac genassets <dir>                  # рендер брендовых PNG (использует build_app.sh для .icns)
 ```
 
-`selftest` проходит все проверки (X25519 симметричен, HKDF совпадает с RFC 5869,
-ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`/INI,
-ClientHello c UDP-паддингом, рендер логотипа Skia).
+`uishot` и зависимость `Avalonia.Headless` не входят в production-сборку. Для снимков UI
+соберите отдельный инструмент: `dotnet build QeliMac/QeliMac.csproj -c Release
+-p:QeliBuildTools=true`, затем запустите `QeliMac uishot <dir>`.
+
+Portable crypto/codec/config KAT и benchmark вынесены из production-приложения:
+`dotnet run --project ../qeli-shared/QeliConformance -c Release -- selftest` и
+`... -- packetbench --ci`. Platform `QeliMac selftest` отдельно проверяет DNS journal,
+маршруты, pf-правила, cleanup IPv4/IPv6 utun и Skia renderer.
 
 ## Замечания по реализации utun
 

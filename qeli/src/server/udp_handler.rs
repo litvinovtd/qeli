@@ -689,6 +689,57 @@ pub(crate) async fn run_udp_server(
         None
     };
     let socket = Arc::new(crate::protocol::obfs::ObfsUdp::new(socket, obfs_key));
+
+    // Keep one task blocked in recvmsg while this task decrypts, reassembles and forwards the
+    // previous datagram. The FIFO is bounded and has exactly one allocation per position, so
+    // overload back-pressures into the kernel buffer without unbounded memory growth. Replay,
+    // recordizer and session state stay in this task and therefore retain strict wire order.
+    let receive_slots = crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS + 1;
+    let (receive_recycler, mut recycled_receivers) = mpsc::channel(receive_slots);
+    for _ in 0..receive_slots {
+        receive_recycler
+            .try_send(bytes::BytesMut::with_capacity(
+                crate::transport::udp::MAX_UDP_PACKET_SIZE,
+            ))
+            .map_err(|_| anyhow::anyhow!("could not initialize UDP receive pool"))?;
+    }
+    let (received_tx, mut received_rx) =
+        mpsc::channel(crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS);
+    let receive_socket = socket.clone();
+    let receive_recycler_task = receive_recycler.clone();
+    let receive_profile = profile.name.clone();
+    if !tasks.spawn(async move {
+        while let Some(mut datagram) = recycled_receivers.recv().await {
+            match receive_socket.recv_buf_from(&mut datagram).await {
+                Ok((0, _)) => {
+                    datagram.clear();
+                    if receive_recycler_task.send(datagram).await.is_err() {
+                        break;
+                    }
+                }
+                Ok((_, addr)) => {
+                    let datagram = crate::transport::udp::PooledUdpDatagram::new(
+                        datagram,
+                        receive_recycler_task.clone(),
+                    );
+                    if received_tx.send((datagram, addr)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    log::error!("UDP recv error on profile '{}': {}", receive_profile, error);
+                    datagram.clear();
+                    if receive_recycler_task.send(datagram).await.is_err() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            }
+        }
+    }) {
+        anyhow::bail!("profile stopped before UDP receive pump could start");
+    }
+
     let sessions: Arc<RwLock<HashMap<SocketAddr, UdpClient>>> =
         Arc::new(RwLock::new(HashMap::new()));
     // Per-worker admission gate for pre-auth handshake crypto (see
@@ -718,7 +769,6 @@ pub(crate) async fn run_udp_server(
     let shaping_cfg = pcfg.obfuscation.traffic_shaping.to_shaping();
     let shaping_on = shaping_cfg.enabled && shaping_cfg.budget_bytes_per_sec > 0;
 
-    let mut recv_buf = vec![0u8; crate::transport::udp::MAX_UDP_PACKET_SIZE];
     let tick_ms = if shaping_on {
         shaping_cfg.idle_gap_min_ms.max(20)
     } else if heartbeat_enabled {
@@ -752,17 +802,15 @@ pub(crate) async fn run_udp_server(
 
     loop {
         tokio::select! {
-            result = socket.recv_from(&mut recv_buf) => {
-                let (n, addr) = match result {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("UDP recv error on profile '{}': {}", profile.name, e);
-                        continue;
-                    }
+            received = received_rx.recv() => {
+                let Some((recv_buf, addr)) = received else {
+                    return Err(anyhow::anyhow!(
+                        "UDP receive pump stopped on profile '{}'",
+                        profile.name
+                    ));
                 };
+                let n = recv_buf.len();
                 udp_buffer.note_receive(n);
-
-                if n == 0 { continue; }  // malformed obfs frame
                 // Rate-limit only NEW UDP sessions. Applying the limiter to
                 // every datagram (as the original code did) caps an active
                 // tunnel at 10 packets / 60 s and silently drops the rest,
@@ -1564,26 +1612,57 @@ async fn handle_udp_datagram(
                     return;
                 }
             }
-            let decoded_packets = if is_awaiting_auth {
-                None
-            } else if plaintext.is_empty() && client.rx_recordizer.is_some() {
-                Some(Vec::new())
-            } else if let Some(reassembler) = client.rx_recordizer.as_mut() {
-                match reassembler.decode(&plaintext) {
-                    Ok(packets) => Some(packets),
-                    Err(error) => {
-                        log::debug!(
-                            "UDP recordizer decode error from {} on profile '{}': {}",
-                            addr,
-                            profile.name,
-                            error
-                        );
-                        return;
-                    }
+            let recordizer_active = !is_awaiting_auth && client.rx_recordizer.is_some();
+            let mut decoded_first = None;
+            let mut decoded_extra = Vec::new();
+            if recordizer_active && !plaintext.is_empty() {
+                let mut pool_exhausted_drops = 0_u64;
+                let mut oversize_drops = 0_u64;
+                let decode_result =
+                    client
+                        .rx_recordizer
+                        .as_mut()
+                        .unwrap()
+                        .decode_with(&plaintext, |bytes| {
+                            let Some(mut packet) = tun_tx.pool.try_acquire() else {
+                                pool_exhausted_drops = pool_exhausted_drops.saturating_add(1);
+                                return;
+                            };
+                            if bytes.len() > packet.capacity() {
+                                oversize_drops = oversize_drops.saturating_add(1);
+                                return;
+                            }
+                            packet.as_vec_mut().extend_from_slice(bytes);
+                            if decoded_first.is_none() {
+                                decoded_first = Some(packet);
+                            } else {
+                                decoded_extra.push(packet);
+                            }
+                        });
+                let total_drops = pool_exhausted_drops.saturating_add(oversize_drops);
+                client
+                    .dropped
+                    .fetch_add(total_drops, std::sync::atomic::Ordering::Relaxed);
+                for _ in 0..pool_exhausted_drops {
+                    profile
+                        .udp_buffer_counters
+                        .note_internal_drop(InternalDrop::PoolExhausted);
                 }
-            } else {
-                None
-            };
+                for _ in 0..oversize_drops {
+                    profile
+                        .udp_buffer_counters
+                        .note_internal_drop(InternalDrop::Oversize);
+                }
+                if let Err(error) = decode_result {
+                    log::debug!(
+                        "UDP recordizer decode error from {} on profile '{}': {}",
+                        addr,
+                        profile.name,
+                        error
+                    );
+                    return;
+                }
+            }
             client.last_activity = std::time::Instant::now();
             // Account inbound (client->server) bytes so `list-clients` RECV is correct
             // (the UDP path never incremented this → RECV always showed 0). Captured
@@ -1604,12 +1683,12 @@ async fn handle_udp_datagram(
             let client_info = client.client_info.clone();
             drop(sessions_guard);
 
-            if let Some(packets) = decoded_packets {
+            if recordizer_active {
                 drop(plaintext);
                 let session_id = source_session_id.expect("authenticated UDP session has an id");
-                for packet in packets {
+                for packet in decoded_first.into_iter().chain(decoded_extra) {
                     forward_udp_uplink_packet(
-                        ServerTunPacket::Fragment(packet),
+                        ServerTunPacket::Pooled(packet),
                         sessions,
                         socket,
                         tasks,

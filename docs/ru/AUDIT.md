@@ -6,6 +6,10 @@
 пунктами A1/UDP/C2 и т.п.) устарели — перечисленные ниже проблемы закрыты или
 переосмыслены.
 
+> **Примечание carrier 0.8.0.** Текущий `reality-tls` терминирует REALITY TLS 1.3,
+> согласует ALPN `h2` и несёт raw private qeli records через один настоящий долгоживущий HTTP/2
+> POST. PacketCodec AEAD остаётся defence-in-depth; прежнего второго fake-TLS handshake/framing нет.
+
 ## Криптографическое ядро
 
 | Элемент | Реализация |
@@ -19,9 +23,9 @@
 
 ## Рукопожатие и аутентификация (порядок важен)
 
-1. **Эфемерный обмен.** Клиент шлёт fake-TLS ClientHello (с GREASE и
-   рандомизированным порядком расширений → JA3 меняется per-connection),
-   сервер — ServerHello/Certificate/Finished. Общий секрет — X25519 из key_share.
+1. **Carrier-specific обмен.** `fake-tls` использует TLS-shaped ClientHello и X25519 key_share.
+   `reality-tls` сначала аутентифицирует REALITY TLS 1.3 и устанавливает настоящий H2;
+   приватный qeli handshake и hybrid X25519MLKEM768 затем идут внутри этого carrier.
 2. **Channel binding.** В auth_proof подмешивается `transcript_hash =
    SHA256(ClientHello‖ServerHello‖Cert‖Finished)`. Подмена любого сообщения
    в канале ломает proof (защита от split-handshake MITM).
@@ -39,14 +43,11 @@
 - `plain` — без TLS-мимикрии: голый обмен 32-байтными X25519-ключами, записи
   `[len][nonce][ct]` (TCP-only).
 - `fake-tls` / `obfs` / `reality` — псевдо-TLS-1.3 ClientHello (см. выше).
-- `reality-tls` — **настоящий** браузерный (Chrome JA4) TLS 1.3 ClientHello с
-  REALITY-токеном в `session_id` = `HKDF(X25519(eph, reality_pub) ‖ short_id)`.
-  Сервер криптографически опознаёт «своего» (открывает токен приватником профиля,
-  сверяет с `short_ids`), терминирует настоящий TLS 1.3 (rustls **или** hand-rolled)
-  и несёт qeli-туннель ВНУТРИ него; KEX — PQ-гибрид X25519MLKEM768. «Чужой»/пробер
-  прозрачно проксируется на реальный `target:443`. С `handrolled=true` сервер
-  **одалживает настоящую цепочку серта target'а** (cert-borrowing, авто-refresh 12ч)
-  и зеркалит его JA3S/ServerHello — паритет с Xray-REALITY.
+- `reality-tls` — browser-shaped TLS 1.3 ClientHello с REALITY-токеном. Сервер опознаёт токен,
+  терминирует TLS, согласует ALPN `h2` и принимает один двунаправленный HTTP/2 POST с private
+  qeli stream и случайным batching. `handrolled=true` одалживает цепочку target и зеркалит JA3S;
+  неавторизованные подключения мостятся на target. Это снижает известные tells, но не означает
+  универсальный behavioral-паритет с Xray/браузером.
 
 ## Что реализовано для защиты
 
@@ -85,20 +86,20 @@
 | `fake-tls` (TCP/UDP, деф) | псевдо-TLS-1.3 рукопожатие + Application-Data записи; GREASE, рандом порядок расширений, PQ-key_share | пассивный/сигнатурный DPI |
 | `obfs` (TCP) | весь поток XOR ChaCha20-keystream (общий PSK); старт замаскирован под WebSocket Upgrade (printable HTTP) | DPI, ловящий *известные* протоколы (fake-TLS/JA3) + энтропийный «fully encrypted» детект (GFW/ТСПУ) |
 | `reality` (TCP) | «свой» ClientHello опознаётся **криптографически** (токен в `session_id`); «чужой»/пробер **проксируется на реальный `target:443`** | активный пробинг (`openssl s_client` видит настоящий сайт) |
-| `reality-tls` (TCP) | **настоящий** TLS 1.3 (Chrome JA4) несёт туннель внутри; с `handrolled` — одолженный реальный серт target'а + зеркалированный JA3S | снижает известные признаки active probing, JA3/JA4 и энтропийного DPI из DPI-AUDIT; универсальной гарантии неотличимости нет |
+| `reality-tls` (TCP) | **настоящий** TLS 1.3 + один genuine H2 streaming POST со случайным batching; с `handrolled` — одолженный серт target'а + зеркалированная форма JA3S | удаляет legacy inner fake-TLS/record-boundary tells и снижает известные probe/fingerprint признаки; универсальной гарантии неотличимости нет |
 | QUIC-masking (UDP) | датаграммы под QUIC v1 заголовком (поверх `fake-tls`) | DPI, ждущий QUIC/HTTP3 |
 
 Дополнительно: паддинг (probability/randomize), нормализация длины, fragmentation
-рукопожатия, idle-heartbeat с джиттером, **nonce через 96-битную перестановку
+рукопожатия, зависящий от режима idle-heartbeat с jitter (принудительно off в Reality/H2), **nonce через 96-битную перестановку
 Фейстеля** (на проводе нет инкрементного счётчика — частый отпечаток самописных VPN).
 
 ## Что qeli НЕ защищает (честно)
 
 - **fake-TLS — не настоящий TLS.** В режиме `fake-tls` сертификат — псевдо-DER
   заглушка. Против **активного** пробинга нужен REALITY: `reality` (proxy) мостит
-  чужих на реальный сайт, а **`reality-tls`** несёт туннель внутри настоящего TLS 1.3
-  и с **cert-borrowing** (`handrolled=true`) отдаёт клиенту настоящую захваченную
-  цепочку серта target'а (паритет с Xray-REALITY; см. CONFIG.md/DPI-AUDIT.md). Без
+  чужих на реальный сайт, а **`reality-tls`** использует настоящий TLS 1.3 + genuine H2
+  и с **cert-borrowing** (`handrolled=true`) отдаёт клиенту захваченную цепочку
+  серта target'а и зеркалит форму JA3S (не полный паритет с Xray/браузером; см. CONFIG.md/DPI-AUDIT.md). Без
   REALITY `fake-tls`/`obfs` рассчитаны на пассивный DPI.
 - **Post-quantum** — гибрид **X25519MLKEM768** теперь рабочий KEX **внутреннего**
   qeli-туннеля во ВСЕХ режимах кроме `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP):

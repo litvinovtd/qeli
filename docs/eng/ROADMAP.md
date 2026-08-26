@@ -2,6 +2,22 @@
 
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
+## 0.8.0 (development, 2026-08-26) — genuine H2 carrier for Reality
+
+- ✅ `reality-tls` now carries the private qeli record stream in one long-lived genuine HTTP/2
+  POST (`/v1/events/stream`, ALPN `h2`) with randomized 2–8 ms batching; the former second
+  fake-TLS handshake/framing is gone. There is no user-facing H2 switch.
+- ✅ Shipped Reality/max-obfuscation templates disable qeli heartbeat and enable traffic shaping.
+  The H2 carrier forces qeli heartbeat off even if an old local/pushed config requests it.
+- ✅ Migration is **server first**: a new server accepts both H2 and the legacy Reality carrier;
+  a new client uses H2 only and does not downgrade. Bare `fake-tls` is still a separate mode/profile.
+- ✅ Dated lab PCAP: 6/6 sessions completed; the old carrier classifier matched 0/6 (controls 0/6).
+  This validates that capture and classifier only, not a universal detection probability.
+- 🟡 Remaining work: browser-family TLS/H2 profiles, target-specific H2 settings, hostile active
+  probes, malformed/reconnect/long-lived tests, a clean full-speed H2 benchmark, and real H3.
+
+See [DPI-AUDIT.md](DPI-AUDIT.md), [CONFIG.md](CONFIG.md), and
+[the dated PCAP report](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
 
 ## 0.7.5 (2026-06-29) — stability fixes + experimental OpenWrt client
 
@@ -298,7 +314,7 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 - ✅ **CI builds the clients** — added android/windows/macos build-jobs to `ci.yml`.
 - ✅ **A full benchmark run of all 10 modes** (incl. `plain` + `reality-tls`) with
   process CPU/RSS metrics — see [BENCHMARK.md](BENCHMARK.md).
-- 🟡 **reality-tls download ~430 Mbps** (was ~320 on 0.6.0; the hand-rolled TLS server since 0.7.0 lifted it ~320→417→430, measured on 0.7.4) — diagnosed on the lab: nested TLS = double
+- 🟡 **Legacy reality-tls carrier download ~430 Mbps (≤0.7.16)** (was ~320 on 0.6.0; the hand-rolled TLS server since 0.7.0 lifted it ~320→417→430, measured on 0.7.4) — diagnosed on the lab: outer TLS + inner fake-TLS path = double
   AEAD + double framing serially in the client reader (client CPU ~67% of a core,
   AES-NI present on the VM → not software-AES, not a CPU ceiling). The
   `RealTlsStream::poll_read` optimization (batch-decrypt all records per poll + a

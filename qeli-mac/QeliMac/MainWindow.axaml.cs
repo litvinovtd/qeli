@@ -156,7 +156,8 @@ public partial class MainWindow : Window
         RenderStatus(_status, _lastExtra); // localized initial status
     }
 
-    /// <summary>Seed sample profiles for an offscreen UI screenshot (uishot verb only).</summary>
+#if QELI_BUILD_TOOLS
+    /// <summary>Seed sample profiles for an offscreen UI screenshot.</summary>
     internal void ShotSeed(params VpnConfig[] ps)
     {
         foreach (var p in ps) { p.Reachability = ProfileReachability.Reachable; p.LatencyMs = 38; _profiles.Add(p); }
@@ -165,6 +166,7 @@ public partial class MainWindow : Window
         UpdateEmptyHint();
         OnProfileSelected(this, null);
     }
+#endif
 
     private VpnConfig? Selected => ProfilesList.SelectedItem as VpnConfig;
 

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>QeliConformance</AssemblyName>
+    <RootNamespace>Qeli.Conformance</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\QeliShared\QeliShared.csproj" />
+    <Compile Include="..\QeliShared\Crypto\**\*.cs" Link="Crypto\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\QeliShared\Protocol\**\*.cs" Link="Protocol\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\QeliShared\Model\LinkConformance.cs" Link="Model\LinkConformance.cs" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and Exists('..\..\qeli-win\QeliWin\native\qeli.dll')">
+    <Content Include="..\..\qeli-win\QeliWin\native\qeli.dll" Link="qeli.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('..\..\qeli-mac\QeliMac\native\libqeli.dylib')">
+    <Content Include="..\..\qeli-mac\QeliMac\native\libqeli.dylib" Link="libqeli.dylib" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

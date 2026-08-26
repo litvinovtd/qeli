@@ -145,6 +145,10 @@ Rust revision**: change anything under `qeli/src/` that the FFI touches and you 
 as ABI negotiation failure. The build script always packages the canonical transport header,
 so a new Rust export cannot silently drift from the Swift module declaration.
 
+The genuine H2 carrier for `reality-tls` is part of that versioned Rust artefact. An installed
+iOS app receives it only after a new XCFramework is built, packaged, signed and installed;
+a server-side update cannot change the client wire implementation.
+
 The iOS packet bridge has an explicit memory budget: two Rust pools of 32 × 65,535 bytes
 (4,194,240 bytes total), 128-slot bounded queues, and three reused Swift caller buffers capped
 at 256 KiB each. Backpressure retries a packet prefix; there is no unbounded/fallback packet

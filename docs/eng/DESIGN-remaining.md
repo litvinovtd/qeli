@@ -5,7 +5,12 @@
 > remaining-work claims are not current status. It is retained only as a design/work log.
 > For current state use [ROADMAP.md](ROADMAP.md),
 > [TRANSPORT-CORE.md](TRANSPORT-CORE.md), [ROAMING.md](ROAMING.md), and `CHANGELOG.md`.
-
+> **Current 0.8.0 carrier note:** `reality-tls` no longer runs the inner fake-TLS carrier
+> described in this snapshot. It uses one genuine H2 POST with randomized batching; the new
+> server accepts H2 plus the legacy Reality carrier, while the new client is H2-only. Current
+> residual DPI work is tracked in [DPI-AUDIT.md](DPI-AUDIT.md) and the
+> [dated H2 PCAP report](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
+>
 ## ✅ Done and verified — the SERVER side of REALITY is CLOSED
 
 **The base realtls stack (former M1–M3, A1–A2):** M1 the crypto-detect in

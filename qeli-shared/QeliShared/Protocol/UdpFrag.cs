@@ -21,17 +21,9 @@ public static class UdpFrag
     public static readonly byte[] Magic = { 0xF0, 0x9B, 0x71 };
     public const int HdrLen = 6;            // magic(3) + msgId(1) + idx(1) + count(1)
 
-    // IPv6 minimum link MTU (RFC 8200 §5) — the narrowest path the handshake must survive.
-    public const int Ipv6MinMtu = 1280;
-    // Worst-case outer headers around one fragment, inside out. Emitted sizes, not protocol
-    // minimums: an IPv6 + obfs + QUIC-masked fragment really carries all of them at once.
-    private const int OuterQuic = 1 + 4 + 1 + 4 + 1 + 1 + 2 + 4;  // QUIC long header (Quic.WrapLong)
-    private const int OuterObfsSeal = 1 + 12;                     // obfs flag byte + nonce
-    private const int OuterUdp = 8;
-    private const int OuterIpv6 = 40;
-    // Headroom so adding one more outer layer cannot silently push the handshake back over
-    // Ipv6MinMtu — the exact regression the old hard-coded 1200 was.
-    private const int OuterReserve = 32;
+    // The production config validator and this retained conformance codec must use one
+    // derivation; otherwise an accepted credential can exceed the fragment-safe budget.
+    public const int Ipv6MinMtu = Model.TransportWireLimits.Ipv6MinimumMtu;
 
     /// <summary>
     /// Max payload bytes per fragment. <b>Derived</b>, not chosen: chunk + header + QUIC long
@@ -40,16 +32,13 @@ public static class UdpFrag
     /// This was 1200 — QUIC's initial-packet floor, which budgets a whole datagram, not the
     /// payload inside four more layers. The handshake wraps each fragment in a QUIC
     /// <b>long</b> header (18 B; the data plane's short header is only 9 B), so the real
-    /// worst case was 1200 + 6 + 18 + 13 + 8 + 40 = 1285 — five bytes over the IPv6 minimum,
-    /// i.e. the PQ handshake could not complete on a 1280-MTU IPv6 path with obfs + QUIC
-    /// masking on.
+    /// worst case was 1200 + 6 + 18 + 13 + 8 + 40 = 1285 — five bytes over the IPv6 minimum.
     ///
     /// This bounds only what we <b>emit</b>; <see cref="MaxChunkAccept"/> bounds what we
-    /// accept. Keeping the two separate is what makes the change compatible in both
-    /// directions — see there. (Audit 2026-07-30, #14.)
+    /// accept. Keeping the two separate preserves compatibility with historical 1200-byte
+    /// chunks. (Audit 2026-07-30, #14.)
     /// </summary>
-    public const int MaxChunk =
-        Ipv6MinMtu - OuterIpv6 - OuterUdp - OuterObfsSeal - OuterQuic - OuterReserve - HdrLen;
+    public const int MaxChunk = Model.TransportWireLimits.UdpFragmentMaxChunk;
 
     /// <summary>
     /// Largest chunk we <b>accept</b>, pinned to the historical 1200 that every build before

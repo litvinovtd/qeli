@@ -17,6 +17,10 @@ Legend:
 `C` and `R` do not mean “misspelled”. A name unknown to every qeli client is still rejected
 fail-closed. Current GUI clients preserve every known key even when only another platform
 can apply it; separately exposed controls are identified in the notes.
+> **Reality/H2 contract:** there is no client H2 key. `mode = reality-tls` selects the
+> genuine H2 carrier in the shared Rust core automatically, and that path ignores a requested
+> qeli heartbeat. Installed apps receive this behaviour only after their native core is rebuilt,
+> packaged and installed; updating the server cannot rewrite an existing client binary.
 
 | Keys | CLI | Windows | macOS | Android | iOS | Current contract / change |
 |---|:-:|:-:|:-:|:-:|:-:|---|

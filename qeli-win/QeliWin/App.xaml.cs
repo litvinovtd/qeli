@@ -14,7 +14,7 @@ public partial class App : Application
 
     internal static void AttachParentConsoleForCli() => AttachConsole(AttachParentProcess);
 
-    private static readonly string[] CliVerbs = { "selftest", "packetbench", "handshake", "connect", "genassets", "uishot", "editshot", "mainshot" };
+    private static readonly string[] CliVerbs = { "selftest", "windivert-smoke", "handshake", "connect", "genassets", "uishot", "editshot", "mainshot" };
 
     protected override void OnStartup(StartupEventArgs e)
     {

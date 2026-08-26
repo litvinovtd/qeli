@@ -19,6 +19,10 @@ multipath, автоматический fallback и обработку конф�
 Без этого дерево source-complete, но пакет не release-ready. Остались также платформенные
 приёмочные gate: administrator Wintun full-tunnel, живой macOS utun и physical-device
 iOS/Xcode. Составлено 2026-07-30; рефакторинг исходников завершён 2026-08-11.
+**Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
+общему Rust-ядру, а не платформенному UI-коду. Платформа получает его только после пересборки
+native `.so`/`.dll`/`.dylib` либо XCFramework из обновлённых исходников, упаковки в приложение
+и установки. Обновление сервера не может передать новый wire-код уже установленному клиенту.
 
 ABI 1.10 расширил статистику без изменения её 64-байтового V1-префикса. ABI 1.11 добавляет
 dual-family NetworkPlan/platform-capability contract без изменения этих префиксов. Поля
@@ -438,7 +442,8 @@ qeli_client_tun_pull(handle, generation, buf, cap, lens, lens_cap, *n, *bytes) -
 
 Постоянный TC-0.3 измеритель запускается без внешнего benchmark framework:
 `cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci`
-для Rust и `QeliWin/QeliMac packetbench --ci` для общего managed codec. Оба выполняют реальный
+для Rust и `dotnet run --project qeli-shared/QeliConformance -c Release -- packetbench --ci`
+для managed codec. Оба выполняют реальный
 1400-байтовый encrypt/decrypt round-trip после warm-up и проверяют plaintext. Rust требует,
 чтобы caller-owned `Vec` больше не рос; C# фиксирует allocated bytes/round-trip. CI floors
 (50 МиБ/с Rust, 10 МиБ/с C#, 32 КиБ managed allocations) намеренно ловят многократный

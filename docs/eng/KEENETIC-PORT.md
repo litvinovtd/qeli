@@ -1,5 +1,8 @@
 # Porting the qeli client to Keenetic (dual-arch: mipsel + aarch64)
 
+> **Benchmark scope:** any Reality speed or double-framing estimate in this document comes from
+> the legacy carrier through 0.7.16. The current genuine H2 carrier needs a separate router benchmark.
+
 Status: **Code complete** — the dual-arch client (mipsel + aarch64) builds and is caught
 up to the current release (PR #34/#43 merged, lab-verified); pending only a check on real
 Keenetic hardware. This doc is kept as the design/build reference.

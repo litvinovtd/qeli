@@ -29,8 +29,6 @@ public static class ServiceManager
     private const string LegacyPlistPath = "/Library/LaunchDaemons/" + LegacyServiceName + ".plist";
     private const string LegacyServiceTarget = "system/" + LegacyServiceName;
 
-    /// <summary>True when a pre-0.7.12 daemon is still registered on this machine.</summary>
-    public static bool LegacyInstalled() => File.Exists(LegacyPlistPath);
 
     /// <summary>Boot out and delete the pre-0.7.12 daemon. Requires root; no-op when absent.</summary>
     private static void RemoveLegacy()

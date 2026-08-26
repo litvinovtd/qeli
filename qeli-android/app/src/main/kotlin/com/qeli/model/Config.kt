@@ -602,13 +602,6 @@ data class VpnConfig(
         private val FRONTING_MODES = setOf("websocket", "none")
         private val ROUTING_MODES = setOf("split-tunnel", "full-tunnel", "all")
 
-        /**
-         * Values of `mtu_probe` that turn probing OFF. Anything else — including an
-         * unrecognised word — leaves the default (on), which is what the Rust `bool_or`
-         * and the iOS client do. Using the generic truthy `bool()` here would instead read
-         * a typo as "off", disabling probing on a config the desktop client accepts.
-         */
-        private val MTU_PROBE_OFF = setOf("false", "0", "no", "off")
 
         // ── imported-value ranges (Audit 2026-07-27, C6) ─────────────────────────
         // The SERVER-pushed mtu was already range-checked (QeliService.parseOk clamps to

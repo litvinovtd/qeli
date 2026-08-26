@@ -65,7 +65,7 @@
 | C7 | Дубли inline `[user:*]` не дедуплицируются | `qeli/src/config/server_ini.rs:118` | [x] | ✅ дедуп first-wins в `ServerConfig::from_ini` + отказ на дубликат в `put_config`; тест |
 | C8 | `short_id_from_hex` вырождается в нули | `qeli/src/crypto/reality.rs:48` | [x] | ✅ `parse_short_id` + allow-list + отказ при старте, 2 теста |
 | C9 | `dhcp.pool_*` не проверяется на принадлежность подсети | `qeli/src/server/mod.rs:1016,2341` | [x] | ✅ `dhcp_pool_bounds()` — дефолт из подсети туннеля + проверка вхождения; 3 теста |
-| C10 | iOS: шейпинг из AuthOK не клампится, `Int(Double)` трапает | `qeli-ios/QeliCore/Protocol/TrafficShaper.swift:34` | [x] | ✅ кламп в Double до конверсии + `clampPushedObfuscation()` вызывается из обоих парсеров AuthOK |
+| C10 | iOS: шейпинг из AuthOK не клампится, `Int(Double)` трапает | Исторически `TrafficShaper.swift`; сейчас `qeli/src/client/mod.rs` + `QeliNativeTunnelEngine.swift` | [x] | ✅ исходный фикс закрывал конверсию до миграции; теперь Swift-парсер AuthOK и `TrafficShaper` удалены, эффективные obfuscation-параметры формирует/валидирует Rust transport-core, а iOS только декодирует typed `NetworkPlan.data_plane` facts |
 
 ## D — Расщепление supervisor/worker
 

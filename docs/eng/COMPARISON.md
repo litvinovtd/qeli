@@ -4,6 +4,10 @@ Not marketing. The qeli numbers are measured in our lab ([BENCHMARK.md](BENCHMAR
 the numbers for mature solutions are typical published ones on comparable hardware (2
 vCPU, a gigabit-class link).
 
+> All published qeli `reality-tls` throughput figures here are legacy-carrier measurements
+> through 0.7.16. The 0.8.0 genuine-H2 carrier has PCAP/DPI functional evidence but no comparable
+> full-speed benchmark yet.
+
 ## Positioning map
 
 |  | Goal | Transport | Obfuscation | Anti-DPI |
@@ -27,7 +31,7 @@ built-in TUN/TAP plane, and a web admin — without an nginx front.
 | **qeli TCP** (our lab) | **~560–571 ↑ / ~690–717 ↓ Mbps** | ~34% of one core | ~1.7 ms | plain/fake-tls/reality; stable, no drops |
 | **qeli UDP** | **~400 Mbps** (<1% loss) | ~34% of one core | ~1.6 ms | saturation ~500 |
 | **qeli obfs mode** | **~491 ↑ / ~577 ↓ Mbps** | ~34% | ~1.6 ms | +a ChaCha20 layer (−12%) |
-| **qeli reality-tls** | ~550 ↑ / ~430 ↓ Mbps | ~32% | ~2.0 ms | real TLS inside; ↓ lower (double AEAD on the client) |
+| **qeli reality-tls ≤0.7.16** | ~550 ↑ / ~430 ↓ Mbps | ~32% | ~2.0 ms | legacy inner fake-TLS carrier; outer TLS + inner AEAD |
 
 **What this means:**
 - WireGuard is always the fastest. If you need *speed* — take it.
@@ -60,16 +64,16 @@ built-in TUN/TAP plane, and a web admin — without an nginx front.
 |---|---|
 | WireGuard | Speed (2–3×). Simplicity. In-kernel. An external audit. |
 | OpenVPN | Real TLS + CA-trust. Mature clients for everything. A CVE pipeline. |
-| V2Ray / Xray | A large community, maturity, an ecosystem of clients for everything. (On the REALITY certificate qeli reached parity — cert-borrowing, see below.) |
+| V2Ray / Xray | A large community, maturity, an ecosystem of clients for everything. Qeli borrows the target certificate/JA3S shape, but does not claim full Xray/browser parity. |
 | Shadowsocks | Minimal resources, runs on routers. |
 
-On **active DPI**: qeli has two layers of REALITY. `reality` (proxy) *proxies* foreign
-handshakes to a real site (`target`, e.g. microsoft — the prober sees it), but the qeli
-client still sends fake-TLS. **`reality-tls` (ready)** — the client sends **real** browser
- TLS 1.3 (Chrome JA4), the server terminates it and carries the tunnel inside. It closes the
- known tells 1.1–1.6 catalogued in DPI-AUDIT, but timing, record-size and correlation analysis
- remain outside that result; this is not a universal indistinguishability claim.
-**Cert-borrowing (`handrolled=true`, 2026-06-06) closed the former gap with Xray-REALITY:**
+On **active DPI**, `reality` bridges foreign handshakes but its own client remains fake-TLS.
+Current **`reality-tls`** sends real TLS 1.3, negotiates genuine H2 and carries the private
+qeli stream through a randomized long-lived POST. It closes the former inner fake-TLS and
+record-boundary tells; target correlation, browser-profile coherence, H2 semantics and timing
+remain outside the proven result. Unauthenticated probes are bridged, but universal
+indistinguishability is not claimed.
+**Cert-borrowing (`handrolled=true`, 2026-06-06) closed the former certificate/JA3S gap:**
 the hand-rolled server at start **borrows the target's real cert chain** (a probe to
 `target:443`) and hands it to the client instead of self-signed — with an auto-refresh
 every 12h. This is the same model as Xray (a borrowed cert, the client doesn't validate —
@@ -90,8 +94,7 @@ structurally-zero `obfs`), a built-in admin, several profiles, pinning + a passw
 authorization by interface.
 
 ❌ Don't take it: you need maximum speed → WireGuard; you need a maximally battle-tested,
-audited stack with a large community against state-level active DPI → Xray REALITY (qeli
-reached parity on reality-tls + cert-borrowing + the PQ hybrid, but is less battle-tested);
+audited stack with a large community against state-level active DPI → Xray REALITY (qeli has cert-borrowing and a PQ hybrid, but its TLS/H2 behavior is less battle-tested and not claimed fully equivalent);
 audited code + a public CVE history → OpenVPN/WireGuard.
 
 ## Feature matrix
@@ -101,7 +104,7 @@ audited code + a public CVE history → OpenVPN/WireGuard.
 | Speed | ★★★★★ | ★★★ | ★★★ | ★★★★ |
 | Obfuscation by default | ✘ | ✘ | ★★★★ | ★★★★ |
 | Several wire modes | ✘ | ✘ | ★★★★ | ★★★★ (plain/fake-tls/obfs/reality/reality-tls) |
-| TLS masking | ✘ | real TLS | real TLS + REALITY | fake-TLS + real TLS (reality-tls) |
+| TLS masking | ✘ | real TLS | real TLS + REALITY | fake-TLS modes + REALITY TLS 1.3/H2 (`reality-tls`) |
 | Built-in admin | ✘ | ✘ | ✘ | ✅ |
 | Anti-brute-force (user+IP) | ✘ | a plugin | ✘ | ✅ |
 | Pinning + enforcement | a peer key | CA/cert | ✅ | ✅ (`require_client_key_proof`) |

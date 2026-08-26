@@ -420,17 +420,20 @@ jobs:
               if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "published package is missing $path" }
             }
           }
-      # `dotnet build` only proved it compiles. The headless `selftest` verb checks the
-      # SHARED crypto/protocol (X25519, HKDF, ChaCha20-Poly1305, PacketCodec incl.
-      # counter/replay, ObfsStream, INI/qeli:// parsing) — no network, no admin.
-      # Invoked through the dotnet host on the managed DLL: the .exe manifest demands
-      # elevation, which the self-test itself does not need.
-      - name: Self-test QeliWin (headless crypto/codec/parse round-trips)
+      - name: Self-test QeliWin platform adapters
         working-directory: qeli-win
         run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll selftest
+      - name: Build managed conformance runner (Windows)
+        working-directory: qeli-shared
+        run: dotnet build QeliConformance/QeliConformance.csproj -c Release
+      - name: Managed crypto/codec/config conformance (Windows)
+        working-directory: qeli-shared
+        env:
+          QELI_CONFORMANCE_REQUIRED: '1'
+        run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll selftest
       - name: PacketCodec benchmark gate (managed Windows)
-        working-directory: qeli-win
-        run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll packetbench --ci
+        working-directory: qeli-shared
+        run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll packetbench --ci
 
   macos-build:
     runs-on: macos-latest
@@ -442,12 +445,20 @@ jobs:
       - name: Build QeliMac (Release)
         working-directory: qeli-mac
         run: dotnet build QeliMac/QeliMac.csproj -c Release
-      - name: Self-test QeliMac (headless crypto/codec/parse round-trips)
+      - name: Self-test QeliMac platform adapters
         working-directory: qeli-mac
         run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll selftest
+      - name: Build managed conformance runner (macOS)
+        working-directory: qeli-shared
+        run: dotnet build QeliConformance/QeliConformance.csproj -c Release
+      - name: Managed crypto/codec/config conformance (macOS)
+        working-directory: qeli-shared
+        env:
+          QELI_CONFORMANCE_REQUIRED: '1'
+        run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll selftest
       - name: PacketCodec benchmark gate (managed macOS)
-        working-directory: qeli-mac
-        run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll packetbench --ci
+        working-directory: qeli-shared
+        run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll packetbench --ci
       # This deliberately uses an UNREFERENCED disposable anchor: pfctl still performs the
       # real kernel parse/load/read/flush operations, while the generated block-all rules do
       # not cut the hosted runner off from GitHub. The full referenced-anchor traffic test is
@@ -465,6 +476,7 @@ jobs:
           }
           trap cleanup EXIT
           dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll pf-selftest-rules "$rules"
+          test -s "$rules"
           sudo /sbin/pfctl -n -f "$rules"
           sudo /sbin/pfctl -a "$anchor" -f "$rules"
           loaded="$(sudo /sbin/pfctl -a "$anchor" -sr 2>/dev/null)"

@@ -24,11 +24,7 @@
     <color name="status_connecting">#F0A911</color>
     <color name="status_error">#E5484D</color>
 
-    <color name="error">#E5484D</color>
     <color name="accent">#10B95C</color>
 
     <!-- Legacy aliases -->
-    <color name="colorPrimary">#2B7DD9</color>
-    <color name="colorPrimaryDark">#F4F7FC</color>
-    <color name="colorAccent">#10B95C</color>
 </resources>

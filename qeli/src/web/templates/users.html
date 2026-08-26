@@ -24,9 +24,9 @@
   <div class="flex flex-wrap items-center gap-2 mb-3">
     <input class="inp text-xs py-1.5 px-2 h-8" style="width:14rem" type="search"
            placeholder="Search users…" x-model="search"
-           @input.debounce.200ms="page = 1; refreshUserView()">
+           @input.debounce.200ms="[page = 1, refreshUserView()]">
     <select class="inp text-xs py-1.5 px-2 h-8" style="width:9.5rem"
-            x-model="statusFilter" @change="page = 1; refreshUserView()">
+            x-model="statusFilter" @change="[page = 1, refreshUserView()]">
       <option value="">All statuses</option>
       <option value="online">Online</option>
       <option value="offline">Offline</option>
@@ -34,7 +34,7 @@
       <option value="disabled">Disabled</option>
     </select>
     <select class="inp text-xs py-1.5 px-2 h-8" style="width:11rem"
-            x-model="sortMode" @change="page = 1; refreshUserView()">
+            x-model="sortMode" @change="[page = 1, refreshUserView()]">
       <option value="online_desc">Online first</option>
       <option value="username_asc">Username A–Z</option>
       <option value="username_desc">Username Z–A</option>
@@ -330,7 +330,7 @@
                 <input class="inp font-mono w-36" type="text" :value="r.gateway" placeholder="gateway (opt)"
                   @input="form.routes[i].gateway = $event.target.value">
                 <input class="inp w-20" type="number" :value="r.metric" placeholder="metric"
-                  @input="form.routes[i].metric = ($event.target.value===''?null:parseInt($event.target.value))">
+                  @input="form.routes[i].metric = ($event.target.value===''?null:toInteger($event.target.value))">
                 <button class="btn btn-danger btn-sm px-2.5" @click="form.routes.splice(i,1)">×</button>
               </div>
             </template>
@@ -563,6 +563,7 @@ function usersPage() {
     usageForm: { username: '', data_limit_gb: 0, expire_days: 0, mode: 'limit' },
     fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
+    toInteger(value) { return Number.parseInt(value, 10); },
     // Thin shim over the shared dialog in layout.html, kept so the call sites below read
     // the same as before. New code can call qeliConfirm() directly.
     confirmDialog(title, message, opts = {}) { return qeliConfirm(title, message, opts); },

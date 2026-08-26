@@ -59,8 +59,8 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 
 > ⚡ **Fastest path (one command).** The repo root ships a ready installer
 > [`install-qeli-server.sh`](../../install-qeli-server.sh): it installs qeli and its
-> dependencies, **asks which profile** — `reality-tls` (the default; real TLS 1.3 on
-> TCP:443, survives active probing), `fake-tls` (cheaper on CPU, enough against passive
+> dependencies, **asks which profile** — `reality-tls` (the default; real TLS 1.3 + H2 on
+> TCP:443, bridges unauthorised probes to the target), `fake-tls` (cheaper on CPU, enough against passive
 > DPI), or **`udp-quic`** (a UDP path with QUIC-shaped datagrams — pick it where TCP:443 is
 > throttled, reset, or otherwise degraded) —
 > **and which port** (default :443), brings it up with full-tunnel NAT, and creates
@@ -1035,15 +1035,15 @@ On the client, check that a `vpn0` interface and routes appeared (`ip a`, `ip ro
 
 ## 11. Wire modes — which to pick
 
-Set by `obf.mode` on the server and `mode` on the client (they must match):
+New profiles use `obf.mode = reality-tls` on the server and `mode = reality-tls` on the client. A new server temporarily accepts the legacy `fake-tls + real_tls=true` server spelling during server-first migration.
 
 | Mode | When |
 |---|---|
 | `fake-tls` | **default.** TLS-1.3 mimicry, against passive/signature DPI. A good balance. |
-| `reality-tls` | maximum masking: the tunnel runs **inside a genuine TLS 1.3** session borrowing a real site's cert (Xray-REALITY parity). Defeats active probing too. Needs `key` + `reality_sid` + `sni`; slightly slower. |
+| `reality-tls` | strongest current TCP masking: REALITY TLS 1.3 + a genuine H2 carrier and target bridging for unauthenticated probes. Needs `key` + `reality_sid` + matching `sni`; update the server before clients. |
 | `obfs` | ChaCha20 stream obfuscation of the whole flow; WebSocket fronting is optional (`front = websocket` / `none`). Needs a shared `obfs_key`. Works over both TCP and UDP. |
 | `plain` | no masking — a bare encrypted tunnel (max speed). For trusted networks. |
-| QUIC masking | for **UDP** profiles (`obf.quic.enabled = true`), masks as QUIC. |
+| QUIC shaping | for **UDP** profiles (`obf.quic.enabled = true`); shallow compatibility masking, not real QUIC/HTTP3. |
 
 A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding — in
 [CONFIG.md](CONFIG.md). Benchmarks of all modes — [BENCHMARK.md](BENCHMARK.md).

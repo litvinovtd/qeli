@@ -1006,7 +1006,7 @@ public abstract class VpnTunnelBase
         RunNativeConnection(config, ct);
     }
 
-    private sealed class NativePlan
+    internal sealed class NativePlan
     {
         [JsonPropertyName("generation")] public ulong Generation { get; set; }
         [JsonPropertyName("family_mode")] public string FamilyMode { get; set; } = "";
@@ -1023,13 +1023,11 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("kill_switch")] public bool KillSwitch { get; set; }
         [JsonPropertyName("allow_ipv4_leak")] public bool AllowIpv4Leak { get; set; }
         [JsonPropertyName("allow_ipv6_leak")] public bool AllowIpv6Leak { get; set; }
-        [JsonPropertyName("max_streams")] public int MaxStreams { get; set; } = 1;
-        [JsonPropertyName("adaptive")] public bool Adaptive { get; set; }
         [JsonPropertyName("data_plane")] public NativeDataPlane DataPlane { get; set; } = new();
         [JsonPropertyName("connection_log")] public List<string> ConnectionLog { get; set; } = new();
     }
 
-    private sealed class NativeAddress
+    internal sealed class NativeAddress
     {
         [JsonPropertyName("family")] public string Family { get; set; } = "";
         [JsonPropertyName("address")] public string Address { get; set; } = "";
@@ -1038,20 +1036,20 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("gateway")] public string? Gateway { get; set; }
     }
 
-    private sealed class NativeRoute
+    internal sealed class NativeRoute
     {
         [JsonPropertyName("cidr")] public string Cidr { get; set; } = "";
         [JsonPropertyName("gateway")] public string Gateway { get; set; } = "";
         [JsonPropertyName("metric")] public uint Metric { get; set; }
     }
 
-    private sealed class NativeDns
+    internal sealed class NativeDns
     {
         [JsonPropertyName("address")] public string Address { get; set; } = "";
         [JsonPropertyName("port")] public int Port { get; set; } = 53;
     }
 
-    private sealed class NativeDataPlane
+    internal sealed class NativeDataPlane
     {
         [JsonPropertyName("padding_enabled")] public bool PaddingEnabled { get; set; }
         [JsonPropertyName("padding_min")] public int PaddingMin { get; set; }
@@ -1061,7 +1059,7 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("shaping_enabled")] public bool ShapingEnabled { get; set; }
     }
 
-    private sealed class NativeIdentity
+    internal sealed class NativeIdentity
     {
         [JsonPropertyName("server_id")] public string ServerId { get; set; } = "";
         [JsonPropertyName("public_key")] public string PublicKey { get; set; } = "";
@@ -1075,7 +1073,7 @@ public abstract class VpnTunnelBase
             && !address.IsIPv6LinkLocal
             && !address.IsIPv4MappedToIPv6);
 
-    private static void ValidateNativePlan(NativePlan plan)
+    internal static void ValidateNativePlan(NativePlan plan)
     {
         if (plan.FamilyMode is not ("ipv4" or "dual" or "ipv6"))
             throw new InvalidDataException("native NetworkPlan has an invalid family_mode");
@@ -1145,7 +1143,7 @@ public abstract class VpnTunnelBase
         }
     }
 
-    private static string FingerprintNativePlan(NativePlan plan,
+    internal static string FingerprintNativePlan(NativePlan plan,
         IEnumerable<string>? carrierCandidates = null)
     {
         // The physical bypass is part of the applied host-network state.  A DNS refresh
@@ -1166,8 +1164,11 @@ public abstract class VpnTunnelBase
                 item.Family, item.Address, item.PrefixLength, item.OnLinkPrefixLength, item.Gateway,
             }),
             plan.TunnelGateway, plan.CarrierAddress, plan.Mtu,
-            routes = plan.Routes.OrderBy(item => item.Cidr).ThenBy(item => item.Gateway)
-                .Select(item => new { item.Cidr, item.Gateway, item.Metric }),
+            // Desktop installs these as interface-scoped routes. Gateway and metric are
+            // validated/logged diagnostics, but do not change the applied host state.
+            routes = plan.Routes.Select(item => item.Cidr)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(cidr => cidr, StringComparer.OrdinalIgnoreCase),
             dns = plan.DnsServers.Select(item => new { item.Address, item.Port }),
             carrier_candidates = carriers,
             plan.FullTunnel, plan.KillSwitch, plan.AllowIpv4Leak, plan.AllowIpv6Leak,
@@ -1247,7 +1248,6 @@ public abstract class VpnTunnelBase
                             try
                             {
                                 IPAddress carrier = ResolveNativeCarrier(plan, config);
-                                string routes = JsonSerializer.Serialize(plan.Routes);
                                 var unsupportedDns = plan.DnsServers.FirstOrDefault(item => item.Port != 53);
                                 if (unsupportedDns != null)
                                     throw new InvalidDataException(
@@ -1256,6 +1256,8 @@ public abstract class VpnTunnelBase
                                 var addresses = plan.Addresses.Select(item => new AssignedAddress(
                                     item.Family, item.Address, item.PrefixLength,
                                     item.OnLinkPrefixLength, item.Gateway)).ToList();
+                                var routes = plan.Routes.Select(item => new PlannedRoute(
+                                    item.Cidr, item.Gateway, item.Metric)).ToList();
                                 IPAddress[] carrierCandidates = carrierAddresses
                                     .Select(IPAddress.Parse)
                                     .Append(carrier)
@@ -1268,11 +1270,9 @@ public abstract class VpnTunnelBase
                                     config.UsesAppFilter || !config.IsFullTunnel
                                         ? LoadRouteFile(config)
                                         : Array.Empty<string>();
-                                var session = new Session(plan.TunnelAddress, plan.PrefixLength,
-                                    dns.FirstOrDefault() ?? "", routes, plan.Mtu,
-                                    MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
+                                var session = new Session(plan.TunnelAddress, plan.PrefixLength, plan.Mtu,
                                     PlannedDns: dns, PlanIncludesClientRoutes: true,
-                                    FamilyMode: plan.FamilyMode, NetworkAddresses: addresses,
+                                    NetworkAddresses: addresses, PlannedRoutes: routes,
                                     AllowIpv4Leak: plan.AllowIpv4Leak,
                                     AllowIpv6Leak: plan.AllowIpv6Leak,
                                     PlanFingerprint: FingerprintNativePlan(plan,
@@ -1451,10 +1451,10 @@ public abstract class VpnTunnelBase
         return rotated;
     }
 
-    private static bool CarrierMatchesLocalFamily(IPAddress carrier, IPAddress? localCarrier) =>
+    internal static bool CarrierMatchesLocalFamily(IPAddress carrier, IPAddress? localCarrier) =>
         localCarrier == null || carrier.AddressFamily == localCarrier.AddressFamily;
 
-    private static string[] RotateCarrierCandidates(IReadOnlyList<string> addresses, uint generation)
+    internal static string[] RotateCarrierCandidates(IReadOnlyList<string> addresses, uint generation)
     {
         if (addresses.Count == 0)
             throw new InvalidOperationException("no IPv4 or IPv6 carrier address is available");
@@ -1692,6 +1692,7 @@ public abstract class VpnTunnelBase
 
     protected sealed record AssignedAddress(string Family, string Address, int PrefixLength,
         int OnLinkPrefixLength, string? Gateway);
+    protected sealed record PlannedRoute(string Cidr, string Gateway, uint Metric);
 
     /// <summary>Connected pool prefixes that must be routed explicitly for NetworkPlan v2.
     /// L3 TUN addresses use host prefixes (/32 and /128) to avoid ARP/NDP, so the operating
@@ -1723,49 +1724,26 @@ public abstract class VpnTunnelBase
         return prefixes;
     }
 
-    protected sealed record Session(string ClientIp, int Prefix, string DnsIp, string RoutesJson,
-        int PushedMtu = 0,
-        // Transport policy is executed by Rust; these values remain useful to platform
-        // diagnostics without duplicating the bonding implementation.
-        int MaxStreams = 1, bool Adaptive = false,
-        IReadOnlyList<string>? PlannedDns = null, bool PlanIncludesClientRoutes = false,
-        string FamilyMode = "ipv4", IReadOnlyList<AssignedAddress>? NetworkAddresses = null,
+    protected sealed record Session(string ClientIp, int Prefix, int PushedMtu,
+        IReadOnlyList<string> PlannedDns, bool PlanIncludesClientRoutes,
+        IReadOnlyList<AssignedAddress> NetworkAddresses,
+        IReadOnlyList<PlannedRoute> PlannedRoutes,
+        IReadOnlyList<string> RouteFileRoutes,
         bool AllowIpv4Leak = false, bool AllowIpv6Leak = false,
-        string PlanFingerprint = "",
-        // One immutable snapshot is shared by fingerprinting and platform setup. Reading the
-        // file independently in each phase permits a concurrent edit to fingerprint one route
-        // set while installing another.
-        IReadOnlyList<string>? RouteFileRoutes = null);
+        string PlanFingerprint = "");
 
     /// <summary>Resolve the effective TUN MTU: an explicit client config value (>0)
     /// wins, else the server-pushed value (>0), else the auto fallback (1400).</summary>
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
 
-    /// <summary>Use the DNS list from the authenticated native NetworkPlan. The legacy
-    /// branch is retained for platform tests and older callers that construct a Session
-    /// without PlannedDns, but it never invents a third-party resolver.</summary>
-    protected static List<string> EffectiveDns(VpnConfig config, Session session)
-    {
-        if (session.PlannedDns != null)
-            return session.PlannedDns.Where(address => !string.IsNullOrWhiteSpace(address)).ToList();
-        // `dns = off` / `dns = system` means LEAVE THE DEVICE RESOLVER ALONE, and it has to win
-        // over everything below. Before 0.7.15 the mode collapsed into an implicit public DNS
-        // fallback: the profile asked us not to touch DNS and the client did the opposite.
-        if (config.DnsMode != "tunnel")
-            return new List<string>();
-        if (config.DnsServers.Count > 0)
-            return config.DnsServers.Where(s => !string.IsNullOrEmpty(s)).ToList();
-        if (!string.IsNullOrEmpty(session.DnsIp))
-            return new List<string> { session.DnsIp };
-        return new List<string>();
-    }
+    /// <summary>Use the authoritative DNS list already resolved by the Rust NetworkPlan.</summary>
+    protected static List<string> EffectiveDns(Session session) =>
+        session.PlannedDns.Where(address => !string.IsNullOrWhiteSpace(address)).ToList();
 
-    /// <summary>The route_file snapshot attached to the authenticated generation. The fallback
-    /// keeps retained unit/legacy callers working without changing production's single-read
-    /// guarantee.</summary>
-    protected IReadOnlyList<string> EffectiveRouteFileRoutes(VpnConfig config, Session session) =>
-        session.RouteFileRoutes ?? LoadRouteFile(config);
+    /// <summary>The immutable route_file snapshot attached to the authenticated generation.</summary>
+    protected static IReadOnlyList<string> EffectiveRouteFileRoutes(Session session) =>
+        session.RouteFileRoutes;
 
     /// <summary>Fingerprint the projection of NetworkPlan + platform-owned profile values that
     /// actually changes host networking. Transport-only generation/data-plane facts are excluded:
@@ -1820,25 +1798,9 @@ public abstract class VpnTunnelBase
             AddOrdered(target, name, items);
         }
 
-        static IEnumerable<string> CanonicalRoutes(string routesJson)
-        {
-            try
-            {
-                var routes = JsonSerializer.Deserialize<List<NativeRoute>>(routesJson) ?? new();
-                // Windows/macOS install authenticated pushed routes as interface-scoped CIDRs.
-                // Their next-hop and metric are intentionally diagnostic-only on these
-                // platforms, so changing either must not tear down an otherwise identical TUN.
-                return routes.Select(route => NormalizeCidr(route.Cidr))
-                    .ToArray();
-            }
-            catch
-            {
-                // Production receives typed JSON serialized immediately above. Retaining an
-                // invalid payload verbatim makes the conservative choice (force rebuild) for
-                // legacy/test callers instead of accidentally equating two malformed plans.
-                return new[] { $"!invalid:{routesJson}" };
-            }
-        }
+        // Next-hop and metric are diagnostic-only for desktop interface-scoped routes.
+        static IEnumerable<string> CanonicalRoutes(IEnumerable<PlannedRoute> routes) =>
+            routes.Select(route => NormalizeCidr(route.Cidr));
 
         Add(canonical, "client_ip", NormalizeAddress(session.ClientIp));
         Add(canonical, "prefix", session.Prefix.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1863,202 +1825,18 @@ public abstract class VpnTunnelBase
         Add(canonical, "carrier_protocol", config.Protocol.Trim().ToLowerInvariant());
 
         // Resolver order is significant (primary/secondary); route and app collections are sets.
-        AddOrdered(canonical, "dns", EffectiveDns(config, session), NormalizeAddress);
-        AddSet(canonical, "plan_routes", CanonicalRoutes(session.RoutesJson));
+        AddOrdered(canonical, "dns", EffectiveDns(session), NormalizeAddress);
+        AddSet(canonical, "plan_routes", CanonicalRoutes(session.PlannedRoutes));
         AddSet(canonical, "profile_include_routes", config.IncludeRoutes, NormalizeCidr);
         AddSet(canonical, "profile_exclude_routes", config.ExcludeRoutes, NormalizeCidr);
-        AddSet(canonical, "route_file_routes", session.RouteFileRoutes ?? Array.Empty<string>(), NormalizeCidr);
+        AddSet(canonical, "route_file_routes", session.RouteFileRoutes, NormalizeCidr);
         AddSet(canonical, "apps", config.Apps, value => value.Trim());
 
         byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));
         return Convert.ToHexString(digest);
     }
 
-    /// <summary>Pure policy checks used by both desktop headless self-test runners.</summary>
-    internal static void RunNetworkPolicySelfTests(Action<string, bool> check)
-    {
-        static Session LegacySession(string pushedDns = "", IReadOnlyList<string>? planned = null) =>
-            new("10.9.0.2", 24, pushedDns, "[]", PlannedDns: planned);
 
-        var empty = new VpnConfig { AddDefaultGateway = true, DnsMode = "tunnel" };
-        var unresolved = EffectiveDns(empty, LegacySession());
-        check("dns-policy: no profile/push DNS invents no public resolver", unresolved.Count == 0);
-
-        var explicitConfig = new VpnConfig
-        {
-            AddDefaultGateway = true,
-            DnsMode = "tunnel",
-            DnsServers = new List<string> { "9.9.9.9" },
-        };
-        check("dns-policy: explicit profile DNS wins over legacy server push",
-            EffectiveDns(explicitConfig, LegacySession("10.9.0.1")).SequenceEqual(new[] { "9.9.9.9" }));
-        check("dns-policy: authenticated server push is used when profile DNS is empty",
-            EffectiveDns(empty, LegacySession("10.9.0.1")).SequenceEqual(new[] { "10.9.0.1" }));
-
-        var disabled = new VpnConfig
-        {
-            AddDefaultGateway = true,
-            DnsMode = "off",
-            DnsServers = new List<string> { "9.9.9.9" },
-        };
-        check("dns-policy: dns=off suppresses legacy profile and push inputs",
-            EffectiveDns(disabled, LegacySession("10.9.0.1")).Count == 0);
-
-        check("dns-policy: authenticated native NetworkPlan is authoritative",
-            EffectiveDns(empty, LegacySession("10.9.0.1", new[] { "192.0.2.53" }))
-                .SequenceEqual(new[] { "192.0.2.53" }));
-        check("dns-policy: an explicitly empty native NetworkPlan stays empty",
-            EffectiveDns(empty, LegacySession("10.9.0.1", Array.Empty<string>())).Count == 0);
-
-        var carriers = new[] { "192.0.2.10", "192.0.2.11", "192.0.2.12" };
-        check("carrier-dns: a reconnect generation rotates every refreshed A record",
-            RotateCarrierCandidates(carriers, 1)
-                .SequenceEqual(new[] { "192.0.2.11", "192.0.2.12", "192.0.2.10" }));
-        check("carrier-dns: generation wrap retains the complete A set",
-            RotateCarrierCandidates(carriers, 4)
-                .SequenceEqual(new[] { "192.0.2.11", "192.0.2.12", "192.0.2.10" }));
-        check("carrier-local: an IPv4 local bind rejects only incompatible AAAA candidates",
-            CarrierMatchesLocalFamily(IPAddress.Parse("192.0.2.10"), IPAddress.Parse("192.0.2.50"))
-            && !CarrierMatchesLocalFamily(IPAddress.Parse("2001:db8::10"),
-                IPAddress.Parse("192.0.2.50")));
-        check("carrier-local: no local bind keeps both outer address families",
-            CarrierMatchesLocalFamily(IPAddress.Parse("192.0.2.10"), null)
-            && CarrierMatchesLocalFamily(IPAddress.Parse("2001:db8::10"), null));
-
-        var dualStack = new Session("10.9.0.27", 24, "", "[]",
-            NetworkAddresses: new[] {
-                new AssignedAddress("ipv4", "10.9.0.27", 32, 24, "10.9.0.1"),
-                new AssignedAddress("ipv6", "fd71:e1:20::beef", 128, 64, "fd71:e1:20::1"),
-            });
-        check("network-plan: host TUN addresses retain canonical connected pool routes",
-            ConnectedTunnelPrefixes(dualStack)
-                .SequenceEqual(new[] { "10.9.0.0/24", "fd71:e1:20::/64" }));
-
-        var perAppForward = new VpnConfig
-        {
-            ServerAddress = "vpn.example",
-            AppsMode = "include",
-            Apps = new List<string> { "example-app" },
-            Forward = true,
-        };
-        bool perAppForwardRejected;
-        try { perAppForward.Validate(); perAppForwardRejected = false; }
-        catch (ArgumentException) { perAppForwardRejected = true; }
-        check("routing-policy: desktop per-app mode rejects inapplicable LAN forwarding",
-            perAppForwardRejected);
-
-        static NativePlan ValidNativePlan() => new()
-        {
-            Generation = 1,
-            FamilyMode = "ipv4",
-            Addresses = new List<NativeAddress> {
-                new() {
-                    Family = "ipv4", Address = "10.9.0.27", PrefixLength = 32,
-                    OnLinkPrefixLength = 24, Gateway = "10.9.0.1",
-                },
-            },
-            TunnelAddress = "10.9.0.27",
-            PrefixLength = 24,
-            Mtu = 1400,
-            TunnelGateway = "10.9.0.1",
-            CarrierAddress = "192.0.2.10",
-            Routes = new List<NativeRoute> {
-                new() { Cidr = "10.20.0.0/16", Gateway = "10.9.0.1", Metric = 100 },
-            },
-            DnsServers = new List<NativeDns> {
-                new() { Address = "10.9.0.1", Port = 53 },
-            },
-        };
-        static bool NativePlanRejected(NativePlan plan)
-        {
-            try { ValidateNativePlan(plan); return false; }
-            catch (InvalidDataException) { return true; }
-        }
-
-        var validNativePlan = ValidNativePlan();
-        check("network-plan: managed adapter accepts a canonical IPv4 plan",
-            !NativePlanRejected(validNativePlan));
-
-        var invalidPrefixPlan = ValidNativePlan();
-        invalidPrefixPlan.Addresses[0].OnLinkPrefixLength = 32;
-        invalidPrefixPlan.Addresses[0].PrefixLength = 24;
-        invalidPrefixPlan.PrefixLength = 32;
-        check("network-plan: managed adapter rejects on-link prefixes narrower than the TUN address",
-            NativePlanRejected(invalidPrefixPlan));
-
-        var inactiveDnsPlan = ValidNativePlan();
-        inactiveDnsPlan.DnsServers[0].Address = "2001:db8::53";
-        check("network-plan: managed adapter rejects DNS from an inactive address family",
-            NativePlanRejected(inactiveDnsPlan));
-
-        var inactiveRoutePlan = ValidNativePlan();
-        inactiveRoutePlan.Routes[0].Cidr = "2001:db8:20::/48";
-        inactiveRoutePlan.Routes[0].Gateway = "2001:db8::1";
-        check("network-plan: managed adapter rejects routes from an inactive address family",
-            NativePlanRejected(inactiveRoutePlan));
-
-        var movedCarrierPlan = ValidNativePlan();
-        movedCarrierPlan.CarrierAddress = "192.0.2.11";
-        check("persist-tun: selected carrier address participates in the complete plan fingerprint",
-            FingerprintNativePlan(validNativePlan) != FingerprintNativePlan(movedCarrierPlan));
-
-        string carrierSetFingerprint = FingerprintNativePlan(validNativePlan,
-            new[] { "192.0.2.10", "2001:db8::10" });
-        check("persist-tun: carrier DNS ordering does not rebuild an otherwise identical plan",
-            carrierSetFingerprint == FingerprintNativePlan(validNativePlan,
-                new[] { "2001:db8::10", "192.0.2.10" }));
-        check("persist-tun: a changed carrier DNS set rebuilds the native network plan",
-            carrierSetFingerprint != FingerprintNativePlan(validNativePlan,
-                new[] { "192.0.2.10", "2001:db8::11" }));
-    }
-
-    /// <summary>Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.
-    /// Retained as a conformance/KAT mirror of the Rust client's <c>mtu_probe_ladder</c>.
-    ///
-    /// <paramref name="outerOverhead"/> is everything a probe for tunnel-MTU <c>m</c> adds on
-    /// the wire: our record overhead, the obfs seal, the QUIC header and the UDP + IP headers.
-    /// The floor is the largest tunnel MTU whose datagram still fits the 1280-byte IPv6 minimum
-    /// path — which is the whole point: rungs are INNER MTUs, 1280 is an OUTER path MTU, and
-    /// using it directly as the lowest rung meant asking a 1280-byte path for 1280 + overhead
-    /// bytes. Every rung then failed on exactly the narrow paths probing exists for, the probe
-    /// reported nothing, and the caller fell back to the pushed MTU with fragmentation switched
-    /// back on. (Audit 2026-07-29, #12.)</summary>
-    internal static int[] MtuProbeLadder(int ceiling, int outerOverhead)
-    {
-        const int PathFloor = 1280;  // IPv6 minimum PATH MTU — the narrowest path we must serve
-        int floor = Math.Clamp(PathFloor - outerOverhead, 576, Math.Max(ceiling, 576));
-        // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet
-        // number. While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once
-        // the ceiling became record-sized the same ladder went straight to 1360, so a path
-        // that carries 9000 — an ordinary jumbo LAN, which is exactly who configures a large
-        // MTU — was certified at 1360 and lost ~85% of its frame. These cost nothing on a
-        // normal path: they are all above a 1500 ceiling and the filter drops them.
-        //
-        // The set is a COMPROMISE, not an exact answer: probing fixed rungs certifies the
-        // best rung that FITS, not the path's real maximum, so a 7000-byte path lands on 6000.
-        // Closing that needs a binary search between the highest failing rung and the best
-        // passing one — worth doing, and deliberately not smuggled in here, since it changes
-        // the probe's control flow in all four ports.
-        // (Audit 2026-08-01, §8.)
-        return new[] { ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500, 1360, 1320, 1280, 1200, floor }
-            .Where(m => m >= floor && m <= ceiling)
-            .Distinct().OrderByDescending(m => m).ToArray();
-    }
-
-    /// <summary>Stop refining once the bracket is this narrow — chasing the last few dozen
-    /// bytes is not worth a round trip, and the threshold also bounds the loop for a wide
-    /// gap. Same value in the Rust runtime and the retained cross-language fixtures.</summary>
-    internal const int MtuRefineStepBytes = 256;
-
-    /// <summary>Hard cap on refinement probes, so a pathological bracket cannot stretch the
-    /// handshake.</summary>
-    internal const int MtuRefineMaxProbes = 5;
-
-    /// <summary>Next size to try between a rung known to WORK (<paramref name="lo"/>) and one
-    /// known to FAIL (<paramref name="hi"/>), or -1 when the bracket is narrow enough to stop.
-    /// Split out of the probe loop so the search is testable without a socket.</summary>
-    internal static int MtuRefineStep(int lo, int hi) =>
-        hi - lo <= MtuRefineStepBytes ? -1 : lo + (hi - lo) / 2;
 
     private static readonly object _knownHostsLock = new();
 

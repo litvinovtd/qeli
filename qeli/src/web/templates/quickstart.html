@@ -143,7 +143,7 @@ function quickstartPage() {
     modes: [
       { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
         obfMode: 'fake-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
-        desc: 'TLS 1.3-shaped encrypted transport with REALITY decoy forwarding. Server authentication uses qeli identity proof and the pinned key; no transport is literally indistinguishable. Best default.' },
+        desc: 'REALITY TLS 1.3 with a genuine HTTP/2 streaming carrier and randomized batching. Server authentication uses qeli identity proof and the pinned key; no transport is literally indistinguishable. Best default.' },
       { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, idx: 1, tag: 'TCP · 8443',
         obfMode: 'fake-tls', realityEnabled: true, realTls: false, needsSid: true, padding: true, heartbeat: false, shaping: true, multipath: true,
         desc: 'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).' },
@@ -164,7 +164,7 @@ function quickstartPage() {
         desc: 'fake-TLS handshake over UDP. Lower latency than TCP-carried modes.' },
       { id: 'udp-quic', name: 'udp-quic', transport: 'udp', port: 8449, idx: 7, tag: 'UDP · 8449',
         obfMode: 'fake-tls', quic: true, padding: true, heartbeat: false, shaping: true, multipath: false,
-        desc: 'fake-TLS + QUIC masking — looks like QUIC / HTTP3 traffic. Best for mobile.' },
+        desc: 'fake-TLS with shallow QUIC-shaped compatibility framing — not genuine QUIC or HTTP/3. Best for mobile.' },
       { id: 'udp-obfs', name: 'udp-obfs', transport: 'udp', port: 8450, idx: 8, tag: 'UDP · 8450',
         obfMode: 'obfs', needsKey: true, padding: false, heartbeat: false, shaping: true, multipath: false,
         desc: 'ChaCha20 stream obfuscation over UDP.' },

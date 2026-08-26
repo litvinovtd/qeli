@@ -6,15 +6,10 @@ enum QeliConnectionCommand: String, Codable, Sendable {
 }
 
 struct QeliWidgetControlRequest: Codable, Equatable, Sendable {
-    let id: UUID
+    // Unknown keys from the old id/delivery schema are intentionally ignored by Codable,
+    // so a short-lived request queued by the previous app version remains readable.
     let command: QeliConnectionCommand
     let createdAt: Date
-    let delivery: Delivery
-
-    enum Delivery: String, Codable, Sendable {
-        case foregroundIntent
-        case url
-    }
 }
 
 enum WidgetControlBridge {
@@ -28,22 +23,16 @@ enum WidgetControlBridge {
     private static let lock = NSLock()
 
     /// Creates a request that only the app and its signed extensions can place in
-    /// the shared App Group. A custom URL by itself never authorizes a VPN action.
+    /// the shared App Group.
     static func issue(
         _ command: QeliConnectionCommand,
-        delivery: QeliWidgetControlRequest.Delivery = .foregroundIntent,
         now: Date = Date()
     ) -> QeliWidgetControlRequest? {
         guard widgetControlsEnabled else { return nil }
         guard let defaults = appGroupDefaults() else { return nil }
         return lock.withLock {
             var requests = load(from: defaults).filter { isFresh($0, now: now) }
-            let request = QeliWidgetControlRequest(
-                id: UUID(),
-                command: command,
-                createdAt: now,
-                delivery: delivery
-            )
+            let request = QeliWidgetControlRequest(command: command, createdAt: now)
             requests.append(request)
             if requests.count > maximumStoredRequests {
                 requests.removeFirst(requests.count - maximumStoredRequests)
@@ -53,57 +42,22 @@ enum WidgetControlBridge {
         }
     }
 
-    /// Consumes the newest foreground intent request and drops older requests so
-    /// repeated quick taps settle on the latest desired state.
+    /// Consumes the newest request and drops older requests so repeated quick taps
+    /// settle on the latest desired state.
     static func consumePendingIntent(now: Date = Date()) -> QeliWidgetControlRequest? {
         guard widgetControlsEnabled else { return nil }
         guard let defaults = appGroupDefaults() else { return nil }
         return lock.withLock {
             var requests = load(from: defaults).filter { isFresh($0, now: now) }
-            let request = requests.last(where: { $0.delivery == .foregroundIntent })
-            if request != nil {
-                requests.removeAll(where: { $0.delivery == .foregroundIntent })
-            }
+            let request = requests.last
+            requests.removeAll()
             save(requests, to: defaults)
             return request
         }
-    }
-
-    static func requestURL(for request: QeliWidgetControlRequest) -> URL? {
-        guard request.delivery == .url else { return nil }
-        return URL(string: "\(urlScheme)://request/\(request.id.uuidString)")
-    }
-
-    /// Returns `.url` requests only when the opaque token exists in the App Group,
-    /// is fresh, and has not previously been consumed.
-    static func consume(url: URL, now: Date = Date()) -> QeliWidgetControlRequest? {
-        guard widgetControlsEnabled else { return nil }
-        guard url.scheme?.lowercased() == urlScheme,
-              url.host?.lowercased() == "request",
-              let token = url.pathComponents.dropFirst().first,
-              let id = UUID(uuidString: token),
-              let defaults = appGroupDefaults() else { return nil }
-
-        return lock.withLock {
-            var requests = load(from: defaults).filter { isFresh($0, now: now) }
-            guard let index = requests.firstIndex(where: {
-                $0.id == id && $0.delivery == .url
-            }) else {
-                save(requests, to: defaults)
-                return nil
-            }
-            let request = requests.remove(at: index)
-            save(requests, to: defaults)
-            return request
-        }
-    }
-
-    static func isStatusURL(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == urlScheme && url.host?.lowercased() == "status"
     }
 
     static func isControlURL(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == urlScheme
+        url.scheme?.lowercased() == urlScheme && url.host?.lowercased() == "status"
     }
 
     static var widgetControlsEnabled: Bool {

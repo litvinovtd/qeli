@@ -1,0 +1,274 @@
+{
+  "meta": {
+    "date": "2026-08-26T15:55:25Z",
+    "version": "qeli 0.8.0",
+    "sha256": "f00283f668b34128649069e00222bf0b99fc4e08367eb8717d12f19212d2d120",
+    "src_bin": "/opt/qeli-src/target/release/qeli",
+    "recordizer_policy": "prefer",
+    "iperf_udp_payload_bytes": 1200,
+    "full_reboot": true,
+    "preflight": {
+      "server_uptime_seconds": 73,
+      "client_uptime_seconds": 72,
+      "server_qeli_processes": 0,
+      "client_qeli_processes": 0,
+      "emulator_processes": 0,
+      "server_artificial_qdisc": "(none)",
+      "client_artificial_qdisc": "(none)"
+    }
+  },
+  "baseline": {
+    "tcp": {
+      "mbps": 14600.3,
+      "retransmits": 0,
+      "cpu_client": 52.7,
+      "cpu_server": 70.9
+    },
+    "udp_sweep": {
+      "500M": {
+        "mbps": 500.0,
+        "loss_pct": 0.31,
+        "lost_packets": 808,
+        "packets": 260680,
+        "kernel_rcvbuf_drops": 0
+      },
+      "1000M": {
+        "mbps": 999.9,
+        "loss_pct": 0.13,
+        "lost_packets": 689,
+        "packets": 521349,
+        "kernel_rcvbuf_drops": 0
+      }
+    }
+  },
+  "modes": {
+    "udp-faketls": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.177/13.144/17.193/2.987 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52136,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 1.55,
+          "lost_packets": 1618,
+          "packets": 104230,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 3.65,
+          "lost_packets": 5703,
+          "packets": 156281,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 5.65,
+          "lost_packets": 11786,
+          "packets": 208539,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 23.65,
+          "lost_packets": 61619,
+          "packets": 260512,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 600.0,
+          "loss_pct": 18.36,
+          "lost_packets": 57435,
+          "packets": 312809,
+          "kernel_rcvbuf_drops": 47,
+          "server_session_drops": 13698
+        }
+      },
+      "mtu_1400_df_ping": "PING 10.10.0.1 (10.10.0.1) 1372(1400) bytes of data.\n1380 bytes from 10.10.0.1: icmp_seq=1 ttl=64 time=11.3 ms\n1380 bytes from 10.10.0.1: icmp_seq=2 ttl=64 time=10.2 ms\n1380 bytes from 10.10.0.1: icmp_seq=3 ttl=64 time=9.21 ms\n\n--- 10.10.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms\nrtt min/avg/max/mdev = 9.212/10.233/11.279/0.844 ms"
+    },
+    "udp-padding": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.266/12.084/17.155/2.689 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52107,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0.7,
+          "lost_packets": 730,
+          "packets": 104272,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 16.65,
+          "lost_packets": 26049,
+          "packets": 156411,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 398.8,
+          "loss_pct": 37.71,
+          "lost_packets": 78467,
+          "packets": 208067,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.7,
+          "loss_pct": 43.23,
+          "lost_packets": 112622,
+          "packets": 260521,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 599.8,
+          "loss_pct": 49.99,
+          "lost_packets": 156252,
+          "packets": 312544,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        }
+      },
+      "mtu_1400_df_ping": "PING 10.10.0.1 (10.10.0.1) 1372(1400) bytes of data.\n1380 bytes from 10.10.0.1: icmp_seq=1 ttl=64 time=13.2 ms\n1380 bytes from 10.10.0.1: icmp_seq=2 ttl=64 time=15.3 ms\n1380 bytes from 10.10.0.1: icmp_seq=3 ttl=64 time=12.4 ms\n\n--- 10.10.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms\nrtt min/avg/max/mdev = 12.404/13.636/15.341/1.244 ms"
+    },
+    "udp-quic": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 9.171/13.101/19.074/3.092 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52136,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 104242,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 1.85,
+          "lost_packets": 2892,
+          "packets": 156408,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 208448,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 10.27,
+          "lost_packets": 26777,
+          "packets": 260605,
+          "kernel_rcvbuf_drops": 10494,
+          "server_session_drops": 789
+        },
+        "600M": {
+          "mbps": 599.9,
+          "loss_pct": 16.94,
+          "lost_packets": 53003,
+          "packets": 312811,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 6382
+        }
+      },
+      "mtu_1400_df_ping": "PING 10.10.0.1 (10.10.0.1) 1372(1400) bytes of data.\n1380 bytes from 10.10.0.1: icmp_seq=1 ttl=64 time=18.5 ms\n1380 bytes from 10.10.0.1: icmp_seq=2 ttl=64 time=14.4 ms\n1380 bytes from 10.10.0.1: icmp_seq=3 ttl=64 time=10.7 ms\n\n--- 10.10.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms\nrtt min/avg/max/mdev = 10.706/14.518/18.457/3.165 ms"
+    },
+    "udp-faketls-awg": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 7.132/14.670/19.483/3.611 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0,
+          "lost_packets": 0,
+          "packets": 52136,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 3.3,
+          "lost_packets": 3440,
+          "packets": 104194,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 18.18,
+          "lost_packets": 28453,
+          "packets": 156472,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "400M": {
+          "mbps": 399.9,
+          "loss_pct": 33.65,
+          "lost_packets": 70177,
+          "packets": 208528,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "500M": {
+          "mbps": 499.8,
+          "loss_pct": 44.68,
+          "lost_packets": 116351,
+          "packets": 260438,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        },
+        "600M": {
+          "mbps": 599.9,
+          "loss_pct": 55.25,
+          "lost_packets": 172746,
+          "packets": 312657,
+          "kernel_rcvbuf_drops": 0,
+          "server_session_drops": 0
+        }
+      },
+      "mtu_1400_df_ping": "PING 10.10.0.1 (10.10.0.1) 1372(1400) bytes of data.\n1380 bytes from 10.10.0.1: icmp_seq=1 ttl=64 time=13.3 ms\n1380 bytes from 10.10.0.1: icmp_seq=2 ttl=64 time=11.2 ms\n1380 bytes from 10.10.0.1: icmp_seq=3 ttl=64 time=13.5 ms\n\n--- 10.10.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms\nrtt min/avg/max/mdev = 11.187/12.681/13.526/1.059 ms"
+    }
+  }
+}

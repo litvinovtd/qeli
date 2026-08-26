@@ -105,7 +105,7 @@
 
           <!-- Require pinned server key -->
           <div class="field-toggle pt-3 border-t border-[#21314e]">
-            <div class="toggle-wrap" @click="cfg.auth.require_client_key_proof = !cfg.auth.require_client_key_proof; markDirty()">
+            <div class="toggle-wrap" @click="[cfg.auth.require_client_key_proof = !cfg.auth.require_client_key_proof, markDirty()]">
               <div class="toggle" :class="cfg.auth.require_client_key_proof ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.auth.require_client_key_proof ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -118,7 +118,7 @@
 
           <!-- Bind static key to session (H-1) -->
           <div class="field-toggle">
-            <div class="toggle-wrap" @click="cfg.auth.bind_static_to_session = !cfg.auth.bind_static_to_session; markDirty()">
+            <div class="toggle-wrap" @click="[cfg.auth.bind_static_to_session = !cfg.auth.bind_static_to_session, markDirty()]">
               <div class="toggle" :class="cfg.auth.bind_static_to_session ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.auth.bind_static_to_session ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -133,7 +133,7 @@
             <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Brute-force protection — VPN authentication</div>
             <p class="field-desc mb-3">Locks out source IPs after repeated failed VPN logins. Independent of the web-panel login policy (set in the Web UI card below).</p>
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.auth.brute_force.enabled = !cfg.auth.brute_force.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.auth.brute_force.enabled = !cfg.auth.brute_force.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.auth.brute_force.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.auth.brute_force.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -172,7 +172,7 @@
         </h3>
         <div class="space-y-4">
           <div class="flex items-center gap-3">
-            <div class="toggle-wrap" @click="cfg.web.enabled = !cfg.web.enabled; markDirty()">
+            <div class="toggle-wrap" @click="[cfg.web.enabled = !cfg.web.enabled, markDirty()]">
               <div class="toggle" :class="cfg.web.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.web.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -204,7 +204,7 @@
               <input class="inp font-mono text-xs" type="text" x-model="cfg.web.password_hash" @input="markDirty()" placeholder="$argon2id$… (empty = keep current password)">
             </div>
             <div class="col-span-3 field-toggle pt-1">
-              <div class="toggle-wrap" @click="cfg.web.secure_cookie = !cfg.web.secure_cookie; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.web.secure_cookie = !cfg.web.secure_cookie, markDirty()]">
                 <div class="toggle" :class="cfg.web.secure_cookie ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.web.secure_cookie ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -216,7 +216,7 @@
             </div>
 
             <div class="col-span-3 field-toggle pt-1">
-              <div class="toggle-wrap" @click="cfg.web.persist_session_key = !cfg.web.persist_session_key; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.web.persist_session_key = !cfg.web.persist_session_key, markDirty()]">
                 <div class="toggle" :class="cfg.web.persist_session_key ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.web.persist_session_key ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -244,7 +244,7 @@
 
             <!-- Native TLS -->
             <div class="col-span-3 field-toggle pt-1">
-              <div class="toggle-wrap" @click="cfg.web.tls = !cfg.web.tls; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.web.tls = !cfg.web.tls, markDirty()]">
                 <div class="toggle" :class="cfg.web.tls ? 'bg-emerald-500' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.web.tls ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -277,11 +277,11 @@
                 <template x-for="(ip, i) in (cfg.web.allowed_ips || [])" :key="i">
                   <div class="flex gap-2">
                     <input class="inp font-mono flex-1" type="text" :value="ip" placeholder="203.0.113.4 or 10.0.0.0/8"
-                      @input="cfg.web.allowed_ips[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.web.allowed_ips.splice(i,1); markDirty()">×</button>
+                      @input="[cfg.web.allowed_ips[i] = $event.target.value, markDirty()]">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.web.allowed_ips.splice(i,1), markDirty()]">×</button>
                   </div>
                 </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.web.allowed_ips = cfg.web.allowed_ips || []).push(''); markDirty()">+ Add IP / CIDR</button>
+                <button class="btn btn-ghost btn-sm" @click="[(cfg.web.allowed_ips = cfg.web.allowed_ips || []).push(''), markDirty()]">+ Add IP / CIDR</button>
               </div>
             </div>
 
@@ -300,17 +300,17 @@
                 <template x-for="(o, i) in (cfg.web.allowed_origins || [])" :key="i">
                   <div class="flex gap-2">
                     <input class="inp font-mono flex-1" type="text" :value="o" placeholder="panel.example.com or panel.example.com:8443"
-                      @input="cfg.web.allowed_origins[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.web.allowed_origins.splice(i,1); markDirty()">×</button>
+                      @input="[cfg.web.allowed_origins[i] = $event.target.value, markDirty()]">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.web.allowed_origins.splice(i,1), markDirty()]">×</button>
                   </div>
                 </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.web.allowed_origins = cfg.web.allowed_origins || []).push(''); markDirty()">+ Add origin</button>
+                <button class="btn btn-ghost btn-sm" @click="[(cfg.web.allowed_origins = cfg.web.allowed_origins || []).push(''), markDirty()]">+ Add origin</button>
               </div>
             </div>
 
             <!-- CSRF same-origin protection (default ON) -->
             <div class="col-span-3 field-toggle pt-1">
-              <div class="toggle-wrap" @click="cfg.web.csrf = !(cfg.web.csrf !== false); markDirty()">
+              <div class="toggle-wrap" @click="[cfg.web.csrf = !(cfg.web.csrf !== false), markDirty()]">
                 <div class="toggle" :class="(cfg.web.csrf !== false) ? 'bg-emerald-500' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="(cfg.web.csrf !== false) ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -343,17 +343,17 @@
                 <template x-for="(p, i) in (cfg.web.trusted_proxies || [])" :key="i">
                   <div class="flex gap-2">
                     <input class="inp font-mono flex-1" type="text" :value="p" placeholder="10.0.0.0/8 or 203.0.113.4"
-                      @input="cfg.web.trusted_proxies[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.web.trusted_proxies.splice(i,1); markDirty()">×</button>
+                      @input="[cfg.web.trusted_proxies[i] = $event.target.value, markDirty()]">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.web.trusted_proxies.splice(i,1), markDirty()]">×</button>
                   </div>
                 </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.web.trusted_proxies = cfg.web.trusted_proxies || []).push(''); markDirty()">+ Add proxy</button>
+                <button class="btn btn-ghost btn-sm" @click="[(cfg.web.trusted_proxies = cfg.web.trusted_proxies || []).push(''), markDirty()]">+ Add proxy</button>
               </div>
             </div>
 
             <!-- Update check -->
             <div class="col-span-3 field-toggle pt-1">
-              <div class="toggle-wrap" @click="cfg.web.update_check = !cfg.web.update_check; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.web.update_check = !cfg.web.update_check, markDirty()]">
                 <div class="toggle" :class="cfg.web.update_check ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.web.update_check ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -369,7 +369,7 @@
               <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Brute-force protection — panel login</div>
               <p class="field-desc mb-3">Locks out source IPs after repeated failed admin logins to this panel. Separate from the VPN-auth policy (Authentication card).</p>
               <div class="field-toggle mb-3">
-                <div class="toggle-wrap" @click="cfg.web.brute_force.enabled = !cfg.web.brute_force.enabled; markDirty()">
+                <div class="toggle-wrap" @click="[cfg.web.brute_force.enabled = !cfg.web.brute_force.enabled, markDirty()]">
                   <div class="toggle" :class="cfg.web.brute_force.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.web.brute_force.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -490,7 +490,7 @@
             <span class="badge" :class="cfg.profiles[activeTab].bind.transport === 'udp' ? 'badge-udp' : 'badge-tcp'"
               x-text="(cfg.profiles[activeTab].bind.transport || 'tcp').toUpperCase()"></span>
             <!-- enabled toggle -->
-            <label class="flex items-center gap-2 cursor-pointer" @click="cfg.profiles[activeTab].enabled = !(cfg.profiles[activeTab].enabled !== false); markDirty()">
+            <label class="flex items-center gap-2 cursor-pointer" @click="[cfg.profiles[activeTab].enabled = !(cfg.profiles[activeTab].enabled !== false), markDirty()]">
               <div class="toggle" :class="cfg.profiles[activeTab].enabled !== false ? 'bg-emerald-500' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.profiles[activeTab].enabled !== false ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -558,11 +558,11 @@
               <template x-for="(l, i) in (cfg.profiles[activeTab].bind.listen || [])" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono flex-1" type="text" :value="l" placeholder="0.0.0.0:8443"
-                    @input="cfg.profiles[activeTab].bind.listen[i] = $event.target.value; markDirty()">
-                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].bind.listen.splice(i,1); markDirty()">×</button>
+                    @input="[cfg.profiles[activeTab].bind.listen[i] = $event.target.value, markDirty()]">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].bind.listen.splice(i,1), markDirty()]">×</button>
                 </div>
               </template>
-              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].bind.listen = cfg.profiles[activeTab].bind.listen || []).push(''); markDirty()">+ Add listener</button>
+              <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].bind.listen = cfg.profiles[activeTab].bind.listen || []).push(''), markDirty()]">+ Add listener</button>
             </div>
           </div>
         </div>
@@ -644,11 +644,11 @@
               <template x-for="(ip, i) in (cfg.profiles[activeTab].pool.ipv6.exclude || [])" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono flex-1" type="text" :value="ip"
-                    @input="cfg.profiles[activeTab].pool.ipv6.exclude[i] = $event.target.value; markDirty()">
-                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].pool.ipv6.exclude.splice(i,1); markDirty()">×</button>
+                    @input="[cfg.profiles[activeTab].pool.ipv6.exclude[i] = $event.target.value, markDirty()]">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].pool.ipv6.exclude.splice(i,1), markDirty()]">×</button>
                 </div>
               </template>
-              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].pool.ipv6.exclude = cfg.profiles[activeTab].pool.ipv6.exclude || []).push(''); markDirty()">
+              <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].pool.ipv6.exclude = cfg.profiles[activeTab].pool.ipv6.exclude || []).push(''), markDirty()]">
                 + Add excluded IPv6
               </button>
             </div>
@@ -662,11 +662,11 @@
               <template x-for="(ip, i) in (cfg.profiles[activeTab].pool.exclude || [])" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono flex-1" type="text" :value="ip"
-                    @input="cfg.profiles[activeTab].pool.exclude[i] = $event.target.value; markDirty()">
-                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].pool.exclude.splice(i,1); markDirty()">×</button>
+                    @input="[cfg.profiles[activeTab].pool.exclude[i] = $event.target.value, markDirty()]">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].pool.exclude.splice(i,1), markDirty()]">×</button>
                 </div>
               </template>
-              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].pool.exclude = cfg.profiles[activeTab].pool.exclude || []).push(''); markDirty()">
+              <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].pool.exclude = cfg.profiles[activeTab].pool.exclude || []).push(''), markDirty()]">
                 + Add excluded IP
               </button>
             </div>
@@ -677,7 +677,7 @@
             <label class="field-label">Static reservations</label>
             <p class="field-desc">Always assign a specific IP to a specific username</p>
             <div class="space-y-2 mt-1.5">
-              <template x-for="([user, ip], i) in Object.entries(cfg.profiles[activeTab].pool.static_reservations || {})" :key="i">
+              <template x-for="([user, ip], i) in entries(cfg.profiles[activeTab].pool.static_reservations)" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono w-36 flex-shrink-0" type="text" placeholder="username"
                     :value="user" @change="updateReservation(activeTab, user, $event.target.value, ip)">
@@ -695,7 +695,7 @@
             <label class="field-label">Static IPv6 reservations</label>
             <p class="field-desc">Always assign a specific IPv6 address to a username</p>
             <div class="space-y-2 mt-1.5">
-              <template x-for="([user, ip], i) in Object.entries(cfg.profiles[activeTab].pool.ipv6.static_reservations || {})" :key="i">
+              <template x-for="([user, ip], i) in entries(cfg.profiles[activeTab].pool.ipv6.static_reservations)" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono w-36 flex-shrink-0" type="text" placeholder="username"
                     :value="user" @change="updateIpv6Reservation(activeTab, user, $event.target.value, ip)">
@@ -715,7 +715,7 @@
           <div class="section-hdr">Routing</div>
           <div class="space-y-3">
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.client_to_client = !cfg.profiles[activeTab].routing.client_to_client; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.client_to_client = !cfg.profiles[activeTab].routing.client_to_client, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.client_to_client ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.client_to_client ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -741,7 +741,7 @@
                 x-model="cfg.profiles[activeTab].routing.ipv6.interface" @input="markDirty()" placeholder="auto / ens18">
             </div>
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.forward_private ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.forward_private ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -752,7 +752,7 @@
               </div>
             </div>
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}; cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}, cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -778,17 +778,17 @@
                 <div class="flex flex-wrap gap-2 items-center">
                   <input class="inp font-mono flex-1 min-w-[12rem]" type="text" placeholder="network, e.g. 10.20.0.0/16"
                     title="The network to advertise, in CIDR form. Required."
-                    :value="r.cidr" @input="cfg.profiles[activeTab].routing.advertised_routes[i].cidr = $event.target.value; markDirty()">
+                    :value="r.cidr" @input="[cfg.profiles[activeTab].routing.advertised_routes[i].cidr = $event.target.value, markDirty()]">
                   <input class="inp font-mono w-64" type="text" placeholder="gateway, e.g. 10.0.0.1"
                     title="Next-hop IP address (NOT a subnet). Optional — defaults to the profile tun address."
-                    :value="r.gateway" @input="cfg.profiles[activeTab].routing.advertised_routes[i].gateway = ($event.target.value || null); markDirty()">
+                    :value="r.gateway" @input="[cfg.profiles[activeTab].routing.advertised_routes[i].gateway = ($event.target.value || null), markDirty()]">
                   <input class="inp w-32" type="number" min="0" placeholder="metric"
                     title="Route metric (lower = higher priority). Optional — defaults to 100."
-                    :value="r.metric" @input="cfg.profiles[activeTab].routing.advertised_routes[i].metric = ($event.target.value===''?null:parseInt($event.target.value)); markDirty()">
+                    :value="r.metric" @input="[cfg.profiles[activeTab].routing.advertised_routes[i].metric = ($event.target.value===''?null:toInteger($event.target.value)), markDirty()]">
                   <input class="inp flex-1 min-w-[10rem]" type="text" placeholder="description (optional)"
                     title="Free-text note for this route. Saved to the config; has no effect on routing."
-                    :value="r.description" @input="cfg.profiles[activeTab].routing.advertised_routes[i].description = ($event.target.value || null); markDirty()">
-                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].routing.advertised_routes.splice(i,1); markDirty()">×</button>
+                    :value="r.description" @input="[cfg.profiles[activeTab].routing.advertised_routes[i].description = ($event.target.value || null), markDirty()]">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].routing.advertised_routes.splice(i,1), markDirty()]">×</button>
                 </div>
               </template>
               <!-- Spell out what an omitted gateway/metric actually becomes, with the profile's
@@ -802,7 +802,7 @@
                 <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.address || '—'"></span><span>, IPv6 </span>
                 <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.ipv6_address || '—'"></span><span>; an empty metric means 100.</span>
               </p>
-              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].routing.advertised_routes = cfg.profiles[activeTab].routing.advertised_routes || []).push({cidr:'', gateway:null, metric:100}); markDirty()">
+              <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].routing.advertised_routes = cfg.profiles[activeTab].routing.advertised_routes || []).push({cidr:'', gateway:null, metric:100}), markDirty()]">
                 + Add pushed route
               </button>
             </div>
@@ -813,7 +813,7 @@
         <div id="sec-dns" class="card p-5 space-y-4 cfg-anchor">
           <div class="section-hdr">DNS Proxy</div>
           <div class="field-toggle mb-2">
-            <div class="toggle-wrap" @click="cfg.profiles[activeTab].dns.enabled = !cfg.profiles[activeTab].dns.enabled; markDirty()">
+            <div class="toggle-wrap" @click="[cfg.profiles[activeTab].dns.enabled = !cfg.profiles[activeTab].dns.enabled, markDirty()]">
               <div class="toggle" :class="cfg.profiles[activeTab].dns.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.profiles[activeTab].dns.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -833,11 +833,11 @@
               <template x-for="(srv, i) in (cfg.profiles[activeTab].dns.push_servers || [])" :key="i">
                 <div class="flex gap-2">
                   <input class="inp font-mono flex-1" type="text" :value="srv" placeholder="1.1.1.1"
-                    @input="cfg.profiles[activeTab].dns.push_servers[i] = $event.target.value; markDirty()">
-                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].dns.push_servers.splice(i,1); markDirty()">×</button>
+                    @input="[cfg.profiles[activeTab].dns.push_servers[i] = $event.target.value, markDirty()]">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].dns.push_servers.splice(i,1), markDirty()]">×</button>
                 </div>
               </template>
-              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].dns.push_servers = cfg.profiles[activeTab].dns.push_servers || []).push(''); markDirty()">
+              <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].dns.push_servers = cfg.profiles[activeTab].dns.push_servers || []).push(''), markDirty()]">
                 + Add pushed DNS server
               </button>
             </div>
@@ -886,11 +886,11 @@
                 <template x-for="(srv, i) in (cfg.profiles[activeTab].dns.upstream || [])" :key="i">
                   <div class="flex gap-2">
                     <input class="inp font-mono flex-1" type="text" :value="srv"
-                      @input="cfg.profiles[activeTab].dns.upstream[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].dns.upstream.splice(i,1); markDirty()">×</button>
+                      @input="[cfg.profiles[activeTab].dns.upstream[i] = $event.target.value, markDirty()]">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].dns.upstream.splice(i,1), markDirty()]">×</button>
                   </div>
                 </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].dns.upstream = cfg.profiles[activeTab].dns.upstream || []).push('1.1.1.1'); markDirty()">
+                <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].dns.upstream = cfg.profiles[activeTab].dns.upstream || []).push('1.1.1.1'), markDirty()]">
                   + Add upstream server
                 </button>
               </div>
@@ -903,11 +903,11 @@
                 <template x-for="(d, i) in (cfg.profiles[activeTab].dns.blocklist || [])" :key="i">
                   <div class="flex gap-2">
                     <input class="inp font-mono flex-1" type="text" :value="d" placeholder="ads.example.com"
-                      @input="cfg.profiles[activeTab].dns.blocklist[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].dns.blocklist.splice(i,1); markDirty()">×</button>
+                      @input="[cfg.profiles[activeTab].dns.blocklist[i] = $event.target.value, markDirty()]">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].dns.blocklist.splice(i,1), markDirty()]">×</button>
                   </div>
                 </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].dns.blocklist = cfg.profiles[activeTab].dns.blocklist || []).push(''); markDirty()">
+                <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].dns.blocklist = cfg.profiles[activeTab].dns.blocklist || []).push(''), markDirty()]">
                   + Add blocked domain
                 </button>
               </div>
@@ -923,7 +923,7 @@
             <span>qeli sessions receive their authenticated addresses from the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">VPN subnet (CIDR)</span> / static reservations), <strong>not</strong> from DHCP. Enable this DHCPv4 server only for other devices on a local server-side TAP segment. It does not turn qeli into a transparent Ethernet bridge between sessions. Leave it off for normal TUN and qeli-client TAP profiles.</span>
           </div>
           <div class="field-toggle mb-2">
-            <div class="toggle-wrap" @click="cfg.profiles[activeTab].dhcp.enabled = !cfg.profiles[activeTab].dhcp.enabled; markDirty()">
+            <div class="toggle-wrap" @click="[cfg.profiles[activeTab].dhcp.enabled = !cfg.profiles[activeTab].dhcp.enabled, markDirty()]">
               <div class="toggle" :class="cfg.profiles[activeTab].dhcp.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.profiles[activeTab].dhcp.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
@@ -1000,14 +1000,14 @@
               <p class="field-desc">Required for obfs mode — must match the client exactly</p>
               <div class="flex gap-2">
                 <input class="inp font-mono flex-1" type="text" x-model="cfg.profiles[activeTab].obfuscation.obfs_key" @input="markDirty()" placeholder="shared-secret">
-                <button class="btn btn-ghost btn-sm flex-shrink-0" @click="cfg.profiles[activeTab].obfuscation.obfs_key = randHex(32); markDirty()">Generate</button>
+                <button class="btn btn-ghost btn-sm flex-shrink-0" @click="[cfg.profiles[activeTab].obfuscation.obfs_key = randomHex(32), markDirty()]">Generate</button>
               </div>
             </div>
 
             <!-- AmneziaWG junk (obfs only) -->
             <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs'" class="mt-4 pt-3 border-t border-[#21314e]">
               <div class="field-toggle">
-                <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.awg.enabled = !cfg.profiles[activeTab].obfuscation.awg.enabled; markDirty()">
+                <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.awg.enabled = !cfg.profiles[activeTab].obfuscation.awg.enabled, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1055,7 +1055,7 @@
             <!-- REALITY — TCP-only TLS-shaped outer transport; hidden on UDP profiles (#11) -->
             <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
-                <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled; markDirty()">
+                <div class="toggle-wrap" @click="[ensureReality(activeTab), cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1086,7 +1086,7 @@
 
                 <!-- real_tls: genuine TLS termination -->
                 <div class="field-toggle pt-1">
-                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls; markDirty()">
+                  <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls, markDirty()]">
                     <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls ? 'bg-emerald-500' : 'bg-slate-700'">
                       <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls ? 'translate-x-4' : 'translate-x-0.5'"></div>
                     </div>
@@ -1099,7 +1099,7 @@
 
                 <!-- handrolled TLS stack -->
                 <div class="field-toggle" x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls">
-                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled; markDirty()">
+                  <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled, markDirty()]">
                     <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled ? 'bg-emerald-500' : 'bg-slate-700'">
                       <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.handrolled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                     </div>
@@ -1118,13 +1118,13 @@
                     <template x-for="(sid, i) in (cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids || [])" :key="i">
                       <div class="flex gap-2">
                         <input class="inp font-mono flex-1" type="text" :value="sid" placeholder="0123456789abcdef"
-                          @input="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids[i] = $event.target.value.replace(/[^0-9a-fA-F]/g,'').slice(0,16); markDirty()">
-                        <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.splice(i,1); markDirty()">×</button>
+                          @input="updateRealityShortId(i, $event.target.value)">
+                        <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.splice(i,1), markDirty()]">×</button>
                       </div>
                     </template>
                     <div class="flex gap-2">
-                      <button class="btn btn-ghost btn-sm" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(''); markDirty()">+ Add short_id</button>
-                      <button class="btn btn-ghost btn-sm" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(randHex(16)); markDirty()">
+                      <button class="btn btn-ghost btn-sm" @click="[ensureReality(activeTab), cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(''), markDirty()]">+ Add short_id</button>
+                      <button class="btn btn-ghost btn-sm" @click="[ensureReality(activeTab), cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(randomHex(16)), markDirty()]">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                         Generate
                       </button>
@@ -1138,7 +1138,7 @@
           <!-- Padding -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.padding.enabled = !cfg.profiles[activeTab].obfuscation.padding.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.padding.enabled = !cfg.profiles[activeTab].obfuscation.padding.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.padding.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.padding.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1163,7 +1163,7 @@
                 <input class="inp" type="number" min="0" max="1" step="0.05" x-model.number="cfg.profiles[activeTab].obfuscation.padding.probability" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.padding.randomize = !cfg.profiles[activeTab].obfuscation.padding.randomize; markDirty()">
+                <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.padding.randomize = !cfg.profiles[activeTab].obfuscation.padding.randomize, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.padding.randomize ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.padding.randomize ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1179,14 +1179,14 @@
           <!-- Heartbeat -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.heartbeat.enabled = !cfg.profiles[activeTab].obfuscation.heartbeat.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.heartbeat.enabled = !cfg.profiles[activeTab].obfuscation.heartbeat.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.heartbeat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.heartbeat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
                 <div class="text-sm font-medium text-white">Heartbeat / keep-alive</div>
-                <div class="text-xs text-slate-500">Send periodic dummy packets to prevent connection timeouts and normalize traffic timing</div>
+                <div class="text-xs text-slate-500">Send dummy packets in non-Reality modes. Reality/H2 forces qeli heartbeat off; other modes re-roll interval ± jitter after each activity/send.</div>
               </div>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.heartbeat.enabled" class="grid grid-cols-3 gap-4">
@@ -1211,7 +1211,7 @@
           <!-- Fragmentation -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.fragmentation.enabled = !cfg.profiles[activeTab].obfuscation.fragmentation.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.fragmentation.enabled = !cfg.profiles[activeTab].obfuscation.fragmentation.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.fragmentation.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.fragmentation.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1237,15 +1237,12 @@
             </div>
           </div>
 
-          <!-- HTTP/2 masking -->
+          <!-- Reality HTTP/2 carrier -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
               <div>
-                <div class="text-sm font-medium text-white">
-                  HTTP/2 frame masking
-                  <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/30">not active</span>
-                </div>
-                <div class="text-xs text-amber-400/90"><strong>Planned — this setting has no effect yet.</strong> It is parsed and saved, but the transport does not read it: no synthetic HTTP/2 frames are produced. Do not count it as DPI resistance.</div>
+                <div class="text-sm font-medium text-white">Reality HTTP/2 carrier</div>
+                <div class="text-xs text-slate-500">Automatic for <code>reality-tls</code>: genuine H2, one streaming POST and randomized batching. There is no separate setting; retired synthetic <code>http2_masking</code> keys are ignored.</div>
               </div>
             </div>
           </div>
@@ -1253,7 +1250,7 @@
           <!-- Traffic normalization -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled = !cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled = !cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_normalization.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1277,11 +1274,11 @@
                   <template x-for="(sz, i) in (cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes || [])" :key="i">
                     <div class="flex gap-2">
                       <input class="inp w-40" type="number" min="1" :value="sz"
-                        @input="cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes[i] = parseInt($event.target.value)||0; markDirty()">
-                      <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes.splice(i,1); markDirty()">×</button>
+                        @input="[cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes[i] = toInteger($event.target.value)||0, markDirty()]">
+                      <button class="btn btn-danger btn-sm px-2.5" @click="[cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes.splice(i,1), markDirty()]">×</button>
                     </div>
                   </template>
-                  <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes = cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes || []).push(1500); markDirty()">+ Add round size</button>
+                  <button class="btn btn-ghost btn-sm" @click="[(cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes = cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes || []).push(1500), markDirty()]">+ Add round size</button>
                 </div>
               </div>
             </div>
@@ -1290,7 +1287,7 @@
           <!-- Traffic shaping (idle cover traffic) -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled = !cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled = !cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1328,7 +1325,7 @@
                 <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.max_size" @input="markDirty()">
               </div>
               <div class="col-span-2 flex items-start gap-3 pt-2 border-t border-[#21314e]">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth = !cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth; markDirty()">
+                <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth = !cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1349,7 +1346,7 @@
           <!-- Anti-fingerprinting -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1363,7 +1360,7 @@
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled" class="grid grid-cols-2 gap-4">
               <div class="flex items-start gap-3 pt-1">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake; markDirty()">
+                <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.add_jitter_to_handshake ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1379,14 +1376,14 @@
           <!-- QUIC (UDP-only masking — hidden on TCP profiles, #11) -->
           <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') === 'udp'">
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.quic.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.quic.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
               </div>
               <div>
                 <div class="text-sm font-medium text-white">QUIC masking <span class="badge badge-udp ml-1.5">UDP only</span></div>
-                <div class="text-xs text-slate-500">Wrap UDP packets in fake QUIC headers to look like QUIC/HTTP3 traffic</div>
+                <div class="text-xs text-slate-500">Wrap UDP packets in shallow QUIC-shaped compatibility headers; this is not genuine QUIC or HTTP/3</div>
               </div>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.quic.enabled" class="grid grid-cols-2 gap-4 mt-3">
@@ -1396,7 +1393,7 @@
           <!-- Multipath (stream bonding) — TCP-only, hidden on UDP profiles (#11) -->
           <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'">
             <div class="field-toggle">
-              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.multipath = cfg.profiles[activeTab].obfuscation.multipath || {}; cfg.profiles[activeTab].obfuscation.multipath.enabled = !cfg.profiles[activeTab].obfuscation.multipath.enabled; markDirty()">
+              <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.multipath = cfg.profiles[activeTab].obfuscation.multipath || {}, cfg.profiles[activeTab].obfuscation.multipath.enabled = !cfg.profiles[activeTab].obfuscation.multipath.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1413,7 +1410,7 @@
                 <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath.adaptive; markDirty()">
+                <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath.adaptive, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath.adaptive ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.multipath.adaptive ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1466,7 +1463,7 @@
             <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">TCP Settings</div>
             <div class="grid grid-cols-3 gap-4">
               <div class="flex items-start gap-3">
-                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].performance.tcp.nodelay = !cfg.profiles[activeTab].performance.tcp.nodelay; markDirty()">
+                <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].performance.tcp.nodelay = !cfg.profiles[activeTab].performance.tcp.nodelay, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].performance.tcp.nodelay ? 'bg-blue-600' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].performance.tcp.nodelay ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1622,6 +1619,15 @@ function configPage() {
     },
     fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
+    entries(value) { return Object.entries(value || {}); },
+    toInteger(value) { return Number.parseInt(value, 10); },
+    randomHex(length) { return window.randHex ? window.randHex(length) : ''; },
+
+    updateRealityShortId(index, value) {
+      this.ensureReality(this.activeTab);
+      this.cfg.profiles[this.activeTab].obfuscation.tls.reality_proxy.short_ids[index] = String(value || '').replace(/[^0-9a-fA-F]/g, '').slice(0, 16);
+      this.markDirty();
+    },
 
     // Scroll a section into view. scrollIntoView walks up to the real scroll container
     // (<main>), unlike a native fragment anchor; the .cfg-anchor scroll-margin-top offsets

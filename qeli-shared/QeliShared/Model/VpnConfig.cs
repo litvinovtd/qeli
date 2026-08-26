@@ -344,39 +344,6 @@ public sealed class VpnConfig : INotifyPropertyChanged
         || RoutingMode.Equals("full-tunnel", StringComparison.OrdinalIgnoreCase)
         || RoutingMode.Equals("all", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Clone applying server-pushed heartbeat + flow-shaping params after auth.</summary>
-    public VpnConfig WithPushedObf(bool hbEnabled, long hbIntervalMs, long hbJitterMs, int hbDataSize,
-        bool shEnabled, long shGapMeanMs, long shGapMinMs, long shGapMaxMs,
-        int shBudget, int shMinSize, int shMaxSize,
-        bool shStealth, int shStealthRateMbps) => new()
-    {
-        ServerAddress = ServerAddress, Port = Port, Protocol = Protocol,
-        ConnectionTimeoutSecs = ConnectionTimeoutSecs,
-        LocalAddress = LocalAddress, LocalPort = LocalPort,
-        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
-        ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
-        ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
-        Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
-        BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, Ipv6Policy = Ipv6Policy,
-        AddDefaultGateway = AddDefaultGateway,
-        IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
-        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv4Leak = AllowIpv4Leak,
-        AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
-        AppsMode = AppsMode, Apps = Apps,
-        DnsServers = DnsServers, DnsMode = DnsMode, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
-        AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
-        QuicEnabled = QuicEnabled, Sni = Sni,
-        RealityShortId = RealityShortId,
-        PaddingEnabled = PaddingEnabled, PaddingMin = PaddingMin, PaddingMax = PaddingMax,
-        HeartbeatEnabled = hbEnabled, HeartbeatIntervalMs = hbIntervalMs,
-        HeartbeatDataSize = hbDataSize, HeartbeatJitterMs = hbJitterMs,
-        ShapingEnabled = shEnabled, ShapingGapMeanMs = shGapMeanMs, ShapingGapMinMs = shGapMinMs,
-        ShapingGapMaxMs = shGapMaxMs, ShapingBudgetBytesPerSec = shBudget,
-        ShapingMinSize = shMinSize, ShapingMaxSize = shMaxSize,
-        ShapingStealth = shStealth, ShapingStealthRateMbps = shStealthRateMbps,
-        Name = Name, Id = Id,
-    };
 
     /// <summary>Clone applying the fields the profile editor's FORM edits, preserving every
     /// other field from `this` (OpenVPN local/lport/dev_node/metric/route_file/persist_tun,
@@ -880,7 +847,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // whereas this jumps to the DEFAULT, which is somewhere else entirely. `lport = 99999`
         // became 0 (bind anywhere), a negative heartbeat became 15 s — the setting the user
         // wrote silently replaced by an unrelated one. The `server` port a few lines below had
-        // already been fixed this way and the rest were left behind; the C# selftest then
+        // already been fixed this way and the rest were left behind; QeliConformance then
         // pinned the silent behaviour as correct. (Audit 2026-08-02, §11.)
         int RangedNum(string key, int dflt, int lo, int hi)
         {
@@ -1190,11 +1157,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// The AUTH plaintext is <c>proof(32)</c> + the optional <c>[0x00 device_id(16)]</c> prefix
     /// + <c>user:pass</c>, and the whole thing rides in one unfragmented datagram — so the
     /// credentials are what decides whether it survives a path that drops IP fragments.
-    /// Derived from <see cref="Qeli.Shared.Protocol.UdpFrag.MaxChunk"/> rather than written
-    /// out, so it tracks the budget. Fully qualified: the bare namespace `Protocol` is
-    /// shadowed here by this class's own `Protocol` property (the tcp/udp string).
+    /// Derived from <see cref="TransportWireLimits.AuthCredentialBudget"/>, the same
+    /// production wire-size contract used by the standalone managed conformance codec.
     /// </remarks>
-    public static int AuthCredentialBudget => Qeli.Shared.Protocol.UdpFrag.MaxChunk - (32 + 17);
+    public static int AuthCredentialBudget => TransportWireLimits.AuthCredentialBudget;
 
     /// <summary>True for a bare IPv4 or IPv6 literal.</summary>
     /// <remarks>
@@ -1433,9 +1399,6 @@ public sealed class VpnConfig : INotifyPropertyChanged
             throw new ArgumentException($"'timeout' must be 1..300, got {ConnectionTimeoutSecs}");
     }
 
-    private static bool IniBool(string v) =>
-        v.Equals("true", StringComparison.OrdinalIgnoreCase) || v == "1" ||
-        v.Equals("yes", StringComparison.OrdinalIgnoreCase) || v.Equals("on", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Split a comma-separated CIDR list, trimming blanks. Values are validated
     /// again (strict IP literal) before being spliced into route commands.</summary>

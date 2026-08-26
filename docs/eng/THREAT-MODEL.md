@@ -20,13 +20,18 @@ flow and block it.** Privacy from the *server operator* is explicitly a non-goal
 
 | Adversary | Capability | qeli's answer |
 |-----------|-----------|---------------|
-| **On-path passive DPI** (GFW / TSPU style) | Reads every byte, classifies by signature/entropy/fingerprint | Wire modes mimic real protocols: `reality-tls` presents a byte-grade Chrome TLS 1.3 ClientHello (JA3/JA4 parity) and a JA3S mirrored from a real site; `obfs` rides a WebSocket-fronted channel; nonce PRP removes the per-packet counter tell. |
+| **On-path passive DPI** (GFW / TSPU style) | Reads every byte, classifies by signature/entropy/fingerprint | `reality-tls` uses REALITY TLS 1.3 + genuine H2 with randomized batching; `obfs` rides WebSocket fronting; nonce PRP protects the private record counter. Browser/H2 semantic parity remains incomplete and is not claimed. |
 | **On-path active prober** | Replays/initiates connections to the server to test if it is a proxy | REALITY: a connection without a valid crypto token in the ClientHello `session_id` is transparently bridged to the real decoy site. Replayed ClientHellos are detected and also bridged. This reduces the obvious active-probe oracle; it does not prove universal equivalence to the target under timing or correlation analysis. |
 | **On-path active MITM** | Intercepts and rewrites handshake records | Server-identity proof bound to the handshake transcript (channel binding): any swap of ServerHello/Certificate/Finished breaks the proof. Optional `bind_static_to_session` (on by default) binds session keys to the server's long-lived identity (Noise-IK style). |
 | **Store-now-decrypt-later / future quantum** | Records traffic today, breaks X25519 with a future quantum computer | All non-`plain` modes run a hybrid X25519 + ML-KEM-768 key exchange; the data keys depend on **both** secrets. The server refuses a non-PQ handshake (no silent downgrade). |
 | **Online credential guesser** | Tries to brute-force a user password or the panel admin | Argon2id password hashing; per-IP lockout + per-username adaptive tarpit on the tunnel; the same on the web panel API; constant-time proof comparison; dummy-hash work on unknown users to avoid username enumeration by timing. |
 | **Replay attacker** | Re-sends captured ciphertext | 2048-bit sliding replay window per session; AEAD with unique per-packet nonces. |
 | **Local unprivileged user on the client** | Tries to read secrets or hijack qeli's privileged file writes | Secrets/config/keys written atomically with `O_EXCL` + `O_NOFOLLOW` and preserved `0600` mode; control socket gated by a `0700` directory. |
+
+The 2026-08-26 PCAP regression showed 0/6 detections by the old qeli-shape classifier, not a
+universal probability. Residual passive signals include coherent browser TLS profile validity,
+H2 SETTINGS/priority/window behavior, one long-lived POST and workload timing. See
+[DPI-AUDIT.md](DPI-AUDIT.md).
 
 ## 3. Non-goals and residual leaks (READ THIS)
 

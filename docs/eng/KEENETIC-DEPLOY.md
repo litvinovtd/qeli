@@ -1,5 +1,8 @@
 # qeli-client on Keenetic — step-by-step deployment
 
+> **Benchmark scope:** any Reality speed or double-framing estimate in this document comes from
+> the legacy carrier through 0.7.16. The current genuine H2 carrier needs a separate router benchmark.
+
 Deploying the qeli VPN client on a Keenetic router (Entware) as a gateway for the whole
 LAN. The architecture and rationale of the port — [KEENETIC-PORT.md](KEENETIC-PORT.md).
 The bundle files — in `release/keenetic/`.

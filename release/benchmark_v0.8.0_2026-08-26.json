@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "date": "2026-08-26T10:40:34Z",
+    "sha256_16": "c5bb4e0d8427ed2d",
+    "version": "qeli 0.8.0",
+    "recordizer_policy": "prefer",
+    "server": "6.12.88+deb13-amd64",
+    "iperf3": "iperf 3.18 (cJSON 1.7.15)"
+  },
+  "baseline": {
+    "tcp": {
+      "mbps": 18349.3,
+      "retransmits": 0,
+      "cpu_client": 57.5,
+      "cpu_server": 97.4
+    },
+    "udp_sweep": {
+      "500M": {
+        "mbps": 500.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 260586,
+        "kernel_rcvbuf_drops": 0
+      },
+      "1000M": {
+        "mbps": 1000.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 521354,
+        "kernel_rcvbuf_drops": 0
+      }
+    }
+  },
+  "modes": {
+    "tcp-plain-raw": {
+      "error": "connect failed",
+      "client_mode": "plain",
+      "recordizer_active": false
+    },
+    "tcp-faketls": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "tcp-padding": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "tcp-frag": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "tcp-obfs": {
+      "error": "connect failed",
+      "client_mode": "obfs",
+      "recordizer_active": false
+    },
+    "tcp-reality": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "tcp-reality-tls": {
+      "error": "connect failed",
+      "client_mode": "reality-tls",
+      "recordizer_active": false
+    },
+    "udp-faketls": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "udp-padding": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "udp-quic": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    },
+    "tcp-obfs-awg": {
+      "error": "connect failed",
+      "client_mode": "obfs",
+      "recordizer_active": false
+    },
+    "udp-faketls-awg": {
+      "error": "connect failed",
+      "client_mode": "fake-tls",
+      "recordizer_active": false
+    }
+  }
+}

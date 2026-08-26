@@ -358,7 +358,7 @@ identity keys), а для TCP-режимов — предупреждение п
   `off|route|nat66` + pushed-routes, dual-family DNS + blocklist,
   DHCP (только для TAP — см. ниже),
   обфускация (mode/cipher/fronting, TLS-маскировка + SNI-пул, REALITY +
-  `handrolled`/`peek`, padding, heartbeat, fragmentation, http2, traffic-norm,
+  `handrolled`/`peek`, padding, heartbeat, fragmentation, автоматический Reality/H2 carrier (без пользовательского переключателя), traffic-norm,
   anti-fingerprint, QUIC, **multipath**), производительность (лимиты,
   rate-limit/new-session, TCP/TUN-буферы).
 - **Global** — Authentication (вкл. `bind_static_to_session` H-1), Web UI (вкл. TLS,

@@ -24,7 +24,7 @@
     <div class="flex items-center gap-2">
       <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
         <div class="toggle-wrap" aria-label="Auto-refresh"
-          @click="autoRefresh = !autoRefresh; handleAutoRefresh()">
+          @click="[autoRefresh = !autoRefresh, handleAutoRefresh()]">
           <div class="toggle toggle-sm" :class="autoRefresh ? 'bg-blue-600' : 'bg-slate-700'">
             <div class="toggle-dot" :class="autoRefresh ? 'translate-x-4' : 'translate-x-0.5'"></div>
           </div>

@@ -23,11 +23,20 @@
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <!-- Avalonia's compiled-XAML + trimming-friendly settings. -->
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <QeliBuildTools Condition="'$(QeliBuildTools)' == ''">false</QeliBuildTools>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(QeliBuildTools)' == 'true'">
+    <DefineConstants>$(DefineConstants);QELI_BUILD_TOOLS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(QeliBuildTools)' != 'true'">
+    <Compile Remove="UiShot.cs" />
+  </ItemGroup>
+
   <ItemGroup>
-    <!-- Platform-neutral lifecycle/model plus retained conformance diagnostics.
-         Production transport is the embedded Rust core. -->
+    <!-- Platform-neutral production lifecycle/model adapters. Managed wire conformance
+         is built separately by qeli-shared/QeliConformance. -->
     <ProjectReference Include="..\..\qeli-shared\QeliShared\QeliShared.csproj" />
   </ItemGroup>
 
@@ -41,9 +50,8 @@
     <!-- Diagnostics only in Debug. -->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.20" Condition="'$(Configuration)' == 'Debug'" />
     <!-- Offscreen rendering for the `uishot` verb (UI screenshots without a display). -->
-    <PackageReference Include="Avalonia.Headless" Version="11.3.20" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.20" Condition="'$(QeliBuildTools)' == 'true'" />
 
-    <!-- BouncyCastle for retained conformance/reachability diagnostics flows transitively. -->
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- Brand-mark / icon / tray rendering (paths, gradients, text → PNG). The macOS
@@ -51,7 +59,8 @@
          `genicns`/`genassets` verbs (icon rendering) during a cross-build in the lab. -->
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
     <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="2.88.9" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9"
+                      Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 
   <!-- Native whole-client Rust core (transport ABI 1.11 plus realtls C ABI). A

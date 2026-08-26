@@ -1,0 +1,622 @@
+{
+  "size_only": {
+    "features": [
+      "ip_size_mean",
+      "ip_size_std",
+      "ip_size_q25",
+      "ip_size_q50",
+      "ip_size_q75",
+      "ip_size_q90",
+      "data_size_mean",
+      "data_size_std",
+      "data_size_q25",
+      "data_size_q50",
+      "data_size_q75",
+      "data_size_q90",
+      "small_data_share",
+      "full_mtu_share",
+      "size_unique_share",
+      "size_entropy"
+    ],
+    "logistic": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    },
+    "nearest_centroid": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    }
+  },
+  "relative_timing_only": {
+    "features": [
+      "up_data_share",
+      "direction_switch_share",
+      "gap_cv",
+      "data_gap_cv",
+      "burst_gap_share",
+      "idle_gap_share"
+    ],
+    "logistic": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    },
+    "nearest_centroid": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    }
+  },
+  "shape_no_rate_no_transport": {
+    "features": [
+      "up_data_share",
+      "direction_switch_share",
+      "ip_size_mean",
+      "ip_size_std",
+      "ip_size_q25",
+      "ip_size_q50",
+      "ip_size_q75",
+      "ip_size_q90",
+      "data_size_mean",
+      "data_size_std",
+      "data_size_q25",
+      "data_size_q50",
+      "data_size_q75",
+      "data_size_q90",
+      "small_data_share",
+      "full_mtu_share",
+      "size_unique_share",
+      "size_entropy",
+      "gap_cv",
+      "data_gap_cv",
+      "burst_gap_share",
+      "idle_gap_share"
+    ],
+    "logistic": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    },
+    "nearest_centroid": {
+      "tp": 36,
+      "fn": 0,
+      "fp": 0,
+      "tn": 12,
+      "tpr": 1.0,
+      "fpr": 0.0,
+      "folds": [
+        {
+          "mode": "tcp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-frag",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-obfs-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-plain-raw",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "tcp-reality-tls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-faketls-awg",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-padding",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        },
+        {
+          "mode": "udp-quic",
+          "detected": "3",
+          "total": 3,
+          "false_positive": "0",
+          "controls": 1
+        }
+      ]
+    }
+  }
+}

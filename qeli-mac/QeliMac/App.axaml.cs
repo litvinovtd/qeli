@@ -21,10 +21,12 @@ public partial class App : Application
 
     internal void ResetTerminationSignal() =>
         Interlocked.Exchange(ref _terminationSignalReceived, 0);
-
-    /// <summary>Headless screenshot mode (uishot verb): skip the menu-bar tray icon,
-    /// which has no native backend when rendering offscreen.</summary>
+    /// <summary>Headless screenshot mode is compiled only for QeliBuildTools builds.</summary>
+#if QELI_BUILD_TOOLS
     public static bool ShotMode { get; set; }
+#else
+    public static bool ShotMode => false;
+#endif
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
