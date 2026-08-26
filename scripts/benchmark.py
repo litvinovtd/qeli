@@ -84,7 +84,7 @@ def server_ini(m):
         "tun.device_type = tun",
         f"pool.cidr = {net}.0/24",
         f"pool.exclude = {net}.1",
-        "routing.forward_private = true",
+        "routing.forward_private = false",
         "routing.nat.enabled = false",
         "dns.enabled = false",
         f"obf.mode = {m['server_mode']}",

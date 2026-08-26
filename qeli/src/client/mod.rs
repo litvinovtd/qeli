@@ -5825,12 +5825,15 @@ pub(crate) async fn run_udp_tunnel(
         socket.seal_overhead(),
         quic_enabled,
     )?;
-    let mux_payload_budget = client_tx
+    let mut mux_payload_budget = client_tx
         .max_data_for_record_budget(data_record_budget)
         .map_err(|error| anyhow::anyhow!("UDP recordizer budget is invalid: {error}"))?;
-    let udp_recordizer_runtime = pushed_obf
+    let udp_recordizer_config = pushed_obf
         .as_ref()
         .and_then(|pushed| pushed.recordizer.as_ref())
+        .cloned();
+    let udp_recordizer_runtime = udp_recordizer_config
+        .as_ref()
         .map(|config| {
             crate::protocol::recordizer::RuntimeConfig::from_config(
                 config,
@@ -6386,8 +6389,39 @@ pub(crate) async fn run_udp_tunnel(
                                         .ok()
                                 },
                             );
-                            match (new_record_budget, new_padding_budget) {
-                                (Ok(record_budget), Some(padding_budget)) => {
+                            let new_mux_payload_budget = new_record_budget
+                                .as_ref()
+                                .ok()
+                                .and_then(|budget| {
+                                    client_tx.max_data_for_record_budget(*budget).ok()
+                                });
+                            match (
+                                new_record_budget,
+                                new_padding_budget,
+                                new_mux_payload_budget,
+                            ) {
+                                (Ok(record_budget), Some(padding_budget), Some(new_mux_budget)) => {
+                                    if new_mux_budget > mux_payload_budget {
+                                        if let (Some(mux), Some(config)) =
+                                            (udp_tx_recordizer.as_mut(), udp_recordizer_config.as_ref())
+                                        {
+                                            let runtime = crate::protocol::recordizer::RuntimeConfig::from_config(
+                                                config,
+                                                new_mux_budget,
+                                                crate::protocol::packet::MAX_TUNNEL_MTU,
+                                            )
+                                            .expect("validated UDP recordizer configuration");
+                                            mux.raise_runtime(runtime).expect(
+                                                "certified UDP PMTU only raises the recordizer budget",
+                                            );
+                                            log::info!(
+                                                "UDP recordizer widened client payload budget from {} to {} bytes",
+                                                mux_payload_budget,
+                                                new_mux_budget
+                                            );
+                                        }
+                                        mux_payload_budget = new_mux_budget;
+                                    }
                                     uplink_udp_payload_budget = new_payload_budget;
                                     data_record_budget = record_budget;
                                     max_empty_record_padding = padding_budget;
@@ -6402,13 +6436,13 @@ pub(crate) async fn run_udp_tunnel(
                                         candidate,
                                     );
                                 }
-                                (Err(error), _) => {
+                                (Err(error), _, _) => {
                                     finish_mtu_probe(&socket, keep_df_after_live_probe);
                                     log::warn!(
                                         "UDP live PMTU result could not form a data budget: {error}"
                                     );
                                 }
-                                (Ok(_), None) => {
+                                (Ok(_), _, _) => {
                                     finish_mtu_probe(&socket, keep_df_after_live_probe);
                                     log::warn!(
                                         "UDP live PMTU result cannot carry authenticated control traffic"

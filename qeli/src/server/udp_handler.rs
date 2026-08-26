@@ -2670,7 +2670,8 @@ async fn handle_udp_auth(
     let writer_mux_payload_budget = lock_or_recover(&writer_task_codec, "udp::recordizer_budget")
         .max_data_for_record_budget(fallback_record_budget)
         .expect("conservative UDP budget fits encrypted record overhead");
-    let writer_recordizer_runtime = negotiated_recordizer.as_ref().map(|config| {
+    let writer_recordizer_config = negotiated_recordizer.clone();
+    let writer_recordizer_runtime = writer_recordizer_config.as_ref().map(|config| {
         crate::protocol::recordizer::RuntimeConfig::from_config(
             config,
             writer_mux_payload_budget,
@@ -2895,7 +2896,44 @@ async fn handle_udp_auth(
                 + crate::protocol::packet::MAX_RECORD_SIZE);
         let mut recordizer =
             writer_recordizer_runtime.map(crate::protocol::recordizer::Recordizer::new);
+        let mut active_mux_payload_budget = writer_mux_payload_budget;
         'writer: loop {
+            let current_udp_payload_budget = writer_udp_payload_budget
+                .load(std::sync::atomic::Ordering::Relaxed) as usize;
+            let current_mux_payload_budget =
+                crate::protocol::data_frag::unfragmented_record_budget(
+                    current_udp_payload_budget,
+                    writer_obfs_overhead,
+                    writer_quic,
+                )
+                .ok()
+                .and_then(|record_budget| {
+                    lock_or_recover(&writer_task_codec, "udp::recordizer_budget_update")
+                        .max_data_for_record_budget(record_budget)
+                        .ok()
+                });
+            if let Some(new_budget) = current_mux_payload_budget
+                .filter(|budget| *budget > active_mux_payload_budget)
+            {
+                if let (Some(mux), Some(config)) =
+                    (recordizer.as_mut(), writer_recordizer_config.as_ref())
+                {
+                    let runtime = crate::protocol::recordizer::RuntimeConfig::from_config(
+                        config,
+                        new_budget,
+                        crate::protocol::packet::MAX_TUNNEL_MTU,
+                    )
+                    .expect("validated UDP recordizer configuration");
+                    mux.raise_runtime(runtime)
+                        .expect("certified UDP PMTU only raises the recordizer budget");
+                    log::info!(
+                        "UDP recordizer widened server payload budget from {} to {} bytes",
+                        active_mux_payload_budget,
+                        new_budget
+                    );
+                }
+                active_mux_payload_budget = new_budget;
+            }
             let mux_deadline = recordizer
                 .as_ref()
                 .and_then(|mux| mux.deadline())
@@ -2948,7 +2986,7 @@ async fn handle_udp_auth(
                 if !handler::encrypt_server_stream_payload(
                     &writer_task_codec,
                     &payload,
-                    writer_mux_payload_budget,
+                    active_mux_payload_budget,
                     &writer_profile_config,
                     &mut encrypted_record,
                     &mut padding,

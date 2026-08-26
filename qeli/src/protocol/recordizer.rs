@@ -110,6 +110,24 @@ impl Recordizer {
         }
     }
 
+    /// Raise the carrier payload ceiling after authenticated path-MTU discovery.
+    ///
+    /// A pending record keeps its original random target so changing the path
+    /// budget cannot split, discard, or suddenly enlarge queued traffic. The
+    /// next record is sampled from the new ceiling. PMTU fallback stays in the
+    /// outer data-fragment layer; callers must not lower this value at runtime.
+    pub fn raise_runtime(&mut self, config: RuntimeConfig) -> Result<(), RecordizerError> {
+        if config.max_payload_bytes < self.config.max_payload_bytes {
+            return Err(RecordizerError::InvalidConfig(
+                "recordizer runtime payload budget cannot shrink",
+            ));
+        }
+        self.current
+            .reserve(config.max_payload_bytes.saturating_sub(self.current.len()));
+        self.config = config;
+        Ok(())
+    }
+
     pub fn is_pending(&self) -> bool {
         !self.current.is_empty()
     }
@@ -588,5 +606,31 @@ mod tests {
             .flat_map(|record| rx.decode(record).unwrap())
             .collect();
         assert_eq!(restored, vec![packet]);
+    }
+
+    #[test]
+    fn raising_runtime_preserves_pending_data_and_uses_the_new_ceiling() {
+        let mut initial = config(80);
+        initial.delay_min = Duration::from_millis(5);
+        initial.delay_max = Duration::from_millis(5);
+        let mut tx = Recordizer::new(initial.clone());
+        let now = Instant::now();
+        assert!(tx.push(b"queued", now).unwrap().is_empty());
+
+        let mut widened = initial.clone();
+        widened.max_payload_bytes = 256;
+        widened.max_queue_bytes = 256;
+        tx.raise_runtime(widened.clone()).unwrap();
+
+        let queued = tx.flush().unwrap();
+        let packet = vec![0x5a; 180];
+        assert!(tx.push(&packet, now).unwrap().is_empty());
+        let widened_record = tx.flush().unwrap();
+        assert!(widened_record.len() > initial.max_payload_bytes);
+        assert!(widened_record.len() <= widened.max_payload_bytes);
+
+        let mut rx = Reassembler::new(widened);
+        assert_eq!(rx.decode(&queued).unwrap(), vec![b"queued".to_vec()]);
+        assert_eq!(rx.decode(&widened_record).unwrap(), vec![packet]);
     }
 }
