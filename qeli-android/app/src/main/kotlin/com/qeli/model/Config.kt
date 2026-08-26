@@ -52,10 +52,8 @@ data class VpnConfig(
     val killSwitch: Boolean = false,
     val includeRoutes: List<String> = emptyList(),
     val excludeRoutes: List<String> = emptyList(),
-    // Route private/local networks (RFC1918) through the VPN. When true, the
-    // client adds the private ranges AND applies any networks the server pushed,
-    // so LAN resources behind the server work through the tunnel. When false
-    // (default), local networks are not tunnelled and pushed networks are ignored.
+    // Add the built-in RFC1918 private ranges to the VPN. Authenticated server-pushed routes
+    // are applied independently of this flag; false only suppresses the extra local ranges.
     val routeLocalNetworks: Boolean = false,
     // Full-tunnel blocks IPv6 only when the negotiated plan is IPv4-only, closing the dual-stack
     // leak; set true to OPT OUT and keep native IPv6 (it bypasses the tunnel). Default off;
@@ -424,6 +422,21 @@ data class VpnConfig(
         }
         require(paddingMin >= 0 && paddingMax >= paddingMin && paddingMax <= PADDING_CEILING) {
             "padding range invalid: $paddingMin..$paddingMax (expected 0..$PADDING_CEILING)"
+        }
+        require(shapingGapMeanMs > 0 && shapingGapMinMs > 0 && shapingGapMaxMs > 0 &&
+            shapingBudgetBytesPerSec > 0 && shapingMinSize > 0 && shapingMaxSize > 0 &&
+            shapingStealthRateMbps > 0) {
+            "shaping durations, sizes, budget and stealth rate must be positive"
+        }
+        require(shapingGapMinMs <= shapingGapMaxMs) {
+            "shaping gap range is inverted: $shapingGapMinMs..$shapingGapMaxMs"
+        }
+        require(shapingMinSize <= shapingMaxSize) {
+            "shaping size range is inverted: $shapingMinSize..$shapingMaxSize"
+        }
+        require(!shapingEnabled || shapingBudgetBytesPerSec >= shapingMaxSize) {
+            "shaping budget ($shapingBudgetBytesPerSec) must be at least max_size " +
+                "($shapingMaxSize) so each scheduled cover record can be emitted"
         }
     }
 

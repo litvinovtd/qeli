@@ -300,11 +300,15 @@ pub struct LoggingConfig {
     pub time_format: String,
 }
 
+/// Largest random padding accepted in one authenticated record.
+pub const MAX_PADDING_BYTES: u16 = 1_400;
+
 /// Obfuscation parameters the server pushes to the client at handshake time, so
 /// the client no longer has to carry (and keep in sync) these in its own config.
 /// Only the params used in the post-auth data phase are pushed — the wire `mode`,
 /// `obfs_key`, `cipher` and QUIC masking are needed *before* auth to wrap the
 /// handshake itself and therefore stay in the client link/config.
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct PushedObf {
     #[serde(default)]
@@ -317,6 +321,93 @@ pub struct PushedObf {
     pub traffic_shaping: TrafficShapingConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recordizer: Option<RecordizerConfig>,
+}
+
+impl PushedObf {
+    /// Validate the authenticated post-authentication data-plane contract before either
+    /// peer applies it. Keeping this on the wire type prevents the server profile checker
+    /// and the client AuthOK parser from silently accepting different value domains.
+    pub fn validate(&self, label: &str) -> anyhow::Result<()> {
+        let padding = &self.padding;
+        if padding.enabled {
+            if padding.min_bytes > padding.max_bytes {
+                anyhow::bail!("{label}.padding.min_bytes must be <= max_bytes");
+            }
+            if padding.max_bytes > MAX_PADDING_BYTES {
+                anyhow::bail!("{label}.padding.max_bytes must be <= {MAX_PADDING_BYTES}");
+            }
+            if !(padding.probability.is_finite() && (0.0..=1.0).contains(&padding.probability)) {
+                anyhow::bail!("{label}.padding.probability must be in 0.0..=1.0");
+            }
+        }
+
+        let heartbeat = &self.heartbeat;
+        if heartbeat.enabled {
+            if heartbeat.interval_ms == 0 {
+                anyhow::bail!("{label}.heartbeat.interval_ms must be > 0 when enabled");
+            }
+            if heartbeat.jitter_ms >= heartbeat.interval_ms {
+                anyhow::bail!("{label}.heartbeat.jitter_ms must be smaller than interval_ms");
+            }
+            let maximum = crate::protocol::packet::MAX_TUNNEL_MTU.saturating_sub(32);
+            if usize::from(heartbeat.data_size_bytes) > maximum {
+                anyhow::bail!("{label}.heartbeat.data_size_bytes must be <= {maximum}");
+            }
+        }
+
+        let normalization = &self.traffic_normalization;
+        if normalization.enabled
+            && (normalization.round_sizes.is_empty()
+                || normalization.round_sizes.contains(&0)
+                || normalization
+                    .round_sizes
+                    .iter()
+                    .any(|size| usize::from(*size) > crate::protocol::packet::MAX_TUNNEL_MTU))
+        {
+            anyhow::bail!(
+                "{label}.traffic_normalization.round_sizes must be non-empty and each value must be in 1..={}",
+                crate::protocol::packet::MAX_TUNNEL_MTU
+            );
+        }
+
+        let shaping = &self.traffic_shaping;
+        if shaping.enabled {
+            if shaping.idle_gap_mean_ms == 0
+                || shaping.idle_gap_min_ms == 0
+                || shaping.idle_gap_max_ms == 0
+                || shaping.budget_bytes_per_sec == 0
+                || shaping.min_size == 0
+                || shaping.max_size == 0
+                || shaping.stealth_rate_mbps == 0
+            {
+                anyhow::bail!(
+                    "{label}.traffic_shaping durations, sizes, budget and stealth rate must be positive"
+                );
+            }
+            if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms {
+                anyhow::bail!("{label}.traffic_shaping.idle_gap_min_ms must be <= idle_gap_max_ms");
+            }
+            if shaping.min_size > shaping.max_size {
+                anyhow::bail!("{label}.traffic_shaping.min_size must be <= max_size");
+            }
+            if usize::from(shaping.max_size) > crate::protocol::packet::MAX_TUNNEL_MTU {
+                anyhow::bail!(
+                    "{label}.traffic_shaping.max_size must be <= {}",
+                    crate::protocol::packet::MAX_TUNNEL_MTU
+                );
+            }
+            if shaping.budget_bytes_per_sec < u32::from(shaping.max_size) {
+                anyhow::bail!(
+                    "{label}.traffic_shaping.budget_bytes_per_sec must be at least max_size"
+                );
+            }
+        }
+
+        if let Some(recordizer) = &self.recordizer {
+            recordizer.validate(&format!("{label}.recordizer"))?;
+        }
+        Ok(())
+    }
 }
 
 /// Transport-independent post-auth packet-to-record morphology. The server owns

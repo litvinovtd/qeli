@@ -261,6 +261,17 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
         )
     };
 
+    let pushed_obf = value
+        .get("obfuscation")
+        .filter(|obfuscation| !obfuscation.is_null())
+        .map(|obfuscation| {
+            let pushed: PushedObf = serde_json::from_value(obfuscation.clone())
+                .map_err(|error| anyhow::anyhow!("invalid auth OK obfuscation: {error}"))?;
+            pushed.validate("auth OK obfuscation")?;
+            Ok::<PushedObf, anyhow::Error>(pushed)
+        })
+        .transpose()?;
+
     Ok(AuthOk {
         family_mode,
         addresses,
@@ -275,9 +286,7 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
             .get("routes")
             .map(ToString::to_string)
             .unwrap_or_else(|| "[]".into()),
-        pushed_obf: value
-            .get("obfuscation")
-            .and_then(|obfuscation| serde_json::from_value(obfuscation.clone()).ok()),
+        pushed_obf,
         session_token: value["session_token"].as_str().unwrap_or("").to_string(),
         max_streams: value["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
         adaptive: value["multipath_adaptive"].as_bool().unwrap_or(false),

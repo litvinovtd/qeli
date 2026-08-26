@@ -7442,6 +7442,36 @@ mod obf_push_tests {
         assert!(parse_auth_ok(r#"OK:{"server_ip":"x"}"#).is_err()); // missing client_ip
     }
 
+    #[test]
+    fn parse_auth_ok_rejects_malformed_or_inconsistent_pushed_obfuscation() {
+        for (label, obfuscation, expected) in [
+            (
+                "malformed field type",
+                r#"{"padding":{"enabled":"yes"}}"#,
+                "invalid auth OK obfuscation",
+            ),
+            (
+                "enabled heartbeat without an interval",
+                r#"{"heartbeat":{"enabled":true,"interval_ms":0}}"#,
+                "heartbeat.interval_ms",
+            ),
+            (
+                "inverted shaping gaps",
+                r#"{"traffic_shaping":{"enabled":true,"idle_gap_min_ms":50,"idle_gap_max_ms":40}}"#,
+                "idle_gap_min_ms",
+            ),
+            (
+                "shaping budget smaller than one record",
+                r#"{"traffic_shaping":{"enabled":true,"budget_bytes_per_sec":100,"max_size":200}}"#,
+                "budget_bytes_per_sec",
+            ),
+        ] {
+            let message = format!(r#"OK:{{"client_ip":"10.9.0.5","obfuscation":{obfuscation}}}"#);
+            let error = parse_auth_ok(&message).expect_err(label).to_string();
+            assert!(error.contains(expected), "{label}: {error}");
+        }
+    }
+
     /// The two addresses must be parsed as IPv4, not merely non-empty.
     ///
     /// They were the last fields the client took from the server on trust, while every

@@ -52,7 +52,7 @@ final class ConfigHardeningTests: XCTestCase {
     /// Nothing reads a typo, so the setting it was meant to change silently keeps its default:
     /// `gatway = true` left the tunnel split with nothing said. The trap is over-correcting:
     /// `keepalive`, `post_up`, `exit_node` and friends are real Rust-client file-only keys
-    /// (docs/ru/CONFIG.md, "Что пушем НЕ передаётся"), and refusing a CLI profile carrying
+    /// (docs/ru/manuals/CONFIG.md, "Что пушем НЕ передаётся"), and refusing a CLI profile carrying
     /// them would be a worse regression than the typo it catches. (Audit 2026-08-01, §14.)
     func testAMisspelledKeyIsRefusedButAnotherPortsKeyIsNot() throws {
         let typo = try VPNConfig.fromINI(ini("gatway = true"))
@@ -110,6 +110,29 @@ final class ConfigHardeningTests: XCTestCase {
 
         // The port was already strict and must stay that way — an outright throw, not a record.
         XCTAssertThrowsError(try VPNConfig.fromINI("[qeli]\nserver = 1.2.3.4:notnum\n"))
+    }
+
+    func testInvertedShapingRangesAndInsufficientBudgetAreRefused() throws {
+        let invalid = [
+            ["shaping_gap_min = 500", "shaping_gap_max = 100"],
+            ["shaping_min_size = 900", "shaping_max_size = 300"],
+            ["shaping = true", "shaping_budget = 200", "shaping_max_size = 300"],
+        ]
+        for lines in invalid {
+            let config = try VPNConfig.fromINI(ini(
+                lines[0], lines[1], lines.count > 2 ? lines[2] : ""))
+            XCTAssertThrowsError(try config.validate(), "\(lines) must be refused")
+        }
+
+        let valid = try VPNConfig.fromINI(ini(
+            "shaping = true",
+            "shaping_gap_min = 40",
+            "shaping_gap_max = 6000",
+            "shaping_budget = 1024",
+            "shaping_min_size = 64",
+            "shaping_max_size = 1024"
+        ))
+        XCTAssertNoThrow(try valid.validate())
     }
 
     /// A key written twice must be refused, not silently resolved.

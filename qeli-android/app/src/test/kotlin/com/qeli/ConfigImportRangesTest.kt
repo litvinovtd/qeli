@@ -220,6 +220,29 @@ class ConfigImportRangesTest {
         assertNotNull(runCatching { cfg.validate() }.exceptionOrNull())
     }
 
+    @Test
+    fun `inverted shaping ranges and insufficient budget are refused`() {
+        val invalid = listOf(
+            arrayOf("shaping_gap_min = 500", "shaping_gap_max = 100"),
+            arrayOf("shaping_min_size = 900", "shaping_max_size = 300"),
+            arrayOf("shaping = true", "shaping_budget = 200", "shaping_max_size = 300"),
+        )
+        for (lines in invalid) {
+            val error = runCatching { VpnConfig.fromIni(ini(*lines)).validate() }.exceptionOrNull()
+            assertNotNull("${lines.contentToString()} must be refused", error)
+        }
+
+        val valid = VpnConfig.fromIni(ini(
+            "shaping = true",
+            "shaping_gap_min = 40",
+            "shaping_gap_max = 6000",
+            "shaping_budget = 1024",
+            "shaping_min_size = 64",
+            "shaping_max_size = 1024",
+        ))
+        valid.validate()
+    }
+
     /**
      * A wire mode that needs a STREAM must not validate on a datagram transport.
      *
@@ -499,7 +522,7 @@ class ConfigImportRangesTest {
      * Nothing reads a typo, so the setting it was meant to change silently keeps its default:
      * `gatway = true` left the tunnel split with nothing said. The Rust client has always
      * refused these. The trap is over-correcting: `keepalive`, `post_up`, `exit_node` and
-     * friends are real Rust-client file-only keys (docs/ru/CONFIG.md, "Что пушем НЕ
+     * friends are real Rust-client file-only keys (docs/ru/manuals/CONFIG.md, "Что пушем НЕ
      * передаётся"), and refusing a CLI profile that carries them would be a worse regression
      * than the typo it catches. (Audit 2026-08-01, §14.)
      */

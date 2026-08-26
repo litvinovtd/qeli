@@ -1395,6 +1395,25 @@ public sealed class VpnConfig : INotifyPropertyChanged
                         $"'{field}' route '{route}' is not an IPv4/IPv6 CIDR literal");
             }
         }
+        if (ShapingGapMeanMs <= 0 || ShapingGapMinMs <= 0 || ShapingGapMaxMs <= 0
+            || ShapingBudgetBytesPerSec <= 0 || ShapingMinSize <= 0 || ShapingMaxSize <= 0
+            || ShapingStealthRateMbps <= 0)
+        {
+            throw new ArgumentException(
+                "shaping durations, sizes, budget and stealth rate must be positive");
+        }
+        if (ShapingGapMinMs > ShapingGapMaxMs)
+            throw new ArgumentException(
+                $"shaping gap range is inverted: {ShapingGapMinMs}..{ShapingGapMaxMs}");
+        if (ShapingMinSize > ShapingMaxSize)
+            throw new ArgumentException(
+                $"shaping size range is inverted: {ShapingMinSize}..{ShapingMaxSize}");
+        if (ShapingEnabled && ShapingBudgetBytesPerSec < ShapingMaxSize)
+        {
+            throw new ArgumentException(
+                $"shaping budget ({ShapingBudgetBytesPerSec}) must be at least max_size "
+                + $"({ShapingMaxSize}) so each scheduled cover record can be emitted");
+        }
         if (ConnectionTimeoutSecs is < 1 or > 300)
             throw new ArgumentException($"'timeout' must be 1..300, got {ConnectionTimeoutSecs}");
     }

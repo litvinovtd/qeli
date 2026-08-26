@@ -42,7 +42,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     ///
     /// The distinction is the whole point. A key this port ignores is not necessarily a typo:
     /// `keepalive`, `post_up`, `exit_node` and friends are real Rust-client file-only settings
-    /// (docs/ru/CONFIG.md, "Что пушем НЕ передаётся"), and a CLI profile carrying them must
+    /// (docs/ru/manuals/CONFIG.md, "Что пушем НЕ передаётся"), and a CLI profile carrying them must
     /// still open here. Only a name NOTHING understands is a typo.
     // Set(...) around the literal, not just the `Set<String>` annotation: a contextual type
     // does not propagate through a method call, so Swift types the literal as Array first and
@@ -427,6 +427,29 @@ struct VPNConfig: Codable, Equatable, Sendable {
             throw VPNConfigError.invalid(
                 "padding_max must be at most \(Self.paddingMaxCeiling) — padding rides on every "
                     + "record, and a larger value cannot be encoded")
+        }
+        guard shapingGapMeanMilliseconds > 0,
+              shapingGapMinMilliseconds > 0,
+              shapingGapMaxMilliseconds > 0,
+              shapingBudgetBytesPerSecond > 0,
+              shapingMinSize > 0,
+              shapingMaxSize > 0,
+              shapingStealthRateMbps > 0 else {
+            throw VPNConfigError.invalid(
+                "shaping durations, sizes, budget and stealth rate must be positive")
+        }
+        guard shapingGapMinMilliseconds <= shapingGapMaxMilliseconds else {
+            throw VPNConfigError.invalid(
+                "shaping gap range is inverted: \(shapingGapMinMilliseconds)..\(shapingGapMaxMilliseconds)")
+        }
+        guard shapingMinSize <= shapingMaxSize else {
+            throw VPNConfigError.invalid(
+                "shaping size range is inverted: \(shapingMinSize)..\(shapingMaxSize)")
+        }
+        guard !shapingEnabled || shapingBudgetBytesPerSecond >= shapingMaxSize else {
+            throw VPNConfigError.invalid(
+                "shaping budget (\(shapingBudgetBytesPerSecond)) must be at least max_size "
+                    + "(\(shapingMaxSize)) so each scheduled cover record can be emitted")
         }
         // A misspelled `apps_mode` must not resolve to the WIDEST setting in silence.
         // Handled like `proto` and `mode` above: the raw value is kept and refused here,

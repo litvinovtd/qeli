@@ -1894,6 +1894,18 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 );
             }
         }
+        // Validate the exact authenticated object emitted by build_auth_ok_for_addresses.
+        // This shared contract also covers fields that are harmless while disabled but become
+        // runtime inputs as soon as the corresponding pushed feature is enabled.
+        crate::config::PushedObf {
+            padding: p.obfuscation.padding.clone(),
+            heartbeat: p.obfuscation.heartbeat.clone(),
+            traffic_normalization: p.obfuscation.traffic_normalization.clone(),
+            traffic_shaping: p.obfuscation.traffic_shaping.clone(),
+            recordizer: Some(p.obfuscation.recordizer.clone()),
+        }
+        .validate(&format!("profile '{}' obf", p.name))?;
+
         // UDP has no FIN/RST. With every liveness source disabled and an unlimited idle
         // timeout, a vanished client can never be distinguished from a quiet one and keeps
         // its address/max_clients slot forever. Require at least one bounded reaper signal.

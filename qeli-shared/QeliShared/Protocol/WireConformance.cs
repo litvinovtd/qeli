@@ -183,6 +183,32 @@ public static class WireConformance
         bool kept = keep.PaddingMin == 10 && keep.PaddingMax == 200;
         check("ini-bounds: a valid padding range is left alone", kept);
 
+        bool shapingRefused = true;
+        foreach (var lines in new[]
+                 {
+                     new[] { "shaping_gap_min = 500", "shaping_gap_max = 100" },
+                     new[] { "shaping_min_size = 900", "shaping_max_size = 300" },
+                     new[]
+                     {
+                         "shaping = true", "shaping_budget = 200",
+                         "shaping_max_size = 300",
+                     },
+                 })
+        {
+            try { Ini(lines).Validate(); shapingRefused = false; }
+            catch (ArgumentException) { }
+        }
+        bool shapingValid = true;
+        try
+        {
+            Ini("shaping = true", "shaping_gap_min = 40", "shaping_gap_max = 6000",
+                "shaping_budget = 1024", "shaping_min_size = 64", "shaping_max_size = 1024")
+                .Validate();
+        }
+        catch (ArgumentException) { shapingValid = false; }
+        check("ini-shaping: inverted ranges and insufficient budget are refused", shapingRefused);
+        check("ini-shaping: a coherent enabled profile remains valid", shapingValid);
+
         // A boolean nobody could parse must NOT read as false. Every unknown value used to be
         // falsey, so `kill_switch = ture` silently disabled the kill switch and
         // `bind_static = ture` silently dropped the static-key binding. Parsing still succeeds
@@ -628,6 +654,7 @@ public static class WireConformance
 
         return timeoutClamped && noOverflow && zeroTimeout && negTimeout && sane
                && ordered && capped && kept
+               && shapingRefused && shapingValid
                && recorded && notFalsey && refuses && spellings && enums && cidrs;
     }
 
