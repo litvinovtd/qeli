@@ -288,6 +288,9 @@ impl Reassembler {
         }
 
         if frame.part_count == 1 {
+            if self.inflight.contains_key(&frame.message_id) {
+                return Err(ControlV2Error::Conflict);
+            }
             self.remember_completed(frame.message_id);
             return Ok(ReassemblyOutcome::Complete(Message {
                 message_type: frame.message_type,
@@ -489,6 +492,12 @@ mod tests {
             Err(ControlV2Error::OutOfOrder)
         );
         reassembler.push(now, decode(&frames[0]).unwrap()).unwrap();
+        let conflicting_single = fragment_message(TYPE_NOTICE, 0, 1, b"other").unwrap();
+        assert_eq!(
+            reassembler.push(now, decode(&conflicting_single[0]).unwrap()),
+            Err(ControlV2Error::Conflict),
+            "one message id cannot switch from fragmented to single-part"
+        );
         let mut conflict = frames[0].clone();
         conflict[HEADER_LEN] ^= 1;
         assert_eq!(

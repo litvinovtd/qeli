@@ -6,6 +6,7 @@
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 use super::control_v2;
 
@@ -49,7 +50,8 @@ pub fn derive_udp_cid(cid_secret: &[u8; 32], session_id: u64, epoch: u64) -> [u8
     mac.update(CID_LABEL);
     mac.update(&session_id.to_be_bytes());
     mac.update(&epoch.to_be_bytes());
-    let digest = mac.finalize().into_bytes();
+    let digest: [u8; 32] = mac.finalize().into_bytes().into();
+    let digest = Zeroizing::new(digest);
     let mut cid = [0u8; CID_LEN];
     cid.copy_from_slice(&digest[..CID_LEN]);
     cid

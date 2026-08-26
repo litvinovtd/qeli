@@ -20,7 +20,7 @@ required-features = ["server", "client"]
 
 # Standalone client binary for routers (Keenetic / Entware). Built ONLY under the
 # off-by-default `client-bin` feature, so normal builds never compile it — keeping
-# server/CI/FFI builds byte-identical to before. See docs/KEENETIC-PORT.md.
+# server/CI/FFI builds byte-identical to before. See docs/*/reference/KEENETIC-PORT.md.
 # NB: lives at src/client_main.rs (NOT src/bin/) because .gitignore's `**/bin/`
 # would otherwise exclude it from git/CI.
 [[bin]]
@@ -77,6 +77,9 @@ ffi-cdylib = []
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
 transport-core-ffi = ["ffi-cdylib", "client"]
+# Protocol-only foundation for roaming. Off by default and intentionally does not advertise
+# any roaming capability yet; the data-plane/runtime integration lands in later stages.
+experimental-roaming = []
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "signal", "sync", "macros", "process"] }
