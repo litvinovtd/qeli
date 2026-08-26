@@ -488,6 +488,7 @@ fn build_quickstart_profile(
     profile.dns.listen = profile.tun.address.clone();
     profile.routing.nat.enabled = true;
     profile.obfuscation.mode = spec.obfuscation.into();
+    profile.obfuscation.recordizer.policy = "prefer".into();
     profile.obfuscation.obfs_key = obfs_key.clone().unwrap_or_default();
     profile.obfuscation.fronting = spec.fronting.into();
     profile.obfuscation.tls.server_name = "www.microsoft.com".into();
@@ -2338,6 +2339,10 @@ mod raw_secret_tests {
             let (profile, sid, obfs_key) = build_quickstart_profile(spec.id).unwrap();
             assert_eq!(sid.is_some(), spec.needs_short_id);
             assert_eq!(obfs_key.is_some(), spec.needs_obfs_key);
+            assert_eq!(
+                profile.obfuscation.recordizer.policy, "prefer",
+                "every shipped Quick Start mode must negotiate PACKET_MUX_V1"
+            );
             assert!(
                 profile.bind.listen.is_empty(),
                 "the host-independent baseline must not assume an IPv6 socket"

@@ -111,6 +111,8 @@ env_logger = "0.11"
 anyhow = "1"
 thiserror = "2"
 bytes = "1"
+h2 = "0.4"
+http = "1"
 libc = "0.2"
 # Drop-in AtomicU64 etc. that work on 32-bit targets without native 64-bit atomics
 # (mipsel Keenetic routers). Maps to native instructions on aarch64/x86_64 — zero

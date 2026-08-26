@@ -74,22 +74,29 @@ bind.port = {port}
 bind.transport = {tp}
 tun.name = tuna{tag}
 tun.address = 10.{n}.0.1
+tun.ip_mode = dual
+tun.ipv6_address = fd42:{n}::1
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap
 tun.queues = 2
 pool.cidr = 10.{n}.0.0/16
+pool.ipv6.cidr = fd42:{n}::/64
+pool.ipv6.exclude = fd42:{n}::2
 pool.exclude = 10.{n}.0.2
 pool.reservation.alice = 10.{n}.0.50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
+routing.ipv6.mode = nat66
+routing.ipv6.interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.{n}.9.0/24 gateway=10.{n}.0.1 metric=42 desc=lan seg
 dns.enabled = false
 dns.listen = 10.{n}.0.1
+dns.listen_ipv6 = fd42:{n}::1
 dns.port = 5353
 dns.upstream = 9.9.9.9
 dns.upstream_protocol = tcp
@@ -138,6 +145,20 @@ obf.traffic_shaping.min_size = 50
 obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
+obf.recordizer.policy = {recordizer_policy}
+obf.recordizer.batch.delay_min_ms = 3
+obf.recordizer.batch.delay_max_ms = 11
+obf.recordizer.batch.max_packets = 7
+obf.recordizer.batch.max_queue_bytes = 123456
+obf.recordizer.record.max_payload_bytes = 1200
+obf.recordizer.record.small_min_ratio = 0.2
+obf.recordizer.record.small_max_ratio = 0.7
+obf.recordizer.record.full_probability = 0.33
+obf.recordizer.fragment.enabled = false
+obf.recordizer.fragment.reassembly_timeout_ms = 4321
+obf.recordizer.fragment.max_inflight_packets = 23
+obf.recordizer.fragment.max_reassembly_bytes = 765432
+obf.recordizer.fragment.max_fragments_per_packet = 17
 obf.anti_fingerprinting.enabled = true
 obf.anti_fingerprinting.add_jitter_to_handshake = false
 obf.awg.enabled = true
@@ -218,6 +239,7 @@ brute_force.lockout_secs = 300
 password_hash = $argon2id$v=19$m=16384,t=2,p=1$c2FsdHNhbHQ$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 password_enc = ENCVAL123
 static_ip = 10.5.0.77
+static_ipv6 = fd42:5::77
 enabled = false
 allowed_networks = 10.0.0.0/8,172.16.0.0/12
 group = staff
@@ -238,8 +260,12 @@ allowed_networks = 10.0.0.0/8
 
 
 def build():
-    tcp = "[profile:tcpx]\n" + SHARED_PROFILE.format(tag="t", port=8501, tp="tcp", n=5) + TCP_ONLY
-    udp = "[profile:udpx]\n" + SHARED_PROFILE.format(tag="u", port=8502, tp="udp", n=6) + UDP_ONLY
+    tcp = "[profile:tcpx]\n" + SHARED_PROFILE.format(
+        tag="t", port=8501, tp="tcp", n=5, recordizer_policy="prefer"
+    ) + TCP_ONLY
+    udp = "[profile:udpx]\n" + SHARED_PROFILE.format(
+        tag="u", port=8502, tp="udp", n=6, recordizer_policy="required"
+    ) + UDP_ONLY
     return OTHER_SECTIONS + "\n" + tcp + "\n" + udp
 
 

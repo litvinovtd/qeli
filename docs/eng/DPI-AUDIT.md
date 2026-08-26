@@ -10,6 +10,35 @@ key_share, ALPN, the sig_algs cleanup).
 It complements [AUDIT.md](AUDIT.md) (which has the crypto/auth security model); here —
 only detectability on the wire.
 
+## Current 0.8.0 Reality/H2 status (2026-08-26)
+
+Current `reality-tls` is **REALITY TLS 1.3 + genuine HTTP/2**, not the former second
+fake-TLS handshake inside outer TLS. It negotiates ALPN `h2`, opens one long-lived
+bidirectional `POST /v1/events/stream`, uses real H2 control frames/flow control and batches
+private qeli records over randomized 2–8 ms windows. PacketCodec AEAD remains end-to-end but
+its nonce and message boundaries are encrypted inside TLS/H2 and are not an outer TLS layout.
+
+In the clean lab corpus, 6/6 H2 sessions authenticated and passed bidirectional traffic; the
+classifier trained on the old transport-independent shape detected 0/6 new sessions with 0/6
+control false positives. This is a regression result against the old fingerprint, **not** an
+industrial-DPI detection probability. Remaining risks include synthetic/OOD JA3 rotation, fixed
+H2 SETTINGS and one eternal POST; active-probe, malformed TLS/H2, replay, reconnect and broad
+browser-control testing remain required. Evidence:
+[the dated PCAP report](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
+
+The current development branch also implements a negotiated `PACKET_MUX_V1` recordizer above
+every carrier. After AUTH it applies identically to TCP `plain`/`fake-tls`/`reality-tls`/`obfs`
+and UDP `fake-tls`/QUIC-shape/`obfs`, including AWG variants: it coalesces IP packets, varies
+inner record boundaries and can split one IP packet across them. The server owns
+`obf.recordizer.*` and pushes the values through the authenticated response. This closes the
+transport-independent “one IP packet = one qeli record” correlation beyond Reality/H2, but it
+does not repair carrier-specific outer tells.
+
+The 0/6 result above belongs to the earlier Reality/H2 corpus. The common recordizer still needs
+a new clean PCAP corpus across every TCP/UDP mode, legacy/required negotiation, IPv4/IPv6 and
+load. Until then that result must not be generalized to other carriers or presented as a measured
+detection probability.
+
 ## The threat model (DPI levels)
 
 | Level | Method | Real examples |
@@ -18,14 +47,14 @@ only detectability on the wire.
 | **D2** Passive statistical | entropy, JA4/JA4+, the size/timing distribution, SNI↔IP consistency | Russia's TSPU, the GFW (2022+), Iran |
 | **D3** Active probing | reaches the server itself, replays/completes the handshake | the GFW, a number of ISPs |
 
-qeli `fake-tls`/`obfs` target **D1** (`obfs` — also the entropy-based **D2**). Against
-**D2/D3** the tells listed below give `fake-tls` away — they are closed by the
-**`reality-tls`** mode (real browser TLS 1.3 on the wire: tells 1.1–1.6 are
-inapplicable, the client sends a Chrome ClientHello and the server terminates real TLS).
-The **`plain`** mode (no obfuscation) is, on the contrary, the most visible: a bare
-high-entropy flow with no recognizable protocol is caught by the "fully encrypted"
-entropy heuristic (tell 4.x) from the first packet. `plain` is for trusted networks, not
-for DPI circumvention.
+qeli `fake-tls`/`obfs` target **D1** (`obfs` also targets the entropy-based **D2**).
+`PACKET_MUX_V1` reduces the size/boundary D2 tell shared by all modes, but does not disguise
+the ClientHello, outer frame syntax, endpoint or long-term timing.
+`reality-tls` removes the former bare fake-TLS and nested-record tells by using real TLS 1.3
+plus H2, and bridges unauthenticated probes to the target. It reduces the catalogued D2/D3
+signals but does not close timing, target-correlation or H2-semantic classification universally.
+Even with the recordizer, `plain` remains the most visible high-entropy mode and is for trusted
+networks only.
 
 Severity: `CRIT` = a single rule catches it deterministically; `HIGH` = a reliable
 indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
@@ -116,7 +145,7 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
 
 ## 3. The data channel (application_data)
 
-### 3.1 [HIGH] An explicit 12-byte nonce in every record
+### 3.1 [HIGH] An explicit 12-byte nonce in every record (legacy outer framing)
 - **Where:** [packet.rs encrypt_packet](../../qeli/src/protocol/packet.rs) — a record =
   `0x17 ‖ 0303 ‖ len ‖ nonce(12) ‖ ciphertext+tag`.
 - **Why it gives it away:** real TLS 1.3 uses an **implicit** nonce (it's not on the wire).
@@ -126,11 +155,17 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   fact of 12 "extra" bytes in every record remains). D2 sees this when analyzing the
   inter-record structure.
 
-### 3.2 [MED] One IP packet → exactly one TLS record
+### 3.2 [MED] One IP packet → exactly one qeli record (closed by `PACKET_MUX_V1` for every carrier)
 - **Why it gives it away:** real TLS cuts/coalesces the stream along boundaries up to 16 KB
   independently of the application messages. The "1 record = 1 MTU packet" correspondence
   (plus the fixed overhead of +33 bytes: 5+12+16) gives a characteristic record-size
   distribution. A contribution to a size ML classifier.
+- **Development status:** after authenticated negotiation the common recordizer batches,
+  coalesces and splits before PacketCodec AEAD in both TCP and UDP paths. Its metadata is
+  encrypted, sizes are clamped to the carrier/path budget, and reassembly has hard timeout,
+  memory and inflight limits. `policy=prefer` keeps legacy compatibility; `required` rejects an
+  old core fail-closed. “Closed” here describes removal of the direct boundary mapping in the
+  implementation; an external all-mode PCAP/DPI result requires a separate repeated report.
 
 ---
 
@@ -242,19 +277,22 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   hand-rolled with **cert-borrowing** + a mirrored JA3S + the X25519MLKEM768 PQ hybrid +
   NewSessionTicket). It removes 1.1–1.6, 2.1–2.3, 3.1. Plus `fake-tls` itself was hardened
   pointwise (the PQ key_share, ALPN with a REALITY token, the sig_algs cleanup).
-- **Axis 2 — distribution-matching shaping — research-track:** a shaper to an empirical
-  HTTP/3 distribution (it would remove 6.1, 6.2, partly 3.2). Not implemented: there's no
-  target traffic model + a harness to validate against ML (see [ROADMAP.md](ROADMAP.md)).
+- **Axis 2 — carrier/flow shaping — 🟡 PARTIAL (2026-08):** genuine H2 and randomized batching
+  break the old record-boundary classifier; Poisson idle cover removes the fixed heartbeat.
+  Target-specific browser H2 SETTINGS/priority/window/stream choreography and validated
+  under-load distribution matching remain open. UDP QUIC-shape is still not RFC QUIC/H3.
   The QUIC layer (5.x) is deprioritized (the fundamental RFC 9001 ceiling, see ROADMAP).
 - **Axis 3 — entropy-fix obfs — ✅ READY (2026-06-05):** WS-fronting (a printable HTTP
   start) + the QUIC-shape for UDP-obfs. It removes 4.1, 4.2.
 
 ## Conclusion
 
-"DPI doesn't see it" in the absolute is unattainable (see *The Parrot is Dead*, Houmansadr
-2013): full mimicry loses to an active prober. The achievable goal is to close **D1/D2**
-fully and **D3** via a real TLS backend. **Axis 1 (`reality-tls`) is implemented:** real
-TLS 1.3 on the wire, an active prober goes to the real `target`, and the qeli client sees
-a borrowed real cert chain — the deterministic 2.1/2.2 path for this mode is closed.
-`fake-tls`/`obfs` remain for D1/D2 scenarios (faster, simpler), `reality-tls` — when the
-threat model includes active probing.
+"DPI does not see it" is not a defensible absolute. `PACKET_MUX_V1` removes the direct IP-packet
+to qeli-record relation across all TCP/UDP carriers; current Reality/H2 additionally closes the
+old deterministic fake-TLS/nested-record paths and sends unauthenticated probes to the target.
+But the common recordizer does not turn fake-TLS, obfs, QUIC-shape or plain into genuine
+HTTPS/QUIC. Carrier syntax, browser-profile differences, endpoint correlation, H2 semantics and
+timing remain measurable research items, so no universal D1/D2/D3 closure or numeric detection
+probability is claimed. `fake-tls`/`obfs` remain for D1/D2 scenarios (faster, simpler), while
+`reality-tls` is preferred when the threat model includes active probing. A new all-mode PCAP
+corpus must validate the recordizer regression separately from the earlier 6/6 H2 sessions.

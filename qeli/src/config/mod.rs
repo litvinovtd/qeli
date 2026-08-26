@@ -315,6 +315,167 @@ pub struct PushedObf {
     pub traffic_normalization: TrafficNormalizationConfig,
     #[serde(default)]
     pub traffic_shaping: TrafficShapingConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recordizer: Option<RecordizerConfig>,
+}
+
+/// Transport-independent post-auth packet-to-record morphology. The server owns
+/// these values and pushes them only after both peers negotiate PACKET_MUX_V1.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecordizerConfig {
+    /// `off` keeps the legacy format, `prefer` negotiates when possible, and
+    /// `required` rejects a peer that cannot negotiate it.
+    #[serde(default = "default_recordizer_policy")]
+    pub policy: String,
+    #[serde(default)]
+    pub batch: RecordizerBatchConfig,
+    #[serde(default)]
+    pub record: RecordizerRecordConfig,
+    #[serde(default)]
+    pub fragment: RecordizerFragmentConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecordizerBatchConfig {
+    #[serde(default = "default_recordizer_delay_min")]
+    pub delay_min_ms: u64,
+    #[serde(default = "default_recordizer_delay_max")]
+    pub delay_max_ms: u64,
+    #[serde(default = "default_recordizer_max_packets")]
+    pub max_packets: u16,
+    #[serde(default = "default_recordizer_queue_bytes")]
+    pub max_queue_bytes: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecordizerRecordConfig {
+    /// Zero selects the largest safe plaintext for the active carrier/path.
+    #[serde(default)]
+    pub max_payload_bytes: u16,
+    #[serde(default = "default_recordizer_small_min_ratio")]
+    pub small_min_ratio: f64,
+    #[serde(default = "default_recordizer_small_max_ratio")]
+    pub small_max_ratio: f64,
+    #[serde(default = "default_recordizer_full_probability")]
+    pub full_probability: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecordizerFragmentConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_recordizer_reassembly_timeout")]
+    pub reassembly_timeout_ms: u64,
+    #[serde(default = "default_recordizer_max_inflight")]
+    pub max_inflight_packets: u16,
+    #[serde(default = "default_recordizer_reassembly_bytes")]
+    pub max_reassembly_bytes: u32,
+    #[serde(default = "default_recordizer_max_fragments")]
+    pub max_fragments_per_packet: u16,
+}
+
+impl Default for RecordizerConfig {
+    fn default() -> Self {
+        Self {
+            policy: default_recordizer_policy(),
+            batch: RecordizerBatchConfig::default(),
+            record: RecordizerRecordConfig::default(),
+            fragment: RecordizerFragmentConfig::default(),
+        }
+    }
+}
+
+impl Default for RecordizerBatchConfig {
+    fn default() -> Self {
+        Self {
+            delay_min_ms: default_recordizer_delay_min(),
+            delay_max_ms: default_recordizer_delay_max(),
+            max_packets: default_recordizer_max_packets(),
+            max_queue_bytes: default_recordizer_queue_bytes(),
+        }
+    }
+}
+
+impl Default for RecordizerRecordConfig {
+    fn default() -> Self {
+        Self {
+            max_payload_bytes: 0,
+            small_min_ratio: default_recordizer_small_min_ratio(),
+            small_max_ratio: default_recordizer_small_max_ratio(),
+            full_probability: default_recordizer_full_probability(),
+        }
+    }
+}
+
+impl Default for RecordizerFragmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            reassembly_timeout_ms: default_recordizer_reassembly_timeout(),
+            max_inflight_packets: default_recordizer_max_inflight(),
+            max_reassembly_bytes: default_recordizer_reassembly_bytes(),
+            max_fragments_per_packet: default_recordizer_max_fragments(),
+        }
+    }
+}
+
+impl RecordizerConfig {
+    pub fn is_off(&self) -> bool {
+        self.policy.eq_ignore_ascii_case("off")
+    }
+
+    pub fn is_required(&self) -> bool {
+        self.policy.eq_ignore_ascii_case("required")
+    }
+
+    pub fn validate(&self, label: &str) -> anyhow::Result<()> {
+        if !matches!(
+            self.policy.to_ascii_lowercase().as_str(),
+            "off" | "prefer" | "required"
+        ) {
+            anyhow::bail!("{label}.policy must be off, prefer or required");
+        }
+        if self.batch.delay_min_ms > self.batch.delay_max_ms {
+            anyhow::bail!("{label}.batch.delay_min_ms must be <= delay_max_ms");
+        }
+        if self.batch.max_packets == 0 {
+            anyhow::bail!("{label}.batch.max_packets must be > 0");
+        }
+        if self.batch.max_queue_bytes < 64 || self.batch.max_queue_bytes > 4 * 1024 * 1024 {
+            anyhow::bail!("{label}.batch.max_queue_bytes must be in 64..=4194304");
+        }
+        if self.record.max_payload_bytes != 0
+            && (usize::from(self.record.max_payload_bytes) < 64
+                || usize::from(self.record.max_payload_bytes)
+                    > crate::protocol::packet::MAX_TUNNEL_MTU)
+        {
+            anyhow::bail!(
+                "{label}.record.max_payload_bytes must be 0 (auto) or 64..={}",
+                crate::protocol::packet::MAX_TUNNEL_MTU
+            );
+        }
+        let ratios_ok = self.record.small_min_ratio.is_finite()
+            && self.record.small_max_ratio.is_finite()
+            && self.record.small_min_ratio > 0.0
+            && self.record.small_min_ratio <= self.record.small_max_ratio
+            && self.record.small_max_ratio <= 1.0;
+        if !ratios_ok {
+            anyhow::bail!("{label}.record small ratios must satisfy 0 < min <= max <= 1");
+        }
+        if !(self.record.full_probability.is_finite()
+            && (0.0..=1.0).contains(&self.record.full_probability))
+        {
+            anyhow::bail!("{label}.record.full_probability must be in 0.0..=1.0");
+        }
+        if self.fragment.reassembly_timeout_ms == 0
+            || self.fragment.max_inflight_packets == 0
+            || self.fragment.max_reassembly_bytes < 64
+            || self.fragment.max_fragments_per_packet == 0
+        {
+            anyhow::bail!("{label}.fragment timeout and resource limits must be positive");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -805,10 +966,46 @@ fn default_heartbeat_data_size() -> u16 {
     16
 }
 fn default_heartbeat_jitter() -> u64 {
-    20
+    5_000
 }
 fn default_round_sizes() -> Vec<u16> {
     vec![64, 128, 256, 512, 1024, 1500]
+}
+fn default_recordizer_policy() -> String {
+    "off".into()
+}
+fn default_recordizer_delay_min() -> u64 {
+    2
+}
+fn default_recordizer_delay_max() -> u64 {
+    8
+}
+fn default_recordizer_max_packets() -> u16 {
+    16
+}
+fn default_recordizer_queue_bytes() -> u32 {
+    256 * 1024
+}
+fn default_recordizer_small_min_ratio() -> f64 {
+    0.25
+}
+fn default_recordizer_small_max_ratio() -> f64 {
+    0.875
+}
+fn default_recordizer_full_probability() -> f64 {
+    0.72
+}
+fn default_recordizer_reassembly_timeout() -> u64 {
+    3_000
+}
+fn default_recordizer_max_inflight() -> u16 {
+    64
+}
+fn default_recordizer_reassembly_bytes() -> u32 {
+    4 * 1024 * 1024
+}
+fn default_recordizer_max_fragments() -> u16 {
+    64
 }
 fn default_shaping_gap_mean() -> u64 {
     700

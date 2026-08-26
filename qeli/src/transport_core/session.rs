@@ -304,13 +304,13 @@ where
 {
     let client_kp = Keypair::generate();
 
-    if config.obfuscation.mode == "plain" {
+    if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
         stream.write_all(client_kp.public().as_bytes()).await?;
         let mut server_public = [0u8; 32];
         stream
             .read_exact(&mut server_public)
             .await
-            .map_err(|error| anyhow::anyhow!("failed to read server key (plain): {error}"))?;
+            .map_err(|error| anyhow::anyhow!("failed to read server key (raw inner): {error}"))?;
         let server_pub = crate::crypto::PublicKey::from_bytes(&server_public);
         let transcript_hash =
             handshake_transcript_hash(&[client_kp.public().as_bytes(), &server_public]);
@@ -326,7 +326,7 @@ where
 
         let auth_proof_record = read_record(stream, Framing::Raw)
             .await
-            .map_err(|error| anyhow::anyhow!("failed to read auth proof (plain): {error}"))?;
+            .map_err(|error| anyhow::anyhow!("failed to read auth proof (raw inner): {error}"))?;
         let auth_proof = client_rx.decrypt_packet(&auth_proof_record)?;
         let (_, server_capabilities) =
             crate::protocol::capabilities::split_server_capabilities(&auth_proof)?;
@@ -338,7 +338,7 @@ where
             &config.auth.server_public_key,
         )?;
         verify_key(server_static).await?;
-        log::info!("Server identity verified (plain)");
+        log::info!("Server identity verified (raw inner)");
 
         let auth_plaintext = build_client_auth_plaintext(
             config,
@@ -353,12 +353,12 @@ where
         let auth_packet = client_tx.encrypt_packet(&auth_plaintext, &[])?;
         stream.write_all(&auth_packet).await?;
 
-        let auth_response_record = read_record(stream, Framing::Raw)
-            .await
-            .map_err(|error| anyhow::anyhow!("failed to read auth response (plain): {error}"))?;
+        let auth_response_record = read_record(stream, Framing::Raw).await.map_err(|error| {
+            anyhow::anyhow!("failed to read auth response (raw inner): {error}")
+        })?;
         let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
         let auth = parse_auth_ok(&String::from_utf8(auth_response)?)?;
-        log::info!("Auth OK (plain), assigned IP: {}", auth.client_ip);
+        log::info!("Auth OK (raw inner), assigned IP: {}", auth.client_ip);
         return Ok((client_rx, client_tx, auth));
     }
 

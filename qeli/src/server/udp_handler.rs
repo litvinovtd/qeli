@@ -316,6 +316,104 @@ async fn schedule_downlink_mtu_probe(
 }
 
 #[allow(dead_code)] // session_id retained for symmetry with the TCP session model
+#[allow(clippy::too_many_arguments)]
+async fn forward_udp_uplink_packet(
+    packet: ServerTunPacket,
+    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    socket: &Arc<crate::protocol::obfs::ObfsUdp>,
+    tasks: &super::ProfileTasks,
+    profile: &Arc<ProfileRuntime>,
+    addr: SocketAddr,
+    obfs_key: Option<[u8; 32]>,
+    session_id: u64,
+    exit_access: crate::server::ExitAccess,
+    tun_tx: &TunIngress,
+    path_mtu: &Option<Arc<std::sync::atomic::AtomicU32>>,
+    udp_payload_budget: &Option<Arc<std::sync::atomic::AtomicU32>>,
+    client_info: &Option<crate::server::handler::ClientInfoCell>,
+    src_guard: &Option<crate::server::acl::SrcGuard>,
+    dst_acl: &crate::server::acl::DstAcl,
+    bandwidth_limit: &Option<Arc<std::sync::atomic::AtomicU32>>,
+    upload_tx: &Option<mpsc::Sender<ServerTunPacket>>,
+    recv_ctr: &Arc<std::sync::atomic::AtomicU64>,
+    client_dropped: &Arc<std::sync::atomic::AtomicU64>,
+) {
+    if crate::protocol::ctrl::is_ctrl(&packet) {
+        if let (Some(cell), Some(mtu)) = (
+            path_mtu.as_ref(),
+            crate::protocol::ctrl::parse_mtu_report(&packet),
+        ) {
+            crate::server::handler::note_path_mtu(cell, format_args!("at {addr}"), mtu);
+        } else if let (Some(cell), Some(budget)) = (
+            udp_payload_budget.as_ref(),
+            crate::protocol::ctrl::parse_udp_payload_budget_report(&packet),
+        ) {
+            schedule_downlink_mtu_probe(
+                sessions,
+                socket,
+                tasks,
+                &profile.name,
+                addr,
+                cell,
+                budget,
+                obfs_key,
+            )
+            .await;
+        } else if let (Some(cell), Some((version, platform))) = (
+            client_info.as_ref(),
+            crate::protocol::ctrl::parse_client_info(&packet),
+        ) {
+            crate::server::handler::note_client_info(
+                cell,
+                format_args!("at {addr}"),
+                &version,
+                &platform,
+            );
+        }
+        return;
+    }
+    if packet.is_empty() {
+        return;
+    }
+    if src_guard
+        .as_ref()
+        .is_some_and(|guard| !guard.allows_packet(&packet))
+    {
+        log::debug!("dropped UDP packet from {} - forged source address", addr);
+        return;
+    }
+    if !dst_acl.is_unrestricted() && !dst_acl.allows_packet(&packet) {
+        log::debug!(
+            "ACL: dropped UDP packet from {} - destination not in allowed_networks",
+            addr
+        );
+        return;
+    }
+    let limit = bandwidth_limit
+        .as_ref()
+        .map(|value| value.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(0);
+    if limit == 0 {
+        recv_ctr.fetch_add(packet.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        let _ = tun_tx
+            .send_client_packet(profile, session_id, exit_access, packet)
+            .await;
+    } else if upload_tx
+        .as_ref()
+        .is_none_or(|tx| tx.try_send(packet).is_err())
+    {
+        client_dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        profile
+            .udp_buffer_counters
+            .note_internal_drop(InternalDrop::QueueFull);
+        log::debug!(
+            "UDP upload pacing queue full for {} on profile '{}'; dropping packet",
+            addr,
+            profile.name
+        );
+    }
+}
+
 enum UdpSessionState {
     AwaitingAuth,
     Authenticated {
@@ -333,6 +431,9 @@ struct UdpClient {
     tx_data_frag_key: [u8; 32],
     data_frag_enabled: bool,
     data_reassembler: crate::protocol::data_frag::DataReassembler,
+    /// Authenticated PACKET_MUX_V1 receiver. Empty until negotiation completes,
+    /// and permanently empty for legacy/off sessions.
+    rx_recordizer: Option<crate::protocol::recordizer::Reassembler>,
     state: UdpSessionState,
     last_activity: std::time::Instant,
     /// Inbound (client->server) byte counter, shared with this client's
@@ -345,7 +446,7 @@ struct UdpClient {
     bandwidth_limit_mbps: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
     /// Bounded path to this client's upload pacing task. Limited UDP traffic must
     /// never sleep in the shared socket receive loop, which would stall every peer.
-    upload_tx: Option<mpsc::Sender<PooledBuffer>>,
+    upload_tx: Option<mpsc::Sender<ServerTunPacket>>,
     /// Shared with `SessionShared::dropped`, so local ingress-pool pressure is visible in
     /// `list-clients` instead of becoming an unexplained wire loss.
     dropped: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -621,7 +722,10 @@ pub(crate) async fn run_udp_server(
     let tick_ms = if shaping_on {
         shaping_cfg.idle_gap_min_ms.max(20)
     } else if heartbeat_enabled {
-        hb_config.interval_ms
+        // Per-client absolute deadlines carry the actual randomized schedule. This
+        // short maintenance tick only discovers due sessions and does not quantize
+        // them back onto the configured interval boundary.
+        hb_config.interval_ms.clamp(20, 200)
     } else {
         DEFAULT_HEARTBEAT_INTERVAL_MS
     };
@@ -794,9 +898,9 @@ pub(crate) async fn run_udp_server(
                     }
                     out
                 } else {
-                    let sessions_guard = sessions.read().await;
+                    let mut sessions_guard = sessions.write().await;
                     let mut out = Vec::new();
-                    for (addr, client) in sessions_guard.iter() {
+                    for (addr, client) in sessions_guard.iter_mut() {
                         // Only beacon AUTHENTICATED clients (a fresh AwaitingAuth entry
                         // is not a real session yet) whose AuthOK has actually gone out —
                         // this loop deliberately does NOT idle-gate (see below), so without
@@ -810,6 +914,14 @@ pub(crate) async fn run_udp_server(
                         if idle_timeout.as_secs() > 0 && now.duration_since(client.last_activity) > idle_timeout {
                             continue;
                         }
+                        if now < client.next_cover_at {
+                            continue;
+                        }
+                        client.next_cover_at = now
+                            + crate::protocol::randomized_heartbeat_delay(
+                                std::time::Duration::from_millis(hb_config.interval_ms),
+                                std::time::Duration::from_millis(hb_config.jitter_ms),
+                            );
                         // Beacon every interval REGARDLESS of client->server activity. We
                         // must NOT idle-gate on `client.last_activity`: an idle client
                         // sends its OWN keepalives, which refresh `last_activity` and would
@@ -1452,6 +1564,26 @@ async fn handle_udp_datagram(
                     return;
                 }
             }
+            let decoded_packets = if is_awaiting_auth {
+                None
+            } else if plaintext.is_empty() && client.rx_recordizer.is_some() {
+                Some(Vec::new())
+            } else if let Some(reassembler) = client.rx_recordizer.as_mut() {
+                match reassembler.decode(&plaintext) {
+                    Ok(packets) => Some(packets),
+                    Err(error) => {
+                        log::debug!(
+                            "UDP recordizer decode error from {} on profile '{}': {}",
+                            addr,
+                            profile.name,
+                            error
+                        );
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
             client.last_activity = std::time::Instant::now();
             // Account inbound (client->server) bytes so `list-clients` RECV is correct
             // (the UDP path never incremented this → RECV always showed 0). Captured
@@ -1472,6 +1604,35 @@ async fn handle_udp_datagram(
             let client_info = client.client_info.clone();
             drop(sessions_guard);
 
+            if let Some(packets) = decoded_packets {
+                drop(plaintext);
+                let session_id = source_session_id.expect("authenticated UDP session has an id");
+                for packet in packets {
+                    forward_udp_uplink_packet(
+                        ServerTunPacket::Fragment(packet),
+                        sessions,
+                        socket,
+                        tasks,
+                        profile,
+                        addr,
+                        obfs_key,
+                        session_id,
+                        exit_access,
+                        tun_tx,
+                        &path_mtu,
+                        &udp_payload_budget,
+                        &client_info,
+                        &src_guard,
+                        &dst_acl,
+                        &bandwidth_limit,
+                        &upload_tx,
+                        &recv_ctr,
+                        &client_dropped,
+                    )
+                    .await;
+                }
+                return;
+            }
             if is_awaiting_auth {
                 // Dispatch the auth OFF the recv loop: it runs the per-username tarpit sleep
                 // and the memory-hard Argon2 (behind argon2_gate), and `.await`ing it here
@@ -1592,7 +1753,7 @@ async fn handle_udp_datagram(
                         .await;
                 } else if upload_tx
                     .as_ref()
-                    .is_none_or(|tx| tx.try_send(plaintext).is_err())
+                    .is_none_or(|tx| tx.try_send(ServerTunPacket::Pooled(plaintext)).is_err())
                 {
                     // Never await a full per-client pacing queue in this shared receive loop:
                     // one capped peer must not head-of-line block every UDP session.
@@ -1836,13 +1997,21 @@ async fn handle_udp_auth(
         return;
     }
 
-    let negotiated_ip_mode = match crate::protocol::capabilities::negotiated_profile_ip_mode(
-        pcfg.tun.ip_mode,
-        capabilities,
-    ) {
-        Ok(mode) => mode,
+    let negotiation =
+        crate::protocol::capabilities::negotiated_profile_ip_mode(pcfg.tun.ip_mode, capabilities)
+            .map_err(|error| error.to_string())
+            .and_then(|mode| {
+                crate::protocol::capabilities::negotiate_recordizer(
+                    &pcfg.obfuscation.recordizer,
+                    capabilities,
+                )
+                .map(|recordizer| (mode, recordizer))
+                .map_err(|error| error.to_string())
+            });
+    let (negotiated_ip_mode, negotiated_recordizer) = match negotiation {
+        Ok(value) => value,
         Err(error) => {
-            let reason = error.to_string();
+            let reason = error.clone();
             let response_result: anyhow::Result<Vec<Vec<u8>>> = {
                 let mut sessions_guard = sessions.write().await;
                 let Some(client) = sessions_guard.get_mut(&addr) else {
@@ -1899,6 +2068,14 @@ async fn handle_udp_auth(
     };
     let data_frag_enabled = capabilities.is_some_and(|caps| {
         caps.core_bits & crate::protocol::capabilities::client_capability::UDP_DATA_FRAG_V1 != 0
+    });
+    let negotiated_rx_recordizer = negotiated_recordizer.as_ref().map(|config| {
+        crate::protocol::recordizer::RuntimeConfig::from_config(
+            config,
+            crate::protocol::packet::MAX_TUNNEL_MTU,
+            crate::protocol::packet::MAX_TUNNEL_MTU,
+        )
+        .expect("validated UDP recordizer configuration")
     });
 
     // Per-device key (same as the TCP path) — pool IPs + sessions are keyed by it
@@ -2364,7 +2541,7 @@ async fn handle_udp_auth(
     // UDP has one shared socket receive loop for all peers. Sleeping there would let one
     // capped client stall the entire profile, so limited uploads are handed to a bounded
     // per-client pacing task. Unlimited clients retain the direct fast path above.
-    let (upload_tx, mut upload_rx) = mpsc::channel::<PooledBuffer>(UDP_UPLOAD_QUEUE_PACKETS);
+    let (upload_tx, mut upload_rx) = mpsc::channel::<ServerTunPacket>(UDP_UPLOAD_QUEUE_PACKETS);
     let upload_limit = bandwidth_limit_mbps.clone();
     let upload_rate = rates.upload.clone();
     let upload_bytes = bytes_recv.clone();
@@ -2396,7 +2573,7 @@ async fn handle_udp_auth(
                     &upload_profile,
                     upload_session_id,
                     upload_exit_access,
-                    ServerTunPacket::Pooled(packet),
+                    packet,
                 )
                 .await
                 .is_err()
@@ -2421,6 +2598,8 @@ async fn handle_udp_auth(
                 client_ip,
             };
             client.data_frag_enabled = data_frag_enabled;
+            client.rx_recordizer =
+                negotiated_rx_recordizer.map(crate::protocol::recordizer::Reassembler::new);
             // Cache for idempotent AuthOK re-emit: a lost AuthOK leaves the client
             // retransmitting THIS exact AUTH datagram, which the replay window would
             // drop — the existing-session re-emit branch resends `auth_ok` on a byte
@@ -2486,6 +2665,19 @@ async fn handle_udp_auth(
         writer_quic,
     )
     .expect("conservative UDP budget always fits the data-fragment header");
+    let writer_task_codec = writer_codec.clone();
+    let writer_profile_config = profile.config.clone();
+    let writer_mux_payload_budget = lock_or_recover(&writer_task_codec, "udp::recordizer_budget")
+        .max_data_for_record_budget(fallback_record_budget)
+        .expect("conservative UDP budget fits encrypted record overhead");
+    let writer_recordizer_runtime = negotiated_recordizer.as_ref().map(|config| {
+        crate::protocol::recordizer::RuntimeConfig::from_config(
+            config,
+            writer_mux_payload_budget,
+            crate::protocol::packet::MAX_TUNNEL_MTU,
+        )
+        .expect("validated UDP recordizer configuration")
+    });
 
     // Per-user bandwidth cap (own value, else group, else 0 = unlimited). Upload and
     // download use independent session-wide buckets, and `set-bandwidth` updates both.
@@ -2535,6 +2727,7 @@ async fn handle_udp_auth(
             &profile.config.obfuscation.traffic_shaping.to_shaping(),
             std::time::Instant::now(),
         ),
+        recordizer: negotiated_recordizer.clone(),
         dst_acl: dst_acl.clone(),
         src_guard,
         exit_access,
@@ -2696,18 +2889,76 @@ async fn handle_udp_auth(
             wire_pool.buffer_capacity() + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
         );
         let mut record_id: u64 = rand::random();
-        loop {
-            tokio::select! {
+        let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
+        let mut encrypted_record =
+            Vec::with_capacity(crate::protocol::packet::TLS_RECORD_HEADER
+                + crate::protocol::packet::MAX_RECORD_SIZE);
+        let mut recordizer =
+            writer_recordizer_runtime.map(crate::protocol::recordizer::Recordizer::new);
+        'writer: loop {
+            let mux_deadline = recordizer
+                .as_ref()
+                .and_then(|mux| mux.deadline())
+                .map(tokio::time::Instant::from_std)
+                .unwrap_or_else(|| {
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(86_400)
+                });
+            let payloads = tokio::select! {
                 biased;
                 _ = kick_rx.recv() => {
                     log::info!("UDP writer for {} kicked on profile '{}'", writer_addr, profile_name);
-                    break;
+                    break 'writer;
+                }
+                _ = tokio::time::sleep_until(mux_deadline),
+                    if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
+                {
+                    match recordizer.as_mut().and_then(|mux| {
+                        mux.flush_due(std::time::Instant::now())
+                    }) {
+                        Some(payload) => vec![payload],
+                        None => continue,
+                    }
                 }
                 msg = writer_rx.recv() => {
-                    let data = match msg {
-                        Some(d) => d,
-                        None => break,
-                    };
+                    match msg {
+                        Some(packet) => {
+                            if let Some(mux) = recordizer.as_mut() {
+                                match mux.push(packet.as_ref(), std::time::Instant::now()) {
+                                    Ok(payloads) => payloads,
+                                    Err(error) => {
+                                        log::debug!("server UDP recordizer dropped a packet: {error}");
+                                        writer_session
+                                            .dropped
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                vec![packet.to_vec()]
+                            }
+                        }
+                        None => match recordizer.as_mut().and_then(|mux| mux.flush()) {
+                            Some(payload) => vec![payload],
+                            None => break 'writer,
+                        },
+                    }
+                }
+            };
+            for payload in payloads {
+                if !handler::encrypt_server_stream_payload(
+                    &writer_task_codec,
+                    &payload,
+                    writer_mux_payload_budget,
+                    &writer_profile_config,
+                    &mut encrypted_record,
+                    &mut padding,
+                ) {
+                    writer_session
+                        .dropped
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
+                }
+                let data: &[u8] = &encrypted_record;
                     // Aggregate per-session DOWNLOAD throttle. The independent upload
                     // pacing task applies the same limit concurrently. Also account
                     // outbound bytes for list-clients and quota tracking.
@@ -2729,7 +2980,7 @@ async fn handle_udp_auth(
                             let this_record_id = record_id;
                             record_id = record_id.wrapping_add(1);
                             let fragments = match crate::protocol::data_frag::fragment_record(
-                                &data,
+                                data,
                                 &writer_data_frag_key,
                                 this_record_id,
                                 writer_record_budget - crate::protocol::data_frag::HEADER_LEN,
@@ -2829,10 +3080,10 @@ async fn handle_udp_auth(
                         let pkt: &[u8] = if writer_quic {
                             let pn = writer_pn
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            wrap_quic_short_into(&data, &writer_cid, pn, &mut quic_record);
+                            wrap_quic_short_into(data, &writer_cid, pn, &mut quic_record);
                             &quic_record
                         } else {
-                            &data
+                            data
                         };
                         let wire_len = (pkt.len() + writer_obfs_overhead) as u64;
                         let delay = writer_session.rates.download.consume(wire_len * 8, limit);
@@ -2879,7 +3130,6 @@ async fn handle_udp_auth(
                     }
                 }
             }
-        }
     });
 }
 
@@ -2998,6 +3248,7 @@ async fn handle_new_udp_client(
             tx_data_frag_key,
             data_frag_enabled: false,
             data_reassembler: crate::protocol::data_frag::DataReassembler::new(),
+            rx_recordizer: None,
             state: UdpSessionState::AwaitingAuth,
             src_guard: None,
             exit_access: crate::server::ExitAccess::default(),
@@ -3036,7 +3287,18 @@ async fn handle_new_udp_client(
                 sh.stealth = false;
                 crate::protocol::Shaper::new(sh, now)
             },
-            next_cover_at: now,
+            next_cover_at: if profile.config.obfuscation.traffic_shaping.enabled {
+                now
+            } else {
+                now + crate::protocol::randomized_heartbeat_delay(
+                    std::time::Duration::from_millis(
+                        profile.config.obfuscation.heartbeat.interval_ms,
+                    ),
+                    std::time::Duration::from_millis(
+                        profile.config.obfuscation.heartbeat.jitter_ms,
+                    ),
+                )
+            },
             server_hello: Vec::new(),
             hello_frag_mode: false,
             auth_request: Vec::new(),

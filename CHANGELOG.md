@@ -6,6 +6,205 @@
 
 ## [0.8.0] — не выпущен
 
+### Reality-TLS: настоящий HTTP/2 carrier и переход со старой схемы
+
+#### Что изменилось на проводе
+
+- `reality-tls` больше не запускает второй fake-TLS handshake внутри уже установленного
+  REALITY TLS 1.3. Новый стек на проводе: **TCP → REALITY TLS 1.3 → настоящий HTTP/2 →
+  приватный поток qeli**. После ALPN `h2` клиент открывает один долгоживущий двунаправленный
+  `POST /v1/events/stream` с `content-type: application/grpc`; сервер отвечает `200` и передаёт
+  поток через настоящие HTTP/2 `SETTINGS`/`HEADERS`/`DATA`/`WINDOW_UPDATE`.
+- Внутренний `PacketCodec` и его ChaCha20-Poly1305 не удалены: аутентификация, anti-replay и
+  шифрование пакетов qeli остаются end-to-end. Удалена именно распознаваемая вложенная
+  fake-TLS choreography и связь «один внутренний IP-пакет = одна внешняя TLS-запись».
+- H2 carrier автоматически объединяет записи перед отправкой. Первая порция не удерживается
+  дольше случайных 2–8 мс; под нагрузкой 72% целевых DATA-блоков растут до 16 КиБ, остальные
+  получают случайную цель 4–14 КиБ. HTTP/2 window равен 2 МиБ, максимальный DATA frame —
+  16 КиБ, сервер объявляет до 100 одновременных streams. Это внутренние параметры wire-логики,
+  отдельных INI-ключей для них нет.
+- Новый сервер после аутентифицированного внешнего TLS различает H2 preface и старый внутренний
+  fake-TLS ClientHello. Поэтому **новый сервер принимает как новые, так и уже установленные
+  legacy `reality-tls` клиенты**. Новый клиент, напротив, требует H2 и намеренно не делает
+  скрытый downgrade: при подключении к старому серверу он завершит соединение ошибкой.
+
+#### Изменившиеся defaults и параметры
+
+Для нового/обновлённого серверного Reality-профиля каноническая конфигурация выглядит так:
+
+```ini
+[profile:reality-tls]
+bind.transport = tcp
+bind.port = 443
+
+obf.mode = reality-tls
+obf.tls.server_name = www.microsoft.com
+obf.tls.reality_proxy.enabled = true
+obf.tls.reality_proxy.target = www.microsoft.com
+obf.tls.reality_proxy.target_port = 443
+obf.tls.reality_proxy.real_tls = true
+obf.tls.reality_proxy.handrolled = true
+obf.tls.reality_proxy.short_ids = YOUR_EXISTING_SHORT_ID
+
+obf.padding.enabled = false
+obf.heartbeat.enabled = false
+obf.heartbeat.interval_ms = 15000
+obf.heartbeat.data_size_bytes = 16
+obf.heartbeat.jitter_ms = 5000
+
+obf.traffic_shaping.enabled = true
+obf.traffic_shaping.idle_gap_mean_ms = 700
+obf.traffic_shaping.idle_gap_min_ms = 40
+obf.traffic_shaping.idle_gap_max_ms = 6000
+obf.traffic_shaping.budget_bytes_per_sec = 16384
+obf.traffic_shaping.min_size = 64
+obf.traffic_shaping.max_size = 1024
+```
+
+- `obf.mode = reality-tls` — новое каноническое имя серверного wire-профиля. Старое сочетание
+  `obf.mode = fake-tls` + `reality_proxy.enabled = true` + `real_tls = true` новый сервер пока
+  понимает для миграции, но новые конфиги должны использовать `reality-tls`.
+- `obf.tls.server_name`, `reality_proxy.target` и клиентский `sni` должны обозначать одно
+  реальное DNS-имя. Не заменяйте его IP-адресом и не включайте случайную ротацию SNI для
+  Reality: SNI обязан соответствовать заимствованной цепочке сертификатов target.
+- `short_ids` — allow-list REALITY-токенов. При обновлении сохраняйте существующие значения,
+  иначе старые клиенты будут молча приняты за посторонний probe и перенаправлены на target.
+- `handrolled = true` сохраняет cert-borrowing и target-like ServerHello; `false` оставляет
+  совместимый rustls-путь с другой маскировкой. H2 carrier работает после обоих TLS terminator.
+- Heartbeat jitter по умолчанию увеличен с `20` до `5000` мс. Сам scheduler теперь каждый раз
+  заново выбирает one-shot задержку `interval ± jitter` после активности или отправки, а не
+  держит постоянный периодический ticker.
+- В `reality-tls` heartbeat принудительно выключается клиентским ядром независимо от локального
+  значения и server push: TCP/H2 уже контролирует жизнь соединения, а периодический qeli-маяк
+  создавал устойчивый временной признак. Поля interval/size/jitter можно оставить в конфиге для
+  совместимости и других профилей, но трафик heartbeat в Reality/H2 они не включат.
+- Для idle camouflage поставляемые stealth-профили используют `traffic_shaping.enabled = true`:
+  случайный Poisson cover заменяет фиксированный heartbeat. `budget_bytes_per_sec` ограничивает
+  только cover, а не полезный трафик; `stealth = false` не ограничивает скорость реальных пакетов.
+- `padding.enabled = false` рекомендуется для Reality/H2: индивидуальный padding каждого
+  qeli-пакета только увеличивает расход, тогда как H2 batching уже разрушает границы сообщений.
+- Параметры `obf.http2_masking.enabled` и `obf.http2_masking.ratio` больше не являются способом
+  включить H2 и считаются retired. Их следует удалить из пользовательских конфигов. Настоящий
+  H2 carrier включается автоматически только режимом `reality-tls`; синтетического
+  `HTTP/2 masking` переключателя больше нет.
+- Важно различать два уровня defaults: schema baseline по-прежнему оставляет shaping выключенным
+  для обратной совместимости нестелс-профилей, а поставляемые Reality/max-obfuscation конфиги
+  явно задают `heartbeat = false` и `traffic_shaping = true`.
+
+Клиенту для нового carrier не нужны H2-параметры. Его обязательная часть остаётся плоской:
+
+```ini
+[qeli]
+server = vpn.example.com:443
+proto = tcp
+mode = reality-tls
+key = PINNED_SERVER_IDENTITY_PUBLIC_KEY
+sni = www.microsoft.com
+reality_sid = YOUR_EXISTING_SHORT_ID
+bind_static = true
+```
+
+`key` — это pinned identity qeli, а не публичный ключ или сертификат target. `reality_sid`
+должен входить в серверный `short_ids`; `sni` должен совпадать с серверными `server_name` и
+`target`. Уже установленное приложение не получает H2 автоматически только потому, что
+обновлён сервер: Windows/macOS/Android/iOS должны быть выпущены и установлены с новым общим
+Rust native-core.
+
+#### Правильный порядок обновления
+
+1. **Сохраните действующий конфиг, identity key профиля и `short_ids`.** Не генерируйте новую
+   identity и новые short_id без отдельной плановой ротации: иначе потребуется одновременно
+   переиздать все клиентские профили.
+2. **Сначала обновите серверный бинарник.** Новый сервер продолжает принимать старые
+   `reality-tls` клиенты с внутренним fake-TLS carrier, поэтому server-first обновление не
+   требует одновременной остановки всех устройств.
+3. **Приведите Reality-профиль к каноническому примеру выше:** TCP, `obf.mode = reality-tls`,
+   `reality_proxy.enabled = true`, `real_tls = true`, прежние target/SNI/short_ids, heartbeat
+   off и shaping on. Удалите retired `obf.http2_masking.*`.
+4. **Перезапустите сервер и проверьте старым клиентом.** До обновления клиента он должен
+   по-прежнему пройти `AUTH OK`; это проверяет legacy-ветку нового сервера.
+5. **Обновите клиентские приложения/native-core**, затем оставьте или выставьте
+   `proto = tcp`, `mode = reality-tls`, прежние `key`, `sni` и `reality_sid`. Скрытого отката
+   к старому carrier нет: если сервер не обновлён, новый клиент сообщит
+   `reality-tls HTTP/2 carrier failed`/timeout вместо менее защищённого соединения.
+6. **Проверьте новую ветку по логам.** Клиент должен написать
+   `REALITY-TLS carrier: genuine HTTP/2 stream`, сервер —
+   `REALITY: genuine HTTP/2 carrier established`, после чего должны появиться обычные
+   `AUTH OK`, адрес туннеля и двусторонний трафик.
+7. **Не смешивайте bare fake-TLS с legacy Reality-TLS.** Новый сервер совместим со старым
+   `reality-tls`, который уже устанавливал внешний настоящий TLS. Обычный `fake-tls` клиент
+   без REALITY TLS не станет H2-клиентом и при необходимости должен оставаться на отдельном
+   legacy-профиле/порту.
+
+#### Ожидаемый результат и границы заявления
+
+- На внешнем соединении видны настоящий TLS 1.3 с ALPN `h2` и валидное HTTP/2 framing вместо
+  второго fake-TLS handshake. Randomized H2 batching убирает прежнюю связь размеров qeli-пакета,
+  внутренней записи и внешнего TLS payload; фиксированный heartbeat отсутствует, idle заполняется
+  ограниченным случайным cover.
+- В чистом лабораторном PCAP-тесте 6/6 новых сессий прошли AUTH, ping и двусторонний UDP;
+  классификатор, обученный на старом транспорт-независимом отпечатке, определил новый Qeli в
+  0/6 случаев при 0/6 false-positive на control. Полный отчёт и точные условия:
+  [release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md](release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
+- Это не означает «0% обнаружения» промышленным DPI. До такого заявления нужны настоящие
+  согласованные browser TLS-профили вместо произвольной JA3-ротации, target-specific H2
+  SETTINGS/priority/window/stream choreography, более широкий control corpus и отдельные тесты
+  active probe, replay, malformed TLS/H2, reconnect и долгоживущих потоков. `udp-quic` остаётся
+  только QUIC-shaped compatibility mode, а не настоящим QUIC/HTTP3; максимальная текущая
+  маскировка относится к TCP `reality-tls` с новым H2 carrier.
+
+### Универсальная морфология записей для всех транспортных режимов
+
+- Добавлен согласуемый после аутентификации внутренний формат `PACKET_MUX_V1`. Он работает
+  одинаково поверх TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и поверх UDP
+  `fake-tls`, QUIC-shape, `obfs`/AWG. Это **не новый transport mode** и не замена carrier:
+  recordizer находится между TUN-пакетами и существующим `PacketCodec`/carrier.
+- Data-plane больше не обязан сохранять отношение «один IP-пакет = одна qeli-запись».
+  Recordizer за ограниченное случайное окно объединяет несколько пакетов, выбирает полный или
+  случайный неполный безопасный payload и при необходимости переносит один IP-пакет несколькими
+  зашифрованными записями. Приёмник восстанавливает исходные IPv4/IPv6-пакеты до передачи в TUN.
+- Настройка больше не захардкожена в Reality/H2. Каждый серверный профиль получает одинаковый
+  набор `obf.recordizer.*`: policy, окно/лимиты batch, распределение целевого record payload,
+  разрешение fragment и жёсткие timeout/memory/inflight/fragment limits для reassembly.
+  `record.max_payload_bytes = 0` автоматически зажимает размер под фактический TCP/UDP carrier
+  и path budget; ручное значение никогда не может расширить вычисленный безопасный предел.
+- Сервер передаёт эффективные параметры клиенту только внутри аутентифицированного `AUTH OK`.
+  Клиентских `obf.recordizer.*` ключей нет: desktop/mobile приложения получают поведение вместе
+  с обновлённым общим Rust native-core и серверным профилем. До успешной аутентификации handshake,
+  active-probe fallback и cover остаются в прежнем формате.
+- Политика миграции задаётся сервером:
+  - `off` — schema default и полный legacy data-plane;
+  - `prefer` — включить `PACKET_MUX_V1`, если клиент объявил поддержку, иначе оставить legacy;
+  - `required` — отвергнуть несовместимый клиент до выдачи IP-адреса/создания lease.
+- Поставляемые серверные профили явно переведены на `prefer`. Это позволяет сначала обновить
+  сервер и постепенно обновить клиенты без общей остановки. После обновления всего парка можно
+  выбрать `required`; для применения нового policy уже открытые сессии должны переподключиться.
+  Быстрый rollback — вернуть `off` и переподключить клиентов.
+- Канонические значения поставки: batch `2..8 ms`, до `16` пакетов и `256 KiB`; автоматический
+  record payload, диапазон неполной цели `0.25..0.875`, вероятность полного payload `0.72`;
+  fragmentation включена, reassembly timeout `3000 ms`, до `64` пакетов / `4 MiB` / `64`
+  фрагментов на исходный пакет. Полный справочник и ограничения приведены в `docs/*/CONFIG.md`.
+- Защитные свойства остаются end-to-end: recordizer сериализуется **до** `PacketCodec` AEAD,
+  поэтому внутренние заголовки, ID и границы фрагментов не выходят на провод открытым текстом.
+  Очереди и reassembly ограничены; просроченные, пересекающиеся, дублированные или превышающие
+  предел фрагменты отвергаются без неограниченного выделения памяти.
+- Результат — общий для всех режимов контроль распределения размеров и границ, устраняющий
+  прежний transport-independent признак «IP packet ↔ qeli record». Он не делает режимы
+  одинаковыми и не означает «протокол полностью незаметен»: внешний TLS/REALITY/H2/WebSocket/
+  QUIC-shape, адрес назначения, handshake и долгие тайминги по-прежнему классифицируемы. Поэтому
+  carrier-specific параметры и PCAP/DPI-регрессия каждого режима остаются обязательными.
+
+#### Переход пользовательских конфигов
+
+1. Обновить серверный бинарник, сохранив существующие identity, ключи и transport-параметры.
+2. Добавить в каждый нужный `[profile:*]` как минимум `obf.recordizer.policy = prefer`.
+   Остальные `obf.recordizer.*` можно не задавать: будут использованы безопасные defaults.
+3. Перезапустить сервер и убедиться, что legacy-клиент всё ещё подключается по fallback.
+4. Обновить клиентские приложения/общий native-core и переподключить сессии. Менять клиентские
+   ссылки и добавлять recordizer-параметры на клиент не требуется.
+5. После подтверждения обновления всего парка при необходимости сменить `prefer` на `required`.
+   Не включать `required` раньше: это намеренно прекратит доступ старых клиентов.
+
 - Закрыт повторный security/runtime-аудит клиентов и поставки. Windows kill-switch теперь
   открывает WinDivert с допустимым приоритетом и проверяет границы в self-test; необработанные
   UI/AppDomain/TaskScheduler ошибки пишутся в аварийный журнал, а per-app capture классифицирует
@@ -1244,6 +1443,15 @@
   wrapper — чистое сокращение на 2 300 строк. В общем .NET-проекте остаются только
   cross-language wire/KAT; production transport и reachability на них не
   ссылается и managed fallback больше не существует.
+- Финальный cleanup общего desktop-адаптера отделил production от conformance: `QeliShared.dll`
+  больше не компилирует managed crypto/wire codecs, fixture discovery, network-policy assertions
+  и MTU KAT helpers; они запускаются только отдельным `QeliConformance`. Native fake-TLS bridge
+  gate теперь строго вызывает Rust `qeli_build_faketls_clienthello` без managed fallback, поэтому
+  отсутствующая библиотека или экспорт больше не дают ложный PASS. Production dependency graph
+  не содержит BouncyCastle/test runner.
+- Persist-TUN fingerprint канонизирует interface-scoped routes как множество CIDR: удаление
+  сервером лишнего дубликата больше не пересобирает неизменившийся TUN. Android icon generator
+  использует пути относительно checkout вместо developer-specific OneDrive hardcode.
 - ABI 1.7 добавляет `QELI_CORE_TUN_PACKET_IO`, `QELI_PLATFORM_TUN_PACKET_BATCH` и
   generation-scoped `qeli_client_tun_push/pull`. Пакеты передаются в caller-owned
   contiguous buffers с массивом длин; packet/batch ограничены 65 535 байтами/64 элементами,

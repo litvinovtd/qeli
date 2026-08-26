@@ -104,15 +104,12 @@ Wintun-адаптер (`Qeli-<hash>` от адреса сервера), macOS б
 
 ### Клиентские ключи: keepalive и OpenVPN-паритет
 
-**Keepalive (все клиенты).** Настройка heartbeat, аутентифицированно полученная от сервера,
-применяется общим Rust-ядром на всех клиентах. При включённом heartbeat обе стороны шлют
-зашифрованные keepalive с заданным интервалом; traffic shaping заменяет фиксированный heartbeat
-cover-трафиком. Если heartbeat и shaping выключены, скрытого 30-секундного фолбэка и RX-liveness
-reap нет: здоровый тихий туннель может простаивать. Явный ненулевой
-`perf.connection.idle_timeout_secs` по-прежнему закрывает сессию после общего простоя; `0`
-отключает policy-timeout. Но на UDP-сервере нельзя одновременно отключить все три источника
-liveness: если heartbeat и shaping выключены, задайте конечный idle timeout, чтобы исчезнувший
-клиент со временем освободил IP и клиентский слот.
+**Keepalive.** Аутентифицированная настройка сервера применяется общим Rust-ядром, кроме
+текущего TCP `reality-tls`: там qeli heartbeat принудительно выключен, потому что H2/TCP уже
+даёт transport liveness, а периодический application-маяк классифицируем. В остальных режимах
+работает настроенный encrypted keepalive; shaping заменяет его случайным cover. Если оба
+механизма выключены, скрытого 30-секундного fallback/RX-reap нет. UDP-профилю нужен heartbeat,
+shaping либо конечный idle timeout, чтобы исчезнувший клиент освобождал lease и слот.
 
 **OpenVPN-паритет и поведение реконнекта (`persist_tun` и платформенные route-ключи относятся
 только к C# desktop; source-binding carrier также применяется Linux CLI):**
@@ -262,7 +259,7 @@ obf.padding.min_bytes = 32
 obf.padding.max_bytes = 256
 obf.heartbeat.enabled = true
 obf.heartbeat.interval_ms = 15000
-obf.heartbeat.jitter_ms = 20
+obf.heartbeat.jitter_ms = 5000
 perf.tcp.nodelay = true
 perf.tcp.keepalive_secs = 60
 perf.tun.read_buffer_size = 65535
@@ -867,27 +864,24 @@ uplink (только TCP).
 
 ## Wire-режимы обфускации (`obfuscation.mode`)
 
-`mode` выбирает, как выглядит соединение «на проводе»; задаётся **одинаково на
-сервере (в профиле) и на клиенте**. Режимы `plain`/`obfs`/`reality`/`reality-tls`
-— **только TCP** (потоковые); на UDP проводной режим — `fake-tls` (+ опц.
-QUIC-masking), остальные на UDP отвергаются на старте.
-
+`mode` выбирает wire carrier. Новые серверные профили и клиенты используют каноническое
+`reality-tls`. На время миграции новый сервер принимает и legacy-метку `fake-tls`, если
+`reality_proxy.enabled=true` и `real_tls=true`; новый клиент всё равно отправляет
+`mode=reality-tls`. `plain`/`obfs`/`reality`/`reality-tls` работают только по TCP. UDP принимает
+поддерживаемые UDP aliases/базовые `fake-tls` или `obfs`; Reality/H2 по UDP недоступен.
 | `mode` | Поведение | Против чего | Заметки |
 |---|---|---|---|
 | `"plain"` | Без обфускации: сырой обмен X25519-ключами и голые записи `[len][nonce][ct]` (никакой TLS-мимикрии). Обычный шифрованный VPN-туннель | Ничего — на проводе высокоэнтропийный поток без узнаваемого протокола (сам по себе сигнал для энтропийного DPI) | Самый дешёвый, скорость ≈ fake-tls. **Только TCP.** Для доверенных сетей, где DPI не важен |
 | `"fake-tls"` (по умолчанию) | Псевдо-TLS-1.3 рукопожатие (ClientHello с GREASE и рандомным порядком расширений → JA3 меняется), затем data-плоскость в TLS-Application-Data записях | Пассивный сигнатурный DPI | Дешевле по CPU; «выглядит как TLS» |
 | `"obfs"` | Весь поток XOR-ится потоковым ключом ChaCha20; начало соединения по умолчанию замаскировано под рукопожатие WebSocket Upgrade (см. `obfs_fronting`), далее псевдослучайные байты | DPI, сигнатурящий *известные* протоколы (в т.ч. fake-TLS/JA3) + энтропийный «fully encrypted» детект (GFW/ТСПУ) | Требует `obfs_key` (PSK), общий для сервера и клиента. ~11% overhead (двойное шифрование) |
-| `"reality-tls"` | Клиент шлёт **настоящий** браузерный TLS 1.3 ClientHello (Chrome JA4) с REALITY-токеном в `session_id`; сервер терминирует настоящий TLS (rustls) и несёт туннель внутри. «Чужие» соединения проксируются на реальный сайт | Активный пробинг + JA3/JA4 + энтропийный DPI (на проводе — настоящий TLS) | Клиенту нужны `key`(пин) + `reality_sid`; серверу `reality_proxy.real_tls=true` + `short_ids`. ↓-скорость ниже (вложенный TLS). **Только TCP.** См. секцию REALITY ниже |
+| `"reality-tls"` | REALITY TLS 1.3 согласует ALPN `h2`; один долгоживущий двунаправленный HTTP/2 POST несёт приватный поток qeli со случайным batching. Чужие подключения мостятся на target | Снижает известные признаки active probe, TLS fingerprint и корреляции границ записей | Нужны клиентские `key` + `reality_sid` + совпадающий `sni`; на сервере `real_tls=true` + `short_ids`. Внешний TLS AEAD и внутренний qeli AEAD сохраняются. **Только TCP.** |
 
-> **Как выбрать режим (позиционирование).** Дефолт `fake-tls` рассчитан на
-> **пассивный** DPI (D1/D2) и дёшев по CPU. Если в модели угроз есть **активный
-> пробинг** (D3 — цензор сам достукивается до сервера: GFW, ряд провайдеров) —
-> включайте **`reality-tls`** явно (это не дефолт, т.к. дороже по CPU и медленнее
-> из-за вложенного TLS, но единственный режим с настоящим TLS, отдающий неавторизованному
-> проберу настроенный реальный сайт). Он снижает известные признаки из
-> [DPI-AUDIT.md](DPI-AUDIT.md), но не гарантирует неотличимость. `obfs` — против энтропийного «fully-encrypted»
-> детекта (без мимикрии под конкретный протокол). `plain` — только доверенные сети
-> (на проводе самый заметный). Подробная модель обнаружимости — [DPI-AUDIT.md](DPI-AUDIT.md).
+> **Как выбрать.** `reality-tls` даёт максимальную текущую TCP-маскировку: настоящий TLS 1.3
+> + H2 и bridging неавторизованных проб на target. Это снижает известные признаки из
+> [DPI-AUDIT.md](DPI-AUDIT.md), но не гарантирует неотличимость. `fake-tls` дешевле и рассчитан
+> на пассивный/сигнатурный DPI; `obfs` — на эвристики fully-encrypted flow; `plain` — для
+> доверенных сетей. Installer и поставляемые stealth-шаблоны выбирают `reality-tls`, тогда как
+> общий schema baseline оставлен compatibility-oriented.
 
 ### Готовые пресеты профилей
 
@@ -898,19 +892,20 @@ QUIC-masking), остальные на UDP отвергаются на стар�
 
 | Профиль | Транспорт:порт | `obf.mode` | Когда брать |
 |---|---|---|---|
-| `reality-tls` | tcp :443 | reality-tls | максимальная маскировка, держит активный пробинг (см. секцию REALITY) |
+| `reality-tls` | tcp :443 | reality-tls | максимальная текущая TCP-маскировка: REALITY TLS 1.3 + настоящий H2; неавторизованные пробы мостятся на target |
 | `reality` | tcp :8443 | fake-tls (+reality-proxy) | fake-tls с проксированием «чужих» на реальный сайт |
 | `fake-tls` | tcp :8444 | fake-tls | дефолтный баланс против пассивного DPI |
 | `obfs-ws` | tcp :8445 | obfs | ChaCha-обфускация под WebSocket-fronting (нужен `obfs_key`) |
 | `obfs-none` | tcp :8446 | obfs | голый obfs без fronting (legacy/откат) |
 | `plain` | tcp :8447 | plain | доверенные сети, максимум скорости |
 | `udp-fake-tls` | udp :8448 | fake-tls | UDP-транспорт с TLS-мимикрией |
-| `udp-quic` | udp :8449 | fake-tls (+QUIC-mask) | UDP под видом QUIC |
+| `udp-quic` | udp :8449 | fake-tls (+QUIC-shape) | поверхностная QUIC-shaped совместимость; не настоящий QUIC/HTTP3 |
 | `udp-obfs` | udp :8450 | obfs | UDP с ChaCha-обфускацией |
 | `obfs-awg` | tcp :8451 | obfs | obfs + AmneziaWG-маскировка (junk-преамбула) |
 
-> Клиент должен использовать тот же `mode` (и `obfs_key`/`front`/`sni`, где применимо),
-> что и выбранный профиль. Полные рабочие секции со всеми ключами — в самом файле.
+> Кроме документированной legacy-метки Reality на сервере, клиент использует тот же `mode`
+> (и `obfs_key`/`front`/`sni`, где применимо), что и выбранный профиль. Полные рабочие секции
+> со всеми обязательными ключами находятся в `server-multiprofile.conf`.
 
 ### `obfs_fronting` (anti-FET, только для `mode = obfs`)
 
@@ -954,18 +949,18 @@ UDP-обфускация — отдельный механизм (`obfuscation.q
 | `obf.tls.reality_proxy.enabled` | включить REALITY-обработку входящих соединений |
 | `obf.tls.reality_proxy.target` / `target_port` | реальный сайт, куда прозрачно проксируются «не-наши»/пробинг-соединения (напр. `www.microsoft.com:443`) |
 | `obf.tls.reality_proxy.short_ids` | allow-лист 8-байтовых (16 hex) ID «своих» — криптографический дискриминатор (токен в `session_id`). **Обязателен при `reality_proxy.enabled`**: с пустым списком сервер не стартует. (Раньше пустой список давал legacy-фоллбэк «нет ALPN»; он тривиально пробивается активным пробером, поэтому теперь отвергается на старте.) |
-| `obf.tls.reality_proxy.real_tls` | `true` → сервер терминирует **настоящий** TLS 1.3, туннель внутри (режим клиента `reality-tls`); `false` → fake-TLS на проводе, REALITY только мост/токен |
-| `obf.tls.reality_proxy.handrolled` | `true` → hand-rolled TLS-терминатор: **одалживает настоящую цепочку серта target'а** (cert-borrowing — при старте профиля probe захватывает реальный серт, напр. microsoft; **авто-refresh раз в 12ч**, target-серты ротируются) + зеркалит его JA3S/ServerHello. `false` → rustls: **self-signed** серт + свой JA3S (маскировка слабее). **По умолчанию `true`** — паритет с Xray-REALITY вы получаете сразу, включать ничего не нужно; `false` ставят только для отката на rustls. Требует `real_tls = true` |
+| `obf.tls.reality_proxy.real_tls` | `true` → терминировать настоящий TLS 1.3 и автоматически запускать настоящий H2 carrier (клиент `mode=reality-tls`); `false` → legacy fake-TLS wire только с REALITY bridge/token |
+| `obf.tls.reality_proxy.handrolled` | `true` → hand-rolled TLS-терминатор: **одалживает цепочку серта target'а** (захватывается при старте; **авто-refresh раз в 12ч**) и зеркалит форму JA3S/ServerHello. `false` → rustls: **self-signed** серт + свой JA3S (маскировка слабее). По умолчанию `true`; совпадают только эти измерения сертификата/ServerHello, а не всё browser/Xray/H2-поведение. Требует `real_tls = true` |
 
 - **proxy-bridge (`real_tls=false`):** клиент шлёт `mode=fake-tls`; на проводе fake-TLS,
   но «чужие» хендшейки уходят на `target` (активный пробер видит настоящий сайт).
   Скорость ≈ `plain`.
-- **`reality-tls` (`real_tls=true`):** клиент шлёт `mode=reality-tls` + **обязательно**
-  `key` (пин static-ключа профиля, из `show-identity`) + `reality_sid` (один из
-  `short_ids`). На проводе — настоящий Chrome-TLS 1.3, туннель внутри; закрывает
-  теллы 1.1–1.6 ([DPI-AUDIT.md](DPI-AUDIT.md)). ↓-скорость ниже (вложенный TLS — см.
-  [BENCHMARK.md](BENCHMARK.md)). Раздаётся QR-ссылкой (`rsid=` несёт short_id).
-  Шаблоны конфигов — [release/reality-tls/](../../release/reality-tls/).
+- **`reality-tls` (`real_tls=true`):** клиент отправляет `mode=reality-tls`, обязательный pinned
+  `key`, совпадающие `reality_sid`/`sni`, затем согласует ALPN `h2`. Один долгоживущий HTTP/2
+  POST несёт raw private qeli records со случайным batching; второго fake-TLS handshake и H2
+  config key нет. Внешний TLS AEAD и внутренний qeli AEAD сохраняются. Шаблоны —
+  [release/reality-tls/](../../release/reality-tls/). Сначала обновляйте сервер: новый сервер
+  принимает legacy Reality carrier, новый клиент downgrade к старому серверу не делает.
 - **Часы клиента и сервера должны совпадать в пределах ±120 секунд** (когда задан
   `short_ids`): REALITY-токен в `session_id` несёт timestamp (anti-replay,
   `REALITY_WINDOW_SECS = 120`), и при бóльшем расхождении сервер **молча** мостит
@@ -1330,7 +1325,7 @@ fail-closed во время reconnect. Неизвестный владелец �
 | Ключ | Умолч. | CLI | Win | mac | And | iOS | Назначение |
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `padding` · `padding_min` · `padding_max` | on / `0` / `255` | ✓ | ✓ | ✓ | ✓ | ✓ | padding записей; максимум строго ограничен форматом wire |
-| `heartbeat` · `heartbeat_interval` · `heartbeat_size` · `heartbeat_jitter` | on / `15000` / `16` / `2000` | ✓ | ✓ | ✓ | ✓ | ✓ | cover heartbeat и его интервал/размер/jitter |
+| `heartbeat` · `heartbeat_interval` · `heartbeat_size` · `heartbeat_jitter` | on / `15000` / `16` / `5000` | ✓ | ✓ | ✓ | ✓ | ✓ | cover heartbeat и его интервал/размер/jitter |
 | `shaping` · `shaping_gap_mean` · `shaping_gap_min` · `shaping_gap_max` · `shaping_budget` | off / профильные | ✓ | ✓ | ✓ | ✓ | ✓ | включение и временной/бюджетный контур shaping |
 | `shaping_min_size` · `shaping_max_size` · `shaping_stealth` · `shaping_stealth_mbps` | профильные | ✓ | ✓ | ✓ | ✓ | ✓ | размеры cover-записей и stealth-rate |
 
@@ -2100,7 +2095,7 @@ ip route add default dev "$QELI_TUN" table 100
 |---|---|---|
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI, зашиваемый в share-ссылку. **fake-tls:** косметика (сервер игнорирует SNI клиента). **reality / reality-tls:** обязан равняться `reality_proxy.target`. |
 
-**Padding / Fragmentation / Heartbeat** (по дефолту все три **включены**):
+**Schema baseline: Padding / Fragmentation / Heartbeat** (включены, если поставляемый профиль не переопределяет их; Reality/H2-шаблоны отключают padding и heartbeat):
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
@@ -2114,7 +2109,7 @@ ip route add default dev "$QELI_TUN" table 100
 | `obf.heartbeat.enabled` | `true` | фоновый cover-трафик (keepalive) |
 | `obf.heartbeat.interval_ms` | `15000` | интервал |
 | `obf.heartbeat.data_size_bytes` | `16` | размер нагрузки |
-| `obf.heartbeat.jitter_ms` | `20` | джиттер интервала |
+| `obf.heartbeat.jitter_ms` | `5000` | one-shot джиттер; пересчитывается после активности/отправки |
 
 > **Настройка `obf.fragmentation.*` касается только рукопожатия.** Режется одна запись —
 > ServerHello, один раз за подключение. Поток данных она не трогает вовсе, поэтому
@@ -2132,10 +2127,43 @@ ip route add default dev "$QELI_TUN" table 100
 > размера, неотличимых от обычной сегментации TCP. Уменьшать их имеет смысл только
 > против конкретного DPI, о котором вы знаете больше нас.
 
-> Для `reality-tls` padding бесполезен (трафик уже внутри настоящего TLS) —
+**Транспорт-независимая морфология data-plane (`PACKET_MUX_V1`):**
+
+После успешной аутентификации сервер может включить один общий recordizer для любого carrier:
+TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, QUIC-shape,
+`obfs`/AWG. Это не новый транспортный режим: recordizer объединяет несколько IP-пакетов,
+меняет границы зашифрованных записей и при необходимости делит один IP-пакет между ними.
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `obf.recordizer.policy` | `off` | `off` — legacy data-plane; `prefer` — включить с клиентом, поддерживающим `PACKET_MUX_V1`, иначе legacy; `required` — отклонить несовместимый клиент до выдачи адреса |
+| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | случайное максимальное окно ожидания первой записи перед отправкой batch |
+| `obf.recordizer.batch.max_packets` | `16` | максимум исходных IP-пакетов в очереди batch |
+| `obf.recordizer.batch.max_queue_bytes` | `262144` | жёсткий предел памяти очереди на направление (`64..=4194304`) |
+| `obf.recordizer.record.max_payload_bytes` | `0` | `0` = автоматически выбрать безопасный payload по carrier/path; иначе `64..=tun MTU ceiling` |
+| `obf.recordizer.record.small_min_ratio` / `small_max_ratio` | `0.25` / `0.875` | диапазон случайной неполной цели относительно безопасного максимума (`0 < min ≤ max ≤ 1`) |
+| `obf.recordizer.record.full_probability` | `0.72` | вероятность выбрать полный безопасный размер вместо случайной неполной цели (`0..=1`) |
+| `obf.recordizer.fragment.enabled` | `true` | разрешить одному IP-пакету пересекать внутренние границы записей |
+| `obf.recordizer.fragment.reassembly_timeout_ms` | `3000` | таймаут незавершённой сборки |
+| `obf.recordizer.fragment.max_inflight_packets` | `64` | максимум одновременно собираемых пакетов на направление |
+| `obf.recordizer.fragment.max_reassembly_bytes` | `4194304` | общий жёсткий предел памяти reassembly на направление |
+| `obf.recordizer.fragment.max_fragments_per_packet` | `64` | максимум частей одного IP-пакета |
+
+Конфигурация задаётся только на сервере и передаётся клиенту внутри аутентифицированного
+`AUTH OK`; отдельные клиентские ключи не нужны. Schema default остаётся `off`, а поставляемые
+профили явно используют `prefer`, чтобы обновлённые клиенты получали новую форму без поломки
+legacy-клиентов. После обновления всего парка можно перейти на `required`; изменение применяется
+к новым сессиям, поэтому нужен reconnect, а не только редактирование файла.
+
+Recordizer убирает связь «один IP-пакет = одна qeli-запись» у всех режимов, но не превращает
+их в один и тот же carrier: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoint и внешние тайминги
+остаются видимыми и требуют собственной согласованной маскировки. Это снижение одного класса
+статистических признаков, а не обещание полной неклассифицируемости.
+
+> Для `reality-tls` padding избыточен: настоящий H2 batching уже отделяет qeli-пакеты от внешних границ записей —
 > выключайте (`obf.padding.enabled = false`), см. раздел «Тюнинг ОС сервера».
 
-**Доп. маскировка (по дефолту выключена):**
+**Доп. маскировка (schema baseline выключена; поставляемые Reality/max-obfuscation профили явно включают traffic shaping):**
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|

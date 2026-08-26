@@ -28,6 +28,11 @@ BIN = "/usr/local/bin/qeli"
 # the copy below would silently overwrite it with the tree build and you would be
 # measuring the wrong binary.
 SRC_BIN = os.environ.get("QELI_BENCH_SRC_BIN", "/opt/qeli-src/target/release/qeli")
+RECORDIZER_POLICY = os.environ.get("QELI_BENCH_RECORDIZER_POLICY", "off").strip().lower()
+if RECORDIZER_POLICY not in {"off", "prefer", "required"}:
+    raise SystemExit(
+        "QELI_BENCH_RECORDIZER_POLICY must be off, prefer or required"
+    )
 HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w"
 PASS = "testpass123"
 
@@ -83,6 +88,7 @@ def server_ini(m):
         "routing.nat.enabled = false",
         "dns.enabled = false",
         f"obf.mode = {m['server_mode']}",
+        f"obf.recordizer.policy = {RECORDIZER_POLICY}",
         "obf.tls.server_name = www.cloudflare.com",
         f"obf.tls.reality_proxy.enabled = {str(m.get('reality', False)).lower()}",
         "obf.tls.reality_proxy.target = www.cloudflare.com",
@@ -298,7 +304,7 @@ def run_mode(s, cl, m):
          "ping_rtt": rtt.strip(),
          "ping_loss": loss.split(",")[2].strip() if "," in loss else loss.strip()}
     if udp:
-        r["udp_sweep"] = iperf_udp_sweep(s, cl, sip, [100, 200, 300, 400, 500])
+        r["udp_sweep"] = iperf_udp_sweep(s, cl, sip, [100, 200, 300, 400, 500, 600])
     else:
         start_qeli_sampler(s, "up")
         r["tcp_up"] = iperf_tcp(cl, sip, False)
@@ -371,7 +377,8 @@ def main():
     ver = out(s, f"{BIN} --version 2>&1")
     print("binary:", ver, sha)
 
-    results = {"meta": {"date": out(s, "date -u +%Y-%m-%dT%H:%M:%SZ"), "sha256_16": sha, "version": ver,
+    results = {"meta": {"date": out(s, "date -u +%Y-%m-%dT%H:%M:%SZ"), "sha256_16": sha,
+                        "version": ver, "recordizer_policy": RECORDIZER_POLICY,
                         "server": out(s, "uname -r"), "iperf3": out(s, "iperf3 --version | head -1")},
                "baseline": baseline(s, cl), "modes": {}}
     for m in MODES:

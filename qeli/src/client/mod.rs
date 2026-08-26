@@ -1457,7 +1457,7 @@ async fn connect_tcp_candidates(
 async fn connect_reality(
     config: &crate::config::client::ClientConfig,
     primary: bool,
-) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
+) -> anyhow::Result<tokio::io::DuplexStream> {
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
@@ -1549,9 +1549,18 @@ async fn connect_reality(
             ))
         }
     };
-    Ok(crate::protocol::realtls::stream::RealTlsStream::new(
-        stream, est,
-    ))
+    let tls = crate::protocol::realtls::stream::RealTlsStream::new(stream, est);
+    let h2 = tokio::time::timeout(to, crate::protocol::h2_carrier::connect(tls, &server_name))
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "reality-tls HTTP/2 carrier timed out after {}s",
+                to.as_secs()
+            )
+        })?
+        .map_err(|error| anyhow::anyhow!("reality-tls HTTP/2 carrier failed: {error}"))?;
+    log::info!("REALITY-TLS carrier: genuine HTTP/2 stream");
+    Ok(h2)
 }
 
 /// Open ONE obfs connection (TCP + ChaCha20 stream obfuscation with its own nonce
@@ -1702,6 +1711,9 @@ struct StreamPump {
     /// Flow-shaping (DPI-AUDIT 6.1/6.2): client->server idle cover, mirror of the
     /// server's. When enabled it replaces this stream's fixed heartbeat.
     shaping: crate::protocol::ShapingConfig,
+    /// Effective PACKET_MUX_V1 configuration; absent for every legacy peer.
+    recordizer: Option<crate::protocol::recordizer::RuntimeConfig>,
+
     /// Aggregate client→server cover budget shared by every bonded stream.
     cover_budget: crate::protocol::SharedCoverBudget,
     /// reality-tls only: run the receive side as a 2-stage pipeline so the outer
@@ -1728,6 +1740,174 @@ impl AsRef<[u8]> for ClientUplink {
     }
 }
 
+/// Encrypt, pace and write one already-recordized plaintext. Keeping this in one
+/// helper guarantees that legacy packets and PACKET_MUX_V1 envelopes use exactly
+/// the same padding/shaping path.
+fn encrypt_client_payload(
+    tx: &mut PacketCodec,
+    data: &[u8],
+    payload_budget: usize,
+    cfg: &StreamPump,
+    wire_record: &mut Vec<u8>,
+    padding: &mut Vec<u8>,
+) -> bool {
+    {
+        let mut obf = Obfuscator::new();
+        let normalization_padding = if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
+            Obfuscator::normalization_padding_len(data.len(), &cfg.norm_sizes, payload_budget)
+        } else {
+            0
+        };
+        let base = data
+            .len()
+            .saturating_add(normalization_padding)
+            .saturating_add(60);
+        let pad_cap = (cfg.padding_max as usize).min(payload_budget.saturating_sub(base)) as u16;
+        obf.generate_padding_opts_into(
+            cfg.padding_enabled,
+            cfg.padding_min,
+            pad_cap,
+            cfg.padding_randomize,
+            cfg.padding_prob,
+            padding,
+        );
+        if normalization_padding != 0 {
+            obf.append_normalization_padding_into(
+                data.len(),
+                &cfg.norm_sizes,
+                payload_budget,
+                padding,
+            );
+        }
+        tx.encrypt_packet_into(data, padding, wire_record).is_ok()
+    }
+}
+
+async fn write_client_wire_record<W: AsyncWrite + Unpin>(
+    write_half: &mut W,
+    tx: &mut PacketCodec,
+    shaper: &mut crate::protocol::Shaper,
+    wire_record: &[u8],
+    cover_record: &mut Vec<u8>,
+    padding: &mut Vec<u8>,
+) -> bool {
+    let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
+    if shaper.stealth() && !delay.is_zero() {
+        let mut remaining = delay;
+        while remaining > Duration::from_millis(6) {
+            let size = shaper.next_size(&mut rand::rng());
+            let cover_ready = if shaper.try_spend(size, std::time::Instant::now()) {
+                let mut obf = Obfuscator::new();
+                obf.generate_padding_into(size as u16, size as u16, padding);
+                tx.encrypt_packet_into(&[], padding, cover_record).is_ok()
+            } else {
+                false
+            };
+            if cover_ready && write_half.write_all(cover_record).await.is_err() {
+                return false;
+            }
+            let step = Duration::from_millis(rand::rng().random_range(4..=18));
+            let sleep = step.min(remaining);
+            tokio::time::sleep(sleep).await;
+            remaining = remaining.saturating_sub(sleep);
+        }
+    } else if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    write_half.write_all(wire_record).await.is_ok()
+}
+
+/// Deliver one authenticated plaintext record. With PACKET_MUX_V1 it may yield
+/// zero, one or several inner packets; legacy records retain their pooled buffer.
+struct ClientTcpRxMetrics<'a> {
+    last_rx: &'a AtomicU64,
+    base: tokio::time::Instant,
+    total_rx: &'a AtomicU64,
+    runtime: &'a RuntimeCounters,
+    unsupported_drops: &'a mut u64,
+}
+
+fn deliver_client_tcp_plaintext(
+    record: PooledBuffer,
+    mux: &mut Option<crate::protocol::recordizer::Reassembler>,
+    tun: &TunWriter,
+    family_mode: crate::transport_core::NetworkFamilyMode,
+    metrics: ClientTcpRxMetrics<'_>,
+) -> bool {
+    metrics
+        .last_rx
+        .store(metrics.base.elapsed().as_millis() as u64, Ordering::Relaxed);
+    if record.is_empty() {
+        return true;
+    }
+
+    if let Some(mux) = mux.as_mut() {
+        let packets = match mux.decode(record.as_ref()) {
+            Ok(packets) => packets,
+            Err(error) => {
+                log::debug!("TCP recordizer decode error: {error}");
+                return true;
+            }
+        };
+        drop(record);
+        for bytes in packets {
+            if !is_supported_inner_packet(&bytes, family_mode) {
+                *metrics.unsupported_drops = metrics.unsupported_drops.saturating_add(1);
+                if metrics.unsupported_drops.is_power_of_two() {
+                    log::debug!(
+                        "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
+                        metrics.unsupported_drops
+                    );
+                }
+                continue;
+            }
+            let Some(mut packet) = tun.try_acquire() else {
+                continue;
+            };
+            packet.as_vec_mut().extend_from_slice(&bytes);
+            metrics
+                .total_rx
+                .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            metrics.runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
+            metrics
+                .runtime
+                .rx_bytes
+                .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            trace::record(trace::Dir::Rx, "client.tcp", bytes.len(), 0);
+            match tun.try_send(packet) {
+                Ok(()) => {}
+                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
+            }
+        }
+        return true;
+    }
+
+    if !is_supported_inner_packet(record.as_ref(), family_mode) {
+        *metrics.unsupported_drops = metrics.unsupported_drops.saturating_add(1);
+        if metrics.unsupported_drops.is_power_of_two() {
+            log::debug!(
+                "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
+                metrics.unsupported_drops
+            );
+        }
+        return true;
+    }
+    metrics
+        .total_rx
+        .fetch_add(record.len() as u64, Ordering::Relaxed);
+    metrics.runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
+    metrics
+        .runtime
+        .rx_bytes
+        .fetch_add(record.len() as u64, Ordering::Relaxed);
+    trace::record(trace::Dir::Rx, "client.tcp", record.len(), 0);
+    match tun.try_send(record) {
+        Ok(()) => true,
+        Err(std::sync::mpsc::TrySendError::Full(_)) => true,
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+    }
+}
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
 /// tasks (outgoing plaintext → encrypt → socket). Returns the outgoing channel
 /// the distributor feeds. `live` counts streams still up; this stream's death
@@ -1791,6 +1971,7 @@ where
         let total_rx = total_rx.clone();
         let runtime = runtime.clone();
         let record_pool = tun_write_tx.clone();
+        let recordizer_config = cfg.recordizer.clone();
 
         // Where the reader sends each framed record. `Inline` decrypts in this
         // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
@@ -1800,7 +1981,11 @@ where
         // codec would only add an indirection to the common inline path.
         #[allow(clippy::large_enum_variant)]
         enum RxSink {
-            Inline { rx: PacketCodec, tun: TunWriter },
+            Inline {
+                rx: PacketCodec,
+                tun: TunWriter,
+                mux: Option<crate::protocol::recordizer::Reassembler>,
+            },
             Pipe(mpsc::Sender<PooledBuffer>),
         }
 
@@ -1811,6 +1996,9 @@ where
             let inner_total_rx = total_rx.clone();
             let inner_runtime = runtime.clone();
             let inner_last_rx = last_rx.clone();
+            let mut inner_mux = recordizer_config
+                .clone()
+                .map(crate::protocol::recordizer::Reassembler::new);
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
@@ -1819,38 +2007,21 @@ where
                 let mut unsupported_downlink_drops = 0u64;
                 while let Some(mut record) = rec_rx.recv().await {
                     match inner_rx_codec.decrypt_packet_in_place(record.as_vec_mut()) {
-                        Ok(())
-                            if !record.is_empty()
-                                && is_supported_inner_packet(record.as_ref(), family_mode) =>
-                        {
-                            inner_last_rx
-                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                            inner_total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
-                            inner_runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
-                            inner_runtime
-                                .rx_bytes
-                                .fetch_add(record.len() as u64, Ordering::Relaxed);
-                            trace::record(trace::Dir::Rx, "client.tcp", record.len(), 0);
-                            match inner_tun.try_send(record) {
-                                Ok(()) => {}
-                                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
-                            }
-                        }
-                        Ok(()) if record.is_empty() => {
-                            inner_last_rx
-                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                        }
                         Ok(()) => {
-                            inner_last_rx
-                                .store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                            unsupported_downlink_drops =
-                                unsupported_downlink_drops.saturating_add(1);
-                            if unsupported_downlink_drops.is_power_of_two() {
-                                log::debug!(
-                                    "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
-                                    unsupported_downlink_drops
-                                );
+                            if !deliver_client_tcp_plaintext(
+                                record,
+                                &mut inner_mux,
+                                &inner_tun,
+                                family_mode,
+                                ClientTcpRxMetrics {
+                                    last_rx: &inner_last_rx,
+                                    base,
+                                    total_rx: &inner_total_rx,
+                                    runtime: &inner_runtime,
+                                    unsupported_drops: &mut unsupported_downlink_drops,
+                                },
+                            ) {
+                                break;
                             }
                         }
                         Err(e) => log::debug!("Decrypt error: {}", e),
@@ -1863,6 +2034,7 @@ where
             RxSink::Inline {
                 rx,
                 tun: tun_write_tx,
+                mux: recordizer_config.map(crate::protocol::recordizer::Reassembler::new),
             }
         };
 
@@ -1877,56 +2049,23 @@ where
                 match read_record_into(&mut read_half, framing, record.as_vec_mut()).await {
                     Ok(()) => {
                         match &mut sink {
-                            RxSink::Inline { rx, tun } => {
+                            RxSink::Inline { rx, tun, mux } => {
                                 match rx.decrypt_packet_in_place(record.as_vec_mut()) {
-                                    Ok(())
-                                        if !record.is_empty()
-                                            && is_supported_inner_packet(
-                                                record.as_ref(),
-                                                family_mode,
-                                            ) =>
-                                    {
-                                        last_rx.store(
-                                            base.elapsed().as_millis() as u64,
-                                            Ordering::Relaxed,
-                                        );
-                                        total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
-                                        runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
-                                        runtime
-                                            .rx_bytes
-                                            .fetch_add(record.len() as u64, Ordering::Relaxed);
-                                        trace::record(
-                                            trace::Dir::Rx,
-                                            "client.tcp",
-                                            record.len(),
-                                            0,
-                                        );
-                                        match tun.try_send(record) {
-                                            Ok(()) => {}
-                                            Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                                                break
-                                            }
-                                        }
-                                    }
-                                    Ok(()) if record.is_empty() => {
-                                        last_rx.store(
-                                            base.elapsed().as_millis() as u64,
-                                            Ordering::Relaxed,
-                                        );
-                                    }
                                     Ok(()) => {
-                                        last_rx.store(
-                                            base.elapsed().as_millis() as u64,
-                                            Ordering::Relaxed,
-                                        );
-                                        unsupported_downlink_drops =
-                                            unsupported_downlink_drops.saturating_add(1);
-                                        if unsupported_downlink_drops.is_power_of_two() {
-                                            log::debug!(
-                                                "TCP client dropped invalid or non-negotiated-family downlink packet (total {})",
-                                                unsupported_downlink_drops
-                                            );
+                                        if !deliver_client_tcp_plaintext(
+                                            record,
+                                            mux,
+                                            tun,
+                                            family_mode,
+                                            ClientTcpRxMetrics {
+                                                last_rx: &last_rx,
+                                                base,
+                                                total_rx: &total_rx,
+                                                runtime: &runtime,
+                                                unsupported_drops: &mut unsupported_downlink_drops,
+                                            },
+                                        ) {
+                                            break;
                                         }
                                     }
                                     Err(e) => log::debug!("Decrypt error: {}", e),
@@ -1985,13 +2124,10 @@ where
         let stream_dead = stream_dead.clone();
         let live = live.clone();
         let __h = tokio::spawn(async move {
-            let mut hb_tick = tokio::time::interval(cfg.heartbeat_interval);
-            hb_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
             idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut last_tick_wall = std::time::SystemTime::now();
             let mut last_tick_inst = tokio::time::Instant::now();
-            let hb_ms = cfg.heartbeat_interval.as_millis() as u64;
             let idle_ms = cfg.idle_timeout.as_millis() as u64;
             let mut last_tx_ms: u64 = 0;
             // Flow-shaping: when enabled, idle cover at exponential (non-periodic)
@@ -2002,6 +2138,11 @@ where
                     .with_shared_budget(cfg.cover_budget.clone());
             let shaping_on = shaper.enabled();
             let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
+            let mut heartbeat_deadline = tokio::time::Instant::now()
+                + crate::protocol::randomized_heartbeat_delay(
+                    cfg.heartbeat_interval,
+                    Duration::from_millis(cfg.hb_jitter),
+                );
             let rx_dead_ms = crate::protocol::liveness_deadline(
                 heartbeat_enabled,
                 cfg.heartbeat_interval,
@@ -2020,109 +2161,131 @@ where
             let mut wire_record = Vec::with_capacity(wire_capacity);
             let mut cover_record = Vec::with_capacity(wire_capacity);
             let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
-            loop {
+            let mut recordizer = cfg
+                .recordizer
+                .clone()
+                .map(crate::protocol::recordizer::Recordizer::new);
+            'writer: loop {
+                let mux_deadline = recordizer
+                    .as_ref()
+                    .and_then(|mux| mux.deadline())
+                    .map(tokio::time::Instant::from_std)
+                    .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
                 tokio::select! {
                     biased;
 
                     Some(pt) = out_rx.recv() => {
-                        // Normalize, pad and encrypt in a sub-scope so the (non-Send) RNG
-                        // inside Obfuscator is dropped before the write .await. A pooled TUN
-                        // buffer is borrowed directly; normalization, padding and wire records
-                        // each use connection-owned storage for the lifetime of this writer.
-                        let encrypted_data_len = {
-                            let mut obf = Obfuscator::new();
-                            let data = pt.as_ref();
-                            let normalization_padding = if cfg.norm_enabled
-                                && !cfg.norm_sizes.is_empty()
-                            {
-                                Obfuscator::normalization_padding_len(
-                                    data.len(),
-                                    &cfg.norm_sizes,
-                                    cfg.tun_mtu,
-                                )
-                            } else {
-                                0
-                            };
-                            let pad_cap = {
-                                let b = data
-                                    .len()
-                                    .saturating_add(normalization_padding)
-                                    .saturating_add(60);
-                                (cfg.padding_max as usize)
-                                    .min(cfg.tun_mtu.saturating_sub(b)) as u16
-                            };
-                            obf.generate_padding_opts_into(
-                                cfg.padding_enabled, cfg.padding_min, pad_cap,
-                                cfg.padding_randomize, cfg.padding_prob, &mut padding,
-                            );
-                            if normalization_padding != 0 {
-                                obf.append_normalization_padding_into(
-                                    data.len(),
-                                    &cfg.norm_sizes,
-                                    cfg.tun_mtu,
-                                    &mut padding,
-                                );
-                            }
-                            tx.encrypt_packet_into(data, &padding, &mut wire_record)
-                                .ok()
-                                .map(|()| data.len())
-                        };
-                        // Return a pooled TUN allocation before pacing or socket I/O awaits.
-                        drop(pt);
-                        if let Some(data_len) = encrypted_data_len {
-                            total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
-                            // Stealth: pace the uplink to stealth_rate; fill the gap
-                            // with jittered small cover (size mix + non-metronome
-                            // timing) instead of one smooth sleep.
-                            let d = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
-                            if shaper.stealth() && !d.is_zero() {
-                                let mut remaining = d;
-                                while remaining > Duration::from_millis(6) {
-                                    let csize = shaper.next_size(&mut rand::rng());
-                                    let cover_ready = if shaper.try_spend(csize, std::time::Instant::now()) {
-                                        let mut obf = Obfuscator::new();
-                                        obf.generate_padding_into(
-                                            csize as u16,
-                                            csize as u16,
-                                            &mut padding,
-                                        );
-                                        tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
-                                    } else { false };
-                                    if cover_ready
-                                        && write_half.write_all(&cover_record).await.is_err()
-                                    {
-                                        break;
-                                    }
-                                    let step = Duration::from_millis(rand::rng().random_range(4..=18));
-                                    let s = step.min(remaining);
-                                    tokio::time::sleep(s).await;
-                                    remaining = remaining.saturating_sub(s);
+                        let data_len = pt.as_ref().len();
+                        if let Some(mux) = recordizer.as_mut() {
+                            let ready = mux.push(pt.as_ref(), std::time::Instant::now());
+                            drop(pt);
+                            let payloads = match ready {
+                                Ok(payloads) => {
+                                    total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
+                                    payloads
                                 }
-                            } else if !d.is_zero() {
-                                tokio::time::sleep(d).await;
+                                Err(error) => {
+                                    log::debug!("TCP recordizer dropped a packet: {error}");
+                                    continue;
+                                }
+                            };
+                            for payload in payloads {
+                                if !encrypt_client_payload(
+                                    &mut tx,
+                                    &payload,
+                                    crate::protocol::packet::MAX_TUNNEL_MTU,
+                                    &cfg,
+                                    &mut wire_record,
+                                    &mut padding,
+                                ) {
+                                    continue;
+                                }
+                                if !write_client_wire_record(
+                                    &mut write_half,
+                                    &mut tx,
+                                    &mut shaper,
+                                    &wire_record,
+                                    &mut cover_record,
+                                    &mut padding,
+                                ).await {
+                                    break 'writer;
+                                }
+                                last_tx_ms = base.elapsed().as_millis() as u64;
+                                heartbeat_deadline = tokio::time::Instant::now()
+                                    + crate::protocol::randomized_heartbeat_delay(
+                                        cfg.heartbeat_interval,
+                                        Duration::from_millis(cfg.hb_jitter),
+                                    );
                             }
-                            last_tx_ms = base.elapsed().as_millis() as u64;
-                            if write_half.write_all(&wire_record).await.is_err() { break; }
+                        } else {
+                            let encrypted = encrypt_client_payload(
+                                &mut tx,
+                                pt.as_ref(),
+                                cfg.tun_mtu,
+                                &cfg,
+                                &mut wire_record,
+                                &mut padding,
+                            );
+                            drop(pt);
+                            if encrypted {
+                                total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
+                                if !write_client_wire_record(
+                                    &mut write_half,
+                                    &mut tx,
+                                    &mut shaper,
+                                    &wire_record,
+                                    &mut cover_record,
+                                    &mut padding,
+                                ).await {
+                                    break;
+                                }
+                                last_tx_ms = base.elapsed().as_millis() as u64;
+                                heartbeat_deadline = tokio::time::Instant::now()
+                                    + crate::protocol::randomized_heartbeat_delay(
+                                        cfg.heartbeat_interval,
+                                        Duration::from_millis(cfg.hb_jitter),
+                                    );
+                            }
                         }
                     }
 
-                    _ = hb_tick.tick(), if heartbeat_enabled => {
-                        let since = base.elapsed().as_millis() as u64 - last_tx_ms;
-                        if since < hb_ms { continue; }
-                        // The beat already fires on a fixed-interval tick and this sleep is
-                        // ADDED to it, so a symmetric ±jitter is impossible by construction.
-                        // Drawing from [0, 2*jitter) and saturating_sub'ing jitter (the old
-                        // shape) put >50% of the mass at exactly 0 — mean ≈ jitter/4, i.e.
-                        // much weaker aperiodicity than intended — and `jitter * 2` could
-                        // overflow into an empty RNG range. Draw the delay directly instead.
-                        let jitter = if cfg.hb_jitter > 0 {
-                            let mut rng = rand::rng();
-                            Duration::from_millis(rng.random_range(0..=cfg.hb_jitter))
-                        } else { Duration::ZERO };
-                        tokio::time::sleep(jitter).await;
+                    _ = tokio::time::sleep_until(mux_deadline),
+                        if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
+                    {
+                        if let Some(payload) = recordizer
+                            .as_mut()
+                            .and_then(|mux| mux.flush_due(std::time::Instant::now()))
+                        {
+                            let encrypted = encrypt_client_payload(
+                                &mut tx,
+                                &payload,
+                                crate::protocol::packet::MAX_TUNNEL_MTU,
+                                &cfg,
+                                &mut wire_record,
+                                &mut padding,
+                            );
+                            if encrypted && !write_client_wire_record(
+                                &mut write_half,
+                                &mut tx,
+                                &mut shaper,
+                                &wire_record,
+                                &mut cover_record,
+                                &mut padding,
+                            ).await {
+                                break;
+                            }
+                            last_tx_ms = base.elapsed().as_millis() as u64;
+                            heartbeat_deadline = tokio::time::Instant::now()
+                                + crate::protocol::randomized_heartbeat_delay(
+                                    cfg.heartbeat_interval,
+                                    Duration::from_millis(cfg.hb_jitter),
+                                );
+                        }
+                    }
+
+                    _ = tokio::time::sleep_until(heartbeat_deadline), if heartbeat_enabled => {
                         let hb_ready = {
                             let mut obf = Obfuscator::new();
-                            // saturating: hb_data is u16 and may be server-pushed.
                             obf.generate_padding_into(
                                 cfg.hb_data,
                                 cfg.hb_data.saturating_add(32),
@@ -2134,8 +2297,12 @@ where
                             break;
                         }
                         last_tx_ms = base.elapsed().as_millis() as u64;
+                        heartbeat_deadline = tokio::time::Instant::now()
+                            + crate::protocol::randomized_heartbeat_delay(
+                                cfg.heartbeat_interval,
+                                Duration::from_millis(cfg.hb_jitter),
+                            );
                     }
-
                     _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
                         let now_ms = base.elapsed().as_millis() as u64;
                         // Fill genuine idle; in STEALTH run cover under load too so
@@ -2377,7 +2544,10 @@ where
     );
 
     let hb_config = &eff_obf.heartbeat;
-    let heartbeat_enabled = hb_config.enabled && hb_config.interval_ms > 0;
+    // HTTP/2/TCP already carries liveness. A fixed qeli heartbeat produced a highly
+    // classifiable periodic beacon, so the maximum-stealth REALITY path omits it.
+    let heartbeat_enabled =
+        hb_config.enabled && hb_config.interval_ms > 0 && config.obfuscation.mode != "reality-tls";
     let padding_min = eff_obf.padding.min_bytes;
     let padding_max = eff_obf.padding.max_bytes;
     let padding_enabled = eff_obf.padding.enabled;
@@ -2485,9 +2655,10 @@ where
     // / connection drop). The writer stays in the select loop (writes inside a
     // branch body run to completion and are never cancelled).
     let (primary_r, primary_w) = stream.split_io();
-    // Records on the wire are TLS-dressed for every mode except `plain`, which
-    // uses bare length-prefixed framing (matching the codecs from the handshake).
-    let framing = if config.obfuscation.mode == "plain" {
+    // Plain mode uses raw records directly. Current reality-tls uses the same
+    // private raw framing inside genuine HTTP/2; legacy camouflage modes retain
+    // their TLS-dressed inner records.
+    let framing = if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
         Framing::Raw
     } else {
         Framing::Tls
@@ -2516,6 +2687,24 @@ where
 
     let shaping = eff_obf.traffic_shaping.to_shaping();
     let cover_budget = crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());
+    let recordizer = pushed_obf
+        .as_ref()
+        .and_then(|pushed| pushed.recordizer.as_ref())
+        .map(|config| {
+            crate::protocol::recordizer::RuntimeConfig::from_config(
+                config,
+                crate::protocol::packet::MAX_TUNNEL_MTU,
+                usize::try_from(tun_mtu)
+                    .unwrap_or_default()
+                    .saturating_add(64),
+            )
+        })
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("invalid negotiated recordizer: {error}"))?;
+    if recordizer.is_some() {
+        log::info!("Packet recordizer: PACKET_MUX_V1 active on TCP");
+    }
+
     let pump = StreamPump {
         framing,
         family_mode: negotiated_family_mode,
@@ -2534,6 +2723,7 @@ where
         norm_enabled: eff_obf.traffic_normalization.enabled,
         norm_sizes: norm_sizes.clone(),
         shaping,
+        recordizer,
         cover_budget,
         // Only reality-tls pays a second (outer TLS AES-GCM) AEAD on the read
         // side; pipeline its two decrypt layers across cores. Other modes decrypt
@@ -3042,9 +3232,9 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 /// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
-/// SAME fake-TLS KE + server-identity verify as the primary, but presents the
-/// per-session JOIN token instead of credentials. Returns the stream's own
-/// codecs. Only used for reality-tls/fake-tls inner (the modes that wire bonding).
+/// same key exchange and server-identity verification as the primary, but with
+/// the per-session JOIN token instead of credentials. Returns the stream's own
+/// codecs for modes that support wire bonding.
 async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
@@ -3054,10 +3244,11 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
     let client_kp = Keypair::generate();
 
-    // `plain` wire mode: no TLS mimicry — raw X25519 exchange + raw-framed records,
-    // then present the JOIN token instead of credentials. Mirrors the plain branch
-    // of `tcp_handshake`.
-    if config.obfuscation.mode == "plain" {
+    // Plain uses raw framing directly; current reality-tls uses it privately
+    // inside genuine HTTP/2. Both perform the raw X25519 exchange, then present
+    // the JOIN token instead of credentials, mirroring the corresponding primary
+    // handshake branch.
+    if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
         stream.write_all(client_kp.public().as_bytes()).await?;
         let mut sp = [0u8; 32];
         stream
@@ -4662,6 +4853,149 @@ async fn connect_udp_candidates(
         failures.join("; ")
     )
 }
+#[allow(clippy::too_many_arguments)]
+async fn send_client_udp_payload(
+    payload: &[u8],
+    client_tx: &mut PacketCodec,
+    obfuscation: &crate::config::client::ClientObfuscationConfig,
+    payload_budget: usize,
+    data_record_budget: usize,
+    data_frag_enabled: bool,
+    tx_data_frag_key: &[u8; 32],
+    tx_record_id: &mut u64,
+    shaper: &mut crate::protocol::Shaper,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    quic_enabled: bool,
+    connection_id: &[u8; 4],
+    quic_pn: &mut u32,
+    max_empty_record_padding: usize,
+    wire_record: &mut Vec<u8>,
+    cover_record: &mut Vec<u8>,
+    quic_record: &mut Vec<u8>,
+    padding: &mut Vec<u8>,
+) -> bool {
+    let mut obf = Obfuscator::new();
+    let normalization_padding = if obfuscation.traffic_normalization.enabled
+        && !obfuscation.traffic_normalization.round_sizes.is_empty()
+    {
+        Obfuscator::normalization_padding_len(
+            payload.len(),
+            &obfuscation.traffic_normalization.round_sizes,
+            payload_budget,
+        )
+    } else {
+        0
+    };
+    let pad_cap = (obfuscation.padding.max_bytes as usize)
+        .min(payload_budget.saturating_sub(payload.len().saturating_add(normalization_padding)))
+        as u16;
+    obf.generate_padding_opts_into(
+        obfuscation.padding.enabled,
+        obfuscation.padding.min_bytes,
+        pad_cap,
+        obfuscation.padding.randomize,
+        obfuscation.padding.probability,
+        padding,
+    );
+    if normalization_padding != 0 {
+        obf.append_normalization_padding_into(
+            payload.len(),
+            &obfuscation.traffic_normalization.round_sizes,
+            payload_budget,
+            padding,
+        );
+    }
+    if client_tx
+        .encrypt_packet_into(payload, padding, wire_record)
+        .is_err()
+    {
+        return false;
+    }
+
+    let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
+    if shaper.stealth() && !delay.is_zero() {
+        let mut remaining = delay;
+        while remaining > Duration::from_millis(6) {
+            let cover_size = shaper
+                .next_size(&mut rand::rng())
+                .min(max_empty_record_padding);
+            if shaper.try_spend(cover_size, std::time::Instant::now()) {
+                let mut cover_obf = Obfuscator::new();
+                cover_obf.generate_padding_into(cover_size as u16, cover_size as u16, padding);
+                if client_tx
+                    .encrypt_packet_into(&[], padding, cover_record)
+                    .is_ok()
+                {
+                    let send_data: &[u8] = if quic_enabled {
+                        let packet_number = *quic_pn;
+                        *quic_pn = quic_pn.wrapping_add(1);
+                        wrap_quic_short_into(
+                            cover_record,
+                            connection_id,
+                            packet_number,
+                            quic_record,
+                        );
+                        quic_record
+                    } else {
+                        cover_record
+                    };
+                    let _ = socket.send(send_data).await;
+                }
+            }
+            let step = Duration::from_millis(rand::rng().random_range(4..=18));
+            let sleep = step.min(remaining);
+            tokio::time::sleep(sleep).await;
+            remaining = remaining.saturating_sub(sleep);
+        }
+    } else if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+
+    if data_frag_enabled && wire_record.len() > data_record_budget {
+        let record_id = *tx_record_id;
+        *tx_record_id = tx_record_id.wrapping_add(1);
+        let fragments = match crate::protocol::data_frag::fragment_record(
+            wire_record,
+            tx_data_frag_key,
+            record_id,
+            data_record_budget - crate::protocol::data_frag::HEADER_LEN,
+        ) {
+            Ok(fragments) => fragments,
+            Err(error) => {
+                log::warn!("UDP data fragmentation failed: {error}");
+                return false;
+            }
+        };
+        for fragment in fragments {
+            let send_data: &[u8] = if quic_enabled {
+                let packet_number = *quic_pn;
+                *quic_pn = quic_pn.wrapping_add(1);
+                wrap_quic_short_into(&fragment, connection_id, packet_number, quic_record);
+                quic_record
+            } else {
+                &fragment
+            };
+            if let Err(error) = socket.send(send_data).await {
+                log::warn!("UDP carrier fragment send failed: {error}");
+                return false;
+            }
+        }
+    } else {
+        let send_data: &[u8] = if quic_enabled {
+            let packet_number = *quic_pn;
+            *quic_pn = quic_pn.wrapping_add(1);
+            wrap_quic_short_into(wire_record, connection_id, packet_number, quic_record);
+            quic_record
+        } else {
+            wire_record
+        };
+        if let Err(error) = socket.send(send_data).await {
+            log::warn!("UDP carrier send failed: {error}");
+            return false;
+        }
+    }
+    true
+}
 
 #[cfg(target_os = "linux")]
 async fn connect_and_run_udp(
@@ -4738,6 +5072,13 @@ pub(crate) async fn run_udp_tunnel(
     let socket = crate::protocol::obfs::ObfsUdp::new(raw_socket, obfs_key);
 
     let quic_enabled = config.obfuscation.quic.enabled;
+    if quic_enabled {
+        log::warn!(
+            "UDP quic-shape compatibility masking is enabled; it is not a real QUIC/HTTP/3 \
+             state machine and is not the maximum-stealth profile. Use TCP reality-tls \
+             for hostile DPI."
+        );
+    }
     let connection_id = if quic_enabled {
         generate_connection_id()
     } else {
@@ -5421,8 +5762,6 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         30000
     });
-    let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
-    heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut idle_check = tokio::time::interval(Duration::from_secs(5));
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut udp_buffer_tick = tokio::time::interval(Duration::from_secs(1));
@@ -5451,6 +5790,11 @@ pub(crate) async fn run_udp_tunnel(
     );
     let shaping_on = shaper.enabled();
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
+    let mut heartbeat_deadline = tokio::time::Instant::now()
+        + crate::protocol::randomized_heartbeat_delay(
+            heartbeat_interval,
+            Duration::from_millis(hb_config.jitter_ms),
+        );
     let rx_dead = crate::protocol::liveness_deadline(
         heartbeat_enabled,
         heartbeat_interval,
@@ -5481,6 +5825,29 @@ pub(crate) async fn run_udp_tunnel(
         socket.seal_overhead(),
         quic_enabled,
     )?;
+    let mux_payload_budget = client_tx
+        .max_data_for_record_budget(data_record_budget)
+        .map_err(|error| anyhow::anyhow!("UDP recordizer budget is invalid: {error}"))?;
+    let udp_recordizer_runtime = pushed_obf
+        .as_ref()
+        .and_then(|pushed| pushed.recordizer.as_ref())
+        .map(|config| {
+            crate::protocol::recordizer::RuntimeConfig::from_config(
+                config,
+                mux_payload_budget,
+                crate::protocol::packet::MAX_TUNNEL_MTU,
+            )
+        })
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("invalid negotiated UDP recordizer: {error}"))?;
+    let mut udp_tx_recordizer = udp_recordizer_runtime
+        .clone()
+        .map(crate::protocol::recordizer::Recordizer::new);
+    let mut udp_rx_recordizer =
+        udp_recordizer_runtime.map(crate::protocol::recordizer::Reassembler::new);
+    if udp_tx_recordizer.is_some() {
+        log::info!("Packet recordizer: PACKET_MUX_V1 active on UDP");
+    }
     let mut max_empty_record_padding = client_tx
         .max_padding_for_record_budget(0, data_record_budget)
         .map_err(|error| {
@@ -5524,7 +5891,11 @@ pub(crate) async fn run_udp_tunnel(
         };
     if let Some(budget) = udp_payload_budget_report_value {
         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
-        if client_tx
+        if let Some(mux) = udp_tx_recordizer.as_mut() {
+            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
+                log::debug!("could not queue UDP payload budget report: {error}");
+            }
+        } else if client_tx
             .encrypt_packet_into(&frame, &[], &mut cover_record)
             .is_ok()
         {
@@ -5545,7 +5916,11 @@ pub(crate) async fn run_udp_tunnel(
     }
     if let Some(mtu) = mtu_report_value {
         let frame = crate::protocol::ctrl::mtu_report(mtu);
-        if client_tx
+        if let Some(mux) = udp_tx_recordizer.as_mut() {
+            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
+                log::debug!("could not queue UDP MTU report: {error}");
+            }
+        } else if client_tx
             .encrypt_packet_into(&frame, &[], &mut cover_record)
             .is_ok()
         {
@@ -5600,7 +5975,12 @@ pub(crate) async fn run_udp_tunnel(
     live_mtu_tick.tick().await;
 
     let mut unsupported_inner_drops = 0u64;
-    loop {
+    'udp: loop {
+        let mux_deadline = udp_tx_recordizer
+            .as_ref()
+            .and_then(|mux| mux.deadline())
+            .map(tokio::time::Instant::from_std)
+            .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
         tokio::select! {
             _ = cancel_tick.tick() => {
                 if cancel.load(Ordering::Acquire) { break; }
@@ -5608,6 +5988,46 @@ pub(crate) async fn run_udp_tunnel(
 
             _ = udp_buffer_tick.tick() => {
                 udp_buffer.tick(socket.raw_socket());
+            }
+            _ = tokio::time::sleep_until(mux_deadline),
+                if udp_tx_recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
+            {
+                if let Some(payload) = udp_tx_recordizer
+                    .as_mut()
+                    .and_then(|mux| mux.flush_due(std::time::Instant::now()))
+                {
+                    if !send_client_udp_payload(
+                        &payload,
+                        &mut client_tx,
+                        &eff_obf,
+                        mux_payload_budget,
+                        data_record_budget,
+                        data_frag_enabled,
+                        &tx_data_frag_key,
+                        &mut tx_record_id,
+                        &mut shaper,
+                        &socket,
+                        quic_enabled,
+                        &connection_id,
+                        &mut quic_pn,
+                        max_empty_record_padding,
+                        &mut wire_record,
+                        &mut cover_record,
+                        &mut quic_record,
+                        &mut padding,
+                    )
+                    .await
+                    {
+                        break 'udp;
+                    }
+                    last_activity = tokio::time::Instant::now();
+                    last_tx_inst = last_activity;
+                    heartbeat_deadline = tokio::time::Instant::now()
+                        + crate::protocol::randomized_heartbeat_delay(
+                            heartbeat_interval,
+                            Duration::from_millis(hb_config.jitter_ms),
+                        );
+                }
             }
 
             _ = live_mtu_due.tick(), if live_mtu_reprobe_enabled && !live_mtu_probe.is_active() => {
@@ -5719,6 +6139,51 @@ pub(crate) async fn run_udp_tunnel(
                     .fetch_add(ip_packet.len() as u64, Ordering::Relaxed);
                 last_activity = tokio::time::Instant::now();
                 last_tx_inst = last_activity;
+                heartbeat_deadline = tokio::time::Instant::now()
+                    + crate::protocol::randomized_heartbeat_delay(
+                        heartbeat_interval,
+                        Duration::from_millis(hb_config.jitter_ms),
+                    );
+                if let Some(mux) = udp_tx_recordizer.as_mut() {
+                    let payloads = match mux.push(
+                        ip_packet.as_ref(),
+                        std::time::Instant::now(),
+                    ) {
+                        Ok(payloads) => payloads,
+                        Err(error) => {
+                            log::debug!("client UDP recordizer dropped a packet: {error}");
+                            continue;
+                        }
+                    };
+                    drop(ip_packet);
+                    for payload in payloads {
+                        if !send_client_udp_payload(
+                            &payload,
+                            &mut client_tx,
+                            &eff_obf,
+                            mux_payload_budget,
+                            data_record_budget,
+                            data_frag_enabled,
+                            &tx_data_frag_key,
+                            &mut tx_record_id,
+                            &mut shaper,
+                            &socket,
+                            quic_enabled,
+                            &connection_id,
+                            &mut quic_pn,
+                            max_empty_record_padding,
+                            &mut wire_record,
+                            &mut cover_record,
+                            &mut quic_record,
+                            &mut padding,
+                        )
+                        .await
+                        {
+                            break 'udp;
+                        }
+                    }
+                    continue;
+                }
                 let encrypted = {
                     let mut obf = Obfuscator::new();
                     let normalization_padding = if eff_obf.traffic_normalization.enabled
@@ -6056,6 +6521,74 @@ pub(crate) async fn run_udp_tunnel(
                         // carrier datagrams suppress reconnect indefinitely.
                         last_activity = tokio::time::Instant::now();
                         last_rx_inst = last_activity;
+                        if let Some(reassembler) = udp_rx_recordizer.as_mut() {
+                            if record.is_empty() {
+                                continue;
+                            }
+                            let packets = match reassembler.decode(&record) {
+                                Ok(packets) => packets,
+                                Err(error) => {
+                                    log::debug!("UDP recordizer decode error: {error}");
+                                    continue;
+                                }
+                            };
+                            drop(record);
+                            for bytes in packets {
+                                if !is_supported_inner_packet(
+                                    &bytes,
+                                    negotiated_family_mode,
+                                ) {
+                                    unsupported_inner_drops =
+                                        unsupported_inner_drops.saturating_add(1);
+                                    udp_buffer.note_internal_drop(InternalDrop::Unsupported);
+                                    if unsupported_inner_drops.is_power_of_two() {
+                                        log::debug!(
+                                            "UDP client dropped invalid or non-negotiated-family mux packet (total {})",
+                                            unsupported_inner_drops
+                                        );
+                                    }
+                                    continue;
+                                }
+                                let mut packet = match tun_write_tx.try_acquire() {
+                                    Some(packet) => packet,
+                                    None => {
+                                        udp_buffer.note_internal_drop(
+                                            InternalDrop::PoolExhausted,
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if bytes.len() > packet.capacity() {
+                                    udp_buffer.note_internal_drop(InternalDrop::Oversize);
+                                    continue;
+                                }
+                                packet.as_vec_mut().extend_from_slice(&bytes);
+                                runtime_counters
+                                    .rx_packets
+                                    .fetch_add(1, Ordering::Relaxed);
+                                runtime_counters
+                                    .rx_bytes
+                                    .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                                trace::record(
+                                    trace::Dir::Rx,
+                                    "client.udp",
+                                    bytes.len(),
+                                    0,
+                                );
+                                match tun_write_tx.try_send(packet) {
+                                    Ok(()) => {}
+                                    Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                                        udp_buffer.note_internal_drop(
+                                            InternalDrop::QueueFull,
+                                        );
+                                    }
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                                        break 'udp;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
                         if !record.is_empty()
                             && is_supported_inner_packet(
                                 record.as_ref(),
@@ -6094,26 +6627,7 @@ pub(crate) async fn run_udp_tunnel(
                 }
             }
 
-            _ = heartbeat_tick.tick(), if heartbeat_enabled => {
-                // Idle-gate on OUR last send (last_tx_inst), NOT last_activity (which
-                // also counts RX): a download-only client (receiving, not sending) would
-                // otherwise skip its keepalive, and the server — which reaps on
-                // client->server silence — would drop it mid-download. Gating on TX still
-                // skips the keepalive while real upload traffic is flowing.
-                if last_tx_inst.elapsed() < heartbeat_interval {
-                    continue;
-                }
-                // Same shape as the TCP path: the delay is drawn directly and uniformly
-                // (the old [0, 2*jitter) minus jitter put >50% of the mass at exactly 0
-                // and could overflow `jitter * 2` into an empty range).
-                let jitter = if hb_config.jitter_ms > 0 {
-                    let mut rng = rand::rng();
-                    Duration::from_millis(rng.random_range(0..=hb_config.jitter_ms))
-                } else {
-                    Duration::ZERO
-                };
-                tokio::time::sleep(jitter).await;
-
+            _ = tokio::time::sleep_until(heartbeat_deadline), if heartbeat_enabled => {
                 let heartbeat_ready = {
                     let mut obf = Obfuscator::new();
                     // Cap the (server-pushable) heartbeat size to the probed MTU so a large
@@ -6145,8 +6659,12 @@ pub(crate) async fn run_udp_tunnel(
                 }
                 last_activity = tokio::time::Instant::now();
                 last_tx_inst = last_activity;
+                heartbeat_deadline = tokio::time::Instant::now()
+                    + crate::protocol::randomized_heartbeat_delay(
+                        heartbeat_interval,
+                        Duration::from_millis(hb_config.jitter_ms),
+                    );
             }
-
             _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
                 // Fill genuine idle on OUR send side (last_tx_inst); in STEALTH run
                 // cover under load too so small cover mixes into the rate-capped stream.
@@ -6199,7 +6717,11 @@ pub(crate) async fn run_udp_tunnel(
                     control_report_resends -= 1;
                     if let Some(budget) = udp_payload_budget_report_value {
                         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
-                        if client_tx
+                        if let Some(mux) = udp_tx_recordizer.as_mut() {
+                            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
+                                log::debug!("could not queue UDP payload budget report retry: {error}");
+                            }
+                        } else if client_tx
                             .encrypt_packet_into(&frame, &[], &mut cover_record)
                             .is_ok()
                         {
@@ -6220,7 +6742,11 @@ pub(crate) async fn run_udp_tunnel(
                     }
                     if let Some(mtu) = mtu_report_value {
                         let frame = crate::protocol::ctrl::mtu_report(mtu);
-                        if client_tx
+                        if let Some(mux) = udp_tx_recordizer.as_mut() {
+                            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
+                                log::debug!("could not queue UDP MTU report retry: {error}");
+                            }
+                        } else if client_tx
                             .encrypt_packet_into(&frame, &[], &mut cover_record)
                             .is_ok()
                         {
@@ -6780,6 +7306,15 @@ mod obf_push_tests {
         obf.heartbeat.interval_ms = 4242;
         obf.traffic_normalization.enabled = true;
         obf.traffic_normalization.round_sizes = vec![10, 20, 30];
+        let recordizer = crate::config::RecordizerConfig {
+            policy: "required".into(),
+            batch: crate::config::RecordizerBatchConfig {
+                max_packets: 7,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        obf.recordizer = Some(recordizer);
         let obf_json = serde_json::to_string(&obf).unwrap();
 
         let msg = format!(
@@ -6802,6 +7337,9 @@ mod obf_push_tests {
         assert_eq!(po.heartbeat.interval_ms, 4242);
         assert!(po.traffic_normalization.enabled);
         assert_eq!(po.traffic_normalization.round_sizes, vec![10, 20, 30]);
+        let recordizer = po.recordizer.expect("authenticated recordizer push");
+        assert_eq!(recordizer.policy, "required");
+        assert_eq!(recordizer.batch.max_packets, 7);
     }
 
     #[test]

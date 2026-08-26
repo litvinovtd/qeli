@@ -1147,6 +1147,9 @@ pub struct ServerObfuscationConfig {
     /// Flow-shaping cover traffic (idle browsing-like cover; DPI-AUDIT 6.1/6.2).
     #[serde(default)]
     pub traffic_shaping: crate::config::TrafficShapingConfig,
+    /// Negotiated packet/record boundary masking shared by every transport.
+    #[serde(default)]
+    pub recordizer: crate::config::RecordizerConfig,
     #[serde(default)]
     pub anti_fingerprinting: AntiFingerprintingConfig,
     #[serde(default)]

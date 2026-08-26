@@ -80,6 +80,18 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
     }
 }
 
+impl<S> SplitStream for PrefixedStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    type R = ReadHalf<Self>;
+    type W = WriteHalf<Self>;
+
+    fn split_io(self) -> (Self::R, Self::W) {
+        tokio::io::split(self)
+    }
+}
+
 /// Build a rustls server config for REALITY termination: TLS 1.3 only,
 /// AES-128-GCM only (matching the client's record layer), no client auth, with an
 /// on-the-fly self-signed certificate for `sni` (the client does not validate it;
@@ -111,6 +123,9 @@ pub fn make_server_config(sni: &str) -> anyhow::Result<Arc<ServerConfig>> {
     config.ticketer = rustls::crypto::ring::Ticketer::new()
         .map_err(|error| anyhow::anyhow!("cannot initialize TLS session tickets: {error}"))?;
     config.send_tls13_tickets = 2;
+    // The authenticated carrier is a real HTTP/2 session, so negotiate the same
+    // protocol the browser-shaped ClientHello advertises first.
+    config.alpn_protocols = vec![b"h2".to_vec()];
     Ok(Arc::new(config))
 }
 
@@ -544,7 +559,13 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let c_keys = traffic_keys(suite, &c_hs);
 
     // 4. Encrypted flight: EE + placeholder Certificate + CertificateVerify + Finished.
-    let ee = hs_msg(0x08, &[0x00, 0x00]);
+    // EncryptedExtensions selects h2 from the browser-shaped ClientHello.
+    let ee = hs_msg(
+        0x08,
+        &[
+            0x00, 0x09, 0x00, 0x10, 0x00, 0x05, 0x00, 0x03, 0x02, b'h', b'2',
+        ],
+    );
     // Certificate: borrow the target's REAL chain when the probe captured it
     // (REALITY cert-borrowing — indistinguishable from the real site); otherwise a
     // placeholder the client never validates (trust is X25519 + the inner qeli auth).

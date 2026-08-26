@@ -65,6 +65,45 @@ impl DecoyGate {
     }
 }
 
+async fn handle_authenticated_tls<S>(
+    server_state: Arc<ServerState>,
+    profile: Arc<ProfileRuntime>,
+    mut stream: S,
+    addr: std::net::SocketAddr,
+    tun_tx: TunIngress,
+    pre_auth_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    handshake_timeout: Duration,
+) -> anyhow::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use tokio::io::AsyncReadExt;
+
+    // New clients begin with the RFC 9113 connection preface. Legacy clients
+    // begin with their inner fake-TLS ClientHello. Replay the bytes in either
+    // branch so neither parser loses data while the server is upgraded first.
+    let mut prefix = [0u8; crate::protocol::h2_carrier::CLIENT_PREFACE.len()];
+    tokio::time::timeout(handshake_timeout, stream.read_exact(&mut prefix))
+        .await
+        .map_err(|_| anyhow::anyhow!("REALITY carrier selection timed out for {addr}"))?
+        .map_err(|error| anyhow::anyhow!("REALITY carrier selection failed for {addr}: {error}"))?;
+    let stream = crate::protocol::realtls::server::PrefixedStream::new(prefix.to_vec(), stream);
+
+    if prefix.as_slice() == crate::protocol::h2_carrier::CLIENT_PREFACE {
+        let h2 = tokio::time::timeout(
+            handshake_timeout,
+            crate::protocol::h2_carrier::accept(stream),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("REALITY HTTP/2 carrier timed out for {addr}"))?
+        .map_err(|error| anyhow::anyhow!("REALITY HTTP/2 carrier failed for {addr}: {error}"))?;
+        log::debug!("REALITY: genuine HTTP/2 carrier established with {addr}");
+        handler::handle_h2_client(server_state, profile, h2, addr, tun_tx, pre_auth_permit).await
+    } else {
+        log::debug!("REALITY: legacy inner carrier selected for {addr}");
+        handler::handle_client(server_state, profile, stream, addr, tun_tx, pre_auth_permit).await
+    }
+}
 pub(crate) async fn handle_connection(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
@@ -232,8 +271,16 @@ pub(crate) async fn handle_connection(
                     "REALITY: hand-rolled TLS established with {} — tunnel inside",
                     addr
                 );
-                handler::handle_client(server_state, profile, tls, addr, tun_tx, pre_auth_permit)
-                    .await
+                handle_authenticated_tls(
+                    server_state,
+                    profile,
+                    tls,
+                    addr,
+                    tun_tx,
+                    pre_auth_permit,
+                    handshake_timeout,
+                )
+                .await
             } else {
                 // Terminate a genuine TLS 1.3 session (rustls) and run the tunnel
                 // inside it. The rustls config (incl. the cert) is built once at
@@ -266,8 +313,16 @@ pub(crate) async fn handle_connection(
                     "REALITY: real TLS established with {} — tunnel inside",
                     addr
                 );
-                handler::handle_client(server_state, profile, tls, addr, tun_tx, pre_auth_permit)
-                    .await
+                handle_authenticated_tls(
+                    server_state,
+                    profile,
+                    tls,
+                    addr,
+                    tun_tx,
+                    pre_auth_permit,
+                    handshake_timeout,
+                )
+                .await
             }
         } else {
             handler::handle_client(server_state, profile, stream, addr, tun_tx, pre_auth_permit)

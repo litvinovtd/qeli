@@ -106,14 +106,12 @@ identical in content.
 
 ### Client keys: keepalive and OpenVPN parity
 
-**Keepalive (all clients).** The authenticated server heartbeat setting is applied by the shared
-Rust core on every client. When enabled, both directions send encrypted keepalives at the configured
-cadence; traffic shaping replaces the fixed heartbeat with cover traffic. When heartbeat and shaping
-are both disabled there is no invented 30-second fallback and no RX-liveness reap: a healthy silent
-tunnel may stay idle. An explicit non-zero `perf.connection.idle_timeout_secs` still closes a session
-after that much total inactivity; set it to `0` to disable the policy timeout. On a UDP server
-profile, however, all three liveness sources may not be disabled together: if heartbeat and shaping
-are off, set a finite idle timeout so a vanished client eventually releases its IP and client slot.
+**Keepalive.** The authenticated server heartbeat setting is applied by the shared Rust core,
+except that current TCP `reality-tls` forcibly disables the qeli heartbeat: H2/TCP supplies
+transport liveness and a periodic application beacon is classifiable. Other modes send the
+configured encrypted keepalive; traffic shaping replaces it with randomized cover. If both are
+disabled there is no invented 30-second fallback or RX-liveness reap. UDP profiles must retain
+heartbeat, shaping or a finite idle timeout so vanished clients release their lease and slot.
 
 **OpenVPN parity + reconnect behaviour (`persist_tun` and the platform route keys are C#
 desktop-only; carrier source binding also applies to the Linux CLI):**
@@ -264,7 +262,7 @@ obf.padding.min_bytes = 32
 obf.padding.max_bytes = 256
 obf.heartbeat.enabled = true
 obf.heartbeat.interval_ms = 15000
-obf.heartbeat.jitter_ms = 20
+obf.heartbeat.jitter_ms = 5000
 perf.tcp.nodelay = true
 perf.tcp.keepalive_secs = 60
 perf.tun.read_buffer_size = 65535
@@ -878,29 +876,24 @@ every client (Rust, Windows/macOS, Android) shapes its own uplink (TCP only).
 
 ## Wire obfuscation modes (`obfuscation.mode`)
 
-`mode` selects how a connection looks "on the wire"; it is set **identically on the
-server (in the profile) and on the client**. The modes
-`plain`/`obfs`/`reality`/`reality-tls` are **TCP only** (stream-based); on UDP the
-wire mode is `fake-tls` (+ optional QUIC masking), the rest are rejected on UDP at
-startup.
-
+`mode` selects the wire carrier. New server profiles and clients use the canonical
+`reality-tls` spelling. During migration a new server also accepts the legacy server label
+`fake-tls` when `reality_proxy.enabled=true` and `real_tls=true`; a new client still sends
+`mode=reality-tls`. `plain`/`obfs`/`reality`/`reality-tls` are TCP-only. UDP accepts the
+supported UDP aliases/underlying `fake-tls` or `obfs` modes; Reality/H2 is unavailable on UDP.
 | `mode` | Behavior | Against what | Notes |
 |---|---|---|---|
 | `"plain"` | No obfuscation: a raw X25519 key exchange and bare `[len][nonce][ct]` records (no TLS mimicry). An ordinary encrypted VPN tunnel | Nothing — on the wire a high-entropy flow with no recognizable protocol (which is itself a signal for entropy-based DPI) | The cheapest, speed ≈ fake-tls. **TCP only.** For trusted networks where DPI doesn't matter |
 | `"fake-tls"` (default) | A pseudo-TLS-1.3 handshake (ClientHello with GREASE and a random extension order → JA3 changes), then the data plane in TLS-Application-Data records | Passive signature-based DPI | Cheaper on CPU; "looks like TLS" |
 | `"obfs"` | The entire flow is XOR'd with a ChaCha20 stream key; the start of the connection is by default masked as a WebSocket Upgrade handshake (see `obfs_fronting`), then pseudo-random bytes | DPI that signatures *known* protocols (incl. fake-TLS/JA3) + entropy-based "fully encrypted" detection (GFW/TSPU) | Requires `obfs_key` (PSK) shared by server and client. ~11% overhead (double encryption) |
-| `"reality-tls"` | The client sends a **real** browser TLS 1.3 ClientHello (Chrome JA4) with a REALITY token in `session_id`; the server terminates real TLS (rustls) and carries the tunnel inside. "Foreign" connections are proxied to a real site | Active probing + JA3/JA4 + entropy-based DPI (real TLS on the wire) | The client needs `key`(pin) + `reality_sid`; the server needs `reality_proxy.real_tls=true` + `short_ids`. ↓ Lower speed (nested TLS). **TCP only.** See the REALITY section below |
+| `"reality-tls"` | REALITY TLS 1.3 negotiates ALPN `h2`; one long-lived bidirectional HTTP/2 POST carries the private qeli stream with randomized batching. Foreign connections are bridged to the target | Reduces known active-probe, TLS-fingerprint and record-boundary tells | Needs client `key` + `reality_sid` + matching `sni`; server `real_tls=true` + `short_ids`. Outer TLS AEAD plus inner qeli AEAD remains. **TCP only.** |
 
-> **How to choose a mode (positioning).** The `fake-tls` default targets
-> **passive** DPI (D1/D2) and is cheap on CPU. If your threat model includes
-> **active probing** (D3 — the censor reaches the server itself: GFW, a number of
-> ISPs) — enable **`reality-tls`** explicitly (it is not the default, since it costs
-> more CPU and is slower due to the nested TLS, but it is the only mode that uses real
-> TLS and serves an unauthorised prober the configured real site). It reduces the known
-> tells in [DPI-AUDIT.md](DPI-AUDIT.md), but does not guarantee indistinguishability. `obfs` —
-> against entropy-based "fully-encrypted" detection (without mimicking a specific
-> protocol). `plain` — trusted networks only (the most visible on the wire). A
-> detailed detectability model — [DPI-AUDIT.md](DPI-AUDIT.md).
+> **How to choose.** Use `reality-tls` for the strongest current TCP camouflage: genuine
+> TLS 1.3 + H2 and target bridging for unauthenticated probes. This reduces the known tells in
+> [DPI-AUDIT.md](DPI-AUDIT.md), but does not guarantee indistinguishability. `fake-tls` is
+> cheaper and intended for passive/signature DPI; `obfs` targets fully-encrypted-flow heuristics;
+> `plain` is for trusted networks. The installer and shipped stealth templates select
+> `reality-tls`, while the generic schema baseline remains compatibility-oriented.
 
 ### Ready-made profile presets
 
@@ -911,19 +904,20 @@ you want into your config:
 
 | Profile | Transport:port | `obf.mode` | When to use |
 |---|---|---|---|
-| `reality-tls` | tcp :443 | reality-tls | maximum masking, survives active probing (see the REALITY section) |
+| `reality-tls` | tcp :443 | reality-tls | strongest current TCP masking: REALITY TLS 1.3 + genuine H2; unauthenticated probes are bridged to target |
 | `reality` | tcp :8443 | fake-tls (+reality-proxy) | fake-tls that proxies "foreign" connections to a real site |
 | `fake-tls` | tcp :8444 | fake-tls | the default balance against passive DPI |
 | `obfs-ws` | tcp :8445 | obfs | ChaCha obfuscation under WebSocket fronting (needs `obfs_key`) |
 | `obfs-none` | tcp :8446 | obfs | bare obfs, no fronting (legacy/fallback) |
 | `plain` | tcp :8447 | plain | trusted networks, maximum speed |
 | `udp-fake-tls` | udp :8448 | fake-tls | UDP transport with TLS mimicry |
-| `udp-quic` | udp :8449 | fake-tls (+QUIC-mask) | UDP disguised as QUIC |
+| `udp-quic` | udp :8449 | fake-tls (+QUIC-shape) | shallow QUIC-shaped compatibility mode; not real QUIC/HTTP3 |
 | `udp-obfs` | udp :8450 | obfs | UDP with ChaCha obfuscation |
 | `obfs-awg` | tcp :8451 | obfs | obfs + AmneziaWG masking (junk preamble) |
 
-> The client must use the same `mode` (and `obfs_key`/`front`/`sni` where applicable) as
-> the chosen profile. The full working sections with every key are in the file itself.
+> Except for the documented legacy Reality server label, the client uses the same `mode`
+> (and `obfs_key`/`front`/`sni`, where applicable) as the selected profile. The complete
+> working sections and every required key are in `server-multiprofile.conf`.
 
 ### `obfs_fronting` (anti-FET, only for `mode = obfs`)
 
@@ -967,18 +961,18 @@ UDP obfuscation is a separate mechanism (`obfuscation.quic`, masking as QUIC);
 | `obf.tls.reality_proxy.enabled` | enable REALITY handling of incoming connections |
 | `obf.tls.reality_proxy.target` / `target_port` | the real site to which "non-ours"/probing connections are transparently proxied (e.g. `www.microsoft.com:443`) |
 | `obf.tls.reality_proxy.short_ids` | allow-list of 8-byte (16 hex) "our" IDs — the cryptographic discriminator (a token in `session_id`). **Required when `reality_proxy.enabled`**: with an empty list the server refuses to start. (An empty list used to fall back to a legacy "no ALPN" heuristic; it is trivially defeated by an active prober, so it is now rejected at startup.) |
-| `obf.tls.reality_proxy.real_tls` | `true` → the server terminates **real** TLS 1.3, the tunnel inside (client mode `reality-tls`); `false` → fake-TLS on the wire, REALITY only the bridge/token |
-| `obf.tls.reality_proxy.handrolled` | `true` → the hand-rolled TLS terminator: **borrows the target's real cert chain** (cert-borrowing — at profile start a probe captures the real cert, e.g. microsoft; **auto-refresh every 12h**, target certs rotate) + mirrors its JA3S/ServerHello. `false` → rustls: a **self-signed** cert + its own JA3S (weaker camouflage). **The default is `true`** — you get Xray-REALITY parity out of the box, nothing to enable; set `false` only to fall back to rustls. Requires `real_tls = true` |
+| `obf.tls.reality_proxy.real_tls` | `true` → terminate real TLS 1.3 and run the automatic genuine H2 carrier (client `mode=reality-tls`); `false` → legacy fake-TLS wire with only the REALITY bridge/token |
+| `obf.tls.reality_proxy.handrolled` | `true` → the hand-rolled TLS terminator: **borrows the target's real cert chain** (cert-borrowing — captured at profile start; **auto-refresh every 12h**) and mirrors its JA3S/ServerHello shape. `false` → rustls: a **self-signed** cert + its own JA3S (weaker camouflage). The default is `true`; this matches those certificate/ServerHello dimensions only, not complete browser/Xray/H2 behaviour. Requires `real_tls = true` |
 
 - **proxy-bridge (`real_tls=false`):** the client sends `mode=fake-tls`; fake-TLS on
   the wire, but "foreign" handshakes go to `target` (an active prober sees the real
   site). Speed ≈ `plain`.
-- **`reality-tls` (`real_tls=true`):** the client sends `mode=reality-tls` + a
-  **mandatory** `key` (the pin of the profile's static key, from `show-identity`) +
-  `reality_sid` (one of `short_ids`). On the wire — real Chrome TLS 1.3, the tunnel
-  inside; it closes tells 1.1–1.6 ([DPI-AUDIT.md](DPI-AUDIT.md)). ↓ Lower speed
-  (nested TLS — see [BENCHMARK.md](BENCHMARK.md)). Distributed via a QR link (`rsid=`
-  carries the short_id). Config templates — [release/reality-tls/](../../release/reality-tls/).
+- **`reality-tls` (`real_tls=true`):** the client sends `mode=reality-tls`, a mandatory pinned
+  `key`, matching `reality_sid`/`sni`, then negotiates ALPN `h2`. One long-lived HTTP/2 POST
+  carries raw private qeli records with randomized batching; there is no second fake-TLS
+  handshake and no H2 config key. Outer TLS AEAD plus the inner qeli AEAD remains. Templates —
+  [release/reality-tls/](../../release/reality-tls/). Upgrade the server before clients: a new
+  server accepts the legacy Reality carrier, while a new client does not downgrade to an old server.
 - **Client and server clocks must agree within ±120 seconds** (when `short_ids` is
   set): the REALITY token in `session_id` carries a timestamp (anti-replay,
   `REALITY_WINDOW_SECS = 120`), and a larger skew makes the server **silently**
@@ -1375,7 +1369,7 @@ first A record as authoritative for an IPv6-only profile.
 | Key | Default | CLI | Win | mac | And | iOS | Purpose |
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `padding` · `padding_min` · `padding_max` | on / `0` / `255` | ✓ | ✓ | ✓ | ✓ | ✓ | record padding; the maximum is strictly bounded by the wire format |
-| `heartbeat` · `heartbeat_interval` · `heartbeat_size` · `heartbeat_jitter` | on / `15000` / `16` / `2000` | ✓ | ✓ | ✓ | ✓ | ✓ | cover heartbeat and its interval/size/jitter |
+| `heartbeat` · `heartbeat_interval` · `heartbeat_size` · `heartbeat_jitter` | on / `15000` / `16` / `5000` | ✓ | ✓ | ✓ | ✓ | ✓ | cover heartbeat and its interval/size/jitter |
 | `shaping` · `shaping_gap_mean` · `shaping_gap_min` · `shaping_gap_max` · `shaping_budget` | off / profile defaults | ✓ | ✓ | ✓ | ✓ | ✓ | shaping enablement and timing/budget envelope |
 | `shaping_min_size` · `shaping_max_size` · `shaping_stealth` · `shaping_stealth_mbps` | profile defaults | ✓ | ✓ | ✓ | ✓ | ✓ | cover-record sizes and stealth rate |
 
@@ -2147,7 +2141,7 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 |---|---|---|
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI baked into a generated share link. **fake-tls:** cosmetic (the server ignores the client's SNI). **reality / reality-tls:** must equal `reality_proxy.target`. |
 
-**Padding / Fragmentation / Heartbeat** (all three **enabled** by default):
+**Schema baseline: Padding / Fragmentation / Heartbeat** (enabled unless a shipped profile overrides them; Reality/H2 templates disable padding and heartbeat):
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -2161,7 +2155,7 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.heartbeat.enabled` | `true` | background cover traffic (keepalive) |
 | `obf.heartbeat.interval_ms` | `15000` | interval |
 | `obf.heartbeat.data_size_bytes` | `16` | payload size |
-| `obf.heartbeat.jitter_ms` | `20` | interval jitter |
+| `obf.heartbeat.jitter_ms` | `5000` | one-shot interval jitter; re-rolled after activity/send |
 
 > **The `obf.fragmentation.*` setting applies to the handshake only.** It splits one
 > record — the ServerHello — once per connection. It never touches the data stream, so
@@ -2179,10 +2173,43 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 > chunks, indistinguishable from ordinary TCP segmentation. Lower them only against a
 > specific DPI you know more about than we do.
 
-> For `reality-tls` padding is pointless (traffic is already inside real TLS) —
+**Transport-independent data-plane morphology (`PACKET_MUX_V1`):**
+
+After successful authentication the server can enable one common recordizer for every carrier:
+TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG and UDP `fake-tls`, QUIC-shape,
+`obfs`/AWG. This is not a new transport mode: it coalesces IP packets, changes encrypted-record
+boundaries, and can split one IP packet across several inner records.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `obf.recordizer.policy` | `off` | `off` — legacy data plane; `prefer` — enable with a `PACKET_MUX_V1` client, otherwise legacy; `required` — reject an incompatible client before allocating an address |
+| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | randomized maximum wait for the first queued item before flushing a batch |
+| `obf.recordizer.batch.max_packets` | `16` | maximum source IP packets queued in one batch |
+| `obf.recordizer.batch.max_queue_bytes` | `262144` | hard per-direction queue-memory limit (`64..=4194304`) |
+| `obf.recordizer.record.max_payload_bytes` | `0` | `0` selects the safe carrier/path payload automatically; otherwise `64..=tun MTU ceiling` |
+| `obf.recordizer.record.small_min_ratio` / `small_max_ratio` | `0.25` / `0.875` | randomized partial target range relative to the safe maximum (`0 < min ≤ max ≤ 1`) |
+| `obf.recordizer.record.full_probability` | `0.72` | probability of choosing the full safe target instead of a random partial target (`0..=1`) |
+| `obf.recordizer.fragment.enabled` | `true` | allow one IP packet to cross inner record boundaries |
+| `obf.recordizer.fragment.reassembly_timeout_ms` | `3000` | incomplete-reassembly timeout |
+| `obf.recordizer.fragment.max_inflight_packets` | `64` | maximum packets being reassembled per direction |
+| `obf.recordizer.fragment.max_reassembly_bytes` | `4194304` | total hard reassembly-memory limit per direction |
+| `obf.recordizer.fragment.max_fragments_per_packet` | `64` | maximum fragments for one IP packet |
+
+Only the server owns these values and pushes them inside authenticated `AUTH OK`; no client-side
+recordizer keys are required. The schema default remains `off`, while shipped profiles explicitly
+use `prefer` so current clients get the new shape without breaking legacy clients. After the whole
+fleet is upgraded an operator may switch to `required`. Negotiation is per-session, so a config
+change requires reconnecting sessions, not merely editing the file.
+
+The recordizer removes the “one IP packet = one qeli record” relation from every mode, but it does
+not make their carriers identical: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoints and outer timing
+remain visible and need their own coherent camouflage. This reduces one class of statistical tells;
+it is not a promise of universal unclassifiability.
+
+> For `reality-tls` padding is redundant because genuine H2 batching already decouples qeli packets from outer record boundaries —
 > turn it off (`obf.padding.enabled = false`), see the "Server OS tuning" section.
 
-**Extra masking (disabled by default):**
+**Extra masking (schema baseline off; shipped Reality/max-obfuscation profiles explicitly enable traffic shaping):**
 
 | Key | Default | Purpose |
 |---|---|---|

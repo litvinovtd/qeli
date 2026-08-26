@@ -65,6 +65,21 @@ impl Default for ShapingConfig {
     }
 }
 
+/// Pick the next absolute heartbeat gap in one shot. Sampling around the configured
+/// interval avoids the old interval-tick + post-tick sleep interaction that quantized
+/// a 15-second heartbeat into an almost perfect 30-second beacon.
+pub fn randomized_heartbeat_delay(interval: Duration, jitter: Duration) -> Duration {
+    let base_ms = u64::try_from(interval.as_millis()).unwrap_or(u64::MAX);
+    let jitter_ms = u64::try_from(jitter.as_millis())
+        .unwrap_or(u64::MAX)
+        .min(base_ms);
+    if jitter_ms == 0 {
+        return interval;
+    }
+    let low = base_ms.saturating_sub(jitter_ms);
+    let high = base_ms.saturating_add(jitter_ms);
+    Duration::from_millis(rand::rng().random_range(low..=high))
+}
 /// Maximum authenticated receive silence tolerated while the peer promises liveness
 /// records. Shaping replaces heartbeat, so its configured maximum gap plus one complete
 /// token-bucket refill is the cadence that matters. The multiplier tolerates two lost
@@ -363,6 +378,25 @@ mod tests {
                 Duration::from_secs(120),
             ),
             None,
+        );
+    }
+
+    #[test]
+    fn heartbeat_delay_is_symmetric_and_bounded() {
+        let interval = Duration::from_secs(15);
+        let jitter = Duration::from_secs(2);
+        let mut saw_below = false;
+        let mut saw_above = false;
+        for _ in 0..256 {
+            let delay = randomized_heartbeat_delay(interval, jitter);
+            assert!((Duration::from_secs(13)..=Duration::from_secs(17)).contains(&delay));
+            saw_below |= delay < interval;
+            saw_above |= delay > interval;
+        }
+        assert!(saw_below && saw_above);
+        assert_eq!(
+            randomized_heartbeat_delay(interval, Duration::ZERO),
+            interval
         );
     }
 }

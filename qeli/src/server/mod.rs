@@ -534,6 +534,7 @@ mod client_route_tests {
                 &crate::protocol::ShapingConfig::default(),
                 std::time::Instant::now(),
             ),
+            recordizer: None,
             dst_acl: crate::server::acl::DstAcl::compile(&[], "test"),
             src_guard: crate::server::acl::SrcGuard::new_dual(&[address], &[], "test"),
             exit_access: super::ExitAccess::default(),
@@ -1550,6 +1551,22 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
             );
         }
 
+        if p.obfuscation.quic.enabled {
+            if p.bind.transport == "udp" {
+                log::warn!(
+                    "profile '{}': obf.quic.enabled selects quic-shape compatibility masking, \
+                     not a real QUIC/HTTP/3 state machine and not maximum stealth; use a TCP \
+                     reality-tls profile for hostile DPI",
+                    p.name
+                );
+            } else {
+                log::warn!(
+                    "profile '{}': obf.quic.enabled has no effect on a TCP listener",
+                    p.name
+                );
+            }
+        }
+
         // Extra `listen` specs. The runtime parses these too and logs an error for a malformed
         // one, but only once the profile is already starting — so `check-config` passed on a
         // config whose second listener could never bind, and the operator learned about it from
@@ -1733,6 +1750,9 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 perf.new_session_rate_window_secs
             );
         }
+        p.obfuscation
+            .recordizer
+            .validate(&format!("profile '{}' obf.recordizer", p.name))?;
         // Heartbeat knobs drive timing and sizing, and the server also PUSHES them to
         // clients, yet nothing range-checked them. The arithmetic itself is now
         // overflow-safe at every use site, but absurd values are still nonsense: a jitter
@@ -5310,9 +5330,7 @@ async fn run_profile_generation(
                 .as_deref()
                 .and_then(|address| address.parse::<std::net::Ipv6Addr>().ok());
             tokio::spawn(async move {
-                // The forwarder serializes packets, so one task-owned buffer serves all
-                // server→client padding without a Vec allocation per record.
-                let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
+                // Per-stream writers own recordization and encryption after this handoff.
                 while let Some(packet) = out_rx.recv().await {
                     let meta = match crate::protocol::ip::parse_ip_packet(&packet) {
                         Ok(meta) => meta,
@@ -5441,71 +5459,24 @@ async fn run_profile_generation(
                             .as_deref()
                             .unwrap_or_else(|| std::slice::from_ref(&packet));
                         for packet in packets {
-                            if let Some((codec_arc, writer, wire_pool)) = session.pick_stream(flow)
-                            {
-                                // Symmetric obfuscation: pad server→client traffic too. Clamp
-                                // under the path MTU so UDP sessions don't get fragmented.
-                                let pad_cfg = &fwd_profile.config.obfuscation.padding;
-                                let mut obf = crate::protocol::Obfuscator::new();
-                                let pad_cap = {
-                                    // Cap against THIS profile's tun.mtu, not a hard-coded 1400.
-                                    // The constant assumed one particular path MTU while
-                                    // `tun.mtu` is configurable: on a profile at 1280 (common on
-                                    // mobile / IPv6 paths) padding still inflated packets toward
-                                    // 1400 and got them fragmented or dropped on UDP, and on a
-                                    // profile at 1500 the cap clamped to 0 on almost every packet
-                                    // so the obfuscation quietly did nothing at all.
-                                    // (Audit 2026-07-27, E7.)
-                                    // …and narrowed further by what THIS client reported, for the
-                                    // same reason the size check above exists: padding computed
-                                    // against the profile MTU re-inflates a packet past a narrow
-                                    // client's path and undoes the check two lines up. (#13)
-                                    let mtu = match session_mtu {
-                                        Some(m) => usize::from(m),
-                                        None => fwd_profile.config.tun.mtu.max(0) as usize,
-                                    };
-                                    let base = packet.len().saturating_add(60);
-                                    (pad_cfg.max_bytes as usize).min(mtu.saturating_sub(base))
-                                        as u16
-                                };
-                                obf.generate_padding_opts_into(
-                                    pad_cfg.enabled,
-                                    pad_cfg.min_bytes,
-                                    pad_cap,
-                                    pad_cfg.randomize,
-                                    pad_cfg.probability,
-                                    &mut padding,
-                                );
-                                let Some(mut encrypted) = wire_pool.try_acquire() else {
-                                    // Pool exhaustion is the same slow-client signal as a full
-                                    // writer channel, but without allocating a fallback record.
+                            if let Some((writer, wire_pool)) = session.pick_stream(flow) {
+                                // The selected stream now owns recordization and AEAD. Queue
+                                // bounded plaintext so boundaries can be changed without
+                                // crossing bonded streams.
+                                let Some(mut queued) = wire_pool.try_acquire() else {
                                     session
                                         .dropped
                                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                     continue;
                                 };
-                                let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
-                                let fits_pool = codec
-                                    .encrypted_record_len(packet.len(), padding.len())
-                                    .is_ok_and(|required| required <= encrypted.capacity());
-                                if !fits_pool {
-                                    // Profile validation and pool sizing should make this
-                                    // unreachable. Fail closed instead of allowing Vec::reserve
-                                    // to silently grow a slot beyond the advertised 4 MiB budget.
+                                if packet.len() > queued.capacity() {
                                     session
                                         .dropped
                                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                     continue;
                                 }
-                                if codec
-                                    .encrypt_packet_into(packet, &padding, encrypted.as_vec_mut())
-                                    .is_ok()
-                                    && writer.try_send(encrypted).is_err()
-                                {
-                                    // A full writer channel = rate-limit / slow-client
-                                    // backpressure. Count the drop so it's visible in
-                                    // list-clients instead of silently vanishing. Dropping the
-                                    // send error returns its record to the same bounded pool.
+                                queued.as_vec_mut().extend_from_slice(packet);
+                                if writer.try_send(queued).is_err() {
                                     session
                                         .dropped
                                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

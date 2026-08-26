@@ -639,6 +639,72 @@ fn profile_to(p: &ProfileConfig) -> Section {
         "obf.traffic_shaping.stealth_rate_mbps",
         o.traffic_shaping.stealth_rate_mbps,
     );
+    put(&mut s, "obf.recordizer.policy", &o.recordizer.policy);
+    put(
+        &mut s,
+        "obf.recordizer.batch.delay_min_ms",
+        o.recordizer.batch.delay_min_ms,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.batch.delay_max_ms",
+        o.recordizer.batch.delay_max_ms,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.batch.max_packets",
+        o.recordizer.batch.max_packets,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.batch.max_queue_bytes",
+        o.recordizer.batch.max_queue_bytes,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.record.max_payload_bytes",
+        o.recordizer.record.max_payload_bytes,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.record.small_min_ratio",
+        o.recordizer.record.small_min_ratio,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.record.small_max_ratio",
+        o.recordizer.record.small_max_ratio,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.record.full_probability",
+        o.recordizer.record.full_probability,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.fragment.enabled",
+        o.recordizer.fragment.enabled,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.fragment.reassembly_timeout_ms",
+        o.recordizer.fragment.reassembly_timeout_ms,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.fragment.max_inflight_packets",
+        o.recordizer.fragment.max_inflight_packets,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.fragment.max_reassembly_bytes",
+        o.recordizer.fragment.max_reassembly_bytes,
+    );
+    put(
+        &mut s,
+        "obf.recordizer.fragment.max_fragments_per_packet",
+        o.recordizer.fragment.max_fragments_per_packet,
+    );
     put(
         &mut s,
         "obf.anti_fingerprinting.enabled",
@@ -943,6 +1009,62 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.traffic_shaping.stealth_rate_mbps = s.parse_or(
         "obf.traffic_shaping.stealth_rate_mbps",
         bo.traffic_shaping.stealth_rate_mbps,
+    );
+    o.recordizer.policy = s
+        .get("obf.recordizer.policy")
+        .unwrap_or(&bo.recordizer.policy)
+        .to_string();
+    o.recordizer.batch.delay_min_ms = s.parse_or(
+        "obf.recordizer.batch.delay_min_ms",
+        bo.recordizer.batch.delay_min_ms,
+    );
+    o.recordizer.batch.delay_max_ms = s.parse_or(
+        "obf.recordizer.batch.delay_max_ms",
+        bo.recordizer.batch.delay_max_ms,
+    );
+    o.recordizer.batch.max_packets = s.parse_or(
+        "obf.recordizer.batch.max_packets",
+        bo.recordizer.batch.max_packets,
+    );
+    o.recordizer.batch.max_queue_bytes = s.parse_or(
+        "obf.recordizer.batch.max_queue_bytes",
+        bo.recordizer.batch.max_queue_bytes,
+    );
+    o.recordizer.record.max_payload_bytes = s.parse_or(
+        "obf.recordizer.record.max_payload_bytes",
+        bo.recordizer.record.max_payload_bytes,
+    );
+    o.recordizer.record.small_min_ratio = s.parse_or(
+        "obf.recordizer.record.small_min_ratio",
+        bo.recordizer.record.small_min_ratio,
+    );
+    o.recordizer.record.small_max_ratio = s.parse_or(
+        "obf.recordizer.record.small_max_ratio",
+        bo.recordizer.record.small_max_ratio,
+    );
+    o.recordizer.record.full_probability = s.parse_or(
+        "obf.recordizer.record.full_probability",
+        bo.recordizer.record.full_probability,
+    );
+    o.recordizer.fragment.enabled = s.bool_or(
+        "obf.recordizer.fragment.enabled",
+        bo.recordizer.fragment.enabled,
+    );
+    o.recordizer.fragment.reassembly_timeout_ms = s.parse_or(
+        "obf.recordizer.fragment.reassembly_timeout_ms",
+        bo.recordizer.fragment.reassembly_timeout_ms,
+    );
+    o.recordizer.fragment.max_inflight_packets = s.parse_or(
+        "obf.recordizer.fragment.max_inflight_packets",
+        bo.recordizer.fragment.max_inflight_packets,
+    );
+    o.recordizer.fragment.max_reassembly_bytes = s.parse_or(
+        "obf.recordizer.fragment.max_reassembly_bytes",
+        bo.recordizer.fragment.max_reassembly_bytes,
+    );
+    o.recordizer.fragment.max_fragments_per_packet = s.parse_or(
+        "obf.recordizer.fragment.max_fragments_per_packet",
+        bo.recordizer.fragment.max_fragments_per_packet,
     );
     o.anti_fingerprinting.enabled = s.bool_or(
         "obf.anti_fingerprinting.enabled",
@@ -1747,6 +1869,7 @@ brute_force.lockout_secs = 300
 password_hash = $argon2id$v=19$m=16384,t=2,p=1$c2FsdHNhbHQ$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 password_enc = ENCVAL123
 static_ip = 10.5.0.77
+static_ipv6 = fd42:5::77
 enabled = false
 allowed_networks = 10.0.0.0/8,172.16.0.0/12
 group = staff
@@ -1772,22 +1895,29 @@ bind.port = 8501
 bind.transport = tcp
 tun.name = tunat
 tun.address = 10.5.0.1
+tun.ip_mode = dual
+tun.ipv6_address = fd42:5::1
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap
 tun.queues = 2
 pool.cidr = 10.5.0.0/16
+pool.ipv6.cidr = fd42:5::/64
+pool.ipv6.exclude = fd42:5::2
 pool.exclude = 10.5.0.2
 pool.reservation.alice = 10.5.0.50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
+routing.ipv6.mode = nat66
+routing.ipv6.interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.5.9.0/24 gateway=10.5.0.1 metric=42 desc=lan seg
 dns.enabled = false
 dns.listen = 10.5.0.1
+dns.listen_ipv6 = fd42:5::1
 dns.port = 5353
 dns.upstream = 9.9.9.9
 dns.upstream_protocol = tcp
@@ -1836,6 +1966,20 @@ obf.traffic_shaping.min_size = 50
 obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
+obf.recordizer.policy = required
+obf.recordizer.batch.delay_min_ms = 3
+obf.recordizer.batch.delay_max_ms = 11
+obf.recordizer.batch.max_packets = 7
+obf.recordizer.batch.max_queue_bytes = 123456
+obf.recordizer.record.max_payload_bytes = 1200
+obf.recordizer.record.small_min_ratio = 0.2
+obf.recordizer.record.small_max_ratio = 0.7
+obf.recordizer.record.full_probability = 0.33
+obf.recordizer.fragment.enabled = false
+obf.recordizer.fragment.reassembly_timeout_ms = 4321
+obf.recordizer.fragment.max_inflight_packets = 23
+obf.recordizer.fragment.max_reassembly_bytes = 765432
+obf.recordizer.fragment.max_fragments_per_packet = 17
 obf.anti_fingerprinting.enabled = true
 obf.anti_fingerprinting.add_jitter_to_handshake = false
 obf.awg.enabled = true
@@ -1864,22 +2008,29 @@ bind.port = 8502
 bind.transport = udp
 tun.name = tunau
 tun.address = 10.6.0.1
+tun.ip_mode = dual
+tun.ipv6_address = fd42:6::1
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap
 tun.queues = 2
 pool.cidr = 10.6.0.0/16
+pool.ipv6.cidr = fd42:6::/64
+pool.ipv6.exclude = fd42:6::2
 pool.exclude = 10.6.0.2
 pool.reservation.alice = 10.6.0.50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
+routing.ipv6.mode = nat66
+routing.ipv6.interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.6.9.0/24 gateway=10.6.0.1 metric=42 desc=lan seg
 dns.enabled = false
 dns.listen = 10.6.0.1
+dns.listen_ipv6 = fd42:6::1
 dns.port = 5353
 dns.upstream = 9.9.9.9
 dns.upstream_protocol = tcp

@@ -1452,6 +1452,15 @@ impl SplitStream for ObfsStream<TcpStream> {
     }
 }
 
+impl SplitStream for tokio::io::DuplexStream {
+    type R = tokio::io::ReadHalf<Self>;
+    type W = tokio::io::WriteHalf<Self>;
+
+    fn split_io(self) -> (Self::R, Self::W) {
+        tokio::io::split(self)
+    }
+}
+
 /// XOR a freshly-read region of a `ReadBuf` in place (raw, non-WS path).
 fn read_xor<R: AsyncRead + Unpin>(
     inner: &mut R,

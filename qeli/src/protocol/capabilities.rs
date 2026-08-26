@@ -23,6 +23,7 @@ pub mod server_capability {
     pub const INNER_IPV6: u64 = 1 << 1;
     pub const NETWORK_PLAN_V2: u64 = 1 << 2;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 3;
+    pub const PACKET_MUX_V1: u64 = 1 << 4;
 }
 
 /// Features implemented by the client core. Platform operations are advertised separately.
@@ -30,6 +31,7 @@ pub mod client_capability {
     pub const INNER_IPV6: u64 = 1 << 0;
     pub const NETWORK_PLAN_V2: u64 = 1 << 1;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 2;
+    pub const PACKET_MUX_V1: u64 = 1 << 3;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,7 +70,8 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
         bits: server_capability::AUTH_EXT_V1
             | server_capability::INNER_IPV6
             | server_capability::NETWORK_PLAN_V2
-            | server_capability::UDP_DATA_FRAG_V1,
+            | server_capability::UDP_DATA_FRAG_V1
+            | server_capability::PACKET_MUX_V1,
     }
 }
 
@@ -81,6 +84,32 @@ pub const fn implemented_client_core_capabilities() -> u64 {
     client_capability::INNER_IPV6
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
+        | client_capability::PACKET_MUX_V1
+}
+
+/// True only when the authenticated client extension confirms the complete mux
+/// data plane. `None` is a legacy client and must remain on legacy records.
+pub fn packet_mux_supported(client: Option<ClientCapabilities>) -> bool {
+    client
+        .is_some_and(|capabilities| capabilities.core_bits & client_capability::PACKET_MUX_V1 != 0)
+}
+
+pub fn negotiate_recordizer(
+    config: &crate::config::RecordizerConfig,
+    client: Option<ClientCapabilities>,
+) -> anyhow::Result<Option<crate::config::RecordizerConfig>> {
+    if config.is_off() {
+        return Ok(None);
+    }
+    if packet_mux_supported(client) {
+        return Ok(Some(config.clone()));
+    }
+    if config.is_required() {
+        anyhow::bail!(
+            "packet recordizer is required but the client does not advertise PACKET_MUX_V1"
+        );
+    }
+    Ok(None)
 }
 
 pub fn negotiate_client_capabilities(
@@ -501,5 +530,32 @@ mod tests {
         config.routing.ipv6 = ClientIpv6Policy::Required;
         let error = negotiate_client_capabilities(&config, Some(server), platform).unwrap_err();
         assert!(error.to_string().contains("platform adapter is missing"));
+    }
+
+    #[test]
+    fn packet_mux_is_advertised_and_server_policy_negotiates_safely() {
+        assert!(implemented_server_capabilities().contains(server_capability::PACKET_MUX_V1));
+        assert_ne!(
+            implemented_client_core_capabilities() & client_capability::PACKET_MUX_V1,
+            0
+        );
+
+        let capable = Some(ClientCapabilities {
+            core_bits: client_capability::PACKET_MUX_V1,
+            ..ClientCapabilities::default()
+        });
+        let mut config = crate::config::RecordizerConfig::default();
+        assert!(negotiate_recordizer(&config, capable).unwrap().is_none());
+
+        config.policy = "prefer".to_string();
+        assert!(negotiate_recordizer(&config, capable).unwrap().is_some());
+        assert!(negotiate_recordizer(&config, None).unwrap().is_none());
+
+        config.policy = "required".to_string();
+        assert!(negotiate_recordizer(&config, capable).unwrap().is_some());
+        assert!(negotiate_recordizer(&config, None)
+            .unwrap_err()
+            .to_string()
+            .contains("PACKET_MUX_V1"));
     }
 }

@@ -532,7 +532,7 @@ async fn wrap_obfs(
 async fn wrap_reality(
     mut stream: TcpStream,
     config: &ClientConfig,
-) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
+) -> anyhow::Result<tokio::io::DuplexStream> {
     let server_name = config.effective_reality_sni().to_string();
     let ephemeral = crate::crypto::Keypair::generate();
     let short_id = config
@@ -563,10 +563,14 @@ async fn wrap_reality(
     )
     .await
     .map_err(|_| anyhow::anyhow!("reality-tls handshake timed out"))??;
-    Ok(crate::protocol::realtls::stream::RealTlsStream::new(
-        stream,
-        established,
-    ))
+    let tls = crate::protocol::realtls::stream::RealTlsStream::new(stream, established);
+    tokio::time::timeout(
+        timeout,
+        crate::protocol::h2_carrier::connect(tls, &server_name),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("reality-tls HTTP/2 carrier timed out"))?
+    .map_err(|error| anyhow::anyhow!("reality-tls HTTP/2 carrier failed: {error}"))
 }
 
 fn configure_tcp(stream: &TcpStream, config: &ClientConfig) -> anyhow::Result<()> {

@@ -1,6 +1,7 @@
 pub mod capabilities;
 pub mod ctrl;
 pub mod data_frag;
+pub mod h2_carrier;
 pub mod icmp;
 pub mod ip;
 pub mod obfs;
@@ -8,6 +9,7 @@ pub mod obfuscate;
 pub mod packet;
 pub mod quic;
 pub mod realtls;
+pub mod recordizer;
 pub mod shaper;
 pub mod tls;
 pub mod udp_frag;
@@ -18,7 +20,9 @@ pub use quic::{
     generate_connection_id, looks_like_quic_initial, unwrap_quic, unwrap_quic_payload,
     wrap_quic_long, wrap_quic_long_into, wrap_quic_short, wrap_quic_short_into,
 };
-pub use shaper::{liveness_deadline, Shaper, ShapingConfig, SharedCoverBudget};
+pub use shaper::{
+    liveness_deadline, randomized_heartbeat_delay, Shaper, ShapingConfig, SharedCoverBudget,
+};
 pub use tls::FakeTlsHandshake;
 
 /// Stream bonding (multipath): a secondary connection's first post-handshake
