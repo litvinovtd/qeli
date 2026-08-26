@@ -99,11 +99,11 @@ Sharing to "make things consistent" would quietly widen the blast radius of a wi
 compromise — the two extensions are not interchangeable.
 
 The widget and iOS 18 control read status from the App Group. Their authenticated App Intents
-write a short-lived, one-time desired-state request and then start/stop the already-installed
-`NETunnelProviderManager` directly without foregrounding the main app. The queued request is a
-fallback for a missing/unavailable tunnel and is applied on the next app launch. The widget has
-no Keychain access and cannot create a profile or read its secrets. The
-`qeli-control://status` URL is navigation-only.
+write a short-lived desired-state request and open the container app. `AppModel` consumes the
+request and performs the same serialized `connectionDesired` / On-Demand preference transaction
+as a manual tap before it starts or stops the tunnel. The widget deliberately has neither
+Network Extension nor Keychain access: it cannot mutate `NETunnelProviderManager`, create a
+profile or read profile secrets. The `qeli-control://status` URL is navigation-only.
 Any future command URL must carry a fresh opaque token that already exists in the
 App Group, so an arbitrary custom URL cannot authorize connect or disconnect.
 WidgetKit controls timeline refresh frequency, so status can briefly lag when the

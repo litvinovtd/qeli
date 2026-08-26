@@ -429,29 +429,17 @@ final class TunnelManager: NSObject, ObservableObject {
         isOnDemandEnabled: Bool,
         rules: [NEOnDemandRule]
     ) -> Bool {
-        guard isOnDemandEnabled else { return false }
-        return rules.contains(where: { rule in
-            rule is NEOnDemandRuleDisconnect
-                && rule.interfaceTypeMatch == .wiFi
-                && !(rule.ssidMatch?.isEmpty ?? true)
-        })
+        OnDemandPolicy.hasTrustedWiFiDisconnectRule(
+            isOnDemandEnabled: isOnDemandEnabled,
+            rules: rules
+        )
     }
 
     /// Ordered first-match policy: exact trusted Wi-Fi names pause the tunnel; every other
     /// known or unknown network falls through to Connect. `connectionDesired` is cleared by
     /// an explicit Disconnect, disabling the whole policy until the next explicit Connect.
     nonisolated static func makeOnDemandRules(settings: AppSettings) -> [NEOnDemandRule] {
-        guard settings.onDemandEnabled, settings.connectionDesired else { return [] }
-        var rules: [NEOnDemandRule] = []
-        let ssids = TrustedWiFiPolicy.normalized(settings.trustedWiFiSSIDs)
-        if settings.trustedWiFiEnabled, !ssids.isEmpty {
-            let disconnect = NEOnDemandRuleDisconnect()
-            disconnect.interfaceTypeMatch = .wiFi
-            disconnect.ssidMatch = ssids
-            rules.append(disconnect)
-        }
-        rules.append(NEOnDemandRuleConnect())
-        return rules
+        OnDemandPolicy.makeRules(settings: settings)
     }
 
     private static func configure(

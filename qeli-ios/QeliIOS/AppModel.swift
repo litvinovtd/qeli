@@ -579,10 +579,30 @@ final class AppModel: ObservableObject {
 
         switch command {
         case .connect:
-            guard !systemIsActive else { return }
-            await toggleConnection()
+            if !systemIsActive {
+                await toggleConnection()
+                return
+            }
+            // The Widget request is a desired-state command, not merely a request to flip
+            // the current NEVPNStatus. Reconcile the durable bit and On-Demand rules even
+            // when an older widget build already started the session directly.
+            let previousDesired = settings.connectionDesired
+            setConnectionDesired(true)
+            let onDemandRevision = tunnelManager.reserveOnDemandUpdate()
+            do {
+                try await tunnelManager.updateOnDemand(
+                    settings: effectiveSettings,
+                    revision: onDemandRevision
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                setConnectionDesired(previousDesired)
+                present(error, title: "VPN settings")
+            }
         case .disconnect:
-            guard systemIsActive else { return }
+            // Always persist connectionDesired=false and disable On Demand before stop.
+            // Skipping an already-disconnected session left the automatic policy armed.
             await disconnectManually()
         }
     }
