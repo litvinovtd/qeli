@@ -5981,17 +5981,17 @@ pub(crate) async fn run_udp_tunnel(
     // while this task performs decrypt/reassembly/TUN work. The bounded FIFO preserves packet
     // order and does not touch DATA_FRAG or either PMTU state machine.
     drop(recv_buf);
-    let receive_slots = crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS + 1;
+    let receive_slots = crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS + 1;
     let (receive_recycler, mut recycled_receivers) = mpsc::channel(receive_slots);
     for _ in 0..receive_slots {
         receive_recycler
             .try_send(bytes::BytesMut::with_capacity(
-                crate::transport::udp::MAX_UDP_PACKET_SIZE,
+                crate::transport_core::udp_receive::MAX_UDP_PACKET_SIZE,
             ))
             .map_err(|_| anyhow::anyhow!("could not initialize UDP receive pool"))?;
     }
     let (received_tx, mut received_rx) =
-        mpsc::channel(crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS);
+        mpsc::channel(crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS);
     let receive_socket = socket.clone();
     let receive_recycler_task = receive_recycler.clone();
     let udp_receive_task = tokio::spawn(async move {
@@ -6004,7 +6004,7 @@ pub(crate) async fn run_udp_tunnel(
                     }
                 }
                 Ok(_) => {
-                    let datagram = crate::transport::udp::PooledUdpDatagram::new(
+                    let datagram = crate::transport_core::udp_receive::PooledUdpDatagram::new(
                         datagram,
                         receive_recycler_task.clone(),
                     );
