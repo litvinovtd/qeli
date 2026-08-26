@@ -47,20 +47,20 @@ TUN, но сохраняет корректные connected routes.
 tun.ip_mode = dual
 tun.name = vpn0
 tun.address = 10.19.0.1
-tun.ipv6_address = fd71:e1:19::1
+tun.ipv6_address = fd71:e1:8000:102::1
 tun.mtu = 1400
 tun.device_type = tun
 
 pool.cidr = 10.19.0.0/24
-pool.ipv6.cidr = fd71:e1:19::/64
+pool.ipv6.cidr = fd71:e1:8000:102::/64
 
 routing.nat.enabled = true
 routing.ipv6.mode = nat66
 
 dns.enabled = true
 dns.listen = 10.19.0.1
-dns.listen_ipv6 = fd71:e1:19::1
-dns.push_servers = 10.19.0.1, fd71:e1:19::1
+dns.listen_ipv6 = fd71:e1:8000:102::1
+dns.push_servers = 10.19.0.1, fd71:e1:8000:102::1
 ```
 
 Полный runtime-проверяемый исходный пример находится в
@@ -69,6 +69,19 @@ dns.push_servers = 10.19.0.1, fd71:e1:19::1
 скопируйте или адаптируйте этот пример в активный `/etc/qeli/server.conf`. Не копируйте
 один ULA-префикс на несколько независимых площадок: для каждого сайта нужен собственный
 RFC4193 `/48`, а каждому профилю — отдельный `/64`.
+
+Для адресов туннеля используйте локально назначаемую половину ULA — `fd00::/8` (внутри
+RFC4193 `fc00::/7`). **Не используйте `fe80::/10`**: link-local адрес привязан к интерфейсу,
+не маршрутизируется через туннель и отклоняется qeli для общепрофильных полей TUN/pool.
+Статические файлы содержат только заметный пример site-prefix; Quick Start и одноразовый
+установщик заменяют его 40 случайными битами Global ID.
+
+На обычном VPS NAT66 — это IPv6 MASQUERADE: qeli отправляет ULA-пул через интерфейс,
+выбранный IPv6 default route, а ядро подставляет текущий публичный GUA этого интерфейса.
+Установщик сохраняет dual-stack, только если одновременно найдены default route, публичный
+исходный адрес из `2000::/3` и рабочая NAT-таблица `ip6tables`. Иначе он записывает безопасный
+активный IPv4-only профиль. В Debian/Ubuntu обе команды — `iptables` и `ip6tables` — ставятся
+одним пакетом `iptables`.
 
 ## 3. Политика клиента `ipv6`
 
@@ -195,8 +208,8 @@ allow_ipv6_leak = false
 ```ini
 dns.enabled = true
 dns.listen = 10.19.0.1
-dns.listen_ipv6 = fd71:e1:19::1
-dns.push_servers = 10.19.0.1, fd71:e1:19::1
+dns.listen_ipv6 = fd71:e1:8000:102::1
+dns.push_servers = 10.19.0.1, fd71:e1:8000:102::1
 dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 ```
 
@@ -210,7 +223,7 @@ dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 
 ```ini
 pool.reservation.alice = 10.19.0.100
-pool.ipv6.reservation.alice = fd71:e1:19::100
+pool.ipv6.reservation.alice = fd71:e1:8000:102::100
 ```
 
 Либо в базе пользователей:
@@ -218,7 +231,7 @@ pool.ipv6.reservation.alice = fd71:e1:19::100
 ```ini
 [user:alice]
 static_ip = 10.19.0.100
-static_ipv6 = fd71:e1:19::100
+static_ipv6 = fd71:e1:8000:102::100
 ```
 
 Адрес обязан быть usable host внутри соответствующего пула, не совпадать с gateway,
@@ -291,7 +304,7 @@ sudo tcpdump -ni vpn0 'ip or ip6'
 Пример:
 
 ```bash
-ping -6 fd71:e1:19::1
+ping -6 fd71:e1:8000:102::1
 ping -6 2606:4700:4700::1111
 curl -4 https://ifconfig.co
 curl -6 https://ifconfig.co

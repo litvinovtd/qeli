@@ -141,6 +141,67 @@ fn every_shipped_server_profile_spells_out_the_balanced_recordizer_block() {
     }
 }
 
+#[test]
+fn every_shipped_server_profile_is_explicit_dual_stack_with_a_unique_ula() {
+    let mut all_prefixes = std::collections::HashSet::new();
+
+    for (name, text) in [
+        ("server.conf", include_str!("../config/server.conf")),
+        (
+            "server-multiprofile.conf",
+            include_str!("../config/server-multiprofile.conf"),
+        ),
+        (
+            "server-ipv6.conf",
+            include_str!("../config/server-ipv6.conf"),
+        ),
+        (
+            "server-maxobf.conf",
+            include_str!("../config/server-maxobf.conf"),
+        ),
+        (
+            "release/reality-tls/server-reality.conf",
+            include_str!("../../release/reality-tls/server-reality.conf"),
+        ),
+    ] {
+        let doc = IniDoc::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut count = 0usize;
+        for profile in doc.sections_of("profile") {
+            count += 1;
+            let entries: std::collections::HashMap<&str, &str> = profile
+                .entries
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect();
+            let header = profile.header();
+            assert_eq!(entries.get("tun.ip_mode").copied(), Some("dual"), "{name} {header}");
+            assert_eq!(
+                entries.get("routing.nat.enabled").copied(),
+                Some("true"),
+                "{name} {header}"
+            );
+            assert_eq!(
+                entries.get("routing.ipv6.mode").copied(),
+                Some("nat66"),
+                "{name} {header}"
+            );
+            for key in ["tun.ipv6_address", "pool.ipv6.cidr", "dns.listen_ipv6"] {
+                assert!(entries.contains_key(key), "{name} {header} is missing {key}");
+            }
+            let prefix = entries["pool.ipv6.cidr"];
+            assert!(
+                prefix.starts_with("fd") && prefix.ends_with("/64"),
+                "{name} {header} must use an RFC4193 locally assigned /64, got {prefix}"
+            );
+            assert!(
+                all_prefixes.insert(prefix.to_owned()),
+                "{name} {header} reuses ULA subnet {prefix}"
+            );
+        }
+        assert!(count > 0, "{name} contains no server profile");
+    }
+}
+
 /// The REALITY template must keep FAILING until its placeholder is replaced.
 ///
 /// `release/reality-tls/server-reality.conf` ships `REPLACE_WITH_OWN_SHORT_ID` on purpose —

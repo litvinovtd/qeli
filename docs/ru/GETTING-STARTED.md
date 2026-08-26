@@ -370,11 +370,25 @@ bind.transport = tcp
 # виртуальная сеть туннеля
 # адрес сервера внутри туннеля (шлюз)
 tun.address  = 10.9.0.1
+tun.ip_mode = dual
+tun.ipv6_address = fd71:e1:8000:100::1
 # пушится клиентам; для прод-TCP см. §12 и CONFIG.md
 tun.mtu      = 1400
 
 # подсеть VPN и пул; её префикс также настраивает сервер и клиентов
 pool.cidr    = 10.9.0.0/24
+# только пример: случайный RFC4193 /48 на площадку и отдельный /64 на профиль
+pool.ipv6.cidr = fd71:e1:8000:100::/64
+
+# full-tunnel выход для обоих семейств
+routing.nat.enabled = true
+routing.ipv6.mode = nat66
+routing.ipv6.interface =
+
+# внутритуннельный DNS на обоих адресах шлюза
+dns.enabled = true
+dns.listen = 10.9.0.1
+dns.listen_ipv6 = fd71:e1:8000:100::1
 
 # режим маскировки на проводе (см. §11)
 obf.mode = fake-tls
@@ -396,11 +410,11 @@ obf.recordizer.fragment.max_reassembly_bytes = 4194304
 obf.recordizer.fragment.max_fragments_per_packet = 64
 ```
 
-Остальное (DNS-прокси, padding, heartbeat, лимиты) уже задано разумными дефолтами в
+Остальное (padding, heartbeat, лимиты) уже задано разумными дефолтами в
 примере. Полное описание каждого ключа — [CONFIG.md](CONFIG.md).
 
 > **Несколько профилей.** Можно держать рядом второй интерфейс, например UDP на
-> `:1443` — добавьте секцию `[profile:udp]` (свой `tun.name`/`tun.address`/`pool.cidr`/
+> `:1443` — добавьте секцию `[profile:udp]` (свой `tun.name`/`tun.address`/`tun.ipv6_address`/`pool.cidr`/`pool.ipv6.cidr`/
 > `bind.port`/`bind.transport = udp`). У каждого профиля — свой identity-ключ и свой пул.
 > Готовый шаблон **со всеми 10 режимами сразу** (reality-tls на :443, остальные на
 > 8443–8451) — `/etc/qeli/server-multiprofile.conf.example` (его ставит .deb;
@@ -481,6 +495,9 @@ routing.nat.enabled  = true
 # WAN-интерфейс наружу. Оставьте пустым/по умолчанию — определится автоматически
 # (ip route get 1.1.1.1); либо задайте явно, напр. ens3.
 routing.nat.interface =
+# выход ULA IPv6: MASQUERADE через интерфейс публичного IPv6 default route
+routing.ipv6.mode = nat66
+routing.ipv6.interface =
 ```
 
 ```bash
@@ -495,11 +512,16 @@ sudo iptables-save | grep qeli-nat   # увидеть установленные
 по два правила `-t mangle FORWARD … TCPMSS` на семейство (`tun.mtu−40` для IPv4,
 `tun.mtu−60` для IPv6; защита от PMTU-чёрной дыры).
 
-> ⚠️ **Требуется `iptables`** (пакет `iptables`). У .deb он в зависимостях, так что при
+> ⚠️ **Требуются `iptables` и `ip6tables`** (обе команды даёт пакет Debian/Ubuntu `iptables`). У .deb он в зависимостях, так что при
 > установке пакетом уже стоит. Если `iptables` **не установлен**, NAT применить нельзя:
 > в логе сервера будет `ERROR … routing.nat.enabled is set but NAT was NOT applied`, а в **веб-панели**
 > (Dashboard) — жёлтый баннер с подсказкой. Поставить: `sudo apt install iptables`.
-> Используется только классический `iptables` (не `nft`/`ufw`).
+> Используются классические CLI `iptables`/`ip6tables` (без прямой записи правил `nft`/`ufw`).
+>
+> Одноразовый установщик находит реальный интерфейс IPv6 default route и публичный
+> исходный адрес из `2000::/3`, проверяет NAT-таблицу `ip6tables`, затем генерирует
+> случайный RFC4193 `/48`. Если хотя бы одного условия нет, только создаваемый активный
+> профиль переводится в IPv4; поставляемые примеры остаются dual-stack шаблонами.
 
 > Прод-тюнинг (BBR, буферы, MTU-probing — заметно ускоряет TCP на мобильных) описан в
 > [CONFIG.md → «Тюнинг ОС сервера»](CONFIG.md). Для full-tunnel настоятельно примените.

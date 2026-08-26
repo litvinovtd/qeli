@@ -47,20 +47,20 @@ A minimal dual-stack field set is:
 tun.ip_mode = dual
 tun.name = vpn0
 tun.address = 10.19.0.1
-tun.ipv6_address = fd71:e1:19::1
+tun.ipv6_address = fd71:e1:8000:102::1
 tun.mtu = 1400
 tun.device_type = tun
 
 pool.cidr = 10.19.0.0/24
-pool.ipv6.cidr = fd71:e1:19::/64
+pool.ipv6.cidr = fd71:e1:8000:102::/64
 
 routing.nat.enabled = true
 routing.ipv6.mode = nat66
 
 dns.enabled = true
 dns.listen = 10.19.0.1
-dns.listen_ipv6 = fd71:e1:19::1
-dns.push_servers = 10.19.0.1, fd71:e1:19::1
+dns.listen_ipv6 = fd71:e1:8000:102::1
+dns.push_servers = 10.19.0.1, fd71:e1:8000:102::1
 ```
 
 The complete runtime-validated source example is
@@ -68,6 +68,19 @@ The complete runtime-validated source example is
 and `install-qeli-server.sh` install it as `/etc/qeli/server-ipv6.conf.example`; copy or
 adapt that example into the active `/etc/qeli/server.conf`. Do not copy one ULA prefix to
 independent sites: give each site a unique RFC4193 `/48` and each profile its own `/64`.
+
+Use the locally assigned half of ULA, `fd00::/8` (inside RFC4193 `fc00::/7`), for tunnel
+addresses. Do **not** use `fe80::/10`: link-local addresses are interface-scoped, are not
+routed through the tunnel, and qeli rejects them for profile-wide TUN/pool fields. The static
+files contain a conspicuous example site prefix only; Quick Start and the one-shot installer
+replace it with 40 random Global-ID bits.
+
+On a normal VPS, NAT66 is IPv6 MASQUERADE: qeli sends the ULA pool through the interface
+selected by the IPv6 default route, and the kernel chooses that interface's current public GUA
+as the translated source. The installer keeps dual-stack only when that route, a public
+`2000::/3` source address, and the `ip6tables` NAT table all exist. Otherwise it writes a safe
+IPv4-only active profile. On Debian/Ubuntu, both `iptables` and `ip6tables` are installed by the
+single `iptables` package.
 
 ## 3. Client `ipv6` policy
 
@@ -193,8 +206,8 @@ Each built-in DNS listener must match the gateway for its family:
 ```ini
 dns.enabled = true
 dns.listen = 10.19.0.1
-dns.listen_ipv6 = fd71:e1:19::1
-dns.push_servers = 10.19.0.1, fd71:e1:19::1
+dns.listen_ipv6 = fd71:e1:8000:102::1
+dns.push_servers = 10.19.0.1, fd71:e1:8000:102::1
 dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 ```
 
@@ -208,7 +221,7 @@ A profile reservation:
 
 ```ini
 pool.reservation.alice = 10.19.0.100
-pool.ipv6.reservation.alice = fd71:e1:19::100
+pool.ipv6.reservation.alice = fd71:e1:8000:102::100
 ```
 
 Or in the user database:
@@ -216,7 +229,7 @@ Or in the user database:
 ```ini
 [user:alice]
 static_ip = 10.19.0.100
-static_ipv6 = fd71:e1:19::100
+static_ipv6 = fd71:e1:8000:102::100
 ```
 
 The address must be a usable host in its pool, distinct from the gateway, exclude list and
@@ -288,7 +301,7 @@ On the client, verify in this order:
 Example:
 
 ```bash
-ping -6 fd71:e1:19::1
+ping -6 fd71:e1:8000:102::1
 ping -6 2606:4700:4700::1111
 curl -4 https://ifconfig.co
 curl -6 https://ifconfig.co

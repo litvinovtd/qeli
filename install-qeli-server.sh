@@ -12,7 +12,8 @@
 #      itself (add QELI_SRC=<repo checkout> for a fully offline / build-from-source run),
 #   3. asks for the profile (reality-tls | fake-tls | udp-quic) + listen port and writes
 #      /etc/qeli/server.conf with ONLY that profile (taken from the packaged
-#      multi-profile example) on the chosen port, full-tunnel NAT on,
+#      multi-profile example) on the chosen port, full-tunnel NAT44 on,
+#      and dual-stack NAT66 when the host has a public IPv6 WAN,
 #   4. generates the server identity key,
 #   5. creates 5 users and saves their ready-to-use qeli:// connection strings
 #      under /etc/qeli/client-links/,
@@ -99,6 +100,30 @@ die(){ printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 warn(){ printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 # true iff $1 is a decimal port in 1..65535
 _valid_port(){ case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+
+# Discover the interface and source address the kernel would use for public IPv6.
+# A ULA or link-local address is deliberately insufficient: NAT66 is enabled only
+# for a 2000::/3 GUA on an interface that also owns an IPv6 default route. Exclude
+# documentation, transition and benchmarking ranges that also sit inside 2000::/3.
+_native_public_ipv6_egress(){
+  local route_line route_dev route_src
+  command -v ip6tables >/dev/null 2>&1 || return 1
+  ip6tables -t nat -S >/dev/null 2>&1 || return 1
+  route_line="$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | head -n 1)" || return 1
+  route_dev="$(printf '%s\n' "$route_line" | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+  route_src="$(printf '%s\n' "$route_line" | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' | tr '[:upper:]' '[:lower:]')"
+  [ -n "$route_dev" ] && [ -n "$route_src" ] || return 1
+  ip -6 route show default dev "$route_dev" 2>/dev/null | grep -q '^default' || return 1
+  case "$route_src" in
+    2*|3*) ;;
+    *) return 1 ;;
+  esac
+  case "$route_src" in
+    2001:db8:*|2001::*|2001:0:*|2001:2:*|2001:10:*|2001:20:*|2002:*|3fff:*) return 1 ;;
+  esac
+  IPV6_WAN_IF="$route_dev"
+  IPV6_WAN_ADDR="$route_src"
+}
 
 # Print the digest for a bare asset name from a GNU sha256sum-format file.  Strip a
 # possible CR left by a Windows-authored CRLF file: otherwise awk treats it as part
@@ -400,7 +425,14 @@ TRANSPORT_UC="$(printf '%s' "$TRANSPORT" | tr '[:lower:]' '[:upper:]')"
 # ── 1. dependencies ─────────────────────────────────────────────────────────
 log "Installing dependencies"
 apt-get update -y
+# Debian/Ubuntu ship both iptables and ip6tables in this one package. ip6tables
+# is checked explicitly below so a broken alternatives/minimal image cannot leave
+# an IPv6 tunnel without the NAT66 firewall tool.
 apt-get install -y curl ca-certificates jq iptables iproute2 openssl
+command -v iptables >/dev/null 2>&1 || die "the iptables package was installed but the iptables command is unavailable."
+if ! command -v ip6tables >/dev/null 2>&1; then
+  warn "the iptables package did not provide ip6tables; this install will use IPv4 only."
+fi
 
 # ── 2. obtain + install qeli ────────────────────────────────────────────────
 # Two ways to get qeli onto the box, both ending in the SAME .deb layout:
@@ -524,8 +556,33 @@ if grep -q '^obf.tls.reality_proxy.short_ids' "$CONF"; then
   sed -i "s|^obf.tls.reality_proxy.short_ids = .*|obf.tls.reality_proxy.short_ids = ${SID}|" "$CONF"
   echo "  generated REALITY short_id: ${SID}"
 fi
-# leave routing.nat.interface unset so it auto-detects the WAN interface
+# Leave IPv4 NAT auto-detection portable. For IPv6, keep dual-stack only when the
+# selected default-route interface has a real public GUA and ip6tables NAT support.
 sed -i "/^routing.nat.interface/d" "$CONF"
+IPV6_WAN_IF=""
+IPV6_WAN_ADDR=""
+if _native_public_ipv6_egress; then
+  # RFC4193 locally assigned ULA: fd + 40 random Global-ID bits = one unique /48.
+  # The final /64 subnet ID is different for each shipped profile and is retained.
+  ULA_HEX="$(openssl rand -hex 5)"
+  ULA_SITE="fd${ULA_HEX:0:2}:${ULA_HEX:2:4}:${ULA_HEX:6:4}"
+  sed -i "s|fd71:e1:8000|${ULA_SITE}|g" "$CONF"
+  sed -i "s|^routing.ipv6.interface =.*|routing.ipv6.interface = ${IPV6_WAN_IF}|" "$CONF"
+  echo "  IPv6 WAN: ${IPV6_WAN_ADDR} on ${IPV6_WAN_IF}"
+  echo "  tunnel ULA site prefix: ${ULA_SITE}::/48 (NAT66 enabled)"
+else
+  # Do not leave a nominally dual config that cannot egress or program a fail-closed
+  # IPv6 boundary. IPv4 remains fully configured and NAT44 stays enabled.
+  sed -i \
+    -e 's/^tun.ip_mode = dual$/tun.ip_mode = ipv4/' \
+    -e '/^tun.ipv6_address =/d' \
+    -e '/^pool.ipv6.cidr =/d' \
+    -e 's/^routing.ipv6.mode = nat66$/routing.ipv6.mode = off/' \
+    -e '/^routing.ipv6.interface =/d' \
+    -e '/^dns.listen_ipv6 =/d' \
+    "$CONF"
+  warn "no usable public IPv6 default-route + ip6tables NAT path; installed an IPv4-only active profile."
+fi
 
 # ── 5. server identity key (created + printed; pinned automatically in the link)
 log "Generating the server identity key"

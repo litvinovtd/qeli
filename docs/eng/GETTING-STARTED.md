@@ -367,11 +367,25 @@ bind.transport = tcp
 # the tunnel's virtual network
 # the server's address inside the tunnel (gateway)
 tun.address  = 10.9.0.1
+tun.ip_mode = dual
+tun.ipv6_address = fd71:e1:8000:100::1
 # pushed to clients; for production TCP see §12 and CONFIG.md
 tun.mtu      = 1400
 
 # VPN subnet and pool; its prefix also configures the server and clients
 pool.cidr    = 10.9.0.0/24
+# example only: use one random RFC4193 /48 per site and one /64 per profile
+pool.ipv6.cidr = fd71:e1:8000:100::/64
+
+# full-tunnel egress for both families
+routing.nat.enabled = true
+routing.ipv6.mode = nat66
+routing.ipv6.interface =
+
+# in-tunnel resolver on both gateway addresses
+dns.enabled = true
+dns.listen = 10.9.0.1
+dns.listen_ipv6 = fd71:e1:8000:100::1
 
 # on-the-wire masking mode (see §11)
 obf.mode = fake-tls
@@ -393,11 +407,11 @@ obf.recordizer.fragment.max_reassembly_bytes = 4194304
 obf.recordizer.fragment.max_fragments_per_packet = 64
 ```
 
-Everything else (DNS proxy, padding, heartbeat, limits) already has sensible defaults
+Everything else (padding, heartbeat, limits) already has sensible defaults
 in the example. Full description of every key — [CONFIG.md](CONFIG.md).
 
 > **Multiple profiles.** You can run a second interface side by side, e.g. UDP on
-> `:1443` — add a `[profile:udp]` section (its own `tun.name`/`tun.address`/`pool.cidr`/
+> `:1443` — add a `[profile:udp]` section (its own `tun.name`/`tun.address`/`tun.ipv6_address`/`pool.cidr`/`pool.ipv6.cidr`/
 > `bind.port`/`bind.transport = udp`). Each profile has its own identity key and pool.
 > A ready template with **all 10 modes at once** (reality-tls on :443, the rest on
 > 8443–8451) ships as `/etc/qeli/server-multiprofile.conf.example` (installed by the
@@ -478,6 +492,9 @@ routing.nat.enabled  = true
 # WAN egress interface. Leave empty/default to auto-detect (ip route get 1.1.1.1),
 # or set it explicitly, e.g. ens3.
 routing.nat.interface =
+# IPv6 ULA egress: MASQUERADE through the public IPv6 default-route interface
+routing.ipv6.mode = nat66
+routing.ipv6.interface =
 ```
 
 ```bash
@@ -492,11 +509,16 @@ POSTROUTING -s <pool.cidr> -o <wan> -j MASQUERADE`; two `FORWARD … ACCEPT` (tu
 two per-family `-t mangle FORWARD … TCPMSS` rules (`tun.mtu−40` for IPv4,
 `tun.mtu−60` for IPv6; PMTU-black-hole guard).
 
-> ⚠️ **Requires `iptables`** (the `iptables` package). The .deb depends on it, so a
+> ⚠️ **Requires `iptables` and `ip6tables`** (both commands come from the Debian/Ubuntu `iptables` package). The .deb depends on it, so a
 > package install already has it. If `iptables` is **missing**, NAT can't be applied:
 > the server log shows `ERROR … routing.nat.enabled is set but NAT was NOT applied`, and the **web panel**
 > (Dashboard) shows a yellow banner. Install it: `sudo apt install iptables`. Only the
-> classic `iptables` CLI is used (never `nft`/`ufw`).
+> classic `iptables`/`ip6tables` CLIs are used (never direct `nft`/`ufw` rules).
+>
+> The one-shot installer detects the real IPv6 default-route interface and a public
+> `2000::/3` source address, verifies the `ip6tables` NAT table, then generates a random
+> RFC4193 `/48`. If any prerequisite is absent, only the generated active profile is
+> normalized to IPv4; the shipped examples remain dual-stack templates.
 
 > Production tuning (BBR, buffers, MTU probing — noticeably speeds up TCP on mobile) is
 > in [CONFIG.md → "Server OS tuning"](CONFIG.md). Strongly recommended for full-tunnel.
