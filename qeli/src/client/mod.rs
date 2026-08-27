@@ -531,7 +531,9 @@ async fn run_pending_post_up(core: &mut dyn ClientPlatform) {
 /// the first real adapter that freezes the semantics other clients will consume.
 #[cfg(target_os = "linux")]
 struct LinuxCoreAdapter {
-    core: ClientCore,
+    /// Shared with the transport-facing path controller. The mutex protects only bounded core
+    /// state transitions; Linux route/socket work always runs after releasing this lock.
+    core: Arc<std::sync::Mutex<ClientCore>>,
     next_plan_generation: u64,
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
@@ -728,6 +730,11 @@ impl ClientStatusReporter {
 
 #[cfg(target_os = "linux")]
 impl LinuxCoreAdapter {
+    fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
+        let mut core = crate::util::lock_or_recover(&self.core, "client::linux_core");
+        action(&mut core)
+    }
+
     fn new(config_text: &str) -> anyhow::Result<(Self, crate::config::client::ClientConfig)> {
         let preview = crate::config::parse_client_config_strict(config_text)?;
         let mut platform_capabilities = platform_capability::SYSTEM_PLAN
@@ -754,6 +761,7 @@ impl LinuxCoreAdapter {
         )?;
         let config = core.config().clone();
         while core.poll_event().is_some() {}
+        let core = Arc::new(std::sync::Mutex::new(core));
         let counters = Arc::new(RuntimeCounters::default());
         let diagnostics = ClientStatusReporter::from_env();
         diagnostics.publish(&counters);
@@ -772,21 +780,21 @@ impl LinuxCoreAdapter {
 
     fn begin_connection(&mut self, reconnect: bool) -> anyhow::Result<()> {
         if !matches!(
-            self.core.state(),
+            self.with_core(|core| core.state()),
             ClientState::Created | ClientState::Stopped
         ) {
-            self.core.stop()?;
+            self.with_core(|core| core.stop())?;
             self.drain_events(None)?;
         }
         if reconnect {
-            self.core.record_reconnect();
+            self.with_core(ClientCore::record_reconnect);
         }
-        self.core.start()?;
+        self.with_core(|core| core.start())?;
         self.drain_events(None).map(|_| ())
     }
 
     fn finish_connection(&mut self) -> anyhow::Result<()> {
-        self.core.stop()?;
+        self.with_core(|core| core.stop())?;
         self.drain_events(None).map(|_| ())
     }
 
@@ -815,21 +823,20 @@ impl LinuxCoreAdapter {
         apply: impl FnOnce(&NetworkPlan) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         let generation = plan.generation;
-        self.core.publish_network_plan(plan)?;
+        self.with_core(|core| core.publish_network_plan(plan))?;
         let executable = self.drain_events(Some(generation))?.ok_or_else(|| {
             anyhow::anyhow!("core emitted no network plan for generation {generation}")
         })?;
 
         match apply(&executable) {
             Ok(value) => {
-                self.core.ack_network_plan(generation, true, None)?;
+                self.with_core(|core| core.ack_network_plan(generation, true, None))?;
                 self.drain_events(None)?;
                 Ok(value)
             }
             Err(error) => {
                 let reason = error.to_string();
-                self.core
-                    .ack_network_plan(generation, false, Some(&reason))?;
+                self.with_core(|core| core.ack_network_plan(generation, false, Some(&reason)))?;
                 self.drain_events(None)?;
                 Err(error)
             }
@@ -838,12 +845,12 @@ impl LinuxCoreAdapter {
 
     fn drain_events(&mut self, wanted_plan: Option<u64>) -> anyhow::Result<Option<NetworkPlan>> {
         let mut found = None;
-        while let Some(event) = self.core.poll_event() {
+        while let Some(event) = self.with_core(|core| core.poll_event()) {
             match event.kind {
                 EventKind::StateChanged => {
                     log::debug!("transport core state: {:?}", event.state);
-                    self.diagnostics
-                        .update_state(event.state, self.core.stats().reconnects);
+                    let reconnects = self.with_core(|core| core.stats().reconnects);
+                    self.diagnostics.update_state(event.state, reconnects);
                     self.diagnostics.publish(&self.counters);
                 }
                 EventKind::NetworkPlan => {
@@ -891,7 +898,7 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     fn platform_capabilities(&self) -> u64 {
-        self.core.platform_capabilities()
+        self.with_core(|core| core.platform_capabilities())
     }
 
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]> {
@@ -8125,7 +8132,10 @@ mod lifecycle_adapter_tests {
     fn linux_adapter_enters_running_only_after_platform_apply() {
         let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
         adapter.begin_connection(false).unwrap();
-        assert_eq!(adapter.core.state(), ClientState::Connecting);
+        assert_eq!(
+            adapter.with_core(|core| core.state()),
+            ClientState::Connecting
+        );
 
         let generation = adapter.next_generation();
         let result = adapter
@@ -8137,7 +8147,7 @@ mod lifecycle_adapter_tests {
             .unwrap();
 
         assert_eq!(result, 42);
-        assert_eq!(adapter.core.state(), ClientState::Running);
+        assert_eq!(adapter.with_core(|core| core.state()), ClientState::Running);
     }
 
     #[test]
@@ -8152,7 +8162,7 @@ mod lifecycle_adapter_tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("route installation failed"));
-        assert_eq!(adapter.core.state(), ClientState::Failed);
+        assert_eq!(adapter.with_core(|core| core.state()), ClientState::Failed);
     }
 }
 

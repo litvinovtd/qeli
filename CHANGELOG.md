@@ -42,6 +42,11 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- `LinuxCoreAdapter` переведён на разделяемое, коротко блокируемое состояние `ClientCore`.
+  Это позволяет in-process Linux/OpenWrt controller использовать тот же автомат
+  PREPARE/BIND/COMMIT/ABORT, корреляцию ACK, supersede и roaming-телеметрию, что FFI-клиенты,
+  вместо отдельной реализации протокола. Системные route/socket операции будут выполняться
+  после освобождения core-lock; production capability этим рефакторингом не включается.
 - Начат Linux/OpenWrt adapter этапа 4 без включения capability: общий candidate dialer теперь
   создаёт отдельный unbound-сокет и на Linux умеет до connect привязать его одновременно к
   точному `interface_index` через `SO_BINDTODEVICE` и к адресу нужного семейства из
