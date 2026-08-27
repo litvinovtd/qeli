@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–2B TCP resume/handover, default off)
+### Основа роуминга (stages 0–3A TCP/UDP, default off)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
@@ -113,7 +113,17 @@
   аутентифицировал и переключил carrier, поэтому клиент восстанавливается существующим hard
   resume, а не пытается вернуть старый путь. Production adapter bits остаются выключенными до
   этапа 4 и прохождения live device/race matrix.
-- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/888 тестами
+- Stage 3A добавляет под `experimental-roaming` изолированную profile-wide модель UDP migration.
+  Ограниченный реестр связывает восьмибайтовые CID с generation-tagged сессиями и хранит не более
+  трёх deterministic aliases на сессию; directional CID secrets zeroize-ятся. На сессию допускается
+  ровно один authenticated candidate. PATH_CHALLENGE/RESPONSE привязан к точным path/epoch/token,
+  pre-validation отправка ограничена трёхкратным объёмом принятых байтов, а счётчик bounded.
+  CID rotation сначала атомарно проверяет коллизии, затем переключает active path; PMTU generation
+  сбрасывается к safe payload budget, stale probe не может изменить новый путь, cleanup удаляет все
+  aliases и candidate state. Реестр пока не владеет sockets/codecs и не подключён к UDP hot path:
+  production data plane и default-сборка не изменены. Девять unit-тестов, включая 32 последовательные
+  ротации и stale/collision/anti-amplification случаи, прошли на лабе.
+- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/897 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что
