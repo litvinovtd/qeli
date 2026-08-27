@@ -696,7 +696,10 @@ mod diagnostic_tests {
         );
         assert_eq!(
             config.routing.exclude,
-            vec!["192.168.50.0/24".to_string(), "2001:db8:50::/48".to_string()]
+            vec![
+                "192.168.50.0/24".to_string(),
+                "2001:db8:50::/48".to_string()
+            ]
         );
         assert_eq!(config.routing.lan_subnet_ipv6, "fd42:50::/64");
         assert!(ini.contains("ipv6 = required\n"));

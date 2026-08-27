@@ -174,7 +174,11 @@ fn every_shipped_server_profile_is_explicit_dual_stack_with_a_unique_ula() {
                 .map(|(key, value)| (key.as_str(), value.as_str()))
                 .collect();
             let header = profile.header();
-            assert_eq!(entries.get("tun.ip_mode").copied(), Some("dual"), "{name} {header}");
+            assert_eq!(
+                entries.get("tun.ip_mode").copied(),
+                Some("dual"),
+                "{name} {header}"
+            );
             assert_eq!(
                 entries.get("routing.nat.enabled").copied(),
                 Some("true"),
@@ -186,7 +190,10 @@ fn every_shipped_server_profile_is_explicit_dual_stack_with_a_unique_ula() {
                 "{name} {header}"
             );
             for key in ["tun.ipv6_address", "pool.ipv6.cidr", "dns.listen_ipv6"] {
-                assert!(entries.contains_key(key), "{name} {header} is missing {key}");
+                assert!(
+                    entries.contains_key(key),
+                    "{name} {header} is missing {key}"
+                );
             }
             let prefix = entries["pool.ipv6.cidr"];
             assert!(
