@@ -9,6 +9,8 @@
 use crate::protocol::roaming::{derive_udp_cid, CID_LEN, PATH_CHALLENGE_LEN};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
 pub const MAX_CID_ALIASES_PER_SESSION: usize = 3;
@@ -43,12 +45,17 @@ impl UdpPath {
 pub struct CidLookup {
     session_id: u64,
     session_generation: u64,
+    owner_worker_id: u32,
     path_epoch: u64,
 }
 
 impl CidLookup {
     pub fn session_id(self) -> u64 {
         self.session_id
+    }
+
+    pub fn owner_worker_id(self) -> u32 {
+        self.owner_worker_id
     }
 
     pub fn path_epoch(self) -> u64 {
@@ -228,6 +235,7 @@ struct CandidatePath {
 
 struct UdpSession {
     generation: u64,
+    owner_worker_id: u32,
     client_to_server_cid_secret: Zeroizing<[u8; 32]>,
     server_to_client_cid_secret: Zeroizing<[u8; 32]>,
     aliases: Vec<(UdpCid, u64)>,
@@ -272,10 +280,14 @@ impl UdpRoamingTable {
     }
 
     pub fn lookup(&self, cid: &UdpCid) -> Option<CidLookup> {
-        self.cid_index.get(cid).copied().map(|owner| CidLookup {
-            session_id: owner.session_id,
-            session_generation: owner.session_generation,
-            path_epoch: owner.path_epoch,
+        self.cid_index.get(cid).copied().and_then(|owner| {
+            let owner_worker_id = self.sessions.get(&owner.session_id)?.owner_worker_id;
+            Some(CidLookup {
+                session_id: owner.session_id,
+                session_generation: owner.session_generation,
+                owner_worker_id,
+                path_epoch: owner.path_epoch,
+            })
         })
     }
 
@@ -322,6 +334,7 @@ impl UdpRoamingTable {
             session_id,
             UdpSession {
                 generation,
+                owner_worker_id: active_path.worker_id,
                 client_to_server_cid_secret: Zeroizing::new(client_to_server_cid_secret),
                 server_to_client_cid_secret: Zeroizing::new(server_to_client_cid_secret),
                 aliases: receive_aliases,
@@ -707,6 +720,231 @@ impl UdpRoamingTable {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UdpWorkerRouteError {
+    InvalidTopology,
+    UnknownCid,
+    UnknownWorker,
+    QueueFull,
+    WorkerClosed,
+}
+
+/// A failed route returns ownership of the payload without implementing `Debug`: encrypted
+/// datagrams and their complete CID-bearing envelopes must not be formatted into logs.
+pub struct UdpWorkerRouteFailure<T> {
+    kind: UdpWorkerRouteError,
+    payload: T,
+}
+
+impl<T> UdpWorkerRouteFailure<T> {
+    fn new(kind: UdpWorkerRouteError, payload: T) -> Self {
+        Self { kind, payload }
+    }
+
+    pub fn kind(&self) -> UdpWorkerRouteError {
+        self.kind
+    }
+
+    pub fn into_payload(self) -> T {
+        self.payload
+    }
+}
+
+/// One authenticated-CID datagram delivered to the worker that owns the session codec.
+/// The payload intentionally omits `Debug` for the same reason as [`UdpWorkerRouteFailure`].
+pub struct UdpRoutedIngress<T> {
+    lookup: CidLookup,
+    received_path: UdpPath,
+    packet_number: u32,
+    payload: T,
+}
+
+impl<T> UdpRoutedIngress<T> {
+    pub fn lookup(&self) -> CidLookup {
+        self.lookup
+    }
+
+    pub fn received_path(&self) -> UdpPath {
+        self.received_path
+    }
+
+    pub fn packet_number(&self) -> u32 {
+        self.packet_number
+    }
+
+    pub fn payload(&self) -> &T {
+        &self.payload
+    }
+
+    pub fn into_payload(self) -> T {
+        self.payload
+    }
+}
+
+pub enum UdpIngressDispatch<T> {
+    /// The source worker already owns the codec, so no channel hop is necessary.
+    Local(UdpRoutedIngress<T>),
+    /// Ownership was moved into the bounded home-worker mailbox.
+    Queued,
+}
+
+/// Receive half owned by exactly one UDP worker. It cannot be cloned, which prevents two tasks
+/// from concurrently consuming one session owner's routed ingress stream.
+pub struct UdpWorkerMailbox<T> {
+    worker_id: u32,
+    receiver: mpsc::Receiver<UdpRoutedIngress<T>>,
+}
+
+impl<T> UdpWorkerMailbox<T> {
+    pub fn worker_id(&self) -> u32 {
+        self.worker_id
+    }
+
+    pub async fn recv(&mut self) -> Option<UdpRoutedIngress<T>> {
+        self.receiver.recv().await
+    }
+
+    pub fn try_recv(&mut self) -> Result<UdpRoutedIngress<T>, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
+/// Profile-wide bounded dispatch fabric. Session crypto remains owned by one worker; a packet
+/// received on another SO_REUSEPORT socket crosses only this bounded mailbox after CID lookup.
+/// Registry operations hold a non-async mutex for short O(1) state transitions and never await.
+pub struct UdpWorkerFabric<T> {
+    table: Arc<Mutex<UdpRoamingTable>>,
+    routes: Vec<mpsc::Sender<UdpRoutedIngress<T>>>,
+}
+
+impl<T> Clone for UdpWorkerFabric<T> {
+    fn clone(&self) -> Self {
+        Self {
+            table: self.table.clone(),
+            routes: self.routes.clone(),
+        }
+    }
+}
+
+impl<T> UdpWorkerFabric<T> {
+    pub fn new(
+        worker_count: usize,
+        queue_capacity: usize,
+        max_sessions: usize,
+    ) -> Result<(Self, Vec<UdpWorkerMailbox<T>>), UdpWorkerRouteError> {
+        if worker_count == 0 || queue_capacity == 0 || u32::try_from(worker_count).is_err() {
+            return Err(UdpWorkerRouteError::InvalidTopology);
+        }
+        let mut routes = Vec::with_capacity(worker_count);
+        let mut mailboxes = Vec::with_capacity(worker_count);
+        for worker in 0..worker_count {
+            let worker_id =
+                u32::try_from(worker).map_err(|_| UdpWorkerRouteError::InvalidTopology)?;
+            let (sender, receiver) = mpsc::channel(queue_capacity);
+            routes.push(sender);
+            mailboxes.push(UdpWorkerMailbox {
+                worker_id,
+                receiver,
+            });
+        }
+        Ok((
+            Self {
+                table: Arc::new(Mutex::new(UdpRoamingTable::new(max_sessions))),
+                routes,
+            },
+            mailboxes,
+        ))
+    }
+
+    fn lock_table(&self) -> std::sync::MutexGuard<'_, UdpRoamingTable> {
+        self.table
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn register_session(
+        &self,
+        session_id: u64,
+        client_to_server_cid_secret: [u8; 32],
+        server_to_client_cid_secret: [u8; 32],
+        active_path: UdpPath,
+        safe_payload_budget: u16,
+    ) -> Result<InitialCids, UdpRoamingError> {
+        let worker =
+            usize::try_from(active_path.worker_id).map_err(|_| UdpRoamingError::InvalidSession)?;
+        if worker >= self.routes.len() {
+            return Err(UdpRoamingError::InvalidSession);
+        }
+        self.lock_table().register_session(
+            session_id,
+            client_to_server_cid_secret,
+            server_to_client_cid_secret,
+            active_path,
+            safe_payload_budget,
+        )
+    }
+
+    pub fn remove_session(&self, session_id: u64) -> bool {
+        self.lock_table().remove_session(session_id)
+    }
+
+    pub fn route_ingress(
+        &self,
+        destination_cid: &UdpCid,
+        packet_number: u32,
+        received_path: UdpPath,
+        payload: T,
+    ) -> Result<UdpIngressDispatch<T>, UdpWorkerRouteFailure<T>> {
+        let received_worker = match usize::try_from(received_path.worker_id) {
+            Ok(worker) if worker < self.routes.len() => worker,
+            _ => {
+                return Err(UdpWorkerRouteFailure::new(
+                    UdpWorkerRouteError::UnknownWorker,
+                    payload,
+                ));
+            }
+        };
+        let lookup = match self.lock_table().lookup(destination_cid) {
+            Some(lookup) => lookup,
+            None => {
+                return Err(UdpWorkerRouteFailure::new(
+                    UdpWorkerRouteError::UnknownCid,
+                    payload,
+                ));
+            }
+        };
+        let owner = match usize::try_from(lookup.owner_worker_id) {
+            Ok(worker) if worker < self.routes.len() => worker,
+            _ => {
+                return Err(UdpWorkerRouteFailure::new(
+                    UdpWorkerRouteError::UnknownWorker,
+                    payload,
+                ));
+            }
+        };
+        let routed = UdpRoutedIngress {
+            lookup,
+            received_path,
+            packet_number,
+            payload,
+        };
+        if owner == received_worker {
+            return Ok(UdpIngressDispatch::Local(routed));
+        }
+        match self.routes[owner].try_send(routed) {
+            Ok(()) => Ok(UdpIngressDispatch::Queued),
+            Err(mpsc::error::TrySendError::Full(routed)) => Err(UdpWorkerRouteFailure::new(
+                UdpWorkerRouteError::QueueFull,
+                routed.into_payload(),
+            )),
+            Err(mpsc::error::TrySendError::Closed(routed)) => Err(UdpWorkerRouteFailure::new(
+                UdpWorkerRouteError::WorkerClosed,
+                routed.into_payload(),
+            )),
+        }
+    }
+}
+
 fn validate_lookup(session: &UdpSession, lookup: CidLookup) -> Result<(), UdpRoamingError> {
     if session.generation != lookup.session_generation {
         return Err(UdpRoamingError::StaleSession);
@@ -779,6 +1017,10 @@ mod tests {
         assert_eq!(table.cid_count(), 2);
         assert_eq!(initial.receive(), &derive_udp_cid(&C2S, 7, 0));
         assert_eq!(initial.transmit(), &derive_udp_cid(&S2C, 7, 0));
+        assert_eq!(
+            table.lookup(initial.receive()).unwrap().owner_worker_id(),
+            1
+        );
         assert_eq!(table.lookup(initial.receive()).unwrap().path_epoch(), 0);
         assert_eq!(
             table
@@ -1037,5 +1279,94 @@ mod tests {
         ));
         assert_eq!(collision.session_count(), 0);
         assert_eq!(collision.cid_count(), 1);
+    }
+
+    #[test]
+    fn worker_fabric_routes_locally_or_to_the_immutable_codec_owner() {
+        let (fabric, mut mailboxes) = UdpWorkerFabric::new(2, 2, 4).unwrap();
+        let initial = fabric
+            .register_session(7, C2S, S2C, path(1, 1000), 1200)
+            .unwrap();
+        assert_eq!(mailboxes[0].worker_id(), 0);
+        assert_eq!(mailboxes[1].worker_id(), 1);
+
+        let local = fabric
+            .route_ingress(initial.receive(), 11, path(1, 2000), vec![1])
+            .ok()
+            .expect("local ingress is accepted");
+        let UdpIngressDispatch::Local(local) = local else {
+            panic!("home-worker ingress must not take a channel hop");
+        };
+        assert_eq!(local.lookup().owner_worker_id(), 1);
+        assert_eq!(local.received_path(), path(1, 2000));
+        assert_eq!(local.packet_number(), 11);
+        assert_eq!(local.payload(), &vec![1]);
+
+        assert!(matches!(
+            fabric.route_ingress(initial.receive(), 12, path(0, 3000), vec![2]),
+            Ok(UdpIngressDispatch::Queued)
+        ));
+        assert!(matches!(
+            mailboxes[0].try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        let routed = mailboxes[1].try_recv().unwrap();
+        assert_eq!(routed.lookup().session_id(), 7);
+        assert_eq!(routed.received_path(), path(0, 3000));
+        assert_eq!(routed.into_payload(), vec![2]);
+    }
+
+    #[test]
+    fn worker_fabric_is_bounded_and_returns_dropped_payload_ownership() {
+        let (fabric, _mailboxes) = UdpWorkerFabric::new(2, 1, 4).unwrap();
+        let initial = fabric
+            .register_session(7, C2S, S2C, path(1, 1000), 1200)
+            .unwrap();
+        assert!(matches!(
+            fabric.route_ingress(initial.receive(), 1, path(0, 2000), vec![1]),
+            Ok(UdpIngressDispatch::Queued)
+        ));
+        let failure = fabric
+            .route_ingress(initial.receive(), 2, path(0, 2000), vec![9])
+            .err()
+            .expect("full mailbox fails closed");
+        assert_eq!(failure.kind(), UdpWorkerRouteError::QueueFull);
+        assert_eq!(failure.into_payload(), vec![9]);
+    }
+
+    #[test]
+    fn worker_fabric_rejects_unknown_cids_workers_and_closed_mailboxes() {
+        assert!(matches!(
+            UdpWorkerFabric::<Vec<u8>>::new(0, 1, 1),
+            Err(UdpWorkerRouteError::InvalidTopology)
+        ));
+        assert!(matches!(
+            UdpWorkerFabric::<Vec<u8>>::new(1, 0, 1),
+            Err(UdpWorkerRouteError::InvalidTopology)
+        ));
+
+        let (fabric, mailboxes) = UdpWorkerFabric::new(2, 1, 4).unwrap();
+        let initial = fabric
+            .register_session(7, C2S, S2C, path(1, 1000), 1200)
+            .unwrap();
+        let unknown = fabric
+            .route_ingress(&[0xFF; CID_LEN], 1, path(0, 2000), vec![3])
+            .err()
+            .unwrap();
+        assert_eq!(unknown.kind(), UdpWorkerRouteError::UnknownCid);
+        assert_eq!(unknown.into_payload(), vec![3]);
+        let bad_worker = fabric
+            .route_ingress(initial.receive(), 2, path(9, 2000), vec![4])
+            .err()
+            .unwrap();
+        assert_eq!(bad_worker.kind(), UdpWorkerRouteError::UnknownWorker);
+        drop(mailboxes);
+        let closed = fabric
+            .route_ingress(initial.receive(), 3, path(0, 2000), vec![5])
+            .err()
+            .unwrap();
+        assert_eq!(closed.kind(), UdpWorkerRouteError::WorkerClosed);
+        assert_eq!(closed.into_payload(), vec![5]);
+        assert!(fabric.remove_session(7));
     }
 }

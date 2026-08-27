@@ -1,13 +1,14 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v3-safe -->
+<!-- normative-sync: roaming-v4-safe -->
 
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
-> passed the lab source/unit gates but still requires the live race/device matrix. The Phase 3A
-> bounded UDP registry/migration state foundation is source-complete; hot-path integration remains.
+> passed the lab source/unit gates but still requires the live race/device matrix. The Phase 3A/3B
+> bounded UDP registry/migration state and cross-worker dispatch foundations are source-complete;
+> hot-path integration remains.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (862/897 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (862/900 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -311,7 +312,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (862/897 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (862/900 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -326,10 +327,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
   3× anti-amplification accounting, atomic collision-safe CID rotation, generation-tagged PMTU reset,
-  stale-probe rejection, and exact cleanup. Nine unit tests include 32 sequential rotations and
-  stale/collision/anti-amplification cases. It deliberately owns no sockets or packet codecs yet;
-  profile-wide socket/codec actor integration, dynamic egress, DATA_FRAG/reassembly/replay,
-  cross-worker/listener/family races, and mock/Linux live acceptance remain.
+  stale-probe rejection, and exact cleanup. A generic bounded cross-worker fabric keeps immutable
+  home-worker ownership of each session codec, avoids a global decrypt lock, uses no channel hop for
+  local ingress, and uses fail-closed `try_send` for other `SO_REUSEPORT` workers. Unknown CID,
+  invalid worker, full and closed mailbox outcomes are distinct, and rejected payloads retain exact
+  ownership without `Debug`. Twelve unit tests include 32 sequential rotations plus
+  stale/collision/anti-amplification and local/cross-worker/full/closed routing cases. The fabric is
+  not wired into the server hot path yet; session actor integration, dynamic egress,
+  DATA_FRAG/reassembly/replay, cross-listener/family races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

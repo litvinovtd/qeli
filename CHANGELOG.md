@@ -127,7 +127,15 @@
   имеет постоянного `D1 52` marker, который создавал бы отдельный DPI-отпечаток. Negotiated форма
   сохраняет обычные QUIC short flags, расширяет только cleartext DCID с четырёх до восьми байтов и
   позволяет выполнять bounded CID lookup при miss по source address; legacy path не изменён.
-- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/897 тестами
+- Stage 3B добавляет generic profile-wide cross-worker fabric без общего decrypt-lock. CID lookup
+  хранит неизменяемый home-worker владельца PacketCodec/session actor; ingress с другого
+  `SO_REUSEPORT` worker передаётся ему через bounded `try_send`, а ingress на home-worker не делает
+  лишний channel hop. Topology и worker id проверяются до регистрации/маршрутизации; unknown CID,
+  неверный worker, full и closed mailbox различаются fail-closed, причём dropped payload возвращается
+  владельцу и намеренно не реализует `Debug`. Три unit-теста проверяют local/cross-worker delivery,
+  immutable ownership, переполнение, закрытие и точный cleanup. Fabric пока не подключён к server
+  hot path, поэтому production data plane не изменён.
+- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/900 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

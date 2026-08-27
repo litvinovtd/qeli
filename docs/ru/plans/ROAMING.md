@@ -1,13 +1,14 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v3-safe -->
+<!-- normative-sync: roaming-v4-safe -->
 
 > Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
-> прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченный
-> UDP registry/migration state этапа 3A готов по исходникам; интеграция в hot path ещё впереди.
+> прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
+> UDP registry/migration state и cross-worker dispatch этапов 3A/3B готовы по исходникам;
+> интеграция в hot path ещё впереди.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (862/897 library tests,
+> На лабе `.10` прошли финальные default/feature suites (862/900 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -517,7 +518,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 862/897 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 862/900 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -532,14 +533,18 @@ live-приёмка этапа 2B следует за platform adapter этап�
 
 ### Этап 3. UDP migration
 
-Статус 3A: под default-off feature готова profile-wide bounded-модель. Она владеет
+Статус 3A/3B: под default-off feature готова profile-wide bounded-модель. Она владеет
 generation-tagged сессиями, не более чем тремя deterministic CID aliases, directional zeroized
 secrets, одним authenticated candidate, точной привязкой PATH_CHALLENGE/RESPONSE к path/epoch/token,
 трёхкратным anti-amplification budget, атомарной collision-safe CID rotation, generation-tagged
-PMTU reset и точным cleanup. Девять unit-тестов включают 32 последовательные ротации, stale,
-collision и anti-amplification сценарии. Модель намеренно пока не владеет socket и packet codecs:
-profile-wide socket/codec actor, dynamic egress, DATA_FRAG/reassembly/replay, cross-worker/listener/
-family races и mock/Linux live-приёмка остаются следующими срезами.
+PMTU reset и точным cleanup. Generic bounded cross-worker fabric закрепляет неизменяемого
+home-worker владельца session codec, не вводит общий decrypt-lock, не делает channel hop для local
+ingress и использует fail-closed `try_send` между `SO_REUSEPORT` workers. Unknown CID, invalid
+worker, full и closed mailbox различаются, а rejected payload сохраняет точное ownership без
+`Debug`. Двенадцать unit-тестов включают 32 последовательные ротации, stale/collision/
+anti-amplification и local/cross-worker/full/closed routing. Fabric намеренно ещё не подключён к
+server hot path: session actor, dynamic egress, DATA_FRAG/reassembly/replay, cross-listener/family
+races и mock/Linux live-приёмка остаются следующими срезами.
 
 - восьмибайтовый CID и profile-wide registry;
 - per-session actor и dynamic egress;
