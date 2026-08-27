@@ -9,7 +9,7 @@
 > bootstrap foundations are source-complete; ingress/session-actor integration and guarded commit
 > wiring are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (865/906 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (865/907 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -313,7 +313,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (865/906 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (865/907 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -368,11 +368,20 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   `bind.listen` of the profile, preparing unambiguous cross-listener and cross-family delivery.
   Two focused lifecycle tests pin the stale-owner/replacement and shared-fabric races.
 
-  `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so the bootstrap
-  and eight-byte CID framing cannot activate in production yet. The ingress fabric and guarded
-  commit are not connected to the session actor. CID-owner ingress, candidate validation, complete
-  DATA_FRAG/reassembly/replay integration, cross-listener/family races, and mock/Linux live
-  acceptance remain.
+  The server hot path now creates one bounded fabric across every profile worker/listener and gives
+  each worker one non-cloneable mailbox. It checks an eight-byte short-header CID before new-session
+  rate limiting, but enters the roaming path only after the full CID resolves. The shared first byte
+  is not treated as a discriminator, so an unknown CID from a known address retains legacy handling
+  and a repeated AUTH can still recover a lost AuthOK. The pooled datagram moves without copying
+  together with the exact receiving socket to the immutable home worker. A generation-safe
+  `session_id → address` index is published only after AUTH and removed transactionally with the
+  address map; stale teardown cannot delete a replacement generation.
+
+  `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
+  eight-byte CID framing still cannot activate in production. CID ingress now reaches the
+  generation-checked owner boundary, but that boundary intentionally remains fail-closed until the
+  PacketCodec/session actor is connected. Candidate validation, complete DATA_FRAG/reassembly/replay
+  integration, cross-listener/family races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

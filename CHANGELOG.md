@@ -152,9 +152,9 @@
   socket/peer и связывается с точными path epoch и адресом. Pending marker разделяется с timeout-задачей,
   поэтому перенос ключа сессии не оставляет probe навсегда занятым. ACK старого пути не может
   расширить бюджет нового: проверка epoch/peer и запись бюджета атомарны относительно guarded commit.
-  Capability всё ещё не рекламируется, а ingress fabric/guarded commit ещё не подключены к session
-  actor; CID-owner ingress, candidate validation, полная DATA_FRAG/reassembly/replay интеграция и
-  live UDP roaming остаются следующими срезами.
+  Capability всё ещё не рекламируется. Fabric и CID ingress уже доведены до generation-checked
+  home-worker boundary, но PacketCodec/session actor, candidate validation, полная
+  DATA_FRAG/reassembly/replay интеграция и live UDP roaming остаются следующими срезами.
 - Добавлен fail-closed bootstrap-контракт UDP roaming. Режим может включиться только при явном
   двустороннем согласовании `CONTROL_V2 + UDP_ROAM_V1 + UDP_DATA_FRAG_V1`; одного клиентского
   reserved bit недостаточно. Для согласованной QUIC-сессии зашифрованный AuthOK передаёт
@@ -172,7 +172,17 @@
   ingress-срез сможет однозначно маршрутизировать packet к immutable codec owner через разные
   listeners и outer address families. `UDP_ROAM_V1` всё ещё не рекламируется, wire/runtime
   действующих сессий не изменены.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/906 тестами
+- Следующий серверный UDP-срез создаёт один bounded ingress fabric на все `SO_REUSEPORT` workers и
+  `bind.listen` профиля и выдаёт каждому worker ровно один non-cloneable mailbox. До new-session
+  rate limit декодируется обычный QUIC-shaped short header, но пакет уходит в roaming path только
+  после успешного lookup полного восьмибайтового CID; неизвестный CID известного address остаётся в
+  legacy-пути, поэтому повтор AUTH после потерянного AuthOK не ломается. Pooled datagram без копии и
+  точный receiving socket переходят immutable home-worker владельцу codec. Отдельный
+  generation-safe индекс `session_id → address` публикуется только после AUTH и очищается одной
+  транзакцией с address map; stale teardown не удаляет replacement. Owner boundary пока намеренно
+  fail-closed до подключения PacketCodec/control actor. `UDP_ROAM_V1` не рекламируется, поэтому
+  production wire/runtime не меняются. Regression-тест покрывает replacement старой generation.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/907 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

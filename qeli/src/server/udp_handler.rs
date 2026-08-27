@@ -48,6 +48,78 @@ fn max_concurrent_udp_handshakes() -> usize {
     std::cmp::max(64, cores.saturating_mul(4))
 }
 
+#[cfg(feature = "experimental-roaming")]
+struct UdpRoamingDatagram {
+    datagram: crate::transport::udp::PooledUdpDatagram,
+    /// Exact socket that received the candidate. A later path challenge must leave through
+    /// this socket rather than whichever listener happens to own the session codec.
+    socket: Arc<crate::protocol::obfs::ObfsUdp>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+struct UdpRoamingEvent(crate::transport_core::udp_roaming::UdpRoutedIngress<UdpRoamingDatagram>);
+
+#[cfg(not(feature = "experimental-roaming"))]
+enum UdpRoamingEvent {}
+
+#[cfg(feature = "experimental-roaming")]
+pub(crate) struct UdpRoamingWorker {
+    fabric: crate::transport_core::udp_roaming::UdpWorkerFabric<UdpRoamingDatagram>,
+    mailbox: crate::transport_core::udp_roaming::UdpWorkerMailbox<UdpRoamingDatagram>,
+}
+
+#[cfg(not(feature = "experimental-roaming"))]
+pub(crate) struct UdpRoamingWorker;
+
+impl UdpRoamingWorker {
+    #[cfg(feature = "experimental-roaming")]
+    async fn recv(&mut self) -> anyhow::Result<UdpRoamingEvent> {
+        self.mailbox
+            .recv()
+            .await
+            .map(UdpRoamingEvent)
+            .ok_or_else(|| anyhow::anyhow!("profile-wide UDP roaming mailbox closed"))
+    }
+
+    #[cfg(not(feature = "experimental-roaming"))]
+    async fn recv(&mut self) -> anyhow::Result<UdpRoamingEvent> {
+        std::future::pending().await
+    }
+}
+
+/// Build one non-cloneable receive mailbox for every profile-wide UDP worker. The fabric shares
+/// the exact registry populated during AUTH, so CID lookup and session cleanup cannot diverge.
+pub(crate) fn build_udp_roaming_workers(
+    profile: &Arc<ProfileRuntime>,
+    worker_count: usize,
+) -> anyhow::Result<Vec<UdpRoamingWorker>> {
+    #[cfg(feature = "experimental-roaming")]
+    {
+        if worker_count == 0 {
+            return Ok(Vec::new());
+        }
+        let (fabric, mailboxes) =
+            crate::transport_core::udp_roaming::UdpWorkerFabric::with_registry(
+                profile.udp_roaming_registry.clone(),
+                worker_count,
+                crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS,
+            )
+            .map_err(|error| anyhow::anyhow!("invalid UDP roaming worker topology: {error:?}"))?;
+        Ok(mailboxes
+            .into_iter()
+            .map(|mailbox| UdpRoamingWorker {
+                fabric: fabric.clone(),
+                mailbox,
+            })
+            .collect())
+    }
+    #[cfg(not(feature = "experimental-roaming"))]
+    {
+        let _ = profile;
+        Ok((0..worker_count).map(|_| UdpRoamingWorker).collect())
+    }
+}
+
 /// The data writer must not permanently capture the source address and socket that authenticated
 /// the session. A roaming commit replaces this value atomically while the PacketCodec, replay
 /// window, rate buckets and TUN ownership remain untouched.
@@ -438,7 +510,7 @@ fn send_downlink_mtu_probe(
 
 #[allow(clippy::too_many_arguments)]
 async fn schedule_downlink_mtu_probe(
-    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
     tasks: &super::ProfileTasks,
     profile_name: &str,
     addr: SocketAddr,
@@ -559,7 +631,7 @@ async fn schedule_downlink_mtu_probe(
 #[allow(clippy::too_many_arguments)]
 async fn forward_udp_uplink_packet(
     packet: ServerTunPacket,
-    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
     tasks: &super::ProfileTasks,
     profile: &Arc<ProfileRuntime>,
     addr: SocketAddr,
@@ -660,6 +732,121 @@ enum UdpSessionState {
         device_key: String,
         client_ip: std::net::IpAddr,
     },
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct UdpRoamingOwner {
+    address: SocketAddr,
+    session_generation: u64,
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Default)]
+struct UdpRoamingOwnerIndex {
+    by_session_id: HashMap<u64, UdpRoamingOwner>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl UdpRoamingOwnerIndex {
+    fn publish(&mut self, session_id: u64, session_generation: u64, address: SocketAddr) {
+        self.by_session_id.insert(
+            session_id,
+            UdpRoamingOwner {
+                address,
+                session_generation,
+            },
+        );
+    }
+
+    fn resolve(&self, lookup: crate::transport_core::udp_roaming::CidLookup) -> Option<SocketAddr> {
+        self.by_session_id
+            .get(&lookup.session_id())
+            .filter(|owner| owner.session_generation == lookup.session_generation())
+            .map(|owner| owner.address)
+    }
+
+    fn remove_if_matches(&mut self, session_id: u64, session_generation: u64, address: SocketAddr) {
+        if self.by_session_id.get(&session_id).is_some_and(|owner| {
+            owner.address == address && owner.session_generation == session_generation
+        }) {
+            self.by_session_id.remove(&session_id);
+        }
+    }
+}
+
+/// One worker's address-fast-path table plus the stable session-id index used only after a
+/// successful CID lookup. Keeping both behind the same lock gives removal and replacement one
+/// transaction; a late teardown cannot erase the owner of a newer session generation.
+#[derive(Default)]
+struct UdpSessionDirectory {
+    by_address: HashMap<SocketAddr, UdpClient>,
+    #[cfg(feature = "experimental-roaming")]
+    roaming_owners: UdpRoamingOwnerIndex,
+}
+
+impl std::ops::Deref for UdpSessionDirectory {
+    type Target = HashMap<SocketAddr, UdpClient>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.by_address
+    }
+}
+
+impl std::ops::DerefMut for UdpSessionDirectory {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.by_address
+    }
+}
+
+impl UdpSessionDirectory {
+    fn insert(&mut self, address: SocketAddr, client: UdpClient) -> Option<UdpClient> {
+        let replaced = self.remove(&address);
+        let duplicate = self.by_address.insert(address, client);
+        debug_assert!(duplicate.is_none());
+        replaced
+    }
+
+    fn remove(&mut self, address: &SocketAddr) -> Option<UdpClient> {
+        let removed = self.by_address.remove(address)?;
+        #[cfg(feature = "experimental-roaming")]
+        if let Some((session_id, session_generation)) = removed.roaming_identity() {
+            self.roaming_owners
+                .remove_if_matches(session_id, session_generation, *address);
+        }
+        Some(removed)
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn publish_roaming_owner(&mut self, address: SocketAddr) -> bool {
+        let Some((session_id, session_generation)) = self
+            .by_address
+            .get(&address)
+            .and_then(UdpClient::roaming_identity)
+        else {
+            return false;
+        };
+        self.roaming_owners
+            .publish(session_id, session_generation, address);
+        true
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn resolve_roaming_owner(
+        &self,
+        lookup: crate::transport_core::udp_roaming::CidLookup,
+    ) -> Option<SocketAddr> {
+        let address = self.roaming_owners.resolve(lookup)?;
+        self.by_address
+            .get(&address)
+            .filter(|client| {
+                client
+                    ._udp_roaming_registration
+                    .as_ref()
+                    .is_some_and(|registration| registration.matches_lookup(lookup))
+            })
+            .map(|_| address)
+    }
 }
 
 struct UdpClient {
@@ -839,6 +1026,23 @@ struct UdpClient {
     auth_ok_sent: bool,
 }
 
+#[cfg(feature = "experimental-roaming")]
+impl UdpClient {
+    fn roaming_identity(&self) -> Option<(u64, u64)> {
+        let session_id = match self.state {
+            UdpSessionState::Authenticated { session_id, .. } => session_id,
+            UdpSessionState::AwaitingAuth => return None,
+        };
+        let registration = self._udp_roaming_registration.as_ref()?;
+        (registration.session_id() == session_id)
+            .then_some((session_id, registration.session_generation()))
+    }
+
+    fn roaming_enabled(&self) -> bool {
+        self.roaming_identity().is_some()
+    }
+}
+
 /// How many times one session may have its AuthOK re-sent. The client retransmits AUTH on a
 /// ~1 s jittered timer inside a 10 s handshake deadline, so the legitimate path needs a few at
 /// most; past that the reply is not being lost, it is being milked.
@@ -915,12 +1119,14 @@ fn udp_reap_window(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // worker runtime carries profile, socket, routing, TUN and task owners
 pub(crate) async fn run_udp_server(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
     socket: UdpSocket,
     mut udp_buffer: UdpBufferController,
     worker_id: usize,
+    mut roaming_worker: UdpRoamingWorker,
     tun_tx: TunIngress,
     tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
@@ -992,8 +1198,7 @@ pub(crate) async fn run_udp_server(
         anyhow::bail!("profile stopped before UDP receive pump could start");
     }
 
-    let sessions: Arc<RwLock<HashMap<SocketAddr, UdpClient>>> =
-        Arc::new(RwLock::new(HashMap::new()));
+    let sessions = Arc::new(RwLock::new(UdpSessionDirectory::default()));
     // Per-worker admission gate for pre-auth handshake crypto (see
     // max_concurrent_udp_handshakes). Acquired just before the PQ handshake in
     // the new-session branch; a datagram that can't get a permit is dropped.
@@ -1054,6 +1259,14 @@ pub(crate) async fn run_udp_server(
 
     loop {
         tokio::select! {
+            roaming = roaming_worker.recv() => {
+                let event = roaming?;
+                #[cfg(feature = "experimental-roaming")]
+                handle_udp_roaming_ingress(&profile, &sessions, worker_id, event.0).await;
+                #[cfg(not(feature = "experimental-roaming"))]
+                match event {}
+            }
+
             received = received_rx.recv() => {
                 let Some((recv_buf, addr)) = received else {
                     return Err(anyhow::anyhow!(
@@ -1063,6 +1276,53 @@ pub(crate) async fn run_udp_server(
                 };
                 let n = recv_buf.len();
                 udp_buffer.note_receive(n);
+                #[cfg(feature = "experimental-roaming")]
+                {
+                    // Legacy and roaming short headers deliberately share their QUIC-shaped
+                    // first byte. Route only after the full eight-byte CID resolves in the
+                    // authenticated registry. If it does not, a known address must retain its
+                    // legacy path so an AUTH retransmit can still recover a lost AuthOK.
+                    let may_use_roaming = {
+                        let guard = sessions.read().await;
+                        guard.get(&addr).is_none_or(UdpClient::roaming_enabled)
+                    };
+                    let roaming_header = may_use_roaming
+                        .then(|| crate::protocol::roaming::decode_udp_short(&recv_buf[..n]).ok())
+                        .flatten()
+                        .map(|(header, _)| header)
+                        .filter(|header| {
+                            profile
+                                .udp_roaming_registry
+                                .lookup(header.destination_cid())
+                                .is_some()
+                        });
+                    if let Some(header) = roaming_header {
+                        let received_worker = u32::try_from(worker_id).map_err(|_| {
+                            anyhow::anyhow!("UDP worker id exceeds roaming wire range")
+                        })?;
+                        let path = crate::transport_core::udp_roaming::UdpPath::new(
+                            received_worker,
+                            addr,
+                        );
+                        let envelope = UdpRoamingDatagram {
+                            datagram: recv_buf,
+                            socket: socket.clone(),
+                        };
+                        match roaming_worker.fabric.route_ingress(
+                            header.destination_cid(),
+                            header.packet_number(),
+                            path,
+                            envelope,
+                        ) {
+                            Ok(crate::transport_core::udp_roaming::UdpIngressDispatch::Local(routed)) => {
+                                handle_udp_roaming_ingress(&profile, &sessions, worker_id, routed).await;
+                            }
+                            Ok(crate::transport_core::udp_roaming::UdpIngressDispatch::Queued) => {}
+                            Err(failure) => note_udp_roaming_route_failure(&profile, failure),
+                        }
+                        continue;
+                    }
+                }
                 // Rate-limit only NEW UDP sessions. Applying the limiter to
                 // every datagram (as the original code did) caps an active
                 // tunnel at 10 packets / 60 s and silently drops the rest,
@@ -1518,11 +1778,94 @@ fn build_auth_error_datagrams(
     build_auth_ok_datagrams(&record, quic_enabled, connection_id).map_err(anyhow::Error::msg)
 }
 
+#[cfg(feature = "experimental-roaming")]
+fn note_udp_roaming_route_failure(
+    profile: &ProfileRuntime,
+    failure: crate::transport_core::udp_roaming::UdpWorkerRouteFailure<UdpRoamingDatagram>,
+) {
+    use crate::transport_core::udp_roaming::UdpWorkerRouteError;
+
+    let kind = failure.kind();
+    drop(failure.into_payload());
+    match kind {
+        UdpWorkerRouteError::QueueFull => profile
+            .udp_buffer_counters
+            .note_internal_drop(InternalDrop::QueueFull),
+        UdpWorkerRouteError::WorkerClosed => log::warn!(
+            "UDP roaming ingress dropped on profile '{}': owner worker is closed",
+            profile.name
+        ),
+        UdpWorkerRouteError::InvalidTopology | UdpWorkerRouteError::UnknownWorker => log::error!(
+            "UDP roaming ingress dropped on profile '{}': invalid worker topology",
+            profile.name
+        ),
+        UdpWorkerRouteError::UnknownCid => {
+            // The receive path performs the same lookup before routing. Reaching this branch
+            // means teardown won the race, which is a normal fail-closed outcome.
+        }
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+async fn handle_udp_roaming_ingress(
+    profile: &Arc<ProfileRuntime>,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
+    worker_id: usize,
+    routed: crate::transport_core::udp_roaming::UdpRoutedIngress<UdpRoamingDatagram>,
+) {
+    let lookup = routed.lookup();
+    let received_path = routed.received_path();
+    if usize::try_from(lookup.owner_worker_id()).ok() != Some(worker_id) {
+        log::error!(
+            "UDP roaming ingress reached the wrong owner worker on profile '{}'",
+            profile.name
+        );
+        return;
+    }
+    if sessions
+        .read()
+        .await
+        .resolve_roaming_owner(lookup)
+        .is_none()
+    {
+        // The directory and registry are independently generation-checked. Teardown between
+        // route and mailbox delivery therefore becomes a silent stale-packet drop.
+        return;
+    }
+
+    let envelope = routed.into_payload();
+    let local_family_matches = envelope
+        .socket
+        .raw_socket()
+        .local_addr()
+        .is_ok_and(|local| local.is_ipv4() == received_path.peer().is_ipv4());
+    if !local_family_matches {
+        log::error!(
+            "UDP roaming ingress has inconsistent socket/address family on profile '{}'",
+            profile.name
+        );
+        return;
+    }
+    let encrypted_len = envelope
+        .datagram
+        .len()
+        .saturating_sub(crate::protocol::roaming::UDP_SHORT_HEADER_LEN);
+    log::trace!(
+        "UDP roaming CID ingress reached owner worker {} on profile '{}' ({} encrypted bytes)",
+        worker_id,
+        profile.name,
+        encrypted_len
+    );
+    // The next slice moves PacketCodec/reassembly/control ownership behind this exact boundary.
+    // Until then the capability remains unadvertised, so reaching it is impossible for a
+    // negotiated production session and dropping is safer than treating candidate bytes as data.
+}
+
 #[allow(clippy::too_many_arguments)] // datagram dispatch threads the shared UDP state
 async fn handle_udp_datagram(
     server_state: &Arc<ServerState>,
     profile: &Arc<ProfileRuntime>,
-    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
     frag_pending: &mut HashMap<SocketAddr, crate::protocol::udp_frag::Reassembler>,
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
@@ -2238,7 +2581,7 @@ async fn handle_udp_datagram(
 async fn handle_udp_auth(
     server_state: &Arc<ServerState>,
     profile: &Arc<ProfileRuntime>,
-    sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
     plaintext: &[u8],
@@ -3038,6 +3381,8 @@ async fn handle_udp_auth(
             client.exit_access = exit_access;
             client.wire_pool = Some(wire_pool.clone());
         }
+        #[cfg(feature = "experimental-roaming")]
+        sessions_guard.publish_roaming_owner(addr);
     }
 
     // Over the budget the AuthOK now goes out fragmented rather than as one oversized
@@ -3778,9 +4123,48 @@ mod tests {
         UdpEgressFraming, AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
     };
     #[cfg(feature = "experimental-roaming")]
-    use super::{UdpActiveEgress, UdpEgressCommitError};
+    use super::{UdpActiveEgress, UdpEgressCommitError, UdpRoamingOwnerIndex};
     use crate::protocol::udp_frag;
     use std::time::Duration;
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn udp_roaming_owner_index_rejects_stale_generation_cleanup() {
+        use crate::transport_core::udp_roaming::{UdpPath, UdpRoamingRegistry};
+
+        let registry = UdpRoamingRegistry::new(2);
+        let old_address = "127.0.0.1:41001".parse().unwrap();
+        let new_address = "127.0.0.1:41002".parse().unwrap();
+        let first = registry
+            .register_session(7, [1; 32], [2; 32], UdpPath::new(0, old_address), 1200)
+            .unwrap();
+        let first_lookup = registry.lookup(first.receive()).unwrap();
+
+        let mut index = UdpRoamingOwnerIndex::default();
+        index.publish(
+            first_lookup.session_id(),
+            first_lookup.session_generation(),
+            old_address,
+        );
+        assert_eq!(index.resolve(first_lookup), Some(old_address));
+
+        assert!(registry.remove_session(7));
+        let second = registry
+            .register_session(7, [3; 32], [4; 32], UdpPath::new(0, new_address), 1200)
+            .unwrap();
+        let second_lookup = registry.lookup(second.receive()).unwrap();
+        assert_ne!(
+            first_lookup.session_generation(),
+            second_lookup.session_generation()
+        );
+        index.publish(
+            second_lookup.session_id(),
+            second_lookup.session_generation(),
+            new_address,
+        );
+        index.remove_if_matches(7, first_lookup.session_generation(), old_address);
+        assert_eq!(index.resolve(second_lookup), Some(new_address));
+    }
 
     #[test]
     fn negotiation_error_uses_the_authenticated_record_and_quic_framing() {

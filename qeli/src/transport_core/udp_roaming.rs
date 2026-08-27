@@ -54,6 +54,10 @@ impl CidLookup {
         self.session_id
     }
 
+    pub fn session_generation(self) -> u64 {
+        self.session_generation
+    }
+
     pub fn owner_worker_id(self) -> u32 {
         self.owner_worker_id
     }
@@ -826,6 +830,20 @@ pub struct UdpSessionRegistration {
     session_id: u64,
     session_generation: u64,
     active: bool,
+}
+
+impl UdpSessionRegistration {
+    pub fn session_id(&self) -> u64 {
+        self.session_id
+    }
+
+    pub fn session_generation(&self) -> u64 {
+        self.session_generation
+    }
+
+    pub fn matches_lookup(&self, lookup: CidLookup) -> bool {
+        self.session_id == lookup.session_id && self.session_generation == lookup.session_generation
+    }
 }
 
 impl Drop for UdpSessionRegistration {

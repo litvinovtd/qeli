@@ -5995,6 +5995,19 @@ async fn run_profile_generation(
     // A JoinSet, not a Vec of handles: these are awaited CONCURRENTLY below. See the join
     // loop for why awaiting them in order hid bind failures.
     let mut listener_set = tokio::task::JoinSet::new();
+    let udp_worker_count = if matches!(primary_transport, TransportProtocol::Udp) {
+        listeners
+            .len()
+            .checked_mul(nq)
+            .ok_or_else(|| anyhow::anyhow!("profile '{}' has too many UDP workers", name))?
+    } else {
+        0
+    };
+    let mut udp_roaming_workers =
+        udp_handler::build_udp_roaming_workers(&profile, udp_worker_count)?
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
     for (listener_index, (bind_addr, transport)) in listeners.into_iter().enumerate() {
         // SO_REUSEPORT worker ids are profile-wide, not merely unique inside one bind.listen.
         // The CID registry uses this identity to return a migrated datagram to its immutable
@@ -6002,6 +6015,28 @@ async fn run_profile_generation(
         let udp_worker_base = listener_index
             .checked_mul(nq)
             .ok_or_else(|| anyhow::anyhow!("profile '{}' has too many UDP workers", name))?;
+        let listener_roaming_workers = if matches!(transport, TransportProtocol::Udp) {
+            let mut workers = Vec::with_capacity(nq);
+            for wid in 0..nq {
+                let worker_id = udp_worker_base
+                    .checked_add(wid)
+                    .ok_or_else(|| anyhow::anyhow!("profile '{}' UDP worker id overflow", name))?;
+                let worker = udp_roaming_workers
+                    .get_mut(worker_id)
+                    .and_then(Option::take)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "profile '{}' missing UDP roaming worker {}",
+                            name,
+                            worker_id
+                        )
+                    })?;
+                workers.push(worker);
+            }
+            workers
+        } else {
+            Vec::new()
+        };
         let state = state.clone();
         let profile = profile.clone();
         let pre_auth_gate = pre_auth_gate.clone();
@@ -6211,6 +6246,7 @@ async fn run_profile_generation(
                         workers
                     );
                     let mut worker_set = tokio::task::JoinSet::new();
+                    let mut roaming_workers = listener_roaming_workers.into_iter();
                     for wid in 0..workers {
                         let (socket, udp_buffer) = udp_handler::bind_reuseport(
                             &bind_addr,
@@ -6229,6 +6265,9 @@ async fn run_profile_generation(
                         let worker_id = udp_worker_base.checked_add(wid).ok_or_else(|| {
                             anyhow::anyhow!("profile '{}' UDP worker id overflow", name)
                         })?;
+                        let roaming_worker = roaming_workers.next().ok_or_else(|| {
+                            anyhow::anyhow!("profile '{}' missing UDP roaming mailbox", name)
+                        })?;
                         worker_set.spawn(async move {
                             udp_handler::run_udp_server(
                                 udp_state,
@@ -6236,6 +6275,7 @@ async fn run_profile_generation(
                                 socket,
                                 udp_buffer,
                                 worker_id,
+                                roaming_worker,
                                 tun_tx_udp,
                                 worker_tasks,
                             )
