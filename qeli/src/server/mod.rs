@@ -616,6 +616,9 @@ pub struct ProfileRuntime {
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
     /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
     pub(crate) udp_buffer_counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
+    /// Generation-safe CID/session ownership shared by every UDP listener and worker.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) udp_roaming_registry: crate::transport_core::udp_roaming::UdpRoamingRegistry,
     /// This profile's own server identity (static X25519) keypair — distinct
     /// per interface, so a client pins the key of the interface it uses.
     pub static_keypair: Arc<StaticKeypair>,
@@ -5071,6 +5074,10 @@ async fn run_profile_generation(
         udp_buffer_counters: Arc::new(
             crate::transport_core::udp_buffer::UdpBufferCounters::default(),
         ),
+        #[cfg(feature = "experimental-roaming")]
+        udp_roaming_registry: crate::transport_core::udp_roaming::UdpRoamingRegistry::new(
+            (pcfg.performance.connection.max_clients as usize).max(1),
+        ),
         static_keypair,
         reality_tls_config,
         reality_replay: Arc::new(Mutex::new(ReplayGuard::new(Duration::from_secs(
@@ -5988,7 +5995,13 @@ async fn run_profile_generation(
     // A JoinSet, not a Vec of handles: these are awaited CONCURRENTLY below. See the join
     // loop for why awaiting them in order hid bind failures.
     let mut listener_set = tokio::task::JoinSet::new();
-    for (bind_addr, transport) in listeners {
+    for (listener_index, (bind_addr, transport)) in listeners.into_iter().enumerate() {
+        // SO_REUSEPORT worker ids are profile-wide, not merely unique inside one bind.listen.
+        // The CID registry uses this identity to return a migrated datagram to its immutable
+        // codec owner even when it arrived on another listener or outer address family.
+        let udp_worker_base = listener_index
+            .checked_mul(nq)
+            .ok_or_else(|| anyhow::anyhow!("profile '{}' has too many UDP workers", name))?;
         let state = state.clone();
         let profile = profile.clone();
         let pre_auth_gate = pre_auth_gate.clone();
@@ -6213,13 +6226,16 @@ async fn run_profile_generation(
                             pool: tun_write_pool.clone(),
                         };
                         let worker_tasks = profile_tasks.clone();
+                        let worker_id = udp_worker_base.checked_add(wid).ok_or_else(|| {
+                            anyhow::anyhow!("profile '{}' UDP worker id overflow", name)
+                        })?;
                         worker_set.spawn(async move {
                             udp_handler::run_udp_server(
                                 udp_state,
                                 udp_profile,
                                 socket,
                                 udp_buffer,
-                                wid,
+                                worker_id,
                                 tun_tx_udp,
                                 worker_tasks,
                             )

@@ -666,6 +666,17 @@ impl UdpRoamingTable {
         true
     }
 
+    fn remove_session_generation(&mut self, session_id: u64, generation: u64) -> bool {
+        if self
+            .sessions
+            .get(&session_id)
+            .is_none_or(|session| session.generation != generation)
+        {
+            return false;
+        }
+        self.remove_session(session_id)
+    }
+
     fn allocate_session_generation(&mut self) -> Result<u64, UdpRoamingError> {
         let generation = self.next_session_generation;
         self.next_session_generation = generation
@@ -717,6 +728,113 @@ impl UdpRoamingTable {
             .as_mut()
             .filter(|candidate| candidate.ticket == ticket)
             .ok_or(UdpRoamingError::StaleCandidate)
+    }
+}
+
+/// Cloneable profile-wide owner of UDP migration state. Keeping this handle independent from the
+/// typed worker mailboxes lets authentication register the session before the ingress payload
+/// plumbing is selected, while both still share one exact table.
+#[derive(Clone)]
+pub struct UdpRoamingRegistry {
+    table: Arc<Mutex<UdpRoamingTable>>,
+}
+
+impl UdpRoamingRegistry {
+    pub fn new(max_sessions: usize) -> Self {
+        Self {
+            table: Arc::new(Mutex::new(UdpRoamingTable::new(max_sessions))),
+        }
+    }
+
+    fn lock_table(&self) -> std::sync::MutexGuard<'_, UdpRoamingTable> {
+        self.table
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn register_session(
+        &self,
+        session_id: u64,
+        client_to_server_cid_secret: [u8; 32],
+        server_to_client_cid_secret: [u8; 32],
+        active_path: UdpPath,
+        safe_payload_budget: u16,
+    ) -> Result<InitialCids, UdpRoamingError> {
+        self.lock_table().register_session(
+            session_id,
+            client_to_server_cid_secret,
+            server_to_client_cid_secret,
+            active_path,
+            safe_payload_budget,
+        )
+    }
+
+    /// Register a session and return generation-scoped ownership. Dropping an old owner after a
+    /// reconnect cannot remove a replacement that happens to reuse the same random session id.
+    pub fn register_owned_session(
+        &self,
+        session_id: u64,
+        client_to_server_cid_secret: [u8; 32],
+        server_to_client_cid_secret: [u8; 32],
+        active_path: UdpPath,
+        safe_payload_budget: u16,
+    ) -> Result<(InitialCids, UdpSessionRegistration), UdpRoamingError> {
+        let initial = self.register_session(
+            session_id,
+            client_to_server_cid_secret,
+            server_to_client_cid_secret,
+            active_path,
+            safe_payload_budget,
+        )?;
+        Ok((
+            initial,
+            UdpSessionRegistration {
+                registry: self.clone(),
+                session_id,
+                session_generation: initial.pmtu.session_generation,
+                active: true,
+            },
+        ))
+    }
+
+    pub fn lookup(&self, cid: &UdpCid) -> Option<CidLookup> {
+        self.lock_table().lookup(cid)
+    }
+
+    pub fn remove_session(&self, session_id: u64) -> bool {
+        self.lock_table().remove_session(session_id)
+    }
+
+    fn remove_session_generation(&self, session_id: u64, generation: u64) -> bool {
+        self.lock_table()
+            .remove_session_generation(session_id, generation)
+    }
+
+    pub fn session_count(&self) -> usize {
+        self.lock_table().session_count()
+    }
+
+    pub fn cid_count(&self) -> usize {
+        self.lock_table().cid_count()
+    }
+}
+
+/// Exact lifecycle owner for one generation of a registered UDP session. It deliberately omits
+/// `Clone` and `Debug`: there must be one cleanup authority and no CID-bearing state in logs.
+pub struct UdpSessionRegistration {
+    registry: UdpRoamingRegistry,
+    session_id: u64,
+    session_generation: u64,
+    active: bool,
+}
+
+impl Drop for UdpSessionRegistration {
+    fn drop(&mut self) {
+        if self.active {
+            self.registry
+                .remove_session_generation(self.session_id, self.session_generation);
+            self.active = false;
+        }
     }
 }
 
@@ -813,14 +931,14 @@ impl<T> UdpWorkerMailbox<T> {
 /// received on another SO_REUSEPORT socket crosses only this bounded mailbox after CID lookup.
 /// Registry operations hold a non-async mutex for short O(1) state transitions and never await.
 pub struct UdpWorkerFabric<T> {
-    table: Arc<Mutex<UdpRoamingTable>>,
+    registry: UdpRoamingRegistry,
     routes: Vec<mpsc::Sender<UdpRoutedIngress<T>>>,
 }
 
 impl<T> Clone for UdpWorkerFabric<T> {
     fn clone(&self) -> Self {
         Self {
-            table: self.table.clone(),
+            registry: self.registry.clone(),
             routes: self.routes.clone(),
         }
     }
@@ -831,6 +949,18 @@ impl<T> UdpWorkerFabric<T> {
         worker_count: usize,
         queue_capacity: usize,
         max_sessions: usize,
+    ) -> Result<(Self, Vec<UdpWorkerMailbox<T>>), UdpWorkerRouteError> {
+        Self::with_registry(
+            UdpRoamingRegistry::new(max_sessions),
+            worker_count,
+            queue_capacity,
+        )
+    }
+
+    pub fn with_registry(
+        registry: UdpRoamingRegistry,
+        worker_count: usize,
+        queue_capacity: usize,
     ) -> Result<(Self, Vec<UdpWorkerMailbox<T>>), UdpWorkerRouteError> {
         if worker_count == 0 || queue_capacity == 0 || u32::try_from(worker_count).is_err() {
             return Err(UdpWorkerRouteError::InvalidTopology);
@@ -847,19 +977,7 @@ impl<T> UdpWorkerFabric<T> {
                 receiver,
             });
         }
-        Ok((
-            Self {
-                table: Arc::new(Mutex::new(UdpRoamingTable::new(max_sessions))),
-                routes,
-            },
-            mailboxes,
-        ))
-    }
-
-    fn lock_table(&self) -> std::sync::MutexGuard<'_, UdpRoamingTable> {
-        self.table
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        Ok((Self { registry, routes }, mailboxes))
     }
 
     pub fn register_session(
@@ -875,7 +993,7 @@ impl<T> UdpWorkerFabric<T> {
         if worker >= self.routes.len() {
             return Err(UdpRoamingError::InvalidSession);
         }
-        self.lock_table().register_session(
+        self.registry.register_session(
             session_id,
             client_to_server_cid_secret,
             server_to_client_cid_secret,
@@ -885,7 +1003,7 @@ impl<T> UdpWorkerFabric<T> {
     }
 
     pub fn remove_session(&self, session_id: u64) -> bool {
-        self.lock_table().remove_session(session_id)
+        self.registry.remove_session(session_id)
     }
 
     pub fn route_ingress(
@@ -904,7 +1022,7 @@ impl<T> UdpWorkerFabric<T> {
                 ));
             }
         };
-        let lookup = match self.lock_table().lookup(destination_cid) {
+        let lookup = match self.registry.lookup(destination_cid) {
             Some(lookup) => lookup,
             None => {
                 return Err(UdpWorkerRouteFailure::new(
@@ -1279,6 +1397,58 @@ mod tests {
         ));
         assert_eq!(collision.session_count(), 0);
         assert_eq!(collision.cid_count(), 1);
+    }
+
+    #[test]
+    fn owned_registry_cleanup_is_generation_scoped() {
+        let registry = UdpRoamingRegistry::new(2);
+        let (first_cids, first_owner) = registry
+            .register_owned_session(7, C2S, S2C, path(0, 1000), 1200)
+            .unwrap();
+        assert_eq!(registry.session_count(), 1);
+        // Epoch zero has no previous alias yet: current plus one bounded future CID.
+        assert_eq!(registry.cid_count(), 2);
+
+        assert!(registry.remove_session(7));
+        let (replacement_cids, replacement_owner) = registry
+            .register_owned_session(7, C2S, S2C, path(0, 2000), 1200)
+            .unwrap();
+        assert_eq!(first_cids.receive(), replacement_cids.receive());
+
+        drop(first_owner);
+        assert_eq!(registry.session_count(), 1);
+        assert!(registry.lookup(replacement_cids.receive()).is_some());
+
+        drop(replacement_owner);
+        assert_eq!(registry.session_count(), 0);
+        assert_eq!(registry.cid_count(), 0);
+    }
+
+    #[test]
+    fn worker_fabric_uses_the_pre_registered_profile_table() {
+        let registry = UdpRoamingRegistry::new(2);
+        let (initial, owner) = registry
+            .register_owned_session(7, C2S, S2C, path(0, 1000), 1200)
+            .unwrap();
+        let (fabric, mut mailboxes) =
+            UdpWorkerFabric::with_registry(registry.clone(), 2, 2).unwrap();
+
+        assert!(matches!(
+            fabric.route_ingress(initial.receive(), 9, path(1, 2000), vec![4]),
+            Ok(UdpIngressDispatch::Queued)
+        ));
+        let routed = mailboxes[0].try_recv().unwrap();
+        assert_eq!(routed.lookup().session_id(), 7);
+        assert_eq!(routed.received_path(), path(1, 2000));
+        assert_eq!(routed.into_payload(), vec![4]);
+
+        drop(owner);
+        let failure = fabric
+            .route_ingress(initial.receive(), 10, path(1, 2000), vec![5])
+            .err()
+            .expect("dropped registration removes the shared lookup");
+        assert_eq!(failure.kind(), UdpWorkerRouteError::UnknownCid);
+        assert_eq!(failure.into_payload(), vec![5]);
     }
 
     #[test]

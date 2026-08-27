@@ -1,5 +1,9 @@
 use crate::config::QuicMaskingConfig;
-use crate::crypto::{derive_data_frag_key, derive_keys_hybrid, derive_keys_hybrid_bound, Keypair};
+use crate::crypto::{derive_data_frag_key, Keypair};
+#[cfg(not(feature = "experimental-roaming"))]
+use crate::crypto::{derive_keys_hybrid, derive_keys_hybrid_bound};
+#[cfg(feature = "experimental-roaming")]
+use crate::crypto::{derive_session_material_hybrid, derive_session_material_hybrid_bound};
 use crate::protocol::{
     generate_connection_id, looks_like_quic_initial, unwrap_quic_payload, wrap_quic_long,
     wrap_quic_short, wrap_quic_short_into, Obfuscator, PacketCodec,
@@ -663,6 +667,16 @@ struct UdpClient {
     tx_codec: Arc<std::sync::Mutex<PacketCodec>>,
     rx_data_frag_key: [u8; 32],
     tx_data_frag_key: [u8; 32],
+    /// Handshake-bound directional CID material is retained only until authenticated roaming
+    /// registration, then moved into the zeroizing profile registry.
+    #[cfg(feature = "experimental-roaming")]
+    client_to_server_cid_secret: Option<zeroize::Zeroizing<[u8; 32]>>,
+    #[cfg(feature = "experimental-roaming")]
+    server_to_client_cid_secret: Option<zeroize::Zeroizing<[u8; 32]>>,
+    #[cfg(feature = "experimental-roaming")]
+    _udp_roaming_registration: Option<crate::transport_core::udp_roaming::UdpSessionRegistration>,
+    #[cfg(feature = "experimental-roaming")]
+    _udp_roaming_initial_cids: Option<crate::transport_core::udp_roaming::InitialCids>,
     data_frag_enabled: bool,
     data_reassembler: crate::protocol::data_frag::DataReassembler,
     /// Authenticated PACKET_MUX_V1 receiver. Empty until negotiation completes,
@@ -1097,6 +1111,7 @@ pub(crate) async fn run_udp_server(
                     &socket,
                     addr,
                     &recv_buf[..n],
+                    worker_id,
                     &tun_tx,
                     quic_config,
                     &handshake_permits,
@@ -1512,6 +1527,7 @@ async fn handle_udp_datagram(
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
     data: &[u8],
+    worker_id: usize,
     tun_tx: &TunIngress,
     quic_config: &QuicMaskingConfig,
     handshake_permits: &Arc<Semaphore>,
@@ -1979,6 +1995,7 @@ async fn handle_udp_datagram(
                         &socket,
                         addr,
                         &plaintext,
+                        worker_id,
                         &raw,
                         &quic_config,
                         auth_tun_tx,
@@ -2225,6 +2242,7 @@ async fn handle_udp_auth(
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
     plaintext: &[u8],
+    _worker_id: usize,
     // The RAW (post-unwrap, pre-decrypt) AUTH datagram — cached on success so a
     // retransmit (i.e. a lost AuthOK) is recognised and answered idempotently.
     raw_request: &[u8],
@@ -2670,7 +2688,75 @@ async fn handle_udp_auth(
         .or_else(|| assigned.ipv6.map(std::net::IpAddr::V6))
         .expect("negotiated address mode assigns at least one family");
 
-    let session_id: u64 = rand::random();
+    let session_id: u64 = loop {
+        let candidate = rand::random();
+        if candidate != 0 {
+            break candidate;
+        }
+    };
+
+    // Move the handshake-bound CID material into the profile-wide registry before AuthOK can
+    // advertise this session. The capability is still unadvertised, so production sessions take
+    // the `None` path and immediately zeroize the unused material.
+    #[cfg(feature = "experimental-roaming")]
+    let mut udp_roaming_registration = {
+        let mut sessions_guard = sessions.write().await;
+        let Some(client) = sessions_guard.get_mut(&addr) else {
+            drop(sessions_guard);
+            profile.pool.lock().await.release(&dkey);
+            return;
+        };
+        let negotiated = client.quic_enabled
+            && data_frag_enabled
+            && crate::protocol::capabilities::udp_roaming_negotiated(
+                Some(crate::protocol::capabilities::implemented_server_capabilities()),
+                capabilities,
+            );
+        let client_to_server_cid_secret = client.client_to_server_cid_secret.take();
+        let server_to_client_cid_secret = client.server_to_client_cid_secret.take();
+        if negotiated {
+            let result = (|| -> anyhow::Result<_> {
+                let client_to_server_cid_secret = client_to_server_cid_secret
+                    .ok_or_else(|| anyhow::anyhow!("missing client-to-server CID secret"))?;
+                let server_to_client_cid_secret = server_to_client_cid_secret
+                    .ok_or_else(|| anyhow::anyhow!("missing server-to-client CID secret"))?;
+                let worker_id = u32::try_from(_worker_id)
+                    .map_err(|_| anyhow::anyhow!("UDP worker id exceeds u32"))?;
+                let safe_payload_budget = u16::try_from(
+                    crate::protocol::data_frag::conservative_udp_payload_budget(addr.is_ipv6()),
+                )
+                .map_err(|_| anyhow::anyhow!("safe UDP payload budget exceeds u16"))?;
+                profile
+                    .udp_roaming_registry
+                    .register_owned_session(
+                        session_id,
+                        *client_to_server_cid_secret,
+                        *server_to_client_cid_secret,
+                        crate::transport_core::udp_roaming::UdpPath::new(worker_id, addr),
+                        safe_payload_budget,
+                    )
+                    .map(Some)
+                    .map_err(anyhow::Error::new)
+            })();
+            drop(sessions_guard);
+            match result {
+                Ok(registration) => registration,
+                Err(error) => {
+                    log::warn!(
+                        "UDP: refusing roaming bootstrap for {} on profile '{}': {}",
+                        addr,
+                        profile.name,
+                        error
+                    );
+                    sessions.write().await.remove(&addr);
+                    profile.pool.lock().await.release(&dkey);
+                    return;
+                }
+            }
+        } else {
+            None
+        }
+    };
 
     // Extract session data in a scoped borrow so sessions_guard is free for error handling
     let (
@@ -2714,13 +2800,15 @@ async fn handle_udp_auth(
         let wc = client.tx_codec.clone();
         let wpn = client.packet_counter.clone();
         let fragment_key = client.tx_data_frag_key;
-        let udp_roaming_session_id = (qe
-            && data_frag_enabled
-            && crate::protocol::capabilities::udp_roaming_negotiated(
-                Some(crate::protocol::capabilities::implemented_server_capabilities()),
-                capabilities,
-            ))
-        .then_some(session_id);
+        #[cfg(feature = "experimental-roaming")]
+        let udp_roaming_session_id = udp_roaming_registration.as_ref().map(|_| session_id);
+        #[cfg(not(feature = "experimental-roaming"))]
+        let udp_roaming_session_id = None;
+        #[cfg(feature = "experimental-roaming")]
+        if let Some((initial_cids, registration)) = udp_roaming_registration.take() {
+            client._udp_roaming_initial_cids = Some(initial_cids);
+            client._udp_roaming_registration = Some(registration);
+        }
 
         // Self-describing keyed OK payload, same as the TCP path (handler.rs).
         let enc_result = {
@@ -3530,11 +3618,24 @@ async fn handle_new_udp_client(
     // UDP is always a fake-tls-family mode (plain is TCP-only), so always hybrid PQ.
     // H-1: optionally bind the keys to the server static identity (es folded in).
     let es = bind_static.then(|| profile.static_keypair.derive_shared(&client_pub).0);
+    #[cfg(feature = "experimental-roaming")]
+    let session_material = match &es {
+        Some(es) => derive_session_material_hybrid_bound(&shared.0, &mlkem_shared, es),
+        None => derive_session_material_hybrid(&shared.0, &mlkem_shared),
+    };
+    #[cfg(feature = "experimental-roaming")]
+    let (server_to_client_key, client_to_server_key) = session_material.data_keys();
+    #[cfg(feature = "experimental-roaming")]
+    let client_to_server_cid_secret =
+        zeroize::Zeroizing::new(*session_material.client_to_server_cid_secret());
+    #[cfg(feature = "experimental-roaming")]
+    let server_to_client_cid_secret =
+        zeroize::Zeroizing::new(*session_material.server_to_client_cid_secret());
+    #[cfg(not(feature = "experimental-roaming"))]
     let (server_to_client_key, client_to_server_key) = match &es {
         Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, es),
         None => derive_keys_hybrid(&shared.0, &mlkem_shared),
     };
-
     let tx_data_frag_key = derive_data_frag_key(&server_to_client_key);
     let rx_data_frag_key = derive_data_frag_key(&client_to_server_key);
 
@@ -3597,6 +3698,14 @@ async fn handle_new_udp_client(
             tx_codec: Arc::new(std::sync::Mutex::new(server_tx)),
             rx_data_frag_key,
             tx_data_frag_key,
+            #[cfg(feature = "experimental-roaming")]
+            client_to_server_cid_secret: Some(client_to_server_cid_secret),
+            #[cfg(feature = "experimental-roaming")]
+            server_to_client_cid_secret: Some(server_to_client_cid_secret),
+            #[cfg(feature = "experimental-roaming")]
+            _udp_roaming_registration: None,
+            #[cfg(feature = "experimental-roaming")]
+            _udp_roaming_initial_cids: None,
             data_frag_enabled: false,
             data_reassembler: crate::protocol::data_frag::DataReassembler::new(),
             rx_recordizer: None,

@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v7-safe -->
+<!-- normative-sync: roaming-v8-safe -->
 
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
@@ -9,7 +9,7 @@
 > bootstrap foundations are source-complete; ingress/session-actor integration and guarded commit
 > wiring are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (865/904 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (865/906 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -313,7 +313,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (865/904 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (865/906 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -357,6 +357,16 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   characters. The client rejects a missing or malformed identifier once negotiation succeeds, while
   the legacy AuthOK builder omits the field byte-for-byte. Three focused tests cover negotiation,
   canonical emission/legacy omission, and strict parsing.
+
+  Feature UDP handshakes now use the shared `SessionKeyMaterial`: existing data keys remain
+  identical, while directional C2S/S2C CID secrets come from the same hybrid or static-bound KDF
+  and remain zeroizing. Before AuthOK can advertise a fully negotiated session, the server records
+  its exact initial worker/path, epoch-zero CIDs, and family-safe payload budget in one profile-wide
+  registry; the client independently derives the matching directional CIDs from the session id.
+  A non-cloneable generation-scoped registration guard owns cleanup, so late teardown of an old
+  session cannot remove a replacement's aliases. Worker ids are now unique across every
+  `bind.listen` of the profile, preparing unambiguous cross-listener and cross-family delivery.
+  Two focused lifecycle tests pin the stale-owner/replacement and shared-fabric races.
 
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so the bootstrap
   and eight-byte CID framing cannot activate in production yet. The ingress fabric and guarded

@@ -162,7 +162,17 @@
   отклоняет отсутствующее или некорректное значение, а legacy builder по-прежнему полностью
   исключает поле. `UDP_ROAM_V1` пока не входит в advertised server/client capabilities, поэтому
   runtime остаётся на прежнем четырёхбайтовом CID и новый bootstrap ещё не активируется.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/904 тестами
+- Feature UDP-handshake переведён на общий `SessionKeyMaterial`: существующие data keys остаются
+  идентичными, а C2S/S2C CID secrets выводятся теми же hybrid/static-bound KDF и хранятся с
+  zeroization. После полного negotiation сервер до отправки AuthOK регистрирует initial path,
+  epoch-zero CIDs и family-safe payload budget в одном profile-wide registry; клиент независимо
+  выводит те же directional CIDs из session id. Регистрацией владеет non-cloneable
+  generation-scoped guard: поздний teardown старой сессии не может удалить aliases замены с тем же
+  session id. UDP worker IDs теперь уникальны между всеми `bind.listen` профиля, поэтому следующий
+  ingress-срез сможет однозначно маршрутизировать packet к immutable codec owner через разные
+  listeners и outer address families. `UDP_ROAM_V1` всё ещё не рекламируется, wire/runtime
+  действующих сессий не изменены.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/906 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v7-safe -->
+<!-- normative-sync: roaming-v8-safe -->
 
 > Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
@@ -9,7 +9,7 @@
 > bootstrap этапов 3A–3C готовы по исходникам; впереди ещё подключение ingress/session actor и
 > guarded commit к рабочему пути.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (865/904 library tests,
+> На лабе `.10` прошли финальные default/feature suites (865/906 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -519,7 +519,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 865/904 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 865/906 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -569,13 +569,23 @@ UDP bootstrap-контракт теперь fail-closed и аддитивен. �
 AuthOK builder полностью исключает поле. Три focused-теста покрывают negotiation, каноническую
 выдачу/legacy omission и строгий parsing.
 
+Feature UDP-handshake теперь использует общий `SessionKeyMaterial`: существующие data keys остаются
+идентичными, а directional C2S/S2C CID secrets выводятся теми же hybrid/static-bound KDF и хранятся
+с zeroization. До того как AuthOK сможет объявить полностью согласованную сессию, сервер записывает
+её точный initial worker/path, epoch-zero CIDs и family-safe payload budget в единый profile-wide
+registry; клиент независимо выводит совпадающие directional CIDs из session id. Очисткой владеет
+non-cloneable generation-scoped registration guard, поэтому поздний teardown старой сессии не удалит
+aliases замены. Worker IDs теперь уникальны между всеми `bind.listen` профиля, что готовит однозначную
+cross-listener/cross-family доставку. Два focused lifecycle-теста фиксируют гонки stale owner и
+replacement.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
 и восьмибайтовый CID ещё не могут включиться в production. Ingress fabric и guarded commit не
 подключены к session actor. CID-owner ingress, candidate validation, полная
 DATA_FRAG/reassembly/replay интеграция, cross-listener/family races и mock/Linux live-приёмка
 остаются следующими срезами.
 
-- восьмибайтовый CID и profile-wide registry;
+- подключение восьмибайтового CID ingress к готовому profile-wide registry;
 - per-session actor и dynamic egress;
 - PATH_INIT/CHALLENGE/RESPONSE/COMMIT;
 - anti-amplification и candidate limits;

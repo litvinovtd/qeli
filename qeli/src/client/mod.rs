@@ -11,6 +11,8 @@ use crate::crypto::{
     derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
     derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
+#[cfg(feature = "experimental-roaming")]
+use crate::crypto::{derive_session_material_hybrid, derive_session_material_hybrid_bound};
 use crate::protocol::{
     generate_connection_id, read_record, read_record_into, read_tls_record, unwrap_quic,
     unwrap_quic_payload, wrap_quic_long, wrap_quic_short, wrap_quic_short_into, FakeTlsHandshake,
@@ -6164,7 +6166,16 @@ pub(crate) async fn run_udp_tunnel(
         .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("UDP: ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+    let static_shared = static_es(config, &client_kp)?;
+    #[cfg(feature = "experimental-roaming")]
+    let udp_session_material = match &static_shared {
+        Some(es) => derive_session_material_hybrid_bound(&shared.0, &mlkem_shared, es),
+        None => derive_session_material_hybrid(&shared.0, &mlkem_shared),
+    };
+    #[cfg(feature = "experimental-roaming")]
+    let (server_to_client, client_to_server) = udp_session_material.data_keys();
+    #[cfg(not(feature = "experimental-roaming"))]
+    let (server_to_client, client_to_server) = match static_shared {
         Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
         None => derive_keys_hybrid(&shared.0, &mlkem_shared),
     };
@@ -6381,6 +6392,22 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         None
     };
+    #[cfg(feature = "experimental-roaming")]
+    let _udp_roaming_initial_cids = _udp_roaming_session_id.map(|session_id| {
+        // Direction is from the client's point of view: outgoing packets use C2S, while
+        // incoming server packets carry S2C. Both values remain secret-on-wire identifiers.
+        let transmit = crate::protocol::roaming::derive_udp_cid(
+            udp_session_material.client_to_server_cid_secret(),
+            session_id,
+            0,
+        );
+        let receive = crate::protocol::roaming::derive_udp_cid(
+            udp_session_material.server_to_client_cid_secret(),
+            session_id,
+            0,
+        );
+        (transmit, receive)
+    });
 
     let mut eff_obf = config.obfuscation.clone();
     if let Some(po) = pushed_obf.as_ref() {
