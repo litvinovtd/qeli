@@ -56,8 +56,10 @@ use crate::transport_core::udp_buffer::{
 };
 #[cfg(target_os = "windows")]
 use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
+#[cfg(any(target_os = "linux", feature = "experimental-roaming"))]
+use crate::transport_core::ClientCore;
 #[cfg(target_os = "linux")]
-use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOptions, EventKind};
+use crate::transport_core::{platform_capability, ClientState, CoreOptions, EventKind};
 #[cfg(all(test, target_os = "linux"))]
 use crate::transport_core::{NetworkDns, NetworkRoute};
 use crate::transport_core::{NetworkPlan, RuntimeCounters};
@@ -459,6 +461,85 @@ fn cleanup_routing_features(
 #[cfg(feature = "experimental-roaming")]
 pub(crate) type PathAckFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
+
+#[cfg(feature = "experimental-roaming")]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn path_ack_future(
+    receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    action: &'static str,
+) -> PathAckFuture {
+    Box::pin(async move {
+        match receiver.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(reason)) => Err(anyhow::anyhow!("{action} rejected: {reason}")),
+            Err(_) => Err(anyhow::anyhow!("{action} acknowledgement was cancelled")),
+        }
+    })
+}
+
+/// Shared transport-side client of the generation-scoped PathUpdate state machine.
+///
+/// Platform adapters still execute the emitted OS command, but they do not reimplement
+/// candidate lookup, phase validation, ACK correlation or cancellation semantics.
+#[cfg(feature = "experimental-roaming")]
+#[derive(Clone)]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub(crate) struct CorePathController {
+    core: Arc<std::sync::Mutex<ClientCore>>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+impl CorePathController {
+    pub(crate) fn new(core: Arc<std::sync::Mutex<ClientCore>>) -> Self {
+        Self { core }
+    }
+
+    fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
+        let mut core = crate::util::lock_or_recover(&self.core, "client::core_path_controller");
+        action(&mut core)
+    }
+
+    pub(crate) fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
+        self.with_core(|core| core.prepared_path_candidate())
+    }
+
+    pub(crate) fn bind_candidate_socket(
+        &self,
+        candidate: &PreparedPathCandidate,
+        socket_fd: i32,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self.with_core(|core| {
+            core.request_candidate_socket_binding(
+                candidate.update.generation,
+                candidate.candidate_id,
+                socket_fd,
+            )
+        })?;
+        Ok(path_ack_future(receiver, "BIND_SOCKET"))
+    }
+
+    pub(crate) fn commit_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self.with_core(|core| {
+            core.candidate_path_validated(candidate.update.generation, candidate.candidate_id)
+        })?;
+        Ok(path_ack_future(receiver, "COMMIT_PATH"))
+    }
+
+    pub(crate) fn abort_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+        reason: &str,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self.with_core(|core| {
+            core.abort_candidate_path(candidate.update.generation, candidate.candidate_id, reason)
+        })?;
+        Ok(path_ack_future(receiver, "ABORT_PATH"))
+    }
+}
 
 /// Transport-facing half of one platform PathUpdate transaction. The platform owns temporary
 /// routes and exact-network binding; the transport owns the candidate socket and authenticated

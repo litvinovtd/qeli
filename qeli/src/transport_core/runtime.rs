@@ -21,7 +21,7 @@ use crate::client::{
     StreamConnector, TunnelSetup,
 };
 #[cfg(feature = "experimental-roaming")]
-use crate::client::{PathAckFuture, TcpPathController};
+use crate::client::{CorePathController, PathAckFuture, TcpPathController};
 use crate::config::client::ClientConfig;
 use crate::protocol::obfs::{AwgParams, ObfsStream};
 use crate::transport_core::network::HandshakeNetwork;
@@ -72,6 +72,8 @@ pub(crate) struct NativeCoreAdapter {
     fallback_dns_servers: Arc<Vec<String>>,
     carrier_addresses: Arc<Mutex<Vec<IpAddr>>>,
     carrier_address: Arc<Mutex<Option<IpAddr>>>,
+    #[cfg(feature = "experimental-roaming")]
+    path_controller: CorePathController,
 }
 
 impl NativeCoreAdapter {
@@ -301,26 +303,11 @@ fn candidate_socket_descriptor(socket: &Socket) -> anyhow::Result<i32> {
 }
 
 #[cfg(feature = "experimental-roaming")]
-fn path_ack_future(
-    receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
-    action: &'static str,
-) -> PathAckFuture {
-    Box::pin(async move {
-        match receiver.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(reason)) => Err(anyhow::anyhow!("{action} rejected: {reason}")),
-            Err(_) => Err(anyhow::anyhow!("{action} acknowledgement was cancelled")),
-        }
-    })
-}
-
-#[cfg(feature = "experimental-roaming")]
 impl TcpPathController for NativeCoreAdapter {
     fn prepared_candidate(&self) -> Option<super::path::PreparedPathCandidate> {
-        let core = self.lock();
         let required = super::platform_capability::ROAMING_PATH;
-        (core.platform_capabilities() & required == required)
-            .then(|| core.prepared_path_candidate())
+        (self.platform_capabilities() & required == required)
+            .then(|| self.path_controller.prepared_candidate())
             .flatten()
     }
 
@@ -329,21 +316,15 @@ impl TcpPathController for NativeCoreAdapter {
         candidate: &super::path::PreparedPathCandidate,
         socket_fd: i32,
     ) -> anyhow::Result<PathAckFuture> {
-        let (_, receiver) = self.lock().request_candidate_socket_binding(
-            candidate.update.generation,
-            candidate.candidate_id,
-            socket_fd,
-        )?;
-        Ok(path_ack_future(receiver, "BIND_SOCKET"))
+        self.path_controller
+            .bind_candidate_socket(candidate, socket_fd)
     }
 
     fn commit_candidate_path(
         &self,
         candidate: &super::path::PreparedPathCandidate,
     ) -> anyhow::Result<PathAckFuture> {
-        let (_, receiver) = self
-            .lock()
-            .candidate_path_validated(candidate.update.generation, candidate.candidate_id)?;
+        let commit = self.path_controller.commit_candidate_path(candidate)?;
         let addresses = candidate
             .update
             .resolved_addresses
@@ -352,7 +333,7 @@ impl TcpPathController for NativeCoreAdapter {
             .collect::<Vec<_>>();
         let active_addresses = self.carrier_addresses.clone();
         Ok(Box::pin(async move {
-            path_ack_future(receiver, "COMMIT_PATH").await?;
+            commit.await?;
             *active_addresses
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = addresses;
@@ -365,12 +346,7 @@ impl TcpPathController for NativeCoreAdapter {
         candidate: &super::path::PreparedPathCandidate,
         reason: &str,
     ) -> anyhow::Result<PathAckFuture> {
-        let (_, receiver) = self.lock().abort_candidate_path(
-            candidate.update.generation,
-            candidate.candidate_id,
-            reason,
-        )?;
-        Ok(path_ack_future(receiver, "ABORT_PATH"))
+        self.path_controller.abort_candidate_path(candidate, reason)
     }
 }
 
@@ -583,6 +559,8 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         fallback_dns_servers: Arc::new(input.fallback_dns_servers),
         carrier_addresses: Arc::new(Mutex::new(carrier_addresses)),
         carrier_address: Arc::new(Mutex::new(None)),
+        #[cfg(feature = "experimental-roaming")]
+        path_controller: CorePathController::new(core.clone()),
     };
     // `qeli_client_stop` is the ownership boundary used by every GUI adapter. It must cancel
     // every phase, not only the established data loop: carrier DNS/connect and TLS/qeli

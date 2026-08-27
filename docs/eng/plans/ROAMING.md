@@ -448,8 +448,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   eight-byte CID framing still cannot activate in production. The Phase 4 Linux/OpenWrt adapter now
   consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
-  usable address. It shares the same bounded `ClientCore` state machine with its future in-process path controller,
-  avoiding a second implementation of transaction/ACK/supersede/telemetry logic. It also has the
+  usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
+  BIND/COMMIT/ABORT requests, correlated ACK completion and cancellation to one shared Rust
+  `CorePathController`. The future Linux in-process adapter will use that same controller and its
+  already shared bounded `ClientCore`, avoiding another transaction/ACK/supersede/telemetry
+  implementation. Linux also has the
   source-complete exact candidate-socket primitive: before connect it applies
   `SO_BINDTODEVICE` for the validated interface index and binds a same-family local address (including
   the IPv6 link-local scope). Network detection, PREPARE/COMMIT route ownership, capability activation,
