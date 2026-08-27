@@ -4,9 +4,9 @@
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
-> passed local checks and targeted tests but still requires the live race/device matrix.
+> passed the lab source/unit gates but still requires the live race/device matrix.
 > Production adapters and Phases 3–6 remain.
-> On lab `.10`, final default and feature suites pass (863/886 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (862/888 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -307,7 +307,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (863/886 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (862/888 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -315,9 +315,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   required `PACKET_MUX_V1` passes 3/3 tunnel pings, observes both close markers, leaves zero
   established carriers and no client TUN, and confirms that the server did not enter resume
   grace. Those `.10/.11` results cover hard resume and explicit close, not the newly wired
-  make-before-break path. The new slice locally passes Rust 1.97 Windows FFI checks, strict Clippy,
-  and targeted path/capability tests. Phase 2B acceptance still requires the lab live race matrix;
-  the rerun is pending lab credentials.
+  make-before-break path. The new shared path passes the source/unit gates above and the exact
+  Windows FFI feature matrix, but no production/Linux adapter advertises `ROAMING_PATH` yet.
+  Phase 2B live acceptance therefore follows the Phase 4 adapter and its lab race matrix.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.

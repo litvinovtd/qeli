@@ -464,6 +464,9 @@ pub(crate) type PathAckFuture =
 #[cfg(feature = "experimental-roaming")]
 pub(crate) trait TcpPathController: Send + Sync {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate>;
+    // The native FFI connector consumes BIND_SOCKET while opening the candidate. The default
+    // Linux client connector stays intentionally inert until its platform adapter lands.
+    #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
     fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
@@ -1312,6 +1315,9 @@ mod reconnect_jitter_tests {
 #[derive(Clone, Default)]
 pub(crate) struct StreamConnectRequest {
     #[cfg(feature = "experimental-roaming")]
+    // Read by the transport-core FFI native connector. Other connectors accept the common
+    // request shape but ignore candidate metadata until their platform stage is enabled.
+    #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
     pub path_candidate: Option<PreparedPathCandidate>,
 }
 

@@ -113,18 +113,17 @@
   аутентифицировал и переключил carrier, поэтому клиент восстанавливается существующим hard
   resume, а не пытается вернуть старый путь. Production adapter bits остаются выключенными до
   этапа 4 и прохождения live device/race matrix.
-- Новый срез локально прошёл Rust 1.97 checks и strict Clippy для точной Windows FFI feature
-  matrix, а также targeted path/capability tests. Повторный прогон lab/live matrix ожидает
-  доступ к лабе; приведённые ниже результаты `.10/.11` относятся к предыдущему hard-resume и
-  explicit-close срезу и не считаются проверкой нового make-before-break пути.
+- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/888 тестами
+  (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
+  в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
+  strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что
+  production/Linux adapter ещё не рекламирует полный `ROAMING_PATH`.
 - Намеренная остановка TCP-клиента отправляет строгий пустой `CLOSE_SESSION` внутри
   аутентифицированного CONTROL_V2/PacketCodec, принудительно flush-ит `PACKET_MUX_V1` и
   ограничивает ожидание записи 750 мс. Сервер немедленно закрывает все bonded streams,
   запрещает новые JOIN/resume, освобождает lease и не входит в orphan grace. Linux
   SIGINT/SIGTERM теперь использует cooperative teardown вместо `process::exit`.
-- На lab `.10` default/feature library suites прошли с 863/886 тестами и по одному
-  privileged ignored; 4 CLI, 7 integration и strict all-target Clippy прошли в обеих
-  конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13:
+- Предыдущий изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13:
   authenticated resume занял 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились,
   ping восстановился, а полная password AUTH выполнилась ровно один раз. Отдельный live e2e
   `.11 → .10` с обязательным `PACKET_MUX_V1` прошёл 3/3 ping, подтвердил оба close-маркера,

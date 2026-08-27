@@ -381,12 +381,15 @@ mod tests {
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
 
-        // The gated common supervisor implements terminal CONTROL_V2 close and hard resume.
-        // Handover remains absent until platform PathUpdate can drive make-before-break.
+        // The gated common supervisor implements terminal CONTROL_V2 close, hard resume, and
+        // handover. Capability negotiation separately strips handover unless a platform adapter
+        // advertises the complete ROAMING_PATH contract.
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1
+            client_capability::CONTROL_V2
+                | client_capability::TCP_RESUME_V1
+                | client_capability::TCP_HANDOVER_V1
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(

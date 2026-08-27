@@ -4,9 +4,9 @@
 > Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
-> прошёл локальные проверки и targeted tests, но ещё требует live-матрицу гонок и устройств.
+> прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств.
 > Production-адаптеры и этапы 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (863/886 library tests,
+> На лабе `.10` прошли финальные default/feature suites (862/888 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -514,7 +514,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 863/886 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 862/888 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -523,9 +523,9 @@ AUTH выполнилась ровно один раз. Отдельный live 
 carrier и клиентского TUN после остановки и отсутствие перехода сервера в resume grace.
 
 Эти результаты `.10/.11` относятся к hard resume и explicit close, а не к новому
-make-before-break пути. Новый срез локально прошёл Rust 1.97 Windows FFI checks, strict Clippy и
-targeted path/capability tests. Для приёмки этапа 2B всё ещё нужна live-матрица гонок на лабе;
-повторный прогон ожидает доступы. Остальные платформы остаются за feature gate до этапа 4.
+make-before-break пути. Новый общий path прошёл указанные source/unit gates и точную Windows FFI
+feature matrix, но ни один production/Linux adapter пока не рекламирует `ROAMING_PATH`. Поэтому
+live-приёмка этапа 2B следует за platform adapter этапа 4 и его lab race matrix.
 
 ### Этап 3. UDP migration
 
