@@ -652,9 +652,13 @@ Cross-listener IPv4→IPv6 regression теперь направляет future C
 неизменяемому codec owner, коммитит точные candidate socket/family и PMTU generation, а затем
 проверяет возврат post-commit ingress тому же исходному owner.
 
-`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. Client path adapters, двунаправленный
-live PMTU probe, adversarial listener races и mock/Linux live-приёмка ещё впереди.
+`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
+bootstrap и восьмибайтовый CID ещё не могут включиться в production. Для Linux/OpenWrt adapter
+этапа 4 теперь source-complete точный примитив candidate socket: до connect он применяет
+`SO_BINDTODEVICE` для валидированного interface index и bind адреса того же семейства (включая
+scope для IPv6 link-local). Остаются network detection, ownership маршрутов PREPARE/COMMIT,
+capability activation, двунаправленный live PMTU probing, adversarial listener races и
+mock/Linux live acceptance.
 
 - двунаправленный live PMTU reset/probe;
 - client path adapters;

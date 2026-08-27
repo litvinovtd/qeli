@@ -445,8 +445,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   generation, then verifies that post-commit ingress still returns to the original owner.
 
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Client path adapters, bidirectional
-  live PMTU probing, adversarial listener races, and mock/Linux live acceptance remain.
+  eight-byte CID framing still cannot activate in production. The Phase 4 Linux/OpenWrt adapter now
+  has the source-complete exact candidate-socket primitive: before connect it applies
+  `SO_BINDTODEVICE` for the validated interface index and binds a same-family local address (including
+  the IPv6 link-local scope). Network detection, PREPARE/COMMIT route ownership, capability activation,
+  bidirectional live PMTU probing, adversarial listener races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

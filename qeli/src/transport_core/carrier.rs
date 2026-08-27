@@ -32,7 +32,7 @@ pub(crate) fn open_secondary_for(config: &ClientConfig, address: IpAddr) -> anyh
 /// A roaming candidate must not inherit a desktop `local` address from the active path.
 /// PREPARE_PATH installed temporary reachability and BIND_SOCKET will attach this unconnected
 /// socket to the exact candidate network before connect.
-#[cfg(all(feature = "experimental-roaming", not(target_os = "linux")))]
+#[cfg(feature = "experimental-roaming")]
 pub(crate) fn open_candidate_for(config: &ClientConfig, address: IpAddr) -> anyhow::Result<Socket> {
     open_unbound_socket(config, address)
 }
@@ -58,7 +58,7 @@ fn open_socket(
     Ok(socket)
 }
 
-#[cfg(all(feature = "experimental-roaming", not(target_os = "linux")))]
+#[cfg(feature = "experimental-roaming")]
 fn open_unbound_socket(config: &ClientConfig, remote: IpAddr) -> anyhow::Result<Socket> {
     let (socket_type, protocol) = match config.server.protocol.as_str() {
         "tcp" => (Type::STREAM, Protocol::TCP),
@@ -73,6 +73,139 @@ fn open_unbound_socket(config: &ClientConfig, remote: IpAddr) -> anyhow::Result<
     let socket = Socket::new(domain, socket_type, Some(protocol))?;
     socket.set_nonblocking(true)?;
     Ok(socket)
+}
+
+/// Bind one unconnected candidate socket to the exact Linux interface and source address
+/// carried by the validated PathUpdate. `SO_BINDTODEVICE` constrains route lookup to that
+/// physical link even while the active carrier still owns a more-specific server bypass.
+/// Binding the source address additionally proves that the address still belongs to the
+/// candidate; a stale address/interface observation fails before any SYN leaves the host.
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+pub(crate) fn bind_linux_candidate_socket(
+    socket_fd: i32,
+    candidate: &super::path::PreparedPathCandidate,
+) -> anyhow::Result<()> {
+    if socket_fd < 0 {
+        anyhow::bail!("candidate socket descriptor must be non-negative");
+    }
+    let interface_index = candidate
+        .update
+        .interface_index
+        .ok_or_else(|| anyhow::anyhow!("Linux candidate path requires a stable interface index"))?;
+    let interface_name = linux_interface_name(interface_index)?;
+    let domain = linux_socket_domain(socket_fd)?;
+    let local =
+        linux_candidate_bind_address(interface_index, &candidate.update.local_addresses, domain)?;
+
+    let name = interface_name.as_bytes_with_nul();
+    // SAFETY: `socket_fd` is borrowed from the still-owned socket, and `name` is a live,
+    // NUL-terminated interface name returned by `if_indextoname` for this exact index.
+    let result = unsafe {
+        libc::setsockopt(
+            socket_fd,
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            name.as_ptr().cast(),
+            name.len() as libc::socklen_t,
+        )
+    };
+    if result != 0 {
+        return Err(anyhow::anyhow!(
+            "could not bind candidate socket to interface {} (index {}): {}",
+            interface_name.to_string_lossy(),
+            interface_index,
+            io::Error::last_os_error()
+        ));
+    }
+
+    let address = socket2::SockAddr::from(local);
+    // SAFETY: `address` owns a correctly sized sockaddr for the socket domain, and the
+    // transport retains ownership of `socket_fd` for the whole synchronous call.
+    if unsafe { libc::bind(socket_fd, address.as_ptr().cast(), address.len()) } != 0 {
+        return Err(anyhow::anyhow!(
+            "could not bind candidate socket to source {local} on {}: {}",
+            interface_name.to_string_lossy(),
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+fn linux_interface_name(interface_index: u32) -> anyhow::Result<std::ffi::CString> {
+    let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
+    // SAFETY: `name` is an IF_NAMESIZE writable buffer and remains alive until copied below.
+    let resolved = unsafe { libc::if_indextoname(interface_index, name.as_mut_ptr()) };
+    if resolved.is_null() {
+        return Err(anyhow::anyhow!(
+            "candidate interface index {interface_index} no longer exists: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: successful `if_indextoname` writes a NUL-terminated name into `name`.
+    Ok(unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }.to_owned())
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+fn linux_socket_domain(socket_fd: i32) -> anyhow::Result<i32> {
+    let mut domain = 0 as libc::c_int;
+    let mut length = std::mem::size_of_val(&domain) as libc::socklen_t;
+    // SAFETY: both output pointers are valid for the declared lengths and `socket_fd` is
+    // borrowed from a live socket owned by the candidate dialer.
+    let result = unsafe {
+        libc::getsockopt(
+            socket_fd,
+            libc::SOL_SOCKET,
+            libc::SO_DOMAIN,
+            (&mut domain as *mut libc::c_int).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 {
+        return Err(anyhow::anyhow!(
+            "could not inspect candidate socket family: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(domain)
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+fn linux_candidate_bind_address(
+    interface_index: u32,
+    local_addresses: &[String],
+    socket_domain: i32,
+) -> anyhow::Result<SocketAddr> {
+    let want_ipv4 = match socket_domain {
+        libc::AF_INET => true,
+        libc::AF_INET6 => false,
+        domain => anyhow::bail!("unsupported candidate socket domain {domain}"),
+    };
+    for value in local_addresses {
+        let address = value
+            .parse::<IpAddr>()
+            .map_err(|_| anyhow::anyhow!("invalid validated candidate source address '{value}'"))?;
+        match address {
+            IpAddr::V4(address) if want_ipv4 => {
+                return Ok(SocketAddr::new(IpAddr::V4(address), 0));
+            }
+            IpAddr::V6(address) if !want_ipv4 => {
+                let scope_id = if address.is_unicast_link_local() {
+                    interface_index
+                } else {
+                    0
+                };
+                return Ok(SocketAddr::V6(std::net::SocketAddrV6::new(
+                    address, 0, 0, scope_id,
+                )));
+            }
+            _ => {}
+        }
+    }
+    anyhow::bail!(
+        "candidate path has no {} source address",
+        if want_ipv4 { "IPv4" } else { "IPv6" }
+    )
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -361,6 +494,114 @@ mod tests {
                 "[2001:db8::10]:443".parse().unwrap(),
             ]
         );
+    }
+
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    #[test]
+    fn linux_candidate_source_selection_matches_socket_family_and_ipv6_scope() {
+        let addresses = vec![
+            "192.0.2.20".to_string(),
+            "2001:db8::20".to_string(),
+            "fe80::20".to_string(),
+        ];
+        assert_eq!(
+            linux_candidate_bind_address(7, &addresses, libc::AF_INET).unwrap(),
+            "192.0.2.20:0".parse().unwrap()
+        );
+        assert_eq!(
+            linux_candidate_bind_address(7, &addresses[1..], libc::AF_INET6).unwrap(),
+            "[2001:db8::20]:0".parse().unwrap()
+        );
+        let link_local = linux_candidate_bind_address(7, &addresses[2..], libc::AF_INET6).unwrap();
+        let SocketAddr::V6(link_local) = link_local else {
+            panic!("expected IPv6 candidate source")
+        };
+        assert_eq!(
+            link_local.ip(),
+            &"fe80::20".parse::<std::net::Ipv6Addr>().unwrap()
+        );
+        assert_eq!(link_local.scope_id(), 7);
+        assert!(linux_candidate_bind_address(7, &addresses[..1], libc::AF_INET6).is_err());
+    }
+
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires a privileged Linux host with iproute2 and a global IPv4 address"]
+    fn linux_candidate_socket_binds_exact_interface_and_source() {
+        use std::os::fd::AsRawFd;
+
+        let output = std::process::Command::new("ip")
+            .args(["-o", "-4", "addr", "show", "scope", "global"])
+            .output()
+            .expect("iproute2 is required");
+        assert!(output.status.success());
+        let line = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .next()
+            .expect("host has no global IPv4 interface")
+            .to_string();
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let interface = fields
+            .get(1)
+            .expect("ip output omitted the interface")
+            .trim_end_matches(':')
+            .split('@')
+            .next()
+            .unwrap();
+        let local = fields
+            .windows(2)
+            .find(|pair| pair[0] == "inet")
+            .and_then(|pair| pair[1].split('/').next())
+            .expect("ip output omitted the IPv4 address")
+            .parse::<IpAddr>()
+            .unwrap();
+        let interface_name = std::ffi::CString::new(interface).unwrap();
+        // SAFETY: `interface_name` is a live NUL-terminated string.
+        let interface_index = unsafe { libc::if_nametoindex(interface_name.as_ptr()) };
+        assert_ne!(interface_index, 0);
+
+        let candidate = super::super::path::PreparedPathCandidate {
+            candidate_id: 1,
+            update: super::super::path::PathUpdate {
+                generation: 1,
+                update_id: 1,
+                platform_path_id: format!("linux:{interface_index}"),
+                reason: super::super::path::PathUpdateReason::ManualProbe,
+                network_token: None,
+                interface_index: Some(interface_index),
+                local_addresses: vec![local.to_string()],
+                resolved_addresses: vec![super::super::path::PathResolution {
+                    address: "198.51.100.10".to_string(),
+                    ttl_secs: 60,
+                }],
+                flags: super::super::path::PathUpdateFlags::default(),
+            },
+        };
+        let config = config("tcp", 443);
+        let socket = open_candidate_for(&config, "198.51.100.10".parse().unwrap()).unwrap();
+        bind_linux_candidate_socket(socket.as_raw_fd(), &candidate).unwrap();
+        assert_eq!(
+            socket.local_addr().unwrap().as_socket().unwrap().ip(),
+            local
+        );
+
+        let mut bound_name = [0 as libc::c_char; libc::IF_NAMESIZE];
+        let mut bound_name_len = bound_name.len() as libc::socklen_t;
+        // SAFETY: output pointers are valid for `bound_name_len`; the socket remains live.
+        let result = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                bound_name.as_mut_ptr().cast(),
+                &mut bound_name_len,
+            )
+        };
+        assert_eq!(result, 0, "{}", io::Error::last_os_error());
+        // SAFETY: Linux returns a NUL-terminated interface name for SO_BINDTODEVICE.
+        let actual = unsafe { std::ffi::CStr::from_ptr(bound_name.as_ptr()) };
+        assert_eq!(actual, interface_name.as_c_str());
     }
 
     #[test]

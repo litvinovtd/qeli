@@ -42,6 +42,13 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- Начат Linux/OpenWrt adapter этапа 4 без включения capability: общий candidate dialer теперь
+  создаёт отдельный unbound-сокет и на Linux умеет до connect привязать его одновременно к
+  точному `interface_index` через `SO_BINDTODEVICE` и к адресу нужного семейства из
+  валидированного `PathUpdate`. Устаревший интерфейс/адрес отклоняется до отправки SYN;
+  IPv6 link-local получает обязательный scope id. Path monitor, транзакционный перенос
+  server-bypass и live-приёмка ещё не завершены, поэтому production `ROAMING_PATH` не объявляется.
+
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
