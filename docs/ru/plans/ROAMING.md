@@ -654,7 +654,10 @@ Cross-listener IPv4→IPv6 regression теперь направляет future C
 
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
 bootstrap и восьмибайтовый CID ещё не могут включиться в production. Для Linux/OpenWrt adapter
-этапа 4 теперь использует общее bounded-состояние `ClientCore` с будущим in-process path
+этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
+должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
+AAAA/A не скрывает следующий пригодный адрес. Adapter использует общее bounded-состояние
+`ClientCore` с будущим in-process path
 controller: отдельного автомата transaction/ACK/supersede/telemetry в Linux не будет. Также
 source-complete точный примитив candidate socket: до connect он применяет
 `SO_BINDTODEVICE` для валидированного interface index и bind адреса того же семейства (включая

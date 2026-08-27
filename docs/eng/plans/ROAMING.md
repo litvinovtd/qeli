@@ -446,7 +446,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
   eight-byte CID framing still cannot activate in production. The Phase 4 Linux/OpenWrt adapter now
-  shares the same bounded `ClientCore` state machine with its future in-process path controller,
+  consumes the shared ordered family-compatible candidate projection: a physical path must have
+  at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
+  usable address. It shares the same bounded `ClientCore` state machine with its future in-process path controller,
   avoiding a second implementation of transaction/ACK/supersede/telemetry logic. It also has the
   source-complete exact candidate-socket primitive: before connect it applies
   `SO_BINDTODEVICE` for the validated interface index and binds a same-family local address (including

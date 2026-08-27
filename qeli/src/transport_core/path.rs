@@ -182,7 +182,31 @@ impl PathUpdate {
                 )));
             }
         }
+        if self.compatible_resolved_addresses().is_empty() {
+            return Err(CoreError::InvalidArgument(
+                "path update has no resolved address compatible with a local address family".into(),
+            ));
+        }
         Ok(())
+    }
+
+    /// Preserve DNS/platform order while excluding carrier families that this physical path
+    /// cannot source. Platform adapters may report dual-stack DNS on an IPv4-only or IPv6-only
+    /// link; trying the incompatible first answer would turn a usable handover into a fallback.
+    pub(crate) fn compatible_resolved_addresses(&self) -> Vec<IpAddr> {
+        let mut local_families = [false; 2];
+        for address in self
+            .local_addresses
+            .iter()
+            .filter_map(|value| value.parse::<IpAddr>().ok())
+        {
+            local_families[if address.is_ipv6() { 1 } else { 0 }] = true;
+        }
+        self.resolved_addresses
+            .iter()
+            .filter_map(|value| value.address.parse::<IpAddr>().ok())
+            .filter(|address| local_families[if address.is_ipv6() { 1 } else { 0 }])
+            .collect()
     }
 }
 

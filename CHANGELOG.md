@@ -42,6 +42,10 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- Общая модель `PathUpdate` теперь требует хотя бы одну совместимую пару семейств
+  local/resolved и сохраняет DNS-порядок только среди реально доступных carrier-адресов.
+  Поэтому IPv4-only/IPv6-only путь больше не срывает handover из-за первого несовместимого
+  AAAA/A-ответа при наличии следующего пригодного адреса; правило едино для всех клиентов.
 - `LinuxCoreAdapter` переведён на разделяемое, коротко блокируемое состояние `ClientCore`.
   Это позволяет in-process Linux/OpenWrt controller использовать тот же автомат
   PREPARE/BIND/COMMIT/ABORT, корреляцию ACK, supersede и roaming-телеметрию, что FFI-клиенты,

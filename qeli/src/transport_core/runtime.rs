@@ -230,16 +230,10 @@ impl NativeCoreAdapter {
     ) -> anyhow::Result<TcpStream> {
         let addresses = candidate
             .update
-            .resolved_addresses
-            .iter()
-            .map(|resolution| {
-                resolution
-                    .address
-                    .parse::<IpAddr>()
-                    .map(|address| SocketAddr::new(address, config.server.port))
-                    .map_err(|_| anyhow::anyhow!("invalid prepared carrier address"))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+            .compatible_resolved_addresses()
+            .into_iter()
+            .map(|address| SocketAddr::new(address, config.server.port))
+            .collect::<Vec<_>>();
         let mut setup_failures = Vec::new();
         let (address, socket) = addresses
             .into_iter()

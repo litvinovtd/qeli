@@ -3195,6 +3195,15 @@ mod tests {
             core.submit_path_update(&inconsistent.to_string()),
             Err(CoreError::InvalidArgument(_))
         ));
+        let mut incompatible: serde_json::Value =
+            serde_json::from_str(&path_update(7, 1, "incompatible")).unwrap();
+        incompatible["local_addresses"] = serde_json::json!(["192.0.2.10"]);
+        incompatible["resolved_addresses"] =
+            serde_json::json!([{"address": "2001:db8::20", "ttl_secs": 30}]);
+        assert!(matches!(
+            core.submit_path_update(&incompatible.to_string()),
+            Err(CoreError::InvalidArgument(_))
+        ));
 
         let candidate = core.submit_path_update(&path_update(7, 1, "wifi")).unwrap();
         assert_eq!(
@@ -3207,9 +3216,43 @@ mod tests {
         assert_eq!(payload.candidate_id, candidate);
         assert_eq!(payload.path.platform_path_id, "wifi");
         assert_eq!(payload.path.resolved_addresses.len(), 2);
+        assert_eq!(
+            payload.path.compatible_resolved_addresses(),
+            vec![
+                "198.51.100.20".parse::<std::net::IpAddr>().unwrap(),
+                "2001:db8::20".parse::<std::net::IpAddr>().unwrap(),
+            ]
+        );
         assert!(
             core.poll_event().is_none(),
             "duplicate must not enqueue work"
+        );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_candidate_addresses_keep_dns_order_but_skip_unusable_families() {
+        let mut update: serde_json::Value =
+            serde_json::from_str(&path_update(9, 1, "ipv4-only")).unwrap();
+        update["local_addresses"] = serde_json::json!(["192.0.2.10"]);
+        update["resolved_addresses"] = serde_json::json!([
+            {"address": "2001:db8::20", "ttl_secs": 30},
+            {"address": "198.51.100.21", "ttl_secs": 60},
+            {"address": "198.51.100.22", "ttl_secs": 60}
+        ]);
+        let mut core = running_path_core(9);
+        core.submit_path_update(&update.to_string()).unwrap();
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        assert_eq!(
+            prepare
+                .path_command
+                .unwrap()
+                .path
+                .compatible_resolved_addresses(),
+            vec![
+                "198.51.100.21".parse::<std::net::IpAddr>().unwrap(),
+                "198.51.100.22".parse::<std::net::IpAddr>().unwrap(),
+            ]
         );
     }
 
