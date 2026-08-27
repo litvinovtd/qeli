@@ -123,6 +123,10 @@
   aliases и candidate state. Реестр пока не владеет sockets/codecs и не подключён к UDP hot path:
   production data plane и default-сборка не изменены. Девять unit-тестов, включая 32 последовательные
   ротации и stale/collision/anti-amplification случаи, прошли на лабе.
+- До подключения UDP hot path устранено противоречие wire design: roaming short header больше не
+  имеет постоянного `D1 52` marker, который создавал бы отдельный DPI-отпечаток. Negotiated форма
+  сохраняет обычные QUIC short flags, расширяет только cleartext DCID с четырёх до восьми байтов и
+  позволяет выполнять bounded CID lookup при miss по source address; legacy path не изменён.
 - Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/897 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и

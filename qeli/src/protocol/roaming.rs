@@ -19,9 +19,12 @@ pub const SESSION_LOCATOR_LEN: usize = 16;
 pub const PATH_CHALLENGE_LEN: usize = 16;
 pub const RESUME_PROOF_LEN: usize = 32;
 
-pub const UDP_SHORT_MARKER: [u8; 2] = [0xD1, 0x52];
-/// marker(2) + destination CID(8) + outer packet number(4).
-pub const UDP_SHORT_HEADER_LEN: usize = 2 + CID_LEN + 4;
+/// The ordinary QUIC short-header shape already used by qeli. Roaming widens only the
+/// destination CID from the legacy four bytes to eight; it must not add a qeli-specific
+/// cleartext marker that would become a trivial DPI signature.
+pub const UDP_SHORT_FLAGS: u8 = 0x43;
+/// QUIC short flags(1) + destination CID(8) + outer packet number(4).
+pub const UDP_SHORT_HEADER_LEN: usize = 1 + CID_LEN + 4;
 
 const CID_LABEL: &[u8] = b"qeli-udp-cid-v1";
 const RESUME_PROOF_LABEL: &[u8] = b"qeli-tcp-resume-proof-v1";
@@ -85,7 +88,7 @@ impl UdpShortHeader {
 
     pub fn encode(&self, encrypted_record: &[u8]) -> Vec<u8> {
         let mut out = Vec::with_capacity(UDP_SHORT_HEADER_LEN + encrypted_record.len());
-        out.extend_from_slice(&UDP_SHORT_MARKER);
+        out.push(UDP_SHORT_FLAGS);
         out.extend_from_slice(&self.destination_cid);
         out.extend_from_slice(&self.packet_number.to_be_bytes());
         out.extend_from_slice(encrypted_record);
@@ -97,12 +100,12 @@ pub fn decode_udp_short(bytes: &[u8]) -> Result<(UdpShortHeader, &[u8]), Roaming
     if bytes.len() < UDP_SHORT_HEADER_LEN {
         return Err(RoamingWireError::Truncated);
     }
-    if bytes[..UDP_SHORT_MARKER.len()] != UDP_SHORT_MARKER {
+    if bytes[0] != UDP_SHORT_FLAGS {
         return Err(RoamingWireError::Unsupported);
     }
     let mut cid = [0u8; CID_LEN];
-    cid.copy_from_slice(&bytes[2..10]);
-    let packet_number = u32::from_be_bytes(bytes[10..14].try_into().expect("fixed header slice"));
+    cid.copy_from_slice(&bytes[1..9]);
+    let packet_number = u32::from_be_bytes(bytes[9..13].try_into().expect("fixed header slice"));
     Ok((
         UdpShortHeader::new(cid, packet_number),
         &bytes[UDP_SHORT_HEADER_LEN..],
@@ -452,17 +455,18 @@ mod tests {
     }
 
     #[test]
-    fn udp_marker_precedes_the_cid_and_never_depends_on_source_address() {
+    fn udp_roaming_cid_uses_the_quic_short_shape_without_a_custom_marker() {
         let header = UdpShortHeader::new([0xAB; CID_LEN], 0x0102_0304);
         let wire = header.encode(b"ciphertext");
-        assert_eq!(&wire[..2], &UDP_SHORT_MARKER);
-        assert_eq!(&wire[2..10], &[0xAB; CID_LEN]);
+        assert_eq!(wire[0], UDP_SHORT_FLAGS);
+        assert_eq!(&wire[1..9], &[0xAB; CID_LEN]);
+        assert_eq!(&wire[9..13], &[1, 2, 3, 4]);
         let (parsed, record) = decode_udp_short(&wire).unwrap();
         assert_eq!(parsed.destination_cid(), &[0xAB; CID_LEN]);
         assert_eq!(parsed.packet_number(), 0x0102_0304);
         assert_eq!(record, b"ciphertext");
         assert_eq!(
-            decode_udp_short(&wire[..13]).err(),
+            decode_udp_short(&wire[..12]).err(),
             Some(RoamingWireError::Truncated)
         );
         let mut bad = wire;

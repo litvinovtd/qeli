@@ -53,9 +53,12 @@ source `SocketAddr` ([udp_handler.rs](../../../qeli/src/server/udp_handler.rs) /
 new client → full handshake.
 
 Change: the server **records the client CID** at handshake and can find the session by
-CID when the source address is unknown. The CID lives in the QUIC short header **in the
-clear** (it must — the server has to identify the session **before** decrypting, to
-pick the key).
+CID when the source address is unknown. The rotating eight-byte CID lives in the QUIC
+short header **in the clear** (it must — the server has to identify the session **before**
+decrypting, to pick the key). The negotiated form keeps the ordinary QUIC short flags and
+widens the legacy four-byte DCID to eight bytes; it adds no fixed qeli-specific marker. On an
+address miss the server attempts the eight-byte registry lookup, while a known legacy path
+continues to use its recorded four-byte form.
 
 ### 2.2 CID rotation (unlinkability) — mandatory
 
