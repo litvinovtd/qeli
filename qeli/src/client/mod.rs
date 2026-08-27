@@ -46,6 +46,8 @@ use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
 #[cfg(feature = "experimental-roaming")]
 use crate::transport_core::path::PreparedPathCandidate;
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+use crate::transport_core::path::{PathCommand, PathCommandAction};
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, TcpAuthentication,
@@ -463,7 +465,6 @@ pub(crate) type PathAckFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 
 #[cfg(feature = "experimental-roaming")]
-#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn path_ack_future(
     receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
     action: &'static str,
@@ -483,13 +484,11 @@ fn path_ack_future(
 /// candidate lookup, phase validation, ACK correlation or cancellation semantics.
 #[cfg(feature = "experimental-roaming")]
 #[derive(Clone)]
-#[cfg_attr(target_os = "linux", allow(dead_code))]
 pub(crate) struct CorePathController {
     core: Arc<std::sync::Mutex<ClientCore>>,
 }
 
 #[cfg(feature = "experimental-roaming")]
-#[cfg_attr(target_os = "linux", allow(dead_code))]
 impl CorePathController {
     pub(crate) fn new(core: Arc<std::sync::Mutex<ClientCore>>) -> Self {
         Self { core }
@@ -538,6 +537,214 @@ impl CorePathController {
             core.abort_candidate_path(candidate.update.generation, candidate.candidate_id, reason)
         })?;
         Ok(path_ack_future(receiver, "ABORT_PATH"))
+    }
+}
+
+/// Linux OS executor for the shared PathUpdate transaction. It owns only prepared route facts;
+/// phase/order/idempotency and every ACK waiter remain in `ClientCore`/`CorePathController`.
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+struct LinuxPathController {
+    core: Arc<std::sync::Mutex<ClientCore>>,
+    shared: CorePathController,
+    tunnel_interface: String,
+    prepared_routes: std::sync::Mutex<Option<route::LinuxPreparedPathRoutes>>,
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+impl LinuxPathController {
+    fn new(core: Arc<std::sync::Mutex<ClientCore>>, tunnel_interface: String) -> Self {
+        Self {
+            shared: CorePathController::new(core.clone()),
+            core,
+            tunnel_interface,
+            prepared_routes: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
+        let mut core = crate::util::lock_or_recover(&self.core, "client::linux_path_core");
+        action(&mut core)
+    }
+
+    fn command_candidate(command: &PathCommand) -> PreparedPathCandidate {
+        PreparedPathCandidate {
+            candidate_id: command.candidate_id,
+            update: command.path.clone(),
+        }
+    }
+
+    fn execute_command(&self, command: &PathCommand) -> anyhow::Result<()> {
+        match command.action {
+            PathCommandAction::PreparePath => {
+                let candidate = Self::command_candidate(command);
+                let prepared =
+                    route::prepare_candidate_path_routes(&candidate, &self.tunnel_interface)?;
+                let mut current = crate::util::lock_or_recover(
+                    &self.prepared_routes,
+                    "client::linux_prepared_routes",
+                );
+                if current.as_ref().is_some_and(|active| {
+                    active.generation != command.generation
+                        || active.candidate_id != command.candidate_id
+                }) {
+                    anyhow::bail!("Linux path executor already owns another prepared candidate");
+                }
+                *current = Some(prepared);
+                Ok(())
+            }
+            PathCommandAction::BindSocket => {
+                {
+                    let current = crate::util::lock_or_recover(
+                        &self.prepared_routes,
+                        "client::linux_prepared_routes",
+                    );
+                    let prepared = current.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("BIND_SOCKET has no prepared Linux route projection")
+                    })?;
+                    if prepared.generation != command.generation
+                        || prepared.candidate_id != command.candidate_id
+                    {
+                        anyhow::bail!("BIND_SOCKET does not match the prepared Linux candidate");
+                    }
+                }
+                let socket_fd = command
+                    .socket_fd
+                    .ok_or_else(|| anyhow::anyhow!("BIND_SOCKET omitted the candidate fd"))?;
+                crate::transport_core::carrier::bind_linux_candidate_socket(
+                    socket_fd,
+                    &Self::command_candidate(command),
+                )
+            }
+            PathCommandAction::CommitPath => {
+                let mut current = crate::util::lock_or_recover(
+                    &self.prepared_routes,
+                    "client::linux_prepared_routes",
+                );
+                let prepared = current.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("COMMIT_PATH has no prepared Linux route projection")
+                })?;
+                if prepared.generation != command.generation
+                    || prepared.candidate_id != command.candidate_id
+                {
+                    anyhow::bail!("COMMIT_PATH does not match the prepared Linux candidate");
+                }
+                prepared.commit()?;
+                let addresses = command.path.compatible_resolved_addresses();
+                mark_carrier_candidates_pinned(&addresses);
+                if let Some(address) = addresses.first() {
+                    note_connected_peer(*address);
+                }
+                *current = None;
+                Ok(())
+            }
+            PathCommandAction::AbortPath => {
+                let mut current = crate::util::lock_or_recover(
+                    &self.prepared_routes,
+                    "client::linux_prepared_routes",
+                );
+                if current.as_ref().is_some_and(|prepared| {
+                    prepared.generation != command.generation
+                        || prepared.candidate_id != command.candidate_id
+                }) {
+                    anyhow::bail!("ABORT_PATH does not match the prepared Linux candidate");
+                }
+                *current = None;
+                Ok(())
+            }
+        }
+    }
+
+    /// Consume and ACK one exact command. A rejection makes `ClientCore` enqueue ABORT; execute
+    /// that rollback before returning so no temporary Linux state can outlive the failed call.
+    fn dispatch_pending(
+        &self,
+        expected_action: PathCommandAction,
+        expected_candidate: u64,
+    ) -> anyhow::Result<Option<String>> {
+        let event = self
+            .with_core(|core| core.poll_path_event())
+            .ok_or_else(|| anyhow::anyhow!("Linux path command queue is empty"))?;
+        if event.kind != EventKind::PathCommand {
+            anyhow::bail!(
+                "Linux path dispatcher received unrelated {:?} event {}",
+                event.kind,
+                event.sequence
+            );
+        }
+        let command = event
+            .path_command
+            .ok_or_else(|| anyhow::anyhow!("PathCommand event has no command payload"))?;
+        if command.action != expected_action || command.candidate_id != expected_candidate {
+            anyhow::bail!(
+                "Linux path dispatcher expected {:?}/{} but received {:?}/{}",
+                expected_action,
+                expected_candidate,
+                command.action,
+                command.candidate_id
+            );
+        }
+
+        let execution = self.execute_command(&command);
+        let rejection = execution.as_ref().err().map(ToString::to_string);
+        self.with_core(|core| {
+            core.ack_path_command(
+                command.generation,
+                command.candidate_id,
+                event.sequence,
+                execution.is_ok(),
+                rejection.as_deref(),
+            )
+        })?;
+
+        if rejection.is_some() && expected_action != PathCommandAction::AbortPath {
+            self.dispatch_pending(PathCommandAction::AbortPath, expected_candidate)?;
+        }
+        Ok(rejection)
+    }
+
+    #[allow(dead_code)] // Called by the Linux route/default-interface monitor in the next slice.
+    fn submit_path_update(&self, update_json: &str) -> anyhow::Result<u64> {
+        let candidate_id = self.with_core(|core| core.submit_path_update(update_json))?;
+        if let Some(reason) = self.dispatch_pending(PathCommandAction::PreparePath, candidate_id)? {
+            anyhow::bail!("PREPARE_PATH rejected: {reason}");
+        }
+        Ok(candidate_id)
+    }
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+impl TcpPathController for LinuxPathController {
+    fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
+        self.shared.prepared_candidate()
+    }
+
+    fn bind_candidate_socket(
+        &self,
+        candidate: &PreparedPathCandidate,
+        socket_fd: i32,
+    ) -> anyhow::Result<PathAckFuture> {
+        let result = self.shared.bind_candidate_socket(candidate, socket_fd)?;
+        self.dispatch_pending(PathCommandAction::BindSocket, candidate.candidate_id)?;
+        Ok(result)
+    }
+
+    fn commit_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+    ) -> anyhow::Result<PathAckFuture> {
+        let result = self.shared.commit_candidate_path(candidate)?;
+        self.dispatch_pending(PathCommandAction::CommitPath, candidate.candidate_id)?;
+        Ok(result)
+    }
+
+    fn abort_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+        reason: &str,
+    ) -> anyhow::Result<PathAckFuture> {
+        let result = self.shared.abort_candidate_path(candidate, reason)?;
+        self.dispatch_pending(PathCommandAction::AbortPath, candidate.candidate_id)?;
+        Ok(result)
     }
 }
 
@@ -620,6 +827,8 @@ struct LinuxCoreAdapter {
     counters: Arc<RuntimeCounters>,
     diagnostics: ClientStatusReporter,
     post_up: Option<PendingLifecycleHook>,
+    #[cfg(feature = "experimental-roaming")]
+    path_controller: Arc<LinuxPathController>,
 }
 
 /// Sanitized state exported by a Linux client process for the server panel. This is a
@@ -843,6 +1052,11 @@ impl LinuxCoreAdapter {
         let config = core.config().clone();
         while core.poll_event().is_some() {}
         let core = Arc::new(std::sync::Mutex::new(core));
+        #[cfg(feature = "experimental-roaming")]
+        let path_controller = Arc::new(LinuxPathController::new(
+            core.clone(),
+            config.tun.name.clone(),
+        ));
         let counters = Arc::new(RuntimeCounters::default());
         let diagnostics = ClientStatusReporter::from_env();
         diagnostics.publish(&counters);
@@ -854,6 +1068,8 @@ impl LinuxCoreAdapter {
                 counters,
                 diagnostics,
                 post_up: None,
+                #[cfg(feature = "experimental-roaming")]
+                path_controller,
             },
             config,
         ))
@@ -980,6 +1196,16 @@ impl ClientPlatform for LinuxCoreAdapter {
 
     fn platform_capabilities(&self) -> u64 {
         self.with_core(|core| core.platform_capabilities())
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+        let required = crate::transport_core::platform_capability::ROAMING_PATH;
+        if self.platform_capabilities() & required == required {
+            Some(self.path_controller.clone())
+        } else {
+            None
+        }
     }
 
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]> {
@@ -1420,6 +1646,15 @@ impl StreamConnectRequest {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Clone, Default)]
+struct LinuxStreamConnectContext {
+    #[cfg(feature = "experimental-roaming")]
+    request: StreamConnectRequest,
+    #[cfg(feature = "experimental-roaming")]
+    path_controller: Option<Arc<dyn TcpPathController>>,
+}
+
 /// A factory that opens one more connection of the SAME concrete stream type, for
 /// stream bonding (multipath). Cloneable + callable from the data-plane to ramp
 /// streams. Every TCP wire mode installs a concrete connector; UDP has its own
@@ -1472,13 +1707,67 @@ fn tcp_carrier_bind_address(
     ))
 }
 
+#[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+async fn connect_tcp_path_candidate(
+    config: &crate::config::client::ClientConfig,
+    total: Duration,
+    label: &str,
+    candidate: &PreparedPathCandidate,
+    path_controller: &dyn TcpPathController,
+) -> anyhow::Result<TcpStream> {
+    let deadline = tokio::time::Instant::now() + total;
+    // The core accepts one BIND_SOCKET for one prepared candidate. Use the first validated,
+    // family-compatible address exactly as native adapters do; another address needs a fresh
+    // PathUpdate/candidate rather than silently binding a different fd outside the transaction.
+    let remote_ip = candidate
+        .update
+        .compatible_resolved_addresses()
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("candidate path has no compatible carrier address"))?;
+    let remote = std::net::SocketAddr::new(remote_ip, config.server.port);
+    let socket = crate::transport_core::carrier::open_candidate_for(config, remote_ip)?;
+    let binding = path_controller.bind_candidate_socket(candidate, socket.as_raw_fd())?;
+    tokio::time::timeout(total.min(TCP_HANDOVER_PATH_ACK_TIMEOUT), binding)
+        .await
+        .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    if remaining.is_zero() {
+        anyhow::bail!("{label} candidate connect deadline expired after BIND_SOCKET");
+    }
+    match crate::transport_core::carrier::connect_to(socket, config, remote, remaining).await? {
+        crate::transport_core::carrier::ConnectedCarrier::Tcp(stream) => {
+            log::info!(
+                "{label} connected candidate {} through {}",
+                candidate.candidate_id,
+                remote
+            );
+            Ok(stream)
+        }
+        crate::transport_core::carrier::ConnectedCarrier::Udp(_) => {
+            anyhow::bail!("{label} candidate unexpectedly produced a UDP carrier")
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 async fn connect_tcp_candidates(
     config: &crate::config::client::ClientConfig,
     total: Duration,
     label: &str,
     primary: bool,
+    context: &LinuxStreamConnectContext,
 ) -> anyhow::Result<TcpStream> {
+    #[cfg(feature = "experimental-roaming")]
+    if let Some(candidate) = context.request.path_candidate.as_ref() {
+        let path_controller = context
+            .path_controller
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("candidate TCP connect has no Linux path controller"))?;
+        return connect_tcp_path_candidate(config, total, label, candidate, path_controller).await;
+    }
+    #[cfg(not(feature = "experimental-roaming"))]
+    let _ = context;
     let host = config.server.address.as_str();
     let port = config.server.port;
     let local_ip = config
@@ -1583,6 +1872,97 @@ async fn connect_tcp_candidates(
     ))
 }
 
+#[cfg(all(test, target_os = "linux", feature = "experimental-roaming"))]
+mod linux_candidate_dialer_tests {
+    use super::*;
+    use crate::transport_core::path::{
+        PathResolution, PathUpdate, PathUpdateFlags, PathUpdateReason,
+    };
+
+    struct RecordingPathController {
+        bound: Arc<AtomicBool>,
+    }
+
+    impl TcpPathController for RecordingPathController {
+        fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
+            None
+        }
+
+        fn bind_candidate_socket(
+            &self,
+            _candidate: &PreparedPathCandidate,
+            socket_fd: i32,
+        ) -> anyhow::Result<PathAckFuture> {
+            assert!(socket_fd >= 0);
+            self.bound.store(true, Ordering::Release);
+            Ok(Box::pin(async { Ok(()) }))
+        }
+
+        fn commit_candidate_path(
+            &self,
+            _candidate: &PreparedPathCandidate,
+        ) -> anyhow::Result<PathAckFuture> {
+            unreachable!("the dialer does not commit a candidate")
+        }
+
+        fn abort_candidate_path(
+            &self,
+            _candidate: &PreparedPathCandidate,
+            _reason: &str,
+        ) -> anyhow::Result<PathAckFuture> {
+            unreachable!("the dialer does not abort a candidate")
+        }
+    }
+
+    #[tokio::test]
+    async fn candidate_dial_uses_path_address_and_acks_binding_before_connect() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let config = crate::config::parse_client_config_strict(&format!(
+            "[qeli]\nserver = 198.51.100.99:{port}\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n"
+        ))
+        .unwrap();
+        let candidate = PreparedPathCandidate {
+            candidate_id: 9,
+            update: PathUpdate {
+                generation: 7,
+                update_id: 3,
+                platform_path_id: "test-loopback".into(),
+                reason: PathUpdateReason::ManualProbe,
+                network_token: None,
+                interface_index: Some(1),
+                local_addresses: vec!["127.0.0.1".into()],
+                resolved_addresses: vec![PathResolution {
+                    address: "127.0.0.1".into(),
+                    ttl_secs: 10,
+                }],
+                flags: PathUpdateFlags::default(),
+            },
+        };
+        let bound = Arc::new(AtomicBool::new(false));
+        let controller = RecordingPathController {
+            bound: bound.clone(),
+        };
+        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+
+        let stream = connect_tcp_path_candidate(
+            &config,
+            Duration::from_secs(2),
+            "test TCP",
+            &candidate,
+            &controller,
+        )
+        .await
+        .unwrap();
+        assert!(bound.load(Ordering::Acquire));
+        assert_eq!(
+            stream.peer_addr().unwrap().ip(),
+            "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+        accept.await.unwrap();
+    }
+}
+
 /// Open ONE reality-tls connection (TCP + browser-grade TLS 1.3 carrying the
 /// REALITY token). Reusable for the primary connection and each bonded stream —
 /// every call uses a fresh ephemeral + freshly sealed session_id.
@@ -1590,11 +1970,13 @@ async fn connect_tcp_candidates(
 async fn connect_reality(
     config: &crate::config::client::ClientConfig,
     primary: bool,
+    context: LinuxStreamConnectContext,
 ) -> anyhow::Result<tokio::io::DuplexStream> {
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let mut stream = connect_tcp_candidates(config, to, "reality-tls TCP", primary).await?;
+    let mut stream =
+        connect_tcp_candidates(config, to, "reality-tls TCP", primary, &context).await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
@@ -1702,6 +2084,7 @@ async fn connect_reality(
 async fn connect_obfs(
     config: &crate::config::client::ClientConfig,
     primary: bool,
+    context: LinuxStreamConnectContext,
 ) -> anyhow::Result<crate::protocol::obfs::ObfsStream<TcpStream>> {
     // Bound connect + the obfs nonce-exchange handshake (reads) by
     // connection_timeout_secs: a server that accepts TCP then stalls the obfs handshake
@@ -1709,7 +2092,7 @@ async fn connect_obfs(
     // reconnect would fire. Covers both the primary and each bonded stream.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     match tokio::time::timeout(to, async {
-        let stream = connect_tcp_candidates(config, to, "obfs TCP", primary).await?;
+        let stream = connect_tcp_candidates(config, to, "obfs TCP", primary, &context).await?;
         stream.set_nodelay(config.performance.tcp_nodelay)?;
         set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
         let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
@@ -1751,12 +2134,13 @@ async fn connect_obfs(
 async fn connect_bare_tcp(
     config: &crate::config::client::ClientConfig,
     primary: bool,
+    context: LinuxStreamConnectContext,
 ) -> anyhow::Result<TcpStream> {
     // Bound the connect by connection_timeout_secs rather than the (much longer, ~75s)
     // OS SYN timeout, so a never-accepting server fails over to a reconnect promptly. No
     // handshake reads here — the qeli handshake (bounded in run_tcp_tunnel) does those.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let stream = connect_tcp_candidates(config, to, "TCP", primary).await?;
+    let stream = connect_tcp_candidates(config, to, "TCP", primary, &context).await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     Ok(stream)
@@ -1774,6 +2158,8 @@ async fn connect_and_run_tcp(
         addr,
         crate::util::log_identity(&config.auth.username)
     );
+    #[cfg(feature = "experimental-roaming")]
+    let path_controller = core.tcp_path_controller();
 
     if config.obfuscation.mode == "obfs" {
         if config.obfuscation.obfs_key.trim().is_empty() {
@@ -1783,35 +2169,65 @@ async fn connect_and_run_tcp(
             ));
         }
         log::info!("Wire mode: obfs (ChaCha20 stream obfuscation)");
-        let first = connect_obfs(config, true).await?;
+        let first = connect_obfs(config, true, LinuxStreamConnectContext::default()).await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane to open bonded streams (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
+        #[cfg(feature = "experimental-roaming")]
+        let controller = path_controller.clone();
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |request| {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_obfs(&cfg, false).await })
+            #[cfg(not(feature = "experimental-roaming"))]
+            let _ = request;
+            let context = LinuxStreamConnectContext {
+                #[cfg(feature = "experimental-roaming")]
+                request,
+                #[cfg(feature = "experimental-roaming")]
+                path_controller: controller.clone(),
+            };
+            Box::pin(async move { connect_obfs(&cfg, false, context).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
-        let first = connect_reality(config, true).await?;
+        let first = connect_reality(config, true, LinuxStreamConnectContext::default()).await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
+        #[cfg(feature = "experimental-roaming")]
+        let controller = path_controller.clone();
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |request| {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_reality(&cfg, false).await })
+            #[cfg(not(feature = "experimental-roaming"))]
+            let _ = request;
+            let context = LinuxStreamConnectContext {
+                #[cfg(feature = "experimental-roaming")]
+                request,
+                #[cfg(feature = "experimental-roaming")]
+                path_controller: controller.clone(),
+            };
+            Box::pin(async move { connect_reality(&cfg, false, context).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     } else {
         // fake-tls / plain: bare TCP transport; the qeli handshake applies the
         // fake-TLS mimicry or the raw framing. Both support stream bonding.
         log::info!("Wire mode: {} (TCP)", config.obfuscation.mode);
-        let first = connect_bare_tcp(config, true).await?;
+        let first = connect_bare_tcp(config, true, LinuxStreamConnectContext::default()).await?;
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
+        #[cfg(feature = "experimental-roaming")]
+        let controller = path_controller.clone();
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |request| {
             let cfg = cfg.clone();
-            Box::pin(async move { connect_bare_tcp(&cfg, false).await })
+            #[cfg(not(feature = "experimental-roaming"))]
+            let _ = request;
+            let context = LinuxStreamConnectContext {
+                #[cfg(feature = "experimental-roaming")]
+                request,
+                #[cfg(feature = "experimental-roaming")]
+                path_controller: controller.clone(),
+            };
+            Box::pin(async move { connect_bare_tcp(&cfg, false, context).await })
         });
         run_tcp_tunnel(first, connector, config, password, core).await
     }

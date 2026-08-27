@@ -2197,6 +2197,17 @@ impl ClientCore {
         Ok(())
     }
 
+    /// Remove the oldest PathCommand without disturbing lifecycle or diagnostic events which
+    /// the platform adapter still has to observe. Native FFI pollers continue to use `poll_event`.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) fn poll_path_event(&mut self) -> Option<ClientEvent> {
+        let position = self
+            .events
+            .iter()
+            .position(|event| event.kind == EventKind::PathCommand)?;
+        self.events.remove(position)
+    }
+
     pub fn poll_event(&mut self) -> Option<ClientEvent> {
         self.events.pop_front()
     }
@@ -3164,6 +3175,24 @@ mod tests {
             accepted,
             reason,
         )
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_event_poll_preserves_unrelated_queued_events() {
+        let mut core = running_path_core(7);
+        core.push_event(EventKind::StateChanged, None, None, None, None);
+        core.submit_path_update(&path_update(7, 1, "wifi-a"))
+            .unwrap();
+
+        let path = core.poll_path_event().expect("path command event");
+        assert_eq!(path.kind, EventKind::PathCommand);
+        assert_eq!(
+            path.path_command.as_ref().map(|command| command.action),
+            Some(PathCommandAction::PreparePath)
+        );
+        assert_eq!(core.poll_event().unwrap().kind, EventKind::StateChanged);
+        assert!(core.poll_event().is_none());
     }
 
     #[cfg(feature = "experimental-roaming")]

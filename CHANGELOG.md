@@ -42,6 +42,17 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- Linux in-process adapter теперь исполняет PREPARE/BIND/COMMIT/ABORT из общей очереди
+  `ClientCore`, завершает те же correlated oneshot ACK и при отказе немедленно исполняет
+  обязательный ABORT. Выбор `PathCommand` не удаляет стоящие перед ним lifecycle/diagnostic
+  события. Platform capability пока не включена: для production остаются обязательными
+  network detection и live-приёмка.
+- Linux TCP handover использует отдельный unbound candidate-сокет во всех TCP wire-mode:
+  `reality-tls`, `obfs`, `fake-tls` и `plain`. До `connect()` сокет проходит точный
+  BIND по interface/source из `PathUpdate`; после authenticated JOIN COMMIT атомарно меняет
+  carrier-маршруты и только затем публикует новый закреплённый набор адресов для bonded-streams.
+  Регрессия с намеренно недоступным адресом из конфига подтверждает, что candidate dialer
+  соединяется только с адресом `PathUpdate` и получает ACK привязки до connect.
 - Linux COMMIT carrier-маршрутов получил полный ownership preflight: совпадающий чужой
   маршрут сохраняется без присвоения, конфликтующий отклоняется до первой мутации, а qeli
   меняет через `replace` только собственный маршрут. Каждый применённый IPv4/IPv6 адрес
@@ -65,13 +76,6 @@
   PREPARE/BIND/COMMIT/ABORT, корреляцию ACK, supersede и roaming-телеметрию, что FFI-клиенты,
   вместо отдельной реализации протокола. Системные route/socket операции будут выполняться
   после освобождения core-lock; production capability этим рефакторингом не включается.
-- Начат Linux/OpenWrt adapter этапа 4 без включения capability: общий candidate dialer теперь
-  создаёт отдельный unbound-сокет и на Linux умеет до connect привязать его одновременно к
-  точному `interface_index` через `SO_BINDTODEVICE` и к адресу нужного семейства из
-  валидированного `PathUpdate`. Устаревший интерфейс/адрес отклоняется до отправки SYN;
-  IPv6 link-local получает обязательный scope id. Path monitor, транзакционный перенос
-  server-bypass и live-приёмка ещё не завершены, поэтому production `ROAMING_PATH` не объявляется.
-
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).

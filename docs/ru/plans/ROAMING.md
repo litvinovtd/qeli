@@ -658,10 +658,11 @@ bootstrap и восьмибайтовый CID ещё не могут включ�
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
 делегируют получение prepared candidate, запросы BIND/COMMIT/ABORT, завершение correlated ACK
-и отмену одному общему Rust `CorePathController`. Будущий Linux in-process adapter использует
-тот же контроллер и уже общее bounded-состояние `ClientCore`: отдельного автомата
-transaction/ACK/supersede/telemetry в Linux не будет. Также готов source-complete точный
-read-only PREPARE: каждый carrier обязан разрешаться через точную пару
+и отмену одному общему Rust `CorePathController`. Linux in-process adapter теперь использует
+тот же контроллер и общее bounded-состояние `ClientCore`: он исполняет PathCommand вне core-lock,
+коррелирует ACK и немедленно обрабатывает обязательный ABORT, не удаляя из очереди посторонние
+lifecycle-события. Source-complete read-only PREPARE требует, чтобы каждый carrier разрешался через
+точную пару
 `from <source> oif <interface>`, а FIB должен вернуть тот же физический интерфейс. Изолированный
 netns regression подтвердил, что source bind вместе с `SO_BINDTODEVICE` выбирает candidate
 default route несмотря на активные туннельные `/1` и старый carrier `/32`; временный маршрут
@@ -671,9 +672,14 @@ scope для IPv6 link-local). Примитив COMMIT теперь выполн
 адресов до мутации: совпадающий операторский маршрут остаётся чужим, конфликтующий отклоняет
 commit, а `replace` разрешён только для маршрута из journal qeli. После каждого `add/replace`
 выполняется обычный source-aware FIB lookup; ошибка следующей IPv4/IPv6 семьи восстанавливает
-предыдущие маршруты в обратном порядке и синхронизирует ownership journal. Остаются подключение
-этих примитивов к in-process PathCommand ACK driver, network detection, capability activation,
-двунаправленный live PMTU probing, adversarial listener races и mock/Linux live acceptance.
+предыдущие маршруты в обратном порядке и синхронизирует ownership journal. Все TCP wire-mode
+(`reality-tls`, `obfs`, `fake-tls`, `plain`) уже создают отдельный unbound candidate-сокет,
+получают BIND ACK до connect и используют только первый совместимый адрес данного PathUpdate.
+После authenticated JOIN COMMIT сначала применяет маршруты, затем переключает закреплённый
+набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
+что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
+до connect. Остаются network detection, capability activation, двунаправленный live PMTU probing,
+adversarial listener races и Linux live acceptance.
 
 - двунаправленный live PMTU reset/probe;
 - client path adapters;

@@ -136,7 +136,6 @@ pub(crate) struct LinuxCandidateRoute {
 
 #[cfg(feature = "experimental-roaming")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Consumed by the Linux PathCommand executor in the next Phase 4 slice.
 pub(crate) struct LinuxPreparedPathRoutes {
     pub generation: u64,
     pub candidate_id: u64,
@@ -148,7 +147,6 @@ pub(crate) struct LinuxPreparedPathRoutes {
 /// platform. PREPARE is deliberately read-only: the bound candidate socket can prove the new
 /// path before COMMIT replaces any qeli-owned host route.
 #[cfg(feature = "experimental-roaming")]
-#[allow(dead_code)] // Consumed by the Linux PathCommand executor in the next Phase 4 slice.
 pub(crate) fn prepare_candidate_path_routes(
     candidate: &PreparedPathCandidate,
     tunnel_if: &str,
@@ -361,7 +359,6 @@ fn rollback_candidate_route_steps(applied: &[CandidateRouteStep]) -> Vec<String>
 }
 
 #[cfg(feature = "experimental-roaming")]
-#[allow(dead_code)] // Called by the Linux COMMIT_PATH executor in the next Phase 4 slice.
 impl LinuxPreparedPathRoutes {
     /// Atomically from qeli's ownership perspective: all conflicts are rejected before mutation,
     /// every applied route is verified through the ordinary (unforced) FIB, and any later failure

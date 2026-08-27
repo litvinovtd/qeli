@@ -450,10 +450,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
   BIND/COMMIT/ABORT requests, correlated ACK completion and cancellation to one shared Rust
-  `CorePathController`. The future Linux in-process adapter will use that same controller and its
-  already shared bounded `ClientCore`, avoiding another transaction/ACK/supersede/telemetry
-  implementation. Linux also has the
-  source-complete read-only PREPARE route projection: each carrier must resolve through the exact
+  `CorePathController`. The Linux in-process adapter now uses that controller and the shared bounded
+  `ClientCore`: it executes PathCommands outside the core lock, correlates ACKs, immediately drains a
+  mandatory ABORT after rejection, and leaves unrelated lifecycle events queued. Its source-complete
+  read-only PREPARE route projection requires each carrier to resolve through the exact
   `from <source> oif <interface>` pair and the FIB must return that physical interface. An isolated
   netns regression proves that source binding plus `SO_BINDTODEVICE` selects the candidate default
   route despite active tunnel `/1` routes and an old carrier `/32`; no temporary route/policy rule
@@ -463,9 +463,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   mutation: matching operator routes remain unclaimed, conflicting operator routes reject the commit,
   and only qeli-journalled routes may be replaced. Every add/replace is verified by an ordinary
   source-aware FIB lookup; a later IPv4/IPv6 failure restores earlier routes in reverse order and
-  reconciles the ownership journal. Wiring these primitives to the in-process PathCommand ACK driver,
-  network detection, capability activation, bidirectional live PMTU probing, adversarial listener
-  races, and mock/Linux live acceptance remain.
+  reconciles the ownership journal. Every TCP wire mode (`reality-tls`, `obfs`, `fake-tls`, `plain`)
+  now creates a separate unbound candidate socket, receives BIND acknowledgement before connect, and
+  uses only the first compatible address from that PathUpdate. After authenticated JOIN, COMMIT applies
+  routes first and only then publishes the new pinned carrier-address set for later bonded streams. An
+  unprivileged regression proves that the dialer ignores an intentionally unreachable configured address,
+  connects to the candidate address, and binds before connect. Network detection, capability activation,
+  bidirectional live PMTU probing, adversarial listener races, and Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
