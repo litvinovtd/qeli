@@ -81,6 +81,8 @@ const UDP_MTU_REPROBE_CONFIRMATIONS: u8 = 3;
 /// remaining budget; expiry falls back to the ordinary full reconnect and NetworkPlan cycle.
 const TCP_RESUME_GRACE: Duration = Duration::from_secs(30);
 const TCP_RESUME_MAINTENANCE_TICK: Duration = Duration::from_secs(1);
+#[cfg(feature = "experimental-roaming")]
+const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -1066,33 +1068,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // authenticated NetworkPlan has installed the TUN and its active-family firewall.
     core_adapter.arm_post_up(post_up.clone(), &hook_env);
 
-    // Graceful shutdown: on SIGINT/SIGTERM restore DNS (and clear the kill-switch)
-    // before exiting, so a `systemctl stop` or Ctrl-C never strands the system on
-    // the tunnel resolver or behind a closed firewall. Last line of defence on top
-    // of the per-connection restore in the data-plane loops below.
-    let (sig_tun, sig_lan, sig_lan_ipv6, sig_post_down) = (
-        tun_if.clone(),
-        lan_subnet.clone(),
-        lan_subnet_ipv6.clone(),
-        post_down.clone(),
-    );
-    // The hook environment has to reach THIS path too.
-    //
-    // post_down is invoked from three places; the two orderly exits passed `&hook_env`, and
-    // the signal handler — `systemctl stop` and Ctrl-C, i.e. the way the client actually
-    // stops in practice — passed `&[]`. So the paired hooks operators are told to write,
-    // `post_up = iptables -I FORWARD -i "$QELI_TUN" -j ACCEPT` /
-    // `post_down = iptables -D FORWARD -i "$QELI_TUN" -j ACCEPT`, ran their teardown as
-    // `iptables -D FORWARD -i "" -j ACCEPT`: it fails, `hooks::run` only warns on a non-zero
-    // exit, and the rule that opens forwarding stays in the firewall after the VPN is gone.
-    // (Audit 2026-08-04.)
-    let sig_hook_env = hook_env.clone();
-    // Also needed below: `process::exit` runs no destructors, so `TunGuard` — which owns
-    // removing the device and the routes — never fires on this path. Everything it would
-    // have done has to be done explicitly here.
-    let sig_server = config.server.address.clone();
-    let sig_exclude = config.routing.exclude.clone();
-    let sig_owns_device = !config.tun.attach_existing;
+    // SIGINT/SIGTERM must enter the same cooperative cancellation path as GUI/native stop.
+    // The previous signal task called process::exit after doing its own partial cleanup. That
+    // skipped data-plane destructors and, for roaming, made it impossible to send authenticated
+    // CLOSE_SESSION before the socket disappeared. Keep one cancellation token alive for the
+    // whole CLI retry loop; after the active generation unwinds, the ordinary teardown below
+    // restores DNS, routes, firewall state and lifecycle hooks exactly once.
+    let shutdown_requested = core_adapter.cancel_token();
+    let signal_cancel = shutdown_requested.clone();
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).ok();
@@ -1105,38 +1088,8 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 }
             } => {}
         }
-        log::info!(
-            "Shutdown signal received — restoring DNS{}{}{} and exiting",
-            if ks_on { " + clearing kill-switch" } else { "" },
-            if gw_on { " + clearing gateway-NAT" } else { "" },
-            if exit_on { " + clearing exit-node" } else { "" }
-        );
-        let mut cleanup_failed = false;
-        // Name our own interface so a sibling client's resolvectl config is not
-        // reverted along with ours. (Audit 2026-07-27, R7.)
-        if let Err(error) = dns::restore_dns_for(&sig_tun) {
-            cleanup_failed = true;
-            log::error!("shutdown DNS cleanup failed: {error}");
-        }
-        if let Err(error) =
-            cleanup_routing_features(ks_on, gw_on, exit_on, &sig_tun, &sig_lan, &sig_lan_ipv6)
-        {
-            cleanup_failed = true;
-            log::error!("shutdown firewall cleanup failed: {error}");
-        }
-        // Routes and the device: `TunGuard::drop` handles these on every normal exit, but
-        // `process::exit` below skips destructors entirely, so a Ctrl-C used to leave the
-        // physical server-bypass /32, the exclude bypasses, the full-tunnel halves and the
-        // IPv6 blackholes installed — plus the interface itself — on a host that now has
-        // no VPN. Do it explicitly; both calls are idempotent.
-        if sig_owns_device {
-            if let Err(error) = cleanup_owned_tun(&sig_tun, &sig_server, &sig_exclude) {
-                cleanup_failed = true;
-                log::error!("shutdown network cleanup failed: {error}");
-            }
-        }
-        crate::hooks::run("post_down", &sig_post_down, &sig_hook_env).await;
-        std::process::exit(if cleanup_failed { 1 } else { 0 });
+        log::info!("Shutdown signal received — stopping the active tunnel cleanly");
+        signal_cancel.store(true, Ordering::Release);
     });
 
     // Engage the kill-switch BEFORE the first connect, so even the first attempt
@@ -1175,6 +1128,23 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             log::error!("transport core teardown error: {error}");
         }
         let ran = started.elapsed();
+
+        if shutdown_requested.load(Ordering::Acquire) {
+            let cleanup = cleanup_routing_features(
+                ks_on,
+                gw_on,
+                exit_on,
+                &tun_if,
+                &lan_subnet,
+                &lan_subnet_ipv6,
+            );
+            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let result = cleanup
+                .map_err(|error| anyhow::anyhow!("shutdown network cleanup failed: {error}"));
+            core_adapter.diagnostics.terminal(result.as_ref().err());
+            core_adapter.diagnostics.publish(&core_adapter.counters);
+            return result;
+        }
 
         let deliberate = DELIBERATE_CYCLE.swap(false, std::sync::atomic::Ordering::AcqRel);
         match &result {
@@ -1740,6 +1710,11 @@ struct StreamPump {
 enum ClientUplink {
     Tun(TunPacket),
     Owned(Vec<u8>),
+    #[cfg(feature = "experimental-roaming")]
+    TerminalControl {
+        packet: Vec<u8>,
+        written: tokio::sync::oneshot::Sender<()>,
+    },
 }
 
 #[derive(Clone)]
@@ -1759,6 +1734,60 @@ impl ClientStreamSender {
     fn is_closed(&self) -> bool {
         self.sender.is_closed()
     }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn try_send_terminal_control(
+        &self,
+        packet: Vec<u8>,
+    ) -> Result<tokio::sync::oneshot::Receiver<()>, mpsc::error::TrySendError<ClientUplink>> {
+        let (written, receipt) = tokio::sync::oneshot::channel();
+        self.sender
+            .try_send(ClientUplink::TerminalControl { packet, written })?;
+        Ok(receipt)
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+async fn send_tcp_close_session(outs: &Arc<std::sync::Mutex<Vec<ClientStreamSender>>>) {
+    let senders = crate::util::lock_or_recover(outs, "client::outs").clone();
+    let frame = crate::protocol::control_v2::close_session(rand::random());
+    let deadline = tokio::time::Instant::now() + TCP_CLOSE_NOTIFY_TIMEOUT;
+    for sender in senders {
+        if sender.is_closed() {
+            continue;
+        }
+        match sender.try_send_terminal_control(frame.clone()) {
+            Ok(receipt) => {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(remaining, receipt).await {
+                    Ok(Ok(())) => {
+                        log::info!(
+                            "sent orderly CLOSE_SESSION on TCP stream slot {}",
+                            sender.logical_slot_id
+                        );
+                        return;
+                    }
+                    Ok(Err(_)) => log::debug!(
+                        "TCP stream slot {} closed before CLOSE_SESSION was written",
+                        sender.logical_slot_id
+                    ),
+                    Err(_) => log::debug!(
+                        "timed out writing CLOSE_SESSION on TCP stream slot {}",
+                        sender.logical_slot_id
+                    ),
+                }
+            }
+            Err(error) => log::debug!(
+                "could not queue CLOSE_SESSION on TCP stream slot {}: {}",
+                sender.logical_slot_id,
+                error
+            ),
+        }
+    }
+    log::debug!("no live TCP stream accepted the best-effort CLOSE_SESSION");
 }
 
 /// Original-session material needed for authenticated TCP hard resume. The common core
@@ -1851,6 +1880,8 @@ impl AsRef<[u8]> for ClientUplink {
         match self {
             Self::Tun(packet) => packet,
             Self::Owned(packet) => packet,
+            #[cfg(feature = "experimental-roaming")]
+            Self::TerminalControl { packet, .. } => packet,
         }
     }
 }
@@ -2356,6 +2387,77 @@ where
                     _ = stream_stop_rx.changed() => break,
 
                     Some(pt) = out_rx.recv() => {
+                        #[cfg(feature = "experimental-roaming")]
+                        let pt = match pt {
+                            ClientUplink::TerminalControl { packet, written } => {
+                                let data_len = packet.len();
+                                let payload_budget = if recordizer.is_some() {
+                                    crate::protocol::packet::MAX_TUNNEL_MTU
+                                } else {
+                                    cfg.tun_mtu
+                                };
+                                let payloads = if let Some(mux) = recordizer.as_mut() {
+                                    match mux.push(&packet, std::time::Instant::now()) {
+                                        Ok(mut payloads) => {
+                                            // A terminal control frame must not wait behind the
+                                            // recordizer's morphology delay: the supervisor is
+                                            // about to tear this generation down.
+                                            if let Some(payload) = mux.flush() {
+                                                payloads.push(payload);
+                                            }
+                                            Some(payloads)
+                                        }
+                                        Err(error) => {
+                                            log::debug!(
+                                                "TCP recordizer rejected CLOSE_SESSION: {error}"
+                                            );
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    Some(vec![packet])
+                                };
+                                let Some(payloads) = payloads else {
+                                    continue;
+                                };
+                                let mut delivered = true;
+                                for payload in payloads {
+                                    if !encrypt_client_payload(
+                                        &mut tx,
+                                        &payload,
+                                        payload_budget,
+                                        &cfg,
+                                        &mut wire_record,
+                                        &mut padding,
+                                    ) || !write_client_wire_record(
+                                        &mut write_half,
+                                        &mut tx,
+                                        &mut shaper,
+                                        &wire_record,
+                                        &mut cover_record,
+                                        &mut padding,
+                                    )
+                                    .await
+                                    {
+                                        delivered = false;
+                                        break;
+                                    }
+                                    last_tx_ms = base.elapsed().as_millis() as u64;
+                                    heartbeat_deadline = tokio::time::Instant::now()
+                                        + crate::protocol::randomized_heartbeat_delay(
+                                            cfg.heartbeat_interval,
+                                            Duration::from_millis(cfg.hb_jitter),
+                                        );
+                                }
+                                if delivered {
+                                    total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
+                                    let _ = written.send(());
+                                    continue;
+                                }
+                                break 'writer;
+                            }
+                            packet => packet,
+                        };
                         let data_len = pt.as_ref().len();
                         if let Some(mux) = recordizer.as_mut() {
                             let ready = mux.push(pt.as_ref(), std::time::Instant::now());
@@ -2608,6 +2710,15 @@ where
         }
     };
     let server_capabilities = handshake.server_capabilities;
+    #[cfg(feature = "experimental-roaming")]
+    let client_control_v2 = crate::protocol::capabilities::implemented_client_core_capabilities()
+        & crate::protocol::capabilities::client_capability::CONTROL_V2
+        != 0;
+    #[cfg(feature = "experimental-roaming")]
+    let tcp_control_v2 = client_control_v2
+        && server_capabilities.is_some_and(|server| {
+            server.contains(crate::protocol::capabilities::server_capability::CONTROL_V2)
+        });
     #[cfg(feature = "experimental-roaming")]
     let resume_secret = handshake.resume_secret;
     let client_rx = handshake.client_rx;
@@ -3414,6 +3525,13 @@ where
 
     // Stop the adaptive ramp task first: it loops indefinitely trying to add bonded
     // streams and must not create sockets for an obsolete connection generation.
+    // Only an intentional application shutdown is terminal. A carrier failure must retain the
+    // server session so hard resume can reuse the existing NetworkPlan and TUN.
+    #[cfg(feature = "experimental-roaming")]
+    if cancel.load(Ordering::Acquire) && tcp_control_v2 {
+        send_tcp_close_session(&outs).await;
+    }
+
     if let Some(h) = ramp_handle {
         h.abort();
     }

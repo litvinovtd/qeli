@@ -374,17 +374,19 @@ mod tests {
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             server_roaming,
-            server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1
+            server_capability::CONTROL_V2
+                | server_capability::TCP_RESUME_V1
+                | server_capability::TCP_HANDOVER_V1
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
 
-        // The gated common supervisor implements hard resume. Handover remains absent until
-        // platform PathUpdate can drive make-before-break.
+        // The gated common supervisor implements terminal CONTROL_V2 close and hard resume.
+        // Handover remains absent until platform PathUpdate can drive make-before-break.
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::TCP_RESUME_V1
+            client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(

@@ -362,8 +362,10 @@ impl SessionLifecycle {
         retained_bytes: usize,
         limiter: &mut OrphanLimiter,
     ) -> Result<DetachOutcome, LifecycleError> {
-        if matches!(self.state, State::Closing | State::Revoked) {
-            return Err(LifecycleError::Terminal);
+        match self.state {
+            State::Closing => return Ok(DetachOutcome::Closing),
+            State::Revoked => return Ok(DetachOutcome::Revoked),
+            _ => {}
         }
         if reason == DetachReason::CleanClose {
             self.terminal(false, limiter);
@@ -565,6 +567,10 @@ impl SessionLifecycle {
 
     pub fn revoke(&mut self, limiter: &mut OrphanLimiter) -> Vec<u64> {
         self.terminal(true, limiter)
+    }
+
+    pub fn close(&mut self, limiter: &mut OrphanLimiter) -> Vec<u64> {
+        self.terminal(false, limiter)
     }
 }
 
@@ -813,6 +819,23 @@ mod tests {
         assert_eq!(
             session
                 .detach(60, DetachReason::CleanClose, now, 1024, &mut limiter)
+                .unwrap(),
+            DetachOutcome::Closing
+        );
+        assert_eq!(session.state(), LifecycleState::Closing);
+        assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
+    }
+
+    #[test]
+    fn explicit_close_is_terminal_idempotent_and_never_orphans() {
+        let now = Instant::now();
+        let mut limiter = OrphanLimiter::new(4, 4096);
+        let mut session = lifecycle(8, 80);
+        assert_eq!(session.close(&mut limiter), vec![80]);
+        assert!(session.close(&mut limiter).is_empty());
+        assert_eq!(
+            session
+                .detach(80, DetachReason::Unexpected, now, 1024, &mut limiter)
                 .unwrap(),
             DetachOutcome::Closing
         );

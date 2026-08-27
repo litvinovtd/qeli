@@ -526,6 +526,8 @@ mod client_route_tests {
             streams: Mutex::new(Vec::new()),
             #[cfg(feature = "experimental-roaming")]
             tcp_roaming: None,
+            #[cfg(feature = "experimental-roaming")]
+            tcp_control_v2: false,
             connected_at: std::time::Instant::now(),
             bytes_sent: Arc::new(AtomicU64::new(0)),
             bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -542,6 +544,7 @@ mod client_route_tests {
             exit_access: super::ExitAccess::default(),
             path_mtu: Arc::new(AtomicU32::new(0)),
             revoked: Arc::new(AtomicBool::new(false)),
+            closing: Arc::new(AtomicBool::new(false)),
             client_info: Arc::new(Mutex::new(None)),
         })
     }

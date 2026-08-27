@@ -24,9 +24,9 @@ pub mod server_capability {
     pub const NETWORK_PLAN_V2: u64 = 1 << 2;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 3;
     pub const PACKET_MUX_V1: u64 = 1 << 4;
-    /// Reserved wire bits for the staged roaming implementation. These constants freeze the
-    /// authenticated handshake ABI, but are deliberately absent from
-    /// `implemented_server_capabilities()` until their complete data planes are available.
+    /// Stable wire bits for the staged roaming implementation. Advertising remains tied to the
+    /// corresponding data-plane implementation; unsupported stages keep their bit clear in
+    /// `implemented_server_capabilities()`.
     pub const CONTROL_V2: u64 = 1 << 5;
     pub const UDP_ROAM_V1: u64 = 1 << 6;
     pub const TCP_RESUME_V1: u64 = 1 << 7;
@@ -40,8 +40,8 @@ pub mod client_capability {
     pub const NETWORK_PLAN_V2: u64 = 1 << 1;
     pub const UDP_DATA_FRAG_V1: u64 = 1 << 2;
     pub const PACKET_MUX_V1: u64 = 1 << 3;
-    /// Reserved only. See the server-side constants above; none of these bits are advertised
-    /// by `implemented_client_core_capabilities()` during protocol-only stage 0.
+    /// Stable client-side wire bits. The core advertises only the stages whose runtime paths are
+    /// active; platform-specific operations are negotiated separately.
     pub const CONTROL_V2: u64 = 1 << 4;
     pub const UDP_ROAM_V1: u64 = 1 << 5;
     pub const TCP_RESUME_V1: u64 = 1 << 6;
@@ -87,8 +87,19 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
         | server_capability::UDP_DATA_FRAG_V1
         | server_capability::PACKET_MUX_V1;
     #[cfg(feature = "experimental-roaming")]
-    let bits = bits | server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1;
+    let bits = bits
+        | server_capability::CONTROL_V2
+        | server_capability::TCP_RESUME_V1
+        | server_capability::TCP_HANDOVER_V1;
     ServerCapabilities { bits }
+}
+
+/// CONTROL_V2 becomes live only after authenticated client opt-in. Individual roaming
+/// operations still require their own capability bits; CONTROL_V2 alone is just framing.
+pub fn control_v2_supported(client: Option<ClientCapabilities>) -> bool {
+    cfg!(feature = "experimental-roaming")
+        && client
+            .is_some_and(|capabilities| capabilities.core_bits & client_capability::CONTROL_V2 != 0)
 }
 
 /// Server-side support can be advertised before a client supervisor opts in.  A session only
@@ -122,10 +133,10 @@ pub const fn implemented_client_core_capabilities() -> u64 {
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
         | client_capability::PACKET_MUX_V1;
-    // Hard TCP resume is now complete in the common client supervisor. Handover remains
-    // separate and is intentionally withheld until PathUpdate drives make-before-break.
+    // CONTROL_V2 terminal close and hard TCP resume are complete in the common client
+    // supervisor. Handover remains withheld until PathUpdate drives make-before-break.
     #[cfg(feature = "experimental-roaming")]
-    let bits = bits | client_capability::TCP_RESUME_V1;
+    let bits = bits | client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1;
     bits
 }
 
@@ -605,9 +616,11 @@ mod tests {
     fn tcp_roaming_server_bits_follow_the_build_gate_and_require_client_opt_in() {
         let server = implemented_server_capabilities();
         #[cfg(feature = "experimental-roaming")]
-        assert!(
-            server.contains(server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1)
-        );
+        assert!(server.contains(
+            server_capability::CONTROL_V2
+                | server_capability::TCP_RESUME_V1
+                | server_capability::TCP_HANDOVER_V1
+        ));
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server.bits & server_capability::ROAMING_RESERVED, 0);
 
@@ -616,7 +629,7 @@ mod tests {
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::TCP_RESUME_V1
+            client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(
@@ -625,11 +638,12 @@ mod tests {
         );
         assert!(!tcp_resume_supported(None));
         let opted_in = Some(ClientCapabilities {
-            core_bits: client_capability::TCP_RESUME_V1,
+            core_bits: client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1,
             ..ClientCapabilities::default()
         });
         #[cfg(feature = "experimental-roaming")]
         {
+            assert!(control_v2_supported(opted_in));
             assert!(tcp_resume_supported(opted_in));
             assert!(!tcp_handover_supported(opted_in));
             let handover = Some(ClientCapabilities {
@@ -640,6 +654,7 @@ mod tests {
         }
         #[cfg(not(feature = "experimental-roaming"))]
         {
+            assert!(!control_v2_supported(opted_in));
             assert!(!tcp_resume_supported(opted_in));
             assert!(!tcp_handover_supported(opted_in));
         }

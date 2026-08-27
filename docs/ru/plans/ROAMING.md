@@ -1,10 +1,10 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v3-safe -->
 
-> Статус: проектирование завершено; этапы 0–2A и срез authenticated TCP hard resume этапа 2B
-> реализованы под `experimental-roaming`. Feature-путь клиент/сервер прошёл изолированный
-> Linux live e2e; make-before-break handover, явное закрытие и этапы 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (861/881 library tests,
+> Статус: проектирование завершено; этапы 0–2A и срезы authenticated TCP hard resume и
+> explicit close этапа 2B реализованы под `experimental-roaming`. Оба feature-пути прошли
+> изолированный Linux live e2e; make-before-break handover и этапы 3–6 ещё впереди.
+> На лабе `.10` прошли финальные default/feature suites (863/884 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -467,12 +467,13 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
 production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — 🟡 hard resume готов в исходниках и Linux e2e
+### Этап 2B. TCP resume и handover — 🟡 hard resume и explicit close готовы в исходниках и Linux e2e
 
 Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
 secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
-до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys. Feature-клиент
-рекламирует только `TCP_RESUME_V1`. Потеря последнего carrier до 30 секунд сохраняет прежние TUN
+до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys.
+Feature-клиент рекламирует `CONTROL_V2` и `TCP_RESUME_V1`; `TCP_HANDOVER_V1` пока не объявляется.
+Потеря последнего carrier до 30 секунд сохраняет прежние TUN
 и NetworkPlan; supervisor раз в секунду восстанавливает тот же stable logical slot, а sibling
 reader/writer завершаются общим сохраняющим состояние stop-сигналом.
 
@@ -482,15 +483,24 @@ EOF/RST. После commit старый transport переводится в drai
 carrier уже отсоединились, остаются 30-секундный orphan grace, точные session/retained-byte limits
 и generation-scoped reaper. Для legacy/non-negotiated сессий прежние JOIN и scheduler не изменены.
 
-На lab `.10` финальные default/feature suites прошли с 861/881 library tests, 4 CLI и
+При намеренной остановке клиент отправляет строгий пустой односоставной `CLOSE_SESSION` внутри
+аутентифицированного PacketCodec/`PACKET_MUX_V1`. Клиент принудительно flush-ит ожидающий batch
+recordizer и не более 750 мс ждёт завершения записи в сокет; сервер атомарно запрещает новые
+JOIN/resume, закрывает все bonded streams, сразу освобождает lease и не входит в orphan grace.
+Linux SIGINT/SIGTERM теперь использует этот cooperative cancel path вместо обхода data-plane
+destructors через `process::exit`.
+
+На lab `.10` финальные default/feature suites прошли с 863/884 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
-AUTH выполнилась ровно один раз.
+AUTH выполнилась ровно один раз. Отдельный live e2e `.11 → .10` с обязательным
+`PACKET_MUX_V1` прошёл 3/3 tunnel ping, подтвердил оба close-маркера, отсутствие established
+carrier и клиентского TUN после остановки и отсутствие перехода сервера в resume grace.
 
-Полный этап 2B ещё не завершён: `TCP_HANDOVER_V1` намеренно не рекламируется; остаются
-PathUpdate-driven make-before-break, явный `CLOSE_SESSION` и live-матрица их гонок. Остальные
-платформы остаются за feature gate до этапа 4.
+Полный этап 2B ещё не завершён: остаются PathUpdate-driven make-before-break и его live-матрица
+гонок; `TCP_HANDOVER_V1` намеренно не рекламируется. Остальные платформы остаются за feature gate
+до этапа 4.
 
 ### Этап 3. UDP migration
 

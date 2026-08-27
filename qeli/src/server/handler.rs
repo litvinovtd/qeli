@@ -298,6 +298,12 @@ impl TcpRoamingSession {
         let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::revoke_limiter");
         lifecycle.revoke(&mut limiter);
     }
+
+    fn close(&self) {
+        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::close");
+        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::close_limiter");
+        lifecycle.close(&mut limiter);
+    }
 }
 
 /// A client tunnel session, aggregating one or more bonded connections (streams)
@@ -407,6 +413,9 @@ pub struct SessionShared {
     /// Present only after authenticated capability negotiation in an experimental build.
     #[cfg(feature = "experimental-roaming")]
     pub(crate) tcp_roaming: Option<TcpRoamingSession>,
+    /// True only after authenticated bidirectional CONTROL_V2 negotiation on a TCP session.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) tcp_control_v2: bool,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
@@ -461,6 +470,9 @@ pub struct SessionShared {
     /// receive loop drops (and forgets) the peer the moment it sees it.
     /// (Audit 2026-07-27, A1/A2/A3.)
     pub revoked: Arc<std::sync::atomic::AtomicBool>,
+    /// Set by authenticated CLOSE_SESSION before the bonded stream tasks are stopped. Unlike
+    /// revocation this is an orderly terminal state and must never enter roaming grace.
+    pub closing: Arc<std::sync::atomic::AtomicBool>,
     /// `(version, platform)` the client reported about itself over the tunnel, so
     /// `list-clients` and the panel can answer "which build is this session running?".
     /// `None` for every client that predates the report, and for anything that failed
@@ -595,9 +607,32 @@ impl SessionShared {
         }
     }
 
+    /// Orderly session shutdown requested by the authenticated peer. Publish the terminal flag
+    /// before stopping streams so concurrent JOIN/resume admission fails closed and every detach
+    /// observes CleanClose rather than incorrectly entering orphan grace.
+    #[cfg(feature = "experimental-roaming")]
+    fn close_all(&self) {
+        self.closing
+            .store(true, std::sync::atomic::Ordering::Release);
+        #[cfg(feature = "experimental-roaming")]
+        if let Some(roaming) = &self.tcp_roaming {
+            roaming.close();
+        }
+        let streams = lock_or_recover(&self.streams, "close_all");
+        for stream in streams.iter() {
+            let _ = stream.kick_tx.try_send(());
+            let _ = stream.shutdown_tx.send(true);
+        }
+    }
+
     /// True once this session has been kicked / cut off / superseded.
     pub fn is_revoked(&self) -> bool {
         self.revoked.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn is_closing(&self) -> bool {
+        self.closing.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Atomically attach a stream iff the session is live and under its `max_streams` cap.
@@ -610,7 +645,10 @@ impl SessionShared {
         // the dead old carrier. SessionLifecycle::ResumeBusy bounds the overflow to one, and
         // commit immediately drains the obsolete carrier occupying the same stable slot.
         let limit = self.max_streams as usize + usize::from(authenticated_resume_overflow);
-        if self.revoked.load(std::sync::atomic::Ordering::Acquire) || streams.len() >= limit {
+        if self.revoked.load(std::sync::atomic::Ordering::Acquire)
+            || self.closing.load(std::sync::atomic::Ordering::Acquire)
+            || streams.len() >= limit
+        {
             return false;
         }
         streams.push(h);
@@ -620,7 +658,9 @@ impl SessionShared {
     #[cfg(feature = "experimental-roaming")]
     fn activate_resume_stream(&self, new_transport: u64, outcome: CommitOutcome) {
         let mut streams = lock_or_recover(&self.streams, "activate_resume_stream");
-        if self.revoked.load(std::sync::atomic::Ordering::Acquire) {
+        if self.revoked.load(std::sync::atomic::Ordering::Acquire)
+            || self.closing.load(std::sync::atomic::Ordering::Acquire)
+        {
             return;
         }
 
@@ -1226,6 +1266,8 @@ where
                 } else {
                     None
                 },
+                #[cfg(feature = "experimental-roaming")]
+                tcp_control_v2: crate::protocol::capabilities::control_v2_supported(capabilities),
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -1244,6 +1286,7 @@ where
                 // here, and the downlink check stays switched off for them.
                 path_mtu: Arc::new(AtomicU32::new(0)),
                 revoked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                closing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 // None = the client has not said what it is. Every client that predates
                 // the report stays here, and both surfaces show it as unknown.
                 client_info: Arc::new(std::sync::Mutex::new(None)),
@@ -1621,7 +1664,10 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
 
 #[cfg(all(test, feature = "experimental-roaming"))]
 mod tcp_resume_handler_tests {
-    use super::{parse_first_message, FirstMessage, TcpRoamingSession};
+    use super::{
+        classify_control_v2, parse_first_message, ControlV2Disposition, FirstMessage,
+        TcpRoamingSession,
+    };
     use crate::protocol::roaming::{ResumeProofInput, TcpResumeJoin, TCP_RESUME_MAGIC};
     use crate::transport_core::tcp_roaming::{
         DetachOutcome, DetachReason, LifecycleError, OrphanLimiter,
@@ -1731,6 +1777,46 @@ mod tcp_resume_handler_tests {
             .unwrap();
         session.commit_resume(reservation, 101).unwrap();
     }
+
+    #[test]
+    fn control_v2_dispatch_accepts_only_the_strict_terminal_close_shape() {
+        let close = crate::protocol::control_v2::close_session(7);
+        assert_eq!(
+            classify_control_v2(&close),
+            ControlV2Disposition::CloseSession
+        );
+
+        let fragmented_close = crate::protocol::control_v2::Frame {
+            message_type: crate::protocol::control_v2::TYPE_CLOSE_SESSION,
+            flags: 0,
+            message_id: 8,
+            part_index: 0,
+            part_count: 2,
+            payload: &[],
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            classify_control_v2(&fragmented_close),
+            ControlV2Disposition::ProtocolViolation
+        );
+
+        let notice = crate::protocol::control_v2::fragment_message(
+            crate::protocol::control_v2::TYPE_NOTICE,
+            0,
+            9,
+            b"future-safe",
+        )
+        .unwrap();
+        assert_eq!(
+            classify_control_v2(&notice[0]),
+            ControlV2Disposition::Ignore
+        );
+        assert_eq!(
+            classify_control_v2(&crate::protocol::control_v2::MAGIC),
+            ControlV2Disposition::ProtocolViolation
+        );
+    }
 }
 
 /// Split the post-proof auth bytes into (optional device-id, `user:pass` bytes).
@@ -1760,6 +1846,79 @@ pub fn device_key(username: &str, device_id: Option<[u8; DEVICE_ID_LEN]>) -> Str
         None => username.to_string(),
     }
 }
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlV2Disposition {
+    Ignore,
+    CloseSession,
+    ProtocolViolation,
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn classify_control_v2(bytes: &[u8]) -> ControlV2Disposition {
+    match crate::protocol::control_v2::decode(bytes) {
+        Ok(frame) if crate::protocol::control_v2::is_close_session(frame) => {
+            ControlV2Disposition::CloseSession
+        }
+        Ok(frame) if frame.message_type == crate::protocol::control_v2::TYPE_CLOSE_SESSION => {
+            ControlV2Disposition::ProtocolViolation
+        }
+        Ok(_) => ControlV2Disposition::Ignore,
+        Err(_) => ControlV2Disposition::ProtocolViolation,
+    }
+}
+
+/// Consume an authenticated in-tunnel control frame before it can reach the packet ACL/TUN.
+/// `Some(false)` means the current reader must stop because the whole session is terminal.
+fn handle_server_control(
+    packet: &[u8],
+    session: &Arc<SessionShared>,
+    _peer: SocketAddr,
+) -> Option<bool> {
+    #[cfg(feature = "experimental-roaming")]
+    if crate::protocol::control_v2::is_control_v2(packet) {
+        if !session.tcp_control_v2 {
+            log::debug!(
+                "dropping unnegotiated CONTROL_V2 frame from {} for '{}'",
+                _peer,
+                crate::util::log_identity(&session.username)
+            );
+            return Some(true);
+        }
+        return match classify_control_v2(packet) {
+            ControlV2Disposition::CloseSession => {
+                log::info!(
+                    "client '{}' ({}) requested orderly session close",
+                    crate::util::log_identity(&session.username),
+                    _peer
+                );
+                session.close_all();
+                Some(false)
+            }
+            ControlV2Disposition::Ignore => Some(true),
+            ControlV2Disposition::ProtocolViolation => {
+                log::warn!(
+                    "malformed CONTROL_V2 frame from {} for '{}' - revoking session",
+                    _peer,
+                    crate::util::log_identity(&session.username)
+                );
+                session.kick_all();
+                Some(false)
+            }
+        };
+    }
+
+    if crate::protocol::ctrl::is_ctrl(packet) {
+        if let Some(mtu) = crate::protocol::ctrl::parse_mtu_report(packet) {
+            session.note_path_mtu(mtu);
+        } else if let Some((version, platform)) = crate::protocol::ctrl::parse_client_info(packet) {
+            session.note_client_info(&version, &platform);
+        }
+        return Some(true);
+    }
+    None
+}
 async fn forward_server_uplink_packet(
     packet: ServerTunPacket,
     profile: &Arc<ProfileRuntime>,
@@ -1768,14 +1927,8 @@ async fn forward_server_uplink_packet(
     bytes_recv: &AtomicU64,
     stream_id: u64,
 ) -> bool {
-    if crate::protocol::ctrl::is_ctrl(&packet) {
-        if let Some(mtu) = crate::protocol::ctrl::parse_mtu_report(&packet) {
-            session.note_path_mtu(mtu);
-        } else if let Some((version, platform)) = crate::protocol::ctrl::parse_client_info(&packet)
-        {
-            session.note_client_info(&version, &platform);
-        }
-        return true;
+    if let Some(keep_reading) = handle_server_control(&packet, session, session.peer) {
+        return keep_reading;
     }
     if packet.is_empty() {
         return true;
@@ -2099,17 +2252,13 @@ async fn run_stream<R, W>(
                                 // so anyone able to guess a session's IP:port could shrink
                                 // its MTU). Handled before the packet path so it never
                                 // reaches the ACLs or the TUN. (Audit 2026-07-30, #13.)
-                                if crate::protocol::ctrl::is_ctrl(&plaintext) {
-                                    if let Some(mtu) =
-                                        crate::protocol::ctrl::parse_mtu_report(&plaintext)
-                                    {
-                                        session_r.note_path_mtu(mtu);
-                                    } else if let Some((v, p)) =
-                                        crate::protocol::ctrl::parse_client_info(&plaintext)
-                                    {
-                                        session_r.note_client_info(&v, &p);
+                                if let Some(keep_reading) =
+                                    handle_server_control(&plaintext, &session_r, addr_r)
+                                {
+                                    if keep_reading {
+                                        continue;
                                     }
-                                    continue;
+                                    break 'reader;
                                 }
                                 if !plaintext.is_empty() {
                                     // Destination ACL (`allowed_networks`). Checked AFTER
@@ -2512,6 +2661,8 @@ async fn detach_stream(
     if let Some(roaming) = &session.tcp_roaming {
         let reason = if session.is_revoked() {
             DetachReason::Revoked
+        } else if session.is_closing() {
+            DetachReason::CleanClose
         } else {
             DetachReason::Unexpected
         };

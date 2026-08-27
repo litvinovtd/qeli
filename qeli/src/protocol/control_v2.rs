@@ -2,8 +2,8 @@
 //!
 //! CONTROL_V2 is carried only as the plaintext of an authenticated `PacketCodec` record and
 //! only after both peers advertise the corresponding capability. This module freezes the wire
-//! format and implements bounded fragmentation/reassembly; it does not advertise the capability
-//! or attach handlers to a live session during roaming stage 0.
+//! format and implements bounded fragmentation/reassembly. Live handlers remain explicitly
+//! capability-gated by the client and server session code.
 
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -221,6 +221,31 @@ pub fn ack(message_id: u32) -> Vec<u8> {
     }
     .encode()
     .expect("the fixed ACK frame is valid")
+}
+
+/// Build the terminal, best-effort close notification. The empty single-part body is
+/// intentional: the surrounding PacketCodec record already authenticates and binds it to the
+/// negotiated session, while a payload would create an unnecessary parser surface.
+pub fn close_session(message_id: u32) -> Vec<u8> {
+    Frame {
+        message_type: TYPE_CLOSE_SESSION,
+        flags: 0,
+        message_id,
+        part_index: 0,
+        part_count: 1,
+        payload: &[],
+    }
+    .encode()
+    .expect("the fixed CLOSE_SESSION frame is valid")
+}
+
+/// CLOSE_SESSION is deliberately stricter than generic CONTROL_V2 fragmentation.
+pub fn is_close_session(frame: Frame<'_>) -> bool {
+    frame.message_type == TYPE_CLOSE_SESSION
+        && frame.flags == 0
+        && frame.part_index == 0
+        && frame.part_count == 1
+        && frame.payload.is_empty()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,6 +469,24 @@ mod tests {
             fragment_message(TYPE_ACK, 0, 42, b""),
             Err(ControlV2Error::InvalidStatusFrame)
         );
+    }
+
+    #[test]
+    fn close_session_is_empty_single_part_and_strict() {
+        let wire = close_session(0x1122_3344);
+        let frame = decode(&wire).unwrap();
+        assert!(is_close_session(frame));
+        assert_eq!(frame.message_id, 0x1122_3344);
+
+        let fragmented = Frame {
+            message_type: TYPE_CLOSE_SESSION,
+            flags: 0,
+            message_id: 1,
+            part_index: 0,
+            part_count: 2,
+            payload: &[],
+        };
+        assert!(!is_close_session(fragmented));
     }
 
     #[test]

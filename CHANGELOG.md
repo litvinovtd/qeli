@@ -43,9 +43,9 @@
 ### Основа роуминга (stages 0–2B TCP hard resume, default off)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
-  `TCP_HANDOVER_V1`. Обычная production-сборка их не рекламирует; клиент с
-  `experimental-roaming` объявляет только `TCP_RESUME_V1`, а feature-сервер — TCP
-  resume/handover. Добавлены строгий
+  `TCP_HANDOVER_V1`. Обычная production-сборка их не рекламирует; feature-клиент объявляет
+  `CONTROL_V2` и `TCP_RESUME_V1`, а feature-сервер — CONTROL_V2 и TCP resume/handover.
+  Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
 - Из исходного handshake IKM доменно-разделённо выводятся resume, directional CID и control
@@ -88,14 +88,22 @@
   Сервер допускает один bounded authenticated candidate сверх stream cap: это позволяет
   атомарно заменить stale carrier, когда клиент уже увидел обрыв, а сервер ещё не получил
   EOF/RST. После commit старый carrier переводится в draining и закрывается; bearer JOIN для
-  negotiated-сессии запрещён. `TCP_HANDOVER_V1` клиент пока намеренно не рекламирует:
-  PathUpdate-driven make-before-break, явный `CLOSE_SESSION` и UDP roaming остаются следующими
-  срезами. Legacy/non-negotiated scheduler не изменён.
-- На lab `.10` default/feature library suites прошли с 861/881 тестами и по одному
+  negotiated-сессии запрещён. `TCP_HANDOVER_V1` клиент пока намеренно не рекламирует;
+  PathUpdate-driven make-before-break и UDP roaming остаются следующими срезами.
+  Legacy/non-negotiated scheduler не изменён.
+- Намеренная остановка TCP-клиента отправляет строгий пустой `CLOSE_SESSION` внутри
+  аутентифицированного CONTROL_V2/PacketCodec, принудительно flush-ит `PACKET_MUX_V1` и
+  ограничивает ожидание записи 750 мс. Сервер немедленно закрывает все bonded streams,
+  запрещает новые JOIN/resume, освобождает lease и не входит в orphan grace. Linux
+  SIGINT/SIGTERM теперь использует cooperative teardown вместо `process::exit`.
+- На lab `.10` default/feature library suites прошли с 863/884 тестами и по одному
   privileged ignored; 4 CLI, 7 integration и strict all-target Clippy прошли в обеих
   конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13:
   authenticated resume занял 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились,
-  ping восстановился, а полная password AUTH выполнилась ровно один раз.
+  ping восстановился, а полная password AUTH выполнилась ровно один раз. Отдельный live e2e
+  `.11 → .10` с обязательным `PACKET_MUX_V1` прошёл 3/3 ping, подтвердил оба close-маркера,
+  отсутствие established carrier и клиентского TUN после SIGTERM и отсутствие перехода
+  сервера в resume grace.
 
 ### Reality-TLS: настоящий HTTP/2 carrier и переход со старой схемы
 

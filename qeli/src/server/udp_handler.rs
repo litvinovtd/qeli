@@ -2803,6 +2803,8 @@ async fn handle_udp_auth(
         }]),
         #[cfg(feature = "experimental-roaming")]
         tcp_roaming: None,
+        #[cfg(feature = "experimental-roaming")]
+        tcp_control_v2: false,
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,
@@ -2824,6 +2826,7 @@ async fn handle_udp_auth(
         // frame path as the MTU report above.
         client_info: std::sync::Arc::new(std::sync::Mutex::new(None)),
         revoked,
+        closing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     });
     // The writer task outlives this function and needs the rate bucket + byte
     // counter, but `session` is moved into the profile map below — clone first.
