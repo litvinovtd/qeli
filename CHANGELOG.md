@@ -194,7 +194,15 @@
   он не может превысить 3× от консервативно посчитанного authenticated candidate ingress.
   Ticket сохраняется в session actor для следующего PATH_RESPONSE-среза. `UDP_ROAM_V1` по-прежнему
   не рекламируется, новый path не публикуется. Wire-тест проверяет CID, packet number и CONTROL_V2.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/910 тестами
+- Guarded commit state-machine теперь готовит весь новый CID/PMTU outcome до изменения реестра и
+  вызывает синхронный publisher внешнего socket/address state, удерживая profile-registry lock.
+  CID aliases, active epoch, PMTU generation и candidate меняются только после успешной публикации;
+  отказ publisher оставляет candidate пригодным для безопасной повторной обработки того же
+  аутентифицированного ответа. Неверный challenge больше не пополняет anti-amplification budget.
+  Live PATH_RESPONSE и ответ PATH_COMMIT пока намеренно не подключены: до этого нужен
+  идемпотентный повтор commit при потере server reply. Новый regression-тест фиксирует rollback
+  внешней публикации. `UDP_ROAM_V1` остаётся не рекламируемым.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/911 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

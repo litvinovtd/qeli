@@ -6,10 +6,11 @@
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
 > UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress и negotiated
-> bootstrap этапов 3A–3C и authenticated ingress/control boundary готовы по исходникам; впереди
-> ещё PATH_RESPONSE, guarded commit и post-commit data path.
+> bootstrap этапов 3A–3C, authenticated ingress/control boundary и rollback-safe guarded-commit
+> state transaction готовы по исходникам; впереди ещё live PATH_RESPONSE/PATH_COMMIT,
+> идемпотентный повтор commit и post-commit data path.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (865/910 library tests,
+> На лабе `.10` прошли финальные default/feature suites (865/911 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -603,11 +604,19 @@ Cumulative budget резервируется до send, включает roaming
 3× от консервативно посчитанного authenticated candidate ingress. Generation-scoped ticket
 сохраняется в session actor для следующего PATH_RESPONSE-среза.
 
+Guarded commit state transaction теперь готовит полный следующий CID/PMTU outcome до изменения
+реестра и вызывает синхронный publisher внешнего socket/address state, удерживая lock profile
+registry. CID aliases, active epoch, PMTU generation и candidate ownership меняются только после
+успешной публикации. Ошибка publisher оставляет candidate пригодным для повтора, а неверный
+challenge больше не увеличивает anti-amplification budget. Focused regression-тест фиксирует
+rollback. Live PATH_RESPONSE handler и ответ PATH_COMMIT намеренно не подключаются, пока потерянный
+server reply нельзя будет повторить идемпотентно.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
 и восьмибайтовый CID ещё не могут включиться в production. Сервер уже создаёт bounded candidate и
 отправляет challenge, но намеренно не принимает PATH_RESPONSE и не публикует новый путь.
-Candidate expiry/global admission, guarded commit, post-commit DATA_FRAG data flow,
-cross-listener/family races и mock/Linux live-приёмка ещё впереди.
+Candidate expiry/global admission, live guarded commit с идемпотентным повтором PATH_COMMIT,
+post-commit DATA_FRAG data flow, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
 
 - per-session actor и dynamic egress;
 - PATH_RESPONSE/COMMIT;

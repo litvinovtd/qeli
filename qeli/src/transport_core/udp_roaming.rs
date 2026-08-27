@@ -214,6 +214,12 @@ pub enum UdpRoamingError {
     StalePmtu,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UdpRoamingCommitError<E> {
+    State(UdpRoamingError),
+    Publish(E),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct CidOwner {
     session_id: u64,
@@ -472,36 +478,76 @@ impl UdpRoamingTable {
         received_bytes: usize,
         safe_payload_budget: u16,
     ) -> Result<CommitOutcome, UdpRoamingError> {
+        match self.validate_response_and_commit_with(
+            ticket,
+            path,
+            response_epoch,
+            response_token,
+            received_bytes,
+            safe_payload_budget,
+            |_| Ok::<(), std::convert::Infallible>(()),
+        ) {
+            Ok(outcome) => Ok(outcome),
+            Err(UdpRoamingCommitError::State(error)) => Err(error),
+            Err(UdpRoamingCommitError::Publish(never)) => match never {},
+        }
+    }
+
+    /// Validate a response, publish the external socket/address state, and only then rotate the
+    /// registry. The synchronous callback runs while this table is locked: it must neither await
+    /// nor re-enter the registry. Returning an error leaves aliases, active path, PMTU generation,
+    /// and candidate ownership unchanged so the authenticated response can be retried safely.
+    #[allow(clippy::too_many_arguments)]
+    pub fn validate_response_and_commit_with<E>(
+        &mut self,
+        ticket: CandidateTicket,
+        path: UdpPath,
+        response_epoch: u64,
+        response_token: &[u8; PATH_CHALLENGE_LEN],
+        received_bytes: usize,
+        safe_payload_budget: u16,
+        publish: impl FnOnce(CommitOutcome) -> Result<(), E>,
+    ) -> Result<CommitOutcome, UdpRoamingCommitError<E>> {
         if received_bytes == 0 || safe_payload_budget == 0 {
-            return Err(UdpRoamingError::InvalidResponse);
+            return Err(UdpRoamingCommitError::State(
+                UdpRoamingError::InvalidResponse,
+            ));
         }
         {
-            let candidate = self.candidate_mut(ticket)?;
+            let candidate = self
+                .candidate_mut(ticket)
+                .map_err(UdpRoamingCommitError::State)?;
             if candidate.path != path {
-                return Err(UdpRoamingError::StaleCandidate);
+                return Err(UdpRoamingCommitError::State(
+                    UdpRoamingError::StaleCandidate,
+                ));
+            }
+            if response_epoch != ticket.path_epoch || response_token != &candidate.challenge {
+                return Err(UdpRoamingCommitError::State(
+                    UdpRoamingError::InvalidResponse,
+                ));
             }
             candidate.received_bytes = candidate
                 .received_bytes
                 .saturating_add(u64::try_from(received_bytes).unwrap_or(u64::MAX))
                 .min(MAX_CANDIDATE_ACCOUNTED_BYTES);
-            if response_epoch != ticket.path_epoch || response_token != &candidate.challenge {
-                return Err(UdpRoamingError::InvalidResponse);
-            }
         }
 
         let (generation, old_path, client_to_server_secret, server_to_client_secret, pmtu) = {
             let session = self
                 .sessions
                 .get(&ticket.session_id)
-                .ok_or(UdpRoamingError::StaleSession)?;
+                .ok_or(UdpRoamingError::StaleSession)
+                .map_err(UdpRoamingCommitError::State)?;
             if session.generation != ticket.session_generation {
-                return Err(UdpRoamingError::StaleSession);
+                return Err(UdpRoamingCommitError::State(UdpRoamingError::StaleSession));
             }
             let pmtu_generation = session
                 .active
                 .pmtu_generation
                 .checked_add(1)
-                .ok_or(UdpRoamingError::GenerationExhausted)?;
+                .ok_or(UdpRoamingError::GenerationExhausted)
+                .map_err(UdpRoamingCommitError::State)?;
             (
                 session.generation,
                 session.active.path,
@@ -514,12 +560,13 @@ impl UdpRoamingTable {
             &client_to_server_secret,
             ticket.session_id,
             ticket.path_epoch,
-        )?;
+        )
+        .map_err(UdpRoamingCommitError::State)?;
         if let Err(error) = self.ensure_aliases_available(ticket.session_id, generation, &aliases) {
             if let Some(session) = self.sessions.get_mut(&ticket.session_id) {
                 session.candidate = None;
             }
-            return Err(error);
+            return Err(UdpRoamingCommitError::State(error));
         }
         let receive_cid = aliases
             .iter()
@@ -530,6 +577,22 @@ impl UdpRoamingTable {
             ticket.session_id,
             ticket.path_epoch,
         );
+        let new_pmtu = PmtuTicket {
+            session_id: ticket.session_id,
+            session_generation: generation,
+            path_epoch: ticket.path_epoch,
+            pmtu_generation: pmtu,
+            path,
+        };
+        let outcome = CommitOutcome {
+            old_path,
+            new_path: path,
+            path_epoch: ticket.path_epoch,
+            receive_cid,
+            transmit_cid,
+            pmtu: new_pmtu,
+        };
+        publish(outcome).map_err(UdpRoamingCommitError::Publish)?;
 
         let old_aliases = self
             .sessions
@@ -557,13 +620,6 @@ impl UdpRoamingTable {
             );
         }
 
-        let new_pmtu = PmtuTicket {
-            session_id: ticket.session_id,
-            session_generation: generation,
-            path_epoch: ticket.path_epoch,
-            pmtu_generation: pmtu,
-            path,
-        };
         let session = self
             .sessions
             .get_mut(&ticket.session_id)
@@ -578,14 +634,7 @@ impl UdpRoamingTable {
             pmtu_generation: pmtu,
         };
         session.candidate = None;
-        Ok(CommitOutcome {
-            old_path,
-            new_path: path,
-            path_epoch: ticket.path_epoch,
-            receive_cid,
-            transmit_cid,
-            pmtu: new_pmtu,
-        })
+        Ok(outcome)
     }
 
     pub fn abort_candidate(&mut self, ticket: CandidateTicket) -> bool {
@@ -847,6 +896,31 @@ impl UdpRoamingRegistry {
     ) -> Result<(), UdpRoamingError> {
         self.lock_table()
             .authorize_candidate_send(ticket, wire_bytes)
+    }
+
+    /// Hold the registry lock across external publication and commit so the socket owner and CID
+    /// table cannot expose different path generations. The callback is synchronous and must not
+    /// await or re-enter this registry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn validate_response_and_commit_with<E>(
+        &self,
+        ticket: CandidateTicket,
+        path: UdpPath,
+        response_epoch: u64,
+        response_token: &[u8; PATH_CHALLENGE_LEN],
+        received_bytes: usize,
+        safe_payload_budget: u16,
+        publish: impl FnOnce(CommitOutcome) -> Result<(), E>,
+    ) -> Result<CommitOutcome, UdpRoamingCommitError<E>> {
+        self.lock_table().validate_response_and_commit_with(
+            ticket,
+            path,
+            response_epoch,
+            response_token,
+            received_bytes,
+            safe_payload_budget,
+            publish,
+        )
     }
 
     pub fn abort_candidate(&self, ticket: CandidateTicket) -> bool {
@@ -1370,6 +1444,50 @@ mod tests {
                 .path_epoch(),
             2
         );
+    }
+
+    #[test]
+    fn rejected_external_publish_leaves_candidate_retryable() {
+        let (mut table, initial) = table();
+        let challenge = candidate(&mut table);
+        let rejected = table.validate_response_and_commit_with(
+            challenge.ticket(),
+            path(2, 2000),
+            1,
+            challenge.token(),
+            32,
+            1212,
+            |outcome| {
+                assert_eq!(outcome.old_path(), path(1, 1000));
+                assert_eq!(outcome.new_path(), path(2, 2000));
+                Err("publish rejected")
+            },
+        );
+        assert!(matches!(
+            rejected,
+            Err(UdpRoamingCommitError::Publish("publish rejected"))
+        ));
+        assert_eq!(table.active_path(7), Some(path(1, 1000)));
+        assert_eq!(table.active_epoch(7), Some(0));
+        assert_eq!(table.payload_budget(7), Some(1232));
+        assert_eq!(table.candidate_count(), 1);
+        assert_eq!(table.cid_count(), 2);
+        assert!(table.lookup(initial.receive()).is_some());
+
+        let committed = table
+            .validate_response_and_commit_with(
+                challenge.ticket(),
+                path(2, 2000),
+                1,
+                challenge.token(),
+                32,
+                1212,
+                |_| Ok::<(), ()>(()),
+            )
+            .unwrap();
+        assert_eq!(committed.path_epoch(), 1);
+        assert_eq!(table.active_path(7), Some(path(2, 2000)));
+        assert_eq!(table.candidate_count(), 0);
     }
 
     #[test]

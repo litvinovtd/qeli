@@ -6,10 +6,11 @@
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
 > 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, and negotiated
-> bootstrap foundations plus the authenticated ingress/control boundary are source-complete;
-> PATH_RESPONSE, guarded commit, and the post-commit data path are still ahead.
+> bootstrap foundations plus the authenticated ingress/control boundary and rollback-safe
+> guarded-commit state transaction are source-complete; live PATH_RESPONSE/PATH_COMMIT,
+> idempotent commit retry, and the post-commit data path are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (865/910 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (865/911 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -393,11 +394,20 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   overhead; it cannot exceed 3× the conservatively counted authenticated candidate ingress. The
   generation-scoped ticket remains in the session actor for the following PATH_RESPONSE slice.
 
+  The guarded commit state transaction now prepares the complete next CID/PMTU outcome before
+  changing registry state and calls a synchronous external socket/address publisher while holding
+  the profile-registry lock. CID aliases, active epoch, PMTU generation, and candidate ownership
+  change only after publication succeeds. A publisher failure leaves the candidate retryable, and
+  an invalid challenge no longer increases the anti-amplification budget. A focused regression test
+  pins this rollback. The live PATH_RESPONSE handler and PATH_COMMIT reply remain deliberately
+  disconnected until a lost server reply can be retried idempotently.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
   eight-byte CID framing still cannot activate in production. The server can now create a bounded
   candidate and send its challenge, but it intentionally does not accept PATH_RESPONSE or publish
-  a new path yet. Candidate expiry/global admission, guarded commit, post-commit DATA_FRAG data
-  flow, cross-listener/family races, and mock/Linux live acceptance remain.
+  a new path yet. Candidate expiry/global admission, live guarded commit plus idempotent
+  PATH_COMMIT retry, post-commit DATA_FRAG data flow, cross-listener/family races, and mock/Linux
+  live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
