@@ -1,8 +1,10 @@
 # Client roaming (seamless network change) — implementation plan
 <!-- normative-sync: roaming-v3-safe -->
 
-> **Status: design complete; Phases 0–1 are implemented locally behind
-> `experimental-roaming`; Phases 2–6 have not started. No lab run yet. Target: 0.8.x.**
+> **Status: design complete; Phases 0–2A and the Phase 2B server slice are implemented
+> behind `experimental-roaming`. The client supervisor, live roaming e2e, and Phases 3–6
+> remain. On lab `.10`, final default and feature suites pass (861/879 library tests plus
+> 4 CLI and 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -260,17 +262,26 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
   proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
   release, cap exhaustion, abort, and late drain acknowledgements.
-- **Phase 2B:** wire lifecycle/resume secrets into the live server handler and shared client
-  supervisor, then enable negotiated TCP_RESUME/HANDOVER on mock/Linux.
+- **Phase 2B — 🟡 server slice source/lab-unit complete:** the Linux handler derives and
+  zeroizes the original-session resume secret, strictly parses the authenticated resume JOIN,
+  reserves before JOINOK, and rejects resume until the initial transport is actually visible
+  in the scheduler. It retains orphan sessions under exact session/byte caps and uses a
+  generation-scoped reaper. Stable-slot handover drains the old path only after commit;
+  resume and handover require separate authenticated client bits. Legacy JOIN/scheduling remain
+  unchanged for non-negotiated sessions. The shared client supervisor still advertises neither
+  bit; client integration and live hard-handover/make-before-break e2e remain. Lab `.10` passes
+  the final default/feature suites (861/879 library tests, 4 CLI, 7 integration; one privileged
+  test ignored in each configuration) and strict all-target Clippy for both builds.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
 ## 8. Compatibility / rollout
-Each roaming feature is negotiated through the existing authenticated capability trailer;
-the server advertises only what the selected profile can safely provide. Legacy peers keep
-the normal full-reconnect path, so rollout does not require a lockstep server/client upgrade.
+Each roaming feature is negotiated through the existing authenticated capability trailer.
+A feature-enabled server advertises only implemented server bits, and a session enters the TCP
+roaming lifecycle only after the authenticated client extension opts in. Legacy peers keep the
+normal full-reconnect path, so rollout does not require a lockstep server/client upgrade.
 The initial server default is off and client policy is auto. Any failed or unsupported
 transaction rolls back candidate resources and falls back to a full reconnect.
 

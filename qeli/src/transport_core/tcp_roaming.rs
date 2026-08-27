@@ -1,9 +1,9 @@
 //! Race-safe server lifecycle primitives for TCP resume and make-before-break handover.
 //!
-//! This is the first integration slice of roaming phase 2. It does not advertise a capability
-//! or alter the live handler yet: handler/client-supervisor activation must land as one
-//! negotiated change. The state machine freezes ownership rules and makes JOIN/reaper/kick
-//! races independently testable first.
+//! The default-off `experimental-roaming` server handler owns this lifecycle and advertises its
+//! TCP support. Session activation still requires authenticated client opt-in, while the current
+//! client supervisor advertises no roaming bits. The state machine keeps JOIN/reaper/kick races
+//! independently testable and preserves the legacy path for every non-negotiated session.
 
 use crate::protocol::roaming::{TcpResumeJoin, SESSION_LOCATOR_LEN};
 use std::collections::{BTreeMap, HashMap};
@@ -101,6 +101,8 @@ pub enum LifecycleError {
     InvalidSession,
     #[error("session is closing or revoked")]
     Terminal,
+    #[error("initial TCP transport has not entered the live scheduler yet")]
+    InitialTransportPending,
     #[error("another resume transaction already owns this session")]
     ResumeBusy,
     #[error("resume proof or fresh-handshake transcript does not match")]
@@ -111,6 +113,8 @@ pub enum LifecycleError {
     StaleEpoch,
     #[error("logical slot is outside the negotiated session limit")]
     InvalidSlot,
+    #[error("make-before-break handover was not negotiated for this session")]
+    HandoverNotNegotiated,
     #[error("logical slot is already ready; replacement requires handover")]
     SlotOccupied,
     #[error("logical slot still has a draining transport")]

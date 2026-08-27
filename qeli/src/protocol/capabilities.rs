@@ -81,13 +81,35 @@ impl Default for ClientCapabilities {
 ///
 /// These bits describe the complete negotiated implementation, not parser/schema support.
 pub const fn implemented_server_capabilities() -> ServerCapabilities {
-    ServerCapabilities {
-        bits: server_capability::AUTH_EXT_V1
-            | server_capability::INNER_IPV6
-            | server_capability::NETWORK_PLAN_V2
-            | server_capability::UDP_DATA_FRAG_V1
-            | server_capability::PACKET_MUX_V1,
-    }
+    let bits = server_capability::AUTH_EXT_V1
+        | server_capability::INNER_IPV6
+        | server_capability::NETWORK_PLAN_V2
+        | server_capability::UDP_DATA_FRAG_V1
+        | server_capability::PACKET_MUX_V1;
+    #[cfg(feature = "experimental-roaming")]
+    let bits = bits | server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1;
+    ServerCapabilities { bits }
+}
+
+/// Server-side support can be advertised before a client supervisor opts in.  A session only
+/// enters the roaming lifecycle after the authenticated client extension confirms this bit.
+pub fn tcp_resume_supported(client: Option<ClientCapabilities>) -> bool {
+    cfg!(feature = "experimental-roaming")
+        && client.is_some_and(|capabilities| {
+            capabilities.core_bits & client_capability::TCP_RESUME_V1 != 0
+        })
+}
+
+/// Make-before-break is negotiated separately from ordinary TCP resume. A client that only
+/// opts in to `TCP_RESUME_V1` may replace a missing path, but cannot temporarily exceed the
+/// stream cap or drain a still-active transport.
+pub fn tcp_handover_supported(client: Option<ClientCapabilities>) -> bool {
+    cfg!(feature = "experimental-roaming")
+        && client.is_some_and(|capabilities| {
+            capabilities.core_bits
+                & (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
+                == (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
+        })
 }
 
 /// Client data-plane features safe to advertise from this revision.
@@ -572,5 +594,43 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("PACKET_MUX_V1"));
+    }
+
+    #[test]
+    fn tcp_roaming_server_bits_follow_the_build_gate_and_require_client_opt_in() {
+        let server = implemented_server_capabilities();
+        #[cfg(feature = "experimental-roaming")]
+        assert!(
+            server.contains(server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1)
+        );
+        #[cfg(not(feature = "experimental-roaming"))]
+        assert_eq!(server.bits & server_capability::ROAMING_RESERVED, 0);
+
+        // Server capability alone never changes a session. The authenticated client
+        // extension must opt in, and the normal client core deliberately does not yet do so.
+        assert_eq!(
+            implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
+            0
+        );
+        assert!(!tcp_resume_supported(None));
+        let opted_in = Some(ClientCapabilities {
+            core_bits: client_capability::TCP_RESUME_V1,
+            ..ClientCapabilities::default()
+        });
+        #[cfg(feature = "experimental-roaming")]
+        {
+            assert!(tcp_resume_supported(opted_in));
+            assert!(!tcp_handover_supported(opted_in));
+            let handover = Some(ClientCapabilities {
+                core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+                ..ClientCapabilities::default()
+            });
+            assert!(tcp_handover_supported(handover));
+        }
+        #[cfg(not(feature = "experimental-roaming"))]
+        {
+            assert!(!tcp_resume_supported(opted_in));
+            assert!(!tcp_handover_supported(opted_in));
+        }
     }
 }

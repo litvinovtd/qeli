@@ -2787,6 +2787,10 @@ async fn handle_udp_auth(
         max_streams: 1,
         wire_pool: wire_pool.clone(),
         streams: std::sync::Mutex::new(vec![crate::server::handler::StreamHandle {
+            #[cfg(feature = "experimental-roaming")]
+            logical_slot_id: 0,
+            #[cfg(feature = "experimental-roaming")]
+            ready: true,
             stream_id: session_id,
             codec: writer_codec,
             writer: writer_tx,
@@ -2797,6 +2801,8 @@ async fn handle_udp_auth(
             // here it is a sink so `kick_all` stays uniform across transports.
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }]),
+        #[cfg(feature = "experimental-roaming")]
+        tcp_roaming: None,
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,

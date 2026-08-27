@@ -1,7 +1,8 @@
 //! Wire contracts shared by future TCP resume and UDP path migration.
 //!
-//! This is protocol stage 0: constants, parsers, proofs and known-answer tests only. No caller
-//! changes a live path, and the reserved capabilities remain unadvertised.
+//! UDP remains a protocol-only contract. Under the default-off `experimental-roaming` feature,
+//! the Linux server now advertises and consumes the authenticated TCP resume/handover messages;
+//! the client core still advertises neither bit, so ordinary and production sessions are unchanged.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -366,11 +367,19 @@ mod tests {
     }
 
     #[test]
-    fn stage_zero_never_advertises_reserved_capabilities() {
+    fn roaming_capabilities_follow_the_integration_gates() {
+        let server_roaming =
+            implemented_server_capabilities().bits & server_capability::ROAMING_RESERVED;
+        #[cfg(feature = "experimental-roaming")]
         assert_eq!(
-            implemented_server_capabilities().bits & server_capability::ROAMING_RESERVED,
-            0
+            server_roaming,
+            server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1
         );
+        #[cfg(not(feature = "experimental-roaming"))]
+        assert_eq!(server_roaming, 0);
+
+        // No client supervisor emits an authenticated resume yet. Keeping both bits absent here
+        // prevents a feature-enabled server from changing normal sessions before that lands.
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             0

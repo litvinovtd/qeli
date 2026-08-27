@@ -1,8 +1,10 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v3-safe -->
 
-> Статус: проектирование завершено; этапы 0–1 реализованы локально под
-> `experimental-roaming`, этапы 2–6 не начаты. Лаба не запускалась. Целевая версия — 0.8.x.
+> Статус: проектирование завершено; этапы 0–2A и серверная часть этапа 2B реализованы
+> под `experimental-roaming`. Клиентский supervisor, live e2e роуминга и этапы 3–6 ещё
+> впереди. На лабе `.10` прошли финальные default/feature suites (861/879 library tests,
+> 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -461,20 +463,34 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 монотонное потребление resume epoch, стабильные logical slots, атомарную JOIN reservation
 и make-before-break drain. Unit-тесты покрывают stale proof/transcript/epoch/locator,
 гонки JOIN/reaper и revoke/JOIN, исчерпание лимитов, abort, exact-once release и поздний
-drain ACK. Capability по-прежнему не рекламируется, живой data plane не изменён.
+drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
+production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — следующий срез
+### Этап 2B. TCP resume и handover — 🟡 серверный срез готов
 
-- SessionKeyMaterial/resume secret;
-- серверный lifecycle и orphan limits;
-- authenticated JOIN с atomic reservation;
-- stable logical slots;
+Linux handler под default-off feature уже выводит и обнуляет resume secret исходной
+сессии, строго разбирает authenticated resume JOIN и резервирует lifecycle/slot до JOINOK.
+Отдельный publication barrier отклоняет resume, пока первичный transport реально не добавлен
+в scheduler. Неожиданная потеря последнего TCP path сохраняет сессию на 30 секунд; общий лимитер профиля
+считает как сессии, так и полный retained buffer budget, а generation-scoped reaper не может
+удалить уже восстановленную сессию. Make-before-break сначала коммитит новый transport,
+затем исключает старый из scheduler и отправляет его в drain. Resume и handover требуют
+раздельных authenticated client capability; negotiated-сессия больше не принимает старый
+bearer JOIN. Для legacy/non-negotiated сессий сохранены прежние JOIN и scheduler.
+
+Текущий client supervisor намеренно не рекламирует `TCP_RESUME_V1`/`TCP_HANDOVER_V1`,
+поэтому новый путь ещё не включается в обычной работе. Осталось:
+
 - единый client supervisor;
-- make-before-break и hard-handover grace;
-- CLOSE/revoke/reaper races.
+- клиентское инициирование make-before-break и hard-handover grace;
 
-Результат этапа 2B: TCP роуминг на mock/Linux path; остальные платформы пока за
-feature gate.
+На lab `.10` финальное дерево прошло default/feature suites: 861/879 library tests,
+4 CLI и 7 integration tests (по одному privileged test ignored), а также strict
+all-target Clippy в обеих конфигурациях. Live смена пути в этот gate ещё не входит.
+- live mock/Linux e2e для hard handover, make-before-break и CLOSE/revoke/reaper races.
+
+Полный результат этапа 2B пока не достигнут: TCP роуминг должен заработать на mock/Linux
+path end-to-end; остальные платформы останутся за feature gate до этапа 4.
 
 ### Этап 3. UDP migration
 

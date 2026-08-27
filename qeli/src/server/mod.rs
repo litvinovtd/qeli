@@ -524,6 +524,8 @@ mod client_route_tests {
             max_streams: 1,
             wire_pool: crate::transport_core::buffer_pool::BufferPool::new(1, 256).unwrap(),
             streams: Mutex::new(Vec::new()),
+            #[cfg(feature = "experimental-roaming")]
+            tcp_roaming: None,
             connected_at: std::time::Instant::now(),
             bytes_sent: Arc::new(AtomicU64::new(0)),
             bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -599,6 +601,10 @@ pub struct ProfileRuntime {
     pub(crate) tasks: ProfileTasks,
     pub pool: Arc<Mutex<pool::IpPool>>,
     pub sessions: Arc<RwLock<SessionMap>>,
+    /// Profile-wide exact ownership of TCP sessions retained during roaming grace.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) tcp_orphans:
+        Arc<std::sync::Mutex<crate::transport_core::tcp_roaming::OrphanLimiter>>,
     /// Serializes the state-changing half of TCP/UDP authentication and authoritative TCP,
     /// admin and quota teardown. Pool leases, session eviction/insertion/removal and kernel
     /// iroutes form one admission transaction; without this guard concurrent transports or a
@@ -5047,6 +5053,13 @@ async fn run_profile_generation(
             by_token: HashMap::new(),
             client_routes: Vec::new(),
         })),
+        #[cfg(feature = "experimental-roaming")]
+        tcp_orphans: Arc::new(std::sync::Mutex::new(
+            crate::transport_core::tcp_roaming::OrphanLimiter::new(
+                handler::EXPERIMENTAL_TCP_ORPHAN_MAX_SESSIONS,
+                handler::EXPERIMENTAL_TCP_ORPHAN_MAX_BYTES,
+            ),
+        )),
         admission: Arc::new(Mutex::new(())),
         rate_limiter: Arc::new(Mutex::new(RateLimiter::new(
             pcfg.performance.connection.new_session_rate_max,

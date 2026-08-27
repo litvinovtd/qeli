@@ -77,10 +77,10 @@ ffi-cdylib = []
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
 transport-core-ffi = ["ffi-cdylib", "client"]
-# Stages 0-1 wire/path contracts plus the first Stage 2 TCP lifecycle slice. Off by default;
-# when enabled the core advertises only its PATH_TRANSACTIONS ABI capability. The TCP state
-# machine is source/test-only until handler and client supervisor integration lands as one
-# negotiated change. Production peers and adapters still advertise no roaming capability.
+# Stages 0-1 wire/path contracts and the Stage 2 TCP lifecycle/server slice. Off by default.
+# A feature-enabled Linux server advertises authenticated TCP resume/handover, but activates
+# them only after authenticated client opt-in. The current client supervisor advertises neither
+# bit, so normal/production peers and the active data plane remain unchanged.
 experimental-roaming = []
 
 [dependencies]

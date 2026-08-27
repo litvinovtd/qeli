@@ -2,6 +2,11 @@ use crate::crypto::{
     build_server_auth_message, derive_keys, derive_keys_bound, derive_keys_hybrid,
     derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
+#[cfg(feature = "experimental-roaming")]
+use crate::crypto::{
+    derive_session_material, derive_session_material_bound, derive_session_material_hybrid,
+    derive_session_material_hybrid_bound,
+};
 use crate::protocol::obfs::SplitStream;
 use crate::protocol::{
     read_record, read_record_into, read_tls_record, FakeTlsHandshake, Framing, Obfuscator,
@@ -11,6 +16,11 @@ use crate::server::{
     lock_or_recover, ExitAccess, ProfileRuntime, ServerState, ServerTunPacket, TunIngress,
 };
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
+#[cfg(feature = "experimental-roaming")]
+use crate::transport_core::tcp_roaming::{
+    CommitOutcome, DetachOutcome, DetachReason, LifecycleError, OrphanLimiter, ReapTicket,
+    ResumeReservation, SessionLifecycle,
+};
 use rand::prelude::*;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -19,8 +29,20 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+#[cfg(feature = "experimental-roaming")]
+type HandshakeResumeSecret = zeroize::Zeroizing<[u8; 32]>;
+#[cfg(not(feature = "experimental-roaming"))]
+type HandshakeResumeSecret = ();
+
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
+/// Temporary feature-gated policy until Stage 5 exposes reviewed configuration keys.
+#[cfg(feature = "experimental-roaming")]
+pub(crate) const EXPERIMENTAL_TCP_ROAMING_GRACE: Duration = Duration::from_secs(30);
+#[cfg(feature = "experimental-roaming")]
+pub(crate) const EXPERIMENTAL_TCP_ORPHAN_MAX_SESSIONS: usize = 256;
+#[cfg(feature = "experimental-roaming")]
+pub(crate) const EXPERIMENTAL_TCP_ORPHAN_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
@@ -150,6 +172,12 @@ pub(crate) type StreamPick = (mpsc::Sender<PooledBuffer>, BufferPool);
 /// independent crypto (its connection did its own key exchange) and its own write
 /// channel; outgoing packets are striped across streams round-robin.
 pub struct StreamHandle {
+    /// Stable protocol slot.  The transport id changes on handover; this id does not.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) logical_slot_id: u32,
+    /// Scheduler visibility, mutated only while the session's `streams` lock is held.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) ready: bool,
     pub stream_id: u64,
     pub codec: Arc<std::sync::Mutex<PacketCodec>>,
     pub(crate) writer: mpsc::Sender<PooledBuffer>,
@@ -165,6 +193,111 @@ pub struct StreamHandle {
     /// raised before the reader parks is still observed, so there is no lost-wakeup
     /// race with a client that is mid-`read_record`.
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+pub(crate) struct TcpRoamingSession {
+    lifecycle: std::sync::Mutex<SessionLifecycle>,
+    resume_secret: zeroize::Zeroizing<[u8; 32]>,
+    limiter: Arc<std::sync::Mutex<OrphanLimiter>>,
+    initial_transport_attached: std::sync::atomic::AtomicBool,
+    retained_bytes: usize,
+    handover_enabled: bool,
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl TcpRoamingSession {
+    fn new(
+        session_id: u64,
+        locator: [u8; crate::protocol::roaming::SESSION_LOCATOR_LEN],
+        max_slots: u32,
+        primary_transport: u64,
+        resume_secret: HandshakeResumeSecret,
+        limiter: Arc<std::sync::Mutex<OrphanLimiter>>,
+        handover_enabled: bool,
+    ) -> Result<Self, LifecycleError> {
+        Ok(Self {
+            lifecycle: std::sync::Mutex::new(SessionLifecycle::new(
+                session_id,
+                locator,
+                max_slots,
+                EXPERIMENTAL_TCP_ROAMING_GRACE,
+                primary_transport,
+            )?),
+            resume_secret,
+            limiter,
+            initial_transport_attached: std::sync::atomic::AtomicBool::new(false),
+            // The fixed encrypted-record pool dominates retained session memory and is shared
+            // by all streams.  Count the complete allocation, not only currently checked-out
+            // records, so the profile-wide byte cap is conservative and deterministic.
+            retained_bytes: SERVER_WIRE_BUFFER_BYTES,
+            handover_enabled,
+        })
+    }
+
+    fn mark_initial_transport_attached(&self) {
+        self.initial_transport_attached
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn begin_resume(
+        &self,
+        join: &crate::protocol::roaming::TcpResumeJoin,
+        transcript_hash: &[u8; 32],
+    ) -> Result<ResumeReservation, LifecycleError> {
+        if !self
+            .initial_transport_attached
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(LifecycleError::InitialTransportPending);
+        }
+        if join.input().is_handover() && !self.handover_enabled {
+            return Err(LifecycleError::HandoverNotNegotiated);
+        }
+        lock_or_recover(&self.lifecycle, "TcpRoamingSession::begin_resume").begin_resume(
+            join,
+            transcript_hash,
+            &self.resume_secret,
+        )
+    }
+
+    fn commit_resume(
+        &self,
+        reservation: ResumeReservation,
+        transport_id: u64,
+    ) -> Result<CommitOutcome, LifecycleError> {
+        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::commit_resume");
+        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::commit_limiter");
+        lifecycle.commit_resume(reservation, transport_id, &mut limiter)
+    }
+
+    fn abort_resume(&self, reservation: ResumeReservation) {
+        let _ = lock_or_recover(&self.lifecycle, "TcpRoamingSession::abort_resume")
+            .abort_resume(reservation);
+    }
+
+    fn detach(
+        &self,
+        transport_id: u64,
+        reason: DetachReason,
+        now: Instant,
+    ) -> Result<DetachOutcome, LifecycleError> {
+        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::detach");
+        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::detach_limiter");
+        lifecycle.detach(transport_id, reason, now, self.retained_bytes, &mut limiter)
+    }
+
+    fn reap(&self, ticket: ReapTicket, now: Instant) -> bool {
+        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::reap");
+        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::reap_limiter");
+        lifecycle.reap(ticket, now, &mut limiter)
+    }
+
+    fn revoke(&self) {
+        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::revoke");
+        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::revoke_limiter");
+        lifecycle.revoke(&mut limiter);
+    }
 }
 
 /// A client tunnel session, aggregating one or more bonded connections (streams)
@@ -271,6 +404,9 @@ pub struct SessionShared {
     /// Active bonded streams; outgoing traffic is flow-pinned across them
     /// (see [`SessionShared::pick_stream`]).
     pub streams: std::sync::Mutex<Vec<StreamHandle>>,
+    /// Present only after authenticated capability negotiation in an experimental build.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) tcp_roaming: Option<TcpRoamingSession>,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
@@ -398,6 +534,35 @@ impl SessionShared {
     /// if every stream has detached (session is dying).
     pub(crate) fn pick_stream(&self, flow_hash: u64) -> Option<StreamPick> {
         let streams = lock_or_recover(&self.streams, "pick_stream");
+        #[cfg(feature = "experimental-roaming")]
+        if self.tcp_roaming.is_some() {
+            let ready = streams.iter().filter(|stream| stream.ready);
+            let ready_count = ready.clone().count();
+            if ready_count == 0 {
+                return None;
+            }
+            let width = self.max_streams.max(1);
+            let desired = (flow_hash % u64::from(width)) as u32;
+            let selected = streams
+                .iter()
+                .filter(|stream| stream.ready)
+                .find(|stream| stream.logical_slot_id == desired)
+                .or_else(|| {
+                    // Walk clockwise through stable slot ids. Adding/removing another slot does
+                    // not renumber the survivors, so only flows owned by an unavailable slot move.
+                    streams
+                        .iter()
+                        .filter(|stream| stream.ready)
+                        .min_by_key(|stream| {
+                            let slot = stream.logical_slot_id % width;
+                            (slot + width - desired) % width
+                        })
+                })?;
+            return Some((selected.writer.clone(), self.wire_pool.clone()));
+        }
+
+        // Preserve the exact legacy scheduler for normal and feature-disabled sessions. Merely
+        // compiling roaming support must not alter stream selection for existing clients.
         if streams.is_empty() {
             return None;
         }
@@ -423,6 +588,11 @@ impl SessionShared {
             // ...and the reader, which kick_tx never reached.
             let _ = s.shutdown_tx.send(true);
         }
+        drop(streams);
+        #[cfg(feature = "experimental-roaming")]
+        if let Some(roaming) = &self.tcp_roaming {
+            roaming.revoke();
+        }
     }
 
     /// True once this session has been kicked / cut off / superseded.
@@ -433,15 +603,45 @@ impl SessionShared {
     /// Atomically attach a stream iff the session is live and under its `max_streams` cap.
     /// Revocation, the length check and the push are serialized by the same lock, so neither
     /// a concurrent kick nor N concurrent JOINs can race past the decision.
-    fn try_add_stream(&self, h: StreamHandle) -> bool {
+    fn try_add_stream(&self, h: StreamHandle, handover_overflow: bool) -> bool {
         let mut streams = lock_or_recover(&self.streams, "try_add_stream");
-        if self.revoked.load(std::sync::atomic::Ordering::Acquire)
-            || streams.len() >= self.max_streams as usize
-        {
+        let limit = self.max_streams as usize + usize::from(handover_overflow);
+        if self.revoked.load(std::sync::atomic::Ordering::Acquire) || streams.len() >= limit {
             return false;
         }
         streams.push(h);
         true
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn activate_resume_stream(&self, new_transport: u64, outcome: CommitOutcome) {
+        let mut streams = lock_or_recover(&self.streams, "activate_resume_stream");
+        if self.revoked.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+
+        for stream in streams.iter_mut() {
+            if stream.stream_id == new_transport {
+                stream.ready = true;
+            }
+            if Some(stream.stream_id) == outcome.drain_transport {
+                stream.ready = false;
+                let _ = stream.kick_tx.try_send(());
+                let _ = stream.shutdown_tx.send(true);
+            }
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn begin_tcp_resume(
+        &self,
+        join: &crate::protocol::roaming::TcpResumeJoin,
+        transcript_hash: &[u8; 32],
+    ) -> Result<ResumeReservation, LifecycleError> {
+        self.tcp_roaming
+            .as_ref()
+            .ok_or(LifecycleError::Terminal)?
+            .begin_resume(join, transcript_hash)
     }
 
     /// Remove a stream by id; returns true if NO streams remain (session empty).
@@ -473,6 +673,51 @@ enum FirstMessage {
         token: [u8; JOIN_TOKEN_LEN],
         stream_index: u8,
     },
+    #[cfg(feature = "experimental-roaming")]
+    Resume {
+        join: crate::protocol::roaming::TcpResumeJoin,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum StreamAttach {
+    Primary,
+    LegacyJoin {
+        logical_slot_id: u32,
+    },
+    #[cfg(feature = "experimental-roaming")]
+    Resume {
+        reservation: ResumeReservation,
+    },
+}
+
+impl StreamAttach {
+    #[cfg(feature = "experimental-roaming")]
+    fn logical_slot_id(self) -> u32 {
+        match self {
+            Self::Primary => 0,
+            Self::LegacyJoin { logical_slot_id } => logical_slot_id,
+            #[cfg(feature = "experimental-roaming")]
+            Self::Resume { reservation } => reservation.logical_slot_id(),
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn initially_ready(self) -> bool {
+        #[cfg(feature = "experimental-roaming")]
+        if matches!(self, Self::Resume { .. }) {
+            return false;
+        }
+        true
+    }
+
+    fn handover_overflow(self) -> bool {
+        match self {
+            #[cfg(feature = "experimental-roaming")]
+            Self::Resume { reservation } => reservation.is_handover(),
+            _ => false,
+        }
+    }
 }
 
 pub(crate) async fn handle_client<S>(
@@ -548,22 +793,34 @@ where
     };
 
     // KE + server identity proof + read the first client message (AUTH or JOIN).
-    let (mut server_tx_codec, server_rx, static_shared, shared, transcript_hash, first) =
-        tokio::time::timeout(
-            handshake_timeout,
-            qeli_handshake(&server_state, &profile, &mut stream, addr, pcfg, inner_raw),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("handshake timeout for {}", addr))?
-        .map_err(|e| anyhow::anyhow!("handshake failed for {}: {}", addr, e))?;
-
+    let (
+        mut server_tx_codec,
+        server_rx,
+        static_shared,
+        shared,
+        transcript_hash,
+        _handshake_resume_secret,
+        first,
+    ) = tokio::time::timeout(
+        handshake_timeout,
+        qeli_handshake(&server_state, &profile, &mut stream, addr, pcfg, inner_raw),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("handshake timeout for {}", addr))?
+    .map_err(|e| anyhow::anyhow!("handshake failed for {}: {}", addr, e))?;
     let max_streams = if pcfg.obfuscation.multipath.enabled {
         pcfg.obfuscation.multipath.max_streams.max(1)
     } else {
         1
     };
 
-    let (session, join_stream_index): (Arc<SessionShared>, Option<u8>) = match first {
+    let stream_id = loop {
+        let candidate = rand::random::<u64>();
+        if candidate != 0 {
+            break candidate;
+        }
+    };
+    let (session, stream_attach): (Arc<SessionShared>, StreamAttach) = match first {
         FirstMessage::Auth {
             proof,
             username,
@@ -844,7 +1101,12 @@ where
                 let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
             }
 
-            let session_id = rand::random::<u64>();
+            let session_id = loop {
+                let candidate = rand::random::<u64>();
+                if candidate != 0 {
+                    break candidate;
+                }
+            };
             let assigned_result: Result<crate::server::pool::AssignedAddresses, anyhow::Error> = {
                 // ONE pool lock for "give back what we evicted, then take ours". Splitting
                 // the two — as this used to — leaves the freed address on the pool's `freed`
@@ -946,6 +1208,20 @@ where
                 max_streams,
                 wire_pool,
                 streams: std::sync::Mutex::new(Vec::new()),
+                #[cfg(feature = "experimental-roaming")]
+                tcp_roaming: if crate::protocol::capabilities::tcp_resume_supported(capabilities) {
+                    Some(TcpRoamingSession::new(
+                        session_id,
+                        token,
+                        max_streams,
+                        stream_id,
+                        _handshake_resume_secret,
+                        profile.tcp_orphans.clone(),
+                        crate::protocol::capabilities::tcp_handover_supported(capabilities),
+                    )?)
+                } else {
+                    None
+                },
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -1106,7 +1382,7 @@ where
                 initial_bandwidth_mbps,
                 max_streams
             );
-            (session, None)
+            (session, StreamAttach::Primary)
         }
         FirstMessage::Join {
             token,
@@ -1128,9 +1404,36 @@ where
                     crate::util::log_identity(&session.username)
                 ));
             }
+            #[cfg(feature = "experimental-roaming")]
+            if session.tcp_roaming.is_some() {
+                return Err(anyhow::anyhow!(
+                    "legacy bearer JOIN rejected for an authenticated-resume session"
+                ));
+            }
             // The authoritative check and JOINOK are deliberately deferred until run_stream
             // has atomically inserted this connection into the session.
-            (session, Some(stream_index))
+            (
+                session,
+                StreamAttach::LegacyJoin {
+                    logical_slot_id: u32::from(stream_index),
+                },
+            )
+        }
+        #[cfg(feature = "experimental-roaming")]
+        FirstMessage::Resume { join } => {
+            let locator = *join.input().session_locator();
+            let session = {
+                let sessions = profile.sessions.read().await;
+                sessions
+                    .by_token
+                    .get(&locator)
+                    .and_then(|ip| sessions.by_ip.get(ip).cloned())
+            }
+            .ok_or_else(|| anyhow::anyhow!("resume JOIN with unknown locator from {addr}"))?;
+            let reservation = session
+                .begin_tcp_resume(&join, &transcript_hash)
+                .map_err(|error| anyhow::anyhow!("authenticated resume JOIN rejected: {error}"))?;
+            (session, StreamAttach::Resume { reservation })
         }
     };
 
@@ -1153,7 +1456,8 @@ where
         server_tx,
         server_rx,
         framing,
-        join_stream_index,
+        stream_id,
+        stream_attach,
     )
     .await;
     Ok(())
@@ -1175,6 +1479,7 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     [u8; 32],
     [u8; 32],
     [u8; 32],
+    HandshakeResumeSecret,
     FirstMessage,
 )> {
     let server_kp = Keypair::generate();
@@ -1207,6 +1512,21 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         (None, Some(es)) => derive_keys_bound(&shared.0, es),
         (None, None) => derive_keys(&shared.0),
     };
+    // The original authenticated handshake is the sole source of the resume secret.  Keep
+    // legacy builds bit-for-bit on the existing KDF path; the extra domain-separated material
+    // is derived only in an experimental-roaming build and is zeroized when its owner drops.
+    #[cfg(feature = "experimental-roaming")]
+    let resume_secret = {
+        let material = match (&mlkem_shared, &es) {
+            (Some(ml), Some(es)) => derive_session_material_hybrid_bound(&shared.0, ml, es),
+            (Some(ml), None) => derive_session_material_hybrid(&shared.0, ml),
+            (None, Some(es)) => derive_session_material_bound(&shared.0, es),
+            (None, None) => derive_session_material(&shared.0),
+        };
+        zeroize::Zeroizing::new(*material.resume_secret())
+    };
+    #[cfg(not(feature = "experimental-roaming"))]
+    let resume_secret = ();
     let (mut server_tx, mut server_rx) = if plain {
         (
             PacketCodec::new_raw(server_to_client),
@@ -1247,6 +1567,7 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         static_shared.0,
         shared.0,
         transcript_hash,
+        resume_secret,
         first,
     ))
 }
@@ -1255,6 +1576,12 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 /// `[proof:32][user:pass]`). The 8-byte magic can't collide with a real auth's
 /// random proof, so old single-stream clients are still parsed as AUTH.
 fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
+    #[cfg(feature = "experimental-roaming")]
+    if plaintext.starts_with(crate::protocol::roaming::TCP_RESUME_MAGIC.as_slice()) {
+        let join = crate::protocol::roaming::TcpResumeJoin::decode(plaintext)
+            .map_err(|error| anyhow::anyhow!("invalid TCP resume JOIN: {error}"))?;
+        return Ok(FirstMessage::Resume { join });
+    }
     if plaintext.len() > JOIN_MAGIC.len() + JOIN_TOKEN_LEN
         && &plaintext[..JOIN_MAGIC.len()] == JOIN_MAGIC.as_slice()
     {
@@ -1286,6 +1613,120 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
         device_id,
         capabilities,
     })
+}
+
+#[cfg(all(test, feature = "experimental-roaming"))]
+mod tcp_resume_handler_tests {
+    use super::{parse_first_message, FirstMessage, TcpRoamingSession};
+    use crate::protocol::roaming::{ResumeProofInput, TcpResumeJoin, TCP_RESUME_MAGIC};
+    use crate::transport_core::tcp_roaming::{
+        DetachOutcome, DetachReason, LifecycleError, OrphanLimiter,
+    };
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    const LOCATOR: [u8; 16] = [0x61; 16];
+    const SECRET: [u8; 32] = [0x72; 32];
+
+    fn resume(transcript: [u8; 32], epoch: u64, handover: bool) -> TcpResumeJoin {
+        TcpResumeJoin::new(
+            ResumeProofInput::new(transcript, LOCATOR, epoch, 0, handover),
+            &SECRET,
+        )
+    }
+
+    #[test]
+    fn resume_magic_is_parsed_strictly_and_never_falls_back_to_auth() {
+        let transcript = [0x53; 32];
+        let wire = resume(transcript, 1, false).encode();
+        match parse_first_message(&wire).expect("authenticated resume message") {
+            FirstMessage::Resume { join } => {
+                assert!(join.matches_transcript(&transcript));
+                assert!(join.verify(&SECRET));
+            }
+            _ => panic!("resume wire was misclassified"),
+        }
+
+        let mut truncated = Vec::from(TCP_RESUME_MAGIC);
+        truncated.extend_from_slice(&[0u8; 40]);
+        assert!(parse_first_message(&truncated).is_err());
+    }
+
+    #[test]
+    fn handler_wrapper_uses_original_secret_and_shared_orphan_budget() {
+        let limiter = Arc::new(Mutex::new(OrphanLimiter::new(1, 4 * 1024 * 1024)));
+        let session = TcpRoamingSession::new(
+            9,
+            LOCATOR,
+            1,
+            90,
+            zeroize::Zeroizing::new(SECRET),
+            limiter.clone(),
+            true,
+        )
+        .unwrap();
+        session.mark_initial_transport_attached();
+        let now = Instant::now();
+        let ticket = match session.detach(90, DetachReason::Unexpected, now).unwrap() {
+            DetachOutcome::Orphaned(ticket) => ticket,
+            _ => panic!("last transport must enter grace"),
+        };
+        {
+            let limiter = limiter.lock().unwrap();
+            assert_eq!(limiter.sessions(), 1);
+            assert_eq!(limiter.bytes(), 4 * 1024 * 1024);
+        }
+
+        let transcript = [0x44; 32];
+        let reservation = session
+            .begin_resume(&resume(transcript, 1, false), &transcript)
+            .unwrap();
+        session.commit_resume(reservation, 91).unwrap();
+        let limiter = limiter.lock().unwrap();
+        assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
+        drop(limiter);
+        assert!(!session.reap(ticket, now + Duration::from_secs(31)));
+    }
+
+    #[test]
+    fn handover_requires_its_own_authenticated_capability() {
+        let limiter = Arc::new(Mutex::new(OrphanLimiter::new(1, 4 * 1024 * 1024)));
+        let session = TcpRoamingSession::new(
+            10,
+            LOCATOR,
+            1,
+            100,
+            zeroize::Zeroizing::new(SECRET),
+            limiter,
+            false,
+        )
+        .unwrap();
+        let transcript = [0x45; 32];
+        assert_eq!(
+            session
+                .begin_resume(&resume(transcript, 1, false), &transcript)
+                .unwrap_err(),
+            LifecycleError::InitialTransportPending
+        );
+        session.mark_initial_transport_attached();
+        let now = Instant::now();
+        match session.detach(100, DetachReason::Unexpected, now).unwrap() {
+            DetachOutcome::Orphaned(_) => {}
+            _ => panic!("last transport must enter grace"),
+        }
+        assert_eq!(
+            session
+                .begin_resume(&resume(transcript, 1, true), &transcript)
+                .unwrap_err(),
+            LifecycleError::HandoverNotNegotiated
+        );
+        // Rejection happens before epoch reservation, so a permitted hard resume with the same
+        // fresh handshake and epoch can still commit.
+        let reservation = session
+            .begin_resume(&resume(transcript, 1, false), &transcript)
+            .unwrap();
+        session.commit_resume(reservation, 101).unwrap();
+    }
 }
 
 /// Split the post-proof auth bytes into (optional device-id, `user:pass` bytes).
@@ -1427,7 +1868,8 @@ async fn run_stream<R, W>(
     server_tx: Arc<std::sync::Mutex<PacketCodec>>,
     server_rx: PacketCodec,
     framing: Framing,
-    join_stream_index: Option<u8>,
+    stream_id: u64,
+    stream_attach: StreamAttach,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send,
@@ -1447,14 +1889,20 @@ async fn run_stream<R, W>(
     let (tx, mut rx) = mpsc::channel::<PooledBuffer>(session.wire_pool.buffer_count());
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let stream_id = rand::random::<u64>();
-    if !session.try_add_stream(StreamHandle {
-        stream_id,
-        codec: server_tx.clone(),
-        writer: tx,
-        kick_tx,
-        shutdown_tx: shutdown_tx.clone(),
-    }) {
+    if !session.try_add_stream(
+        StreamHandle {
+            #[cfg(feature = "experimental-roaming")]
+            logical_slot_id: stream_attach.logical_slot_id(),
+            #[cfg(feature = "experimental-roaming")]
+            ready: stream_attach.initially_ready(),
+            stream_id,
+            codec: server_tx.clone(),
+            writer: tx,
+            kick_tx,
+            shutdown_tx: shutdown_tx.clone(),
+        },
+        stream_attach.handover_overflow(),
+    ) {
         // The lookup/count in handle_client is only a fast-path. This is the authoritative,
         // lock-serialized admission against both max_streams and session revocation.
         log::warn!(
@@ -1463,13 +1911,53 @@ async fn run_stream<R, W>(
             crate::util::log_identity(&session.username),
             session.max_streams
         );
+        #[cfg(feature = "experimental-roaming")]
+        if let StreamAttach::Resume { reservation } = stream_attach {
+            if let Some(roaming) = &session.tcp_roaming {
+                roaming.abort_resume(reservation);
+            }
+        }
         return;
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    if matches!(stream_attach, StreamAttach::Primary) {
+        if let Some(roaming) = &session.tcp_roaming {
+            roaming.mark_initial_transport_attached();
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    if let StreamAttach::Resume { reservation } = stream_attach {
+        let Some(roaming) = &session.tcp_roaming else {
+            session.remove_stream(stream_id);
+            return;
+        };
+        match roaming.commit_resume(reservation, stream_id) {
+            Ok(outcome) => session.activate_resume_stream(stream_id, outcome),
+            Err(error) => {
+                session.remove_stream(stream_id);
+                roaming.abort_resume(reservation);
+                log::warn!(
+                    "Authenticated JOIN for '{}' lost its reservation before commit: {}",
+                    crate::util::log_identity(&session.username),
+                    error
+                );
+                return;
+            }
+        }
     }
 
     // A JOIN is acknowledged only after its StreamHandle occupies a real slot. Previously
     // JOINOK was sent before try_add_stream, so two concurrent JOINs could both be told they
     // succeeded even though one was then dropped at the cap.
-    if let Some(stream_index) = join_stream_index {
+    let join_slot = match stream_attach {
+        StreamAttach::Primary => None,
+        StreamAttach::LegacyJoin { logical_slot_id } => Some(logical_slot_id),
+        #[cfg(feature = "experimental-roaming")]
+        StreamAttach::Resume { reservation } => Some(reservation.logical_slot_id()),
+    };
+    if let Some(stream_index) = join_slot {
         let ack = {
             let mut codec = lock_or_recover(&server_tx, "handler::join_ack");
             codec.encrypt_packet(b"JOINOK", &[])
@@ -2016,6 +2504,37 @@ async fn detach_stream(
     addr: SocketAddr,
 ) {
     let was_last = session.remove_stream(stream_id);
+    #[cfg(feature = "experimental-roaming")]
+    if let Some(roaming) = &session.tcp_roaming {
+        let reason = if session.is_revoked() {
+            DetachReason::Revoked
+        } else {
+            DetachReason::Unexpected
+        };
+        match roaming.detach(stream_id, reason, Instant::now()) {
+            Ok(DetachOutcome::StreamRemains) => return,
+            Ok(DetachOutcome::Orphaned(ticket)) => {
+                log::info!(
+                    "Client {} ({}) lost its last TCP path on profile '{}'; retaining session for authenticated resume",
+                    addr,
+                    crate::util::log_identity(&session.username),
+                    profile.name
+                );
+                schedule_tcp_orphan_reaper(profile.clone(), session.clone(), ticket, addr);
+                return;
+            }
+            Ok(DetachOutcome::Closing | DetachOutcome::Revoked) => {}
+            Err(error) => {
+                // Cap exhaustion and terminal races fail closed. A concurrent authoritative
+                // removal makes the legacy guarded cleanup below a no-op.
+                log::warn!(
+                    "TCP roaming detach for '{}' closed the session: {}",
+                    crate::util::log_identity(&session.username),
+                    error
+                );
+            }
+        }
+    }
     if was_last {
         // Serialize the authoritative session removal and pool release with every new
         // authentication for this profile. Without the admission guard, a reconnect of the
@@ -2055,6 +2574,53 @@ async fn detach_stream(
             crate::server::notify::fire_disconnect(&session.username, &profile.name, addr);
         }
     }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn schedule_tcp_orphan_reaper(
+    profile: Arc<ProfileRuntime>,
+    session: Arc<SessionShared>,
+    ticket: ReapTicket,
+    addr: SocketAddr,
+) {
+    let tasks = profile.tasks.clone();
+    tasks.spawn(async move {
+        tokio::time::sleep_until(tokio::time::Instant::from_std(ticket.deadline())).await;
+        let should_reap = session
+            .tcp_roaming
+            .as_ref()
+            .is_some_and(|roaming| roaming.reap(ticket, Instant::now()));
+        if should_reap {
+            finalize_orphaned_tcp_session(&profile, &session, addr).await;
+        }
+    });
+}
+
+#[cfg(feature = "experimental-roaming")]
+async fn finalize_orphaned_tcp_session(
+    profile: &Arc<ProfileRuntime>,
+    session: &Arc<SessionShared>,
+    addr: SocketAddr,
+) {
+    let _admission_guard = profile.admission.lock().await;
+    let mut sessions = profile.sessions.write().await;
+    if sessions.by_ip.get(&session.client_ip).map(|s| s.session_id) != Some(session.session_id) {
+        return;
+    }
+    sessions.remove(session.client_ip);
+    let iroutes = sessions.take_client_routes(session.client_ip);
+    drop(sessions);
+    for cidr in &iroutes {
+        let _ = program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+    }
+    profile.pool.lock().await.release(&session.device_key);
+    log::info!(
+        "Client {} ({}) disconnected from profile '{}' (roaming grace expired)",
+        addr,
+        crate::util::log_identity(&session.username),
+        profile.name
+    );
+    crate::server::notify::fire_disconnect(&session.username, &profile.name, addr);
 }
 
 /// Interpret effective pushed `/0` routes as permissions to use an internal exit node.
