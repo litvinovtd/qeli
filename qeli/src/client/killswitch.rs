@@ -164,9 +164,13 @@ fn absent_check(
     }
     expected_chain.is_some_and(|chain| {
         let chain = chain.to_ascii_lowercase();
-        stderr.contains("couldn't load target")
-            && stderr.contains("no such file or directory")
-            && stderr.contains(&chain)
+        stderr.contains(&chain)
+            && ((stderr.contains("couldn't load target")
+                && stderr.contains("no such file or directory"))
+                // iptables-nft reports a missing jump target with status 2, not the
+                // conventional status 1. Scope this phrase to the expected QELI chain so
+                // unrelated nft parser/backend failures remain fatal.
+                || (stderr.contains("chain") && stderr.contains("does not exist")))
     })
 }
 
@@ -967,6 +971,10 @@ mod fault_injection {
                       'QELI_KS_qtest':No such file or directory";
         assert!(absent_check(&status, stderr, Some("QELI_KS_qtest")));
         assert!(!absent_check(&status, stderr, Some("QELI_KS_other")));
+
+        let nft_stderr = "iptables v1.8.11 (nf_tables): Chain 'QELI_KS_qtest' does not exist";
+        assert!(absent_check(&status, nft_stderr, Some("QELI_KS_qtest")));
+        assert!(!absent_check(&status, nft_stderr, Some("QELI_KS_other")));
 
         let unrelated = "iptables v1.8.9 (legacy): Couldn't load match \
                          'owner':No such file or directory";

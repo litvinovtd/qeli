@@ -111,6 +111,7 @@ mode = fake-tls
 dev = nsc0
 bind_static = false
 gateway = true
+dns = off
 allow_ipv6_leak = true
 [logging]
 level = info
@@ -173,6 +174,7 @@ mode = fake-tls
 dev = $dev
 bind_static = false
 gateway = true
+dns = off
 $extra
 [logging]
 level = info

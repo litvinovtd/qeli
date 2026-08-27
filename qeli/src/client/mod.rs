@@ -339,26 +339,35 @@ fn note_carrier_candidates(candidates: impl IntoIterator<Item = std::net::IpAddr
 }
 
 #[cfg(target_os = "linux")]
+fn select_carrier_pin_targets(
+    mut candidates: Vec<std::net::IpAddr>,
+    connected_peer: Option<std::net::IpAddr>,
+    literal_server: Option<std::net::IpAddr>,
+) -> Vec<std::net::IpAddr> {
+    // A completed connect is stronger evidence than DNS resolution. Pinning every resolved
+    // address here both leaks stale DNS choices into the host FIB and lets a later bonded
+    // stream select an endpoint that was never authenticated. A new endpoint is admitted only
+    // through a prepared roaming transaction, whose candidate socket proves reachability first.
+    if let Some(peer) = connected_peer {
+        return vec![crate::transport_core::carrier::canonical_carrier_ip(peer)];
+    }
+    if candidates.is_empty() {
+        if let Some(literal) = literal_server {
+            candidates.push(crate::transport_core::carrier::canonical_carrier_ip(literal));
+        }
+    }
+    candidates
+}
+
+#[cfg(target_os = "linux")]
 fn carrier_pin_targets(config: &crate::config::client::ClientConfig) -> Vec<std::net::IpAddr> {
-    let mut addresses = CARRIER_CANDIDATES
+    let candidates = CARRIER_CANDIDATES
         .lock()
         .map(|state| state.addresses.clone())
         .unwrap_or_default();
-    if let Ok(peer) = CONNECTED_PEER.lock() {
-        if let Some(peer) = *peer {
-            if !addresses.contains(&peer) {
-                addresses.push(peer);
-            }
-        }
-    }
-    if addresses.is_empty() {
-        if let Ok(literal) = config.server.address.parse::<std::net::IpAddr>() {
-            addresses.push(crate::transport_core::carrier::canonical_carrier_ip(
-                literal,
-            ));
-        }
-    }
-    addresses
+    let connected_peer = CONNECTED_PEER.lock().ok().and_then(|peer| *peer);
+    let literal_server = config.server.address.parse::<std::net::IpAddr>().ok();
+    select_carrier_pin_targets(candidates, connected_peer, literal_server)
 }
 
 #[cfg(target_os = "linux")]
@@ -394,6 +403,32 @@ fn pin_target(config: &crate::config::client::ClientConfig) -> String {
         .map(|ip| ip.to_string())
         .unwrap_or_else(|| config.server.address.clone())
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod carrier_pin_tests {
+    use super::select_carrier_pin_targets;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn authenticated_peer_excludes_unconnected_dns_candidates() {
+        let dead = IpAddr::V4(Ipv4Addr::new(10, 10, 9, 9));
+        let connected = IpAddr::V4(Ipv4Addr::new(10, 10, 2, 2));
+        assert_eq!(
+            select_carrier_pin_targets(vec![dead, connected], Some(connected), None),
+            vec![connected]
+        );
+    }
+
+    #[test]
+    fn unresolved_connect_fallback_keeps_literal_server() {
+        let literal = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+        assert_eq!(
+            select_carrier_pin_targets(Vec::new(), None, Some(literal)),
+            vec![literal]
+        );
+    }
+}
+
 #[cfg(target_os = "linux")]
 use crate::transport::tcp::set_tcp_keepalive;
 #[cfg(target_os = "linux")]
@@ -628,12 +663,15 @@ impl LinuxPathController {
                 {
                     anyhow::bail!("COMMIT_PATH does not match the prepared Linux candidate");
                 }
+                let address = command
+                    .path
+                    .compatible_resolved_addresses()
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("COMMIT_PATH has no compatible carrier address"))?;
                 prepared.commit()?;
-                let addresses = command.path.compatible_resolved_addresses();
-                mark_carrier_candidates_pinned(&addresses);
-                if let Some(address) = addresses.first() {
-                    note_connected_peer(*address);
-                }
+                mark_carrier_candidates_pinned(&[address]);
+                note_connected_peer(address);
                 *current = None;
                 Ok(())
             }
