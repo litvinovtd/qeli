@@ -1713,6 +1713,13 @@ pub(crate) async fn run_udp_server(
 
             _ = cleanup_tick.tick() => {
                 let now = std::time::Instant::now();
+                #[cfg(feature = "experimental-roaming")]
+                {
+                    // The registry is profile-wide, so whichever worker wins this maintenance
+                    // tick releases every expired validation slot. Per-worker ticket hints are
+                    // harmless when stale and are overwritten by the next authenticated INIT.
+                    let _ = profile.udp_roaming_registry.expire_candidates();
+                }
                 // Heartbeat and shaping both generate authenticated client→server
                 // traffic, so their cadence is a valid liveness contract. With both
                 // disabled only an explicit idle_timeout is meaningful.

@@ -640,15 +640,20 @@ CID. Ingress owner отклоняет любой routed CID, пока не от�
 опубликован `auth_ok_sent`; ранний candidate не может обогнать epoch-zero bootstrap. Default и
 non-negotiated wire остаются неизменными.
 
-`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. Candidate expiry/global admission,
-cross-listener/family races, client path adapters и mock/Linux live-приёмка ещё впереди.
+Candidate validation теперь независимо ограничена на уровне профиля. Candidate живёт фиксированные
+10 секунд, профиль хранит не более `min(max_clients, 1024)` candidates, а скользящее секундное окно
+admission допускает не более 64 новых candidates. Идемпотентный повтор того же authenticated
+PATH_INIT увеличивает только bounded ingress accounting: он не продлевает TTL и не расходует новый
+rate slot. Истёкшие tickets отклоняются до egress/commit, а существующий maintenance tick удаляет
+молчащие candidates. Commit, abort, CID collision, session teardown и expiry точно обновляют общий
+счётчик.
 
-- per-session actor и dynamic egress;
-- PATH_RESPONSE/COMMIT;
-- candidate expiry, global admission и rate limits;
+`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
+и восьмибайтовый CID ещё не могут включиться в production. Cross-listener/family races, client path
+adapters, двунаправленный live PMTU probe и mock/Linux live-приёмка ещё впереди.
+
 - двунаправленный live PMTU reset/probe;
-- post-commit DATA_FRAG/reassembly/replay интеграция;
+- client path adapters;
 - cross-worker/listener/family tests.
 
 Результат: безопасный UDP роуминг на mock/Linux path.

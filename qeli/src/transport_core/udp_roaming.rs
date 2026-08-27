@@ -7,9 +7,10 @@
 //! changing the default/non-negotiated UDP data plane.
 
 use crate::protocol::roaming::{derive_udp_cid, CID_LEN, PATH_CHALLENGE_LEN};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
@@ -18,6 +19,12 @@ pub const ANTI_AMPLIFICATION_FACTOR: u64 = 3;
 /// Only accounting is retained, never candidate payloads. Capping the counter prevents an
 /// authenticated peer from manufacturing an effectively unlimited pre-validation send budget.
 pub const MAX_CANDIDATE_ACCOUNTED_BYTES: u64 = 1024 * 1024;
+/// A profile may have many authenticated sessions, but unfinished path validation must remain a
+/// small, independently bounded resource.
+pub const MAX_UDP_ROAMING_CANDIDATES_PER_PROFILE: usize = 1024;
+pub const UDP_ROAMING_CANDIDATE_TTL: Duration = Duration::from_secs(10);
+pub const UDP_ROAMING_CANDIDATE_RATE_WINDOW: Duration = Duration::from_secs(1);
+pub const MAX_UDP_ROAMING_CANDIDATE_STARTS_PER_WINDOW: usize = 64;
 
 pub type UdpCid = [u8; CID_LEN];
 
@@ -220,6 +227,10 @@ pub enum UdpRoamingError {
     StaleEpoch,
     #[error("another UDP path candidate already owns this session")]
     CandidateBusy,
+    #[error("UDP path candidate limit reached for this profile")]
+    CandidateLimit,
+    #[error("UDP path candidate creation rate exceeded for this profile")]
+    CandidateRateLimited,
     #[error("UDP path candidate ticket or source path is stale")]
     StaleCandidate,
     #[error("UDP path response does not match the outstanding challenge")]
@@ -259,6 +270,7 @@ struct CandidatePath {
     ticket: CandidateTicket,
     path: UdpPath,
     challenge: [u8; PATH_CHALLENGE_LEN],
+    created_at: Instant,
     received_bytes: u64,
     sent_bytes: u64,
 }
@@ -285,6 +297,12 @@ struct UdpSession {
 /// All operations are O(1) except rotation/cleanup over at most three aliases per session.
 pub struct UdpRoamingTable {
     max_sessions: usize,
+    max_candidates: usize,
+    candidate_ttl: Duration,
+    candidate_rate_window: Duration,
+    max_candidate_starts_per_window: usize,
+    candidate_starts: VecDeque<Instant>,
+    candidate_count: usize,
     next_session_generation: u64,
     next_candidate_id: u64,
     cid_index: HashMap<UdpCid, CidOwner>,
@@ -293,8 +311,32 @@ pub struct UdpRoamingTable {
 
 impl UdpRoamingTable {
     pub fn new(max_sessions: usize) -> Self {
+        Self::with_candidate_policy(
+            max_sessions,
+            max_sessions.min(MAX_UDP_ROAMING_CANDIDATES_PER_PROFILE),
+            UDP_ROAMING_CANDIDATE_TTL,
+            UDP_ROAMING_CANDIDATE_RATE_WINDOW,
+            MAX_UDP_ROAMING_CANDIDATE_STARTS_PER_WINDOW,
+        )
+    }
+
+    fn with_candidate_policy(
+        max_sessions: usize,
+        max_candidates: usize,
+        candidate_ttl: Duration,
+        candidate_rate_window: Duration,
+        max_candidate_starts_per_window: usize,
+    ) -> Self {
+        debug_assert!(!candidate_ttl.is_zero());
+        debug_assert!(!candidate_rate_window.is_zero());
         Self {
             max_sessions,
+            max_candidates,
+            candidate_ttl,
+            candidate_rate_window,
+            max_candidate_starts_per_window,
+            candidate_starts: VecDeque::with_capacity(max_candidate_starts_per_window),
+            candidate_count: 0,
             next_session_generation: 1,
             next_candidate_id: 1,
             cid_index: HashMap::new(),
@@ -311,10 +353,7 @@ impl UdpRoamingTable {
     }
 
     pub fn candidate_count(&self) -> usize {
-        self.sessions
-            .values()
-            .filter(|session| session.candidate.is_some())
-            .count()
+        self.candidate_count
     }
 
     pub fn lookup(&self, cid: &UdpCid) -> Option<CidLookup> {
@@ -404,9 +443,32 @@ impl UdpRoamingTable {
         received_bytes: usize,
         challenge: [u8; PATH_CHALLENGE_LEN],
     ) -> Result<CandidateChallenge, UdpRoamingError> {
+        self.observe_authenticated_candidate_at(
+            lookup,
+            path,
+            init_transmit_cid,
+            init_epoch,
+            received_bytes,
+            challenge,
+            Instant::now(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn observe_authenticated_candidate_at(
+        &mut self,
+        lookup: CidLookup,
+        path: UdpPath,
+        init_transmit_cid: &UdpCid,
+        init_epoch: u64,
+        received_bytes: usize,
+        challenge: [u8; PATH_CHALLENGE_LEN],
+        now: Instant,
+    ) -> Result<CandidateChallenge, UdpRoamingError> {
         if received_bytes == 0 {
             return Err(UdpRoamingError::InvalidResponse);
         }
+        self.expire_candidate_for_session_at(lookup.session_id, now);
         let received_bytes = u64::try_from(received_bytes)
             .unwrap_or(u64::MAX)
             .min(MAX_CANDIDATE_ACCOUNTED_BYTES);
@@ -452,6 +514,16 @@ impl UdpRoamingTable {
         if challenge.iter().all(|byte| *byte == 0) {
             return Err(UdpRoamingError::InvalidResponse);
         }
+        if self.candidate_count >= self.max_candidates {
+            self.expire_candidates_at(now);
+            if self.candidate_count >= self.max_candidates {
+                return Err(UdpRoamingError::CandidateLimit);
+            }
+        }
+        self.prune_candidate_starts(now);
+        if self.candidate_starts.len() >= self.max_candidate_starts_per_window {
+            return Err(UdpRoamingError::CandidateRateLimited);
+        }
         let candidate_id = self.allocate_candidate_id()?;
         let session = self
             .sessions
@@ -467,9 +539,12 @@ impl UdpRoamingTable {
             ticket,
             path,
             challenge,
+            created_at: now,
             received_bytes,
             sent_bytes: 0,
         });
+        self.candidate_count += 1;
+        self.candidate_starts.push_back(now);
         Ok(CandidateChallenge {
             ticket,
             token: challenge,
@@ -482,6 +557,7 @@ impl UdpRoamingTable {
         ticket: CandidateTicket,
         wire_bytes: usize,
     ) -> Result<(), UdpRoamingError> {
+        self.expire_candidate_for_session_at(ticket.session_id, Instant::now());
         let candidate = self.candidate_mut(ticket)?;
         let wire_bytes = u64::try_from(wire_bytes).unwrap_or(u64::MAX);
         let next_sent = candidate.sent_bytes.saturating_add(wire_bytes);
@@ -547,6 +623,7 @@ impl UdpRoamingTable {
         {
             return Ok(replayed);
         }
+        self.expire_candidate_for_session_at(ticket.session_id, Instant::now());
         let challenge = {
             let candidate = self
                 .candidate_mut(ticket)
@@ -598,9 +675,7 @@ impl UdpRoamingTable {
         )
         .map_err(UdpRoamingCommitError::State)?;
         if let Err(error) = self.ensure_aliases_available(ticket.session_id, generation, &aliases) {
-            if let Some(session) = self.sessions.get_mut(&ticket.session_id) {
-                session.candidate = None;
-            }
+            self.abort_candidate(ticket);
             return Err(UdpRoamingCommitError::State(error));
         }
         let receive_cid = aliases
@@ -674,7 +749,9 @@ impl UdpRoamingTable {
             challenge,
             outcome,
         });
-        session.candidate = None;
+        let removed_candidate = session.candidate.take().is_some();
+        debug_assert!(removed_candidate, "validated candidate remains present");
+        self.candidate_count -= usize::from(removed_candidate);
         Ok(CommitDecision {
             outcome,
             replayed: false,
@@ -682,7 +759,8 @@ impl UdpRoamingTable {
     }
 
     pub fn abort_candidate(&mut self, ticket: CandidateTicket) -> bool {
-        self.sessions
+        let removed = self
+            .sessions
             .get_mut(&ticket.session_id)
             .filter(|session| session.generation == ticket.session_generation)
             .is_some_and(|session| {
@@ -696,7 +774,15 @@ impl UdpRoamingTable {
                 } else {
                     false
                 }
-            })
+            });
+        self.candidate_count -= usize::from(removed);
+        removed
+    }
+
+    /// Remove all candidates whose fixed validation lifetime elapsed. Duplicate PATH_INIT packets
+    /// deliberately do not refresh this deadline, so an authenticated peer cannot pin a slot.
+    pub fn expire_candidates(&mut self) -> Vec<CandidateTicket> {
+        self.expire_candidates_at(Instant::now())
     }
 
     pub fn current_pmtu_ticket(&self, session_id: u64) -> Option<PmtuTicket> {
@@ -768,6 +854,7 @@ impl UdpRoamingTable {
         let Some(session) = self.sessions.remove(&session_id) else {
             return false;
         };
+        self.candidate_count -= usize::from(session.candidate.is_some());
         for (cid, _) in session.aliases {
             if self.cid_index.get(&cid).is_some_and(|owner| {
                 owner.session_id == session_id && owner.session_generation == session.generation
@@ -803,6 +890,61 @@ impl UdpRoamingTable {
             .checked_add(1)
             .ok_or(UdpRoamingError::GenerationExhausted)?;
         Ok(candidate_id)
+    }
+
+    fn expire_candidate_for_session_at(
+        &mut self,
+        session_id: u64,
+        now: Instant,
+    ) -> Option<CandidateTicket> {
+        let expired = self
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.candidate.as_ref())
+            .is_some_and(|candidate| {
+                now.checked_duration_since(candidate.created_at)
+                    .is_some_and(|age| age >= self.candidate_ttl)
+            });
+        if !expired {
+            return None;
+        }
+        let ticket = self
+            .sessions
+            .get_mut(&session_id)
+            .and_then(|session| session.candidate.take())
+            .map(|candidate| candidate.ticket)
+            .expect("expired candidate remains present");
+        self.candidate_count -= 1;
+        Some(ticket)
+    }
+
+    fn expire_candidates_at(&mut self, now: Instant) -> Vec<CandidateTicket> {
+        let expired_sessions: Vec<u64> = self
+            .sessions
+            .iter()
+            .filter_map(|(session_id, session)| {
+                session.candidate.as_ref().and_then(|candidate| {
+                    now.checked_duration_since(candidate.created_at)
+                        .is_some_and(|age| age >= self.candidate_ttl)
+                        .then_some(*session_id)
+                })
+            })
+            .collect();
+        let expired = expired_sessions
+            .into_iter()
+            .filter_map(|session_id| self.expire_candidate_for_session_at(session_id, now))
+            .collect();
+        self.prune_candidate_starts(now);
+        expired
+    }
+
+    fn prune_candidate_starts(&mut self, now: Instant) {
+        while self.candidate_starts.front().is_some_and(|started_at| {
+            now.checked_duration_since(*started_at)
+                .is_some_and(|age| age >= self.candidate_rate_window)
+        }) {
+            self.candidate_starts.pop_front();
+        }
     }
 
     fn ensure_aliases_available(
@@ -1004,6 +1146,10 @@ impl UdpRoamingRegistry {
         self.lock_table().abort_candidate(ticket)
     }
 
+    pub fn expire_candidates(&self) -> Vec<CandidateTicket> {
+        self.lock_table().expire_candidates()
+    }
+
     pub fn remove_session(&self, session_id: u64) -> bool {
         self.lock_table().remove_session(session_id)
     }
@@ -1019,6 +1165,10 @@ impl UdpRoamingRegistry {
 
     pub fn cid_count(&self) -> usize {
         self.lock_table().cid_count()
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.lock_table().candidate_count()
     }
 }
 
@@ -1438,6 +1588,130 @@ mod tests {
             Err(UdpRoamingError::CandidateBusy)
         ));
         assert_eq!(table.candidate_count(), 1);
+    }
+
+    #[test]
+    fn candidate_expiry_frees_the_profile_slot_without_refreshing_on_duplicate() {
+        let ttl = Duration::from_secs(10);
+        let rate_window = Duration::from_secs(1);
+        let mut table = UdpRoamingTable::with_candidate_policy(4, 1, ttl, rate_window, 4);
+        table
+            .register_session(7, C2S, S2C, path(1, 1000), 1232)
+            .unwrap();
+        let other_c2s = [0x41; 32];
+        let other_s2c = [0x42; 32];
+        table
+            .register_session(8, other_c2s, other_s2c, path(3, 3000), 1232)
+            .unwrap();
+        let started_at = Instant::now();
+        let first_lookup = table.lookup(&derive_udp_cid(&C2S, 7, 1)).unwrap();
+        let first = table
+            .observe_authenticated_candidate_at(
+                first_lookup,
+                path(2, 2000),
+                &transmit_cid(1),
+                1,
+                100,
+                TOKEN,
+                started_at,
+            )
+            .unwrap();
+        let duplicate = table
+            .observe_authenticated_candidate_at(
+                first_lookup,
+                path(2, 2000),
+                &transmit_cid(1),
+                1,
+                20,
+                [0x44; PATH_CHALLENGE_LEN],
+                started_at + ttl - Duration::from_millis(1),
+            )
+            .unwrap();
+        assert_eq!(duplicate.ticket(), first.ticket());
+
+        let second_lookup = table.lookup(&derive_udp_cid(&other_c2s, 8, 1)).unwrap();
+        assert!(matches!(
+            table.observe_authenticated_candidate_at(
+                second_lookup,
+                path(4, 4000),
+                &derive_udp_cid(&other_s2c, 8, 1),
+                1,
+                100,
+                [0x55; PATH_CHALLENGE_LEN],
+                started_at + ttl - Duration::from_millis(1),
+            ),
+            Err(UdpRoamingError::CandidateLimit)
+        ));
+        assert_eq!(
+            table.expire_candidates_at(started_at + ttl),
+            vec![first.ticket()]
+        );
+        assert_eq!(table.candidate_count(), 0);
+        table
+            .observe_authenticated_candidate_at(
+                second_lookup,
+                path(4, 4000),
+                &derive_udp_cid(&other_s2c, 8, 1),
+                1,
+                100,
+                [0x55; PATH_CHALLENGE_LEN],
+                started_at + ttl,
+            )
+            .unwrap();
+        assert_eq!(table.candidate_count(), 1);
+    }
+
+    #[test]
+    fn candidate_creation_rate_is_profile_wide_and_bounded() {
+        let rate_window = Duration::from_secs(1);
+        let mut table =
+            UdpRoamingTable::with_candidate_policy(4, 4, Duration::from_secs(10), rate_window, 1);
+        table
+            .register_session(7, C2S, S2C, path(1, 1000), 1232)
+            .unwrap();
+        let other_c2s = [0x41; 32];
+        let other_s2c = [0x42; 32];
+        table
+            .register_session(8, other_c2s, other_s2c, path(3, 3000), 1232)
+            .unwrap();
+        let started_at = Instant::now();
+        let first_lookup = table.lookup(&derive_udp_cid(&C2S, 7, 1)).unwrap();
+        let first = table
+            .observe_authenticated_candidate_at(
+                first_lookup,
+                path(2, 2000),
+                &transmit_cid(1),
+                1,
+                100,
+                TOKEN,
+                started_at,
+            )
+            .unwrap();
+        assert!(table.abort_candidate(first.ticket()));
+        let second_lookup = table.lookup(&derive_udp_cid(&other_c2s, 8, 1)).unwrap();
+        assert!(matches!(
+            table.observe_authenticated_candidate_at(
+                second_lookup,
+                path(4, 4000),
+                &derive_udp_cid(&other_s2c, 8, 1),
+                1,
+                100,
+                [0x55; PATH_CHALLENGE_LEN],
+                started_at + Duration::from_millis(999),
+            ),
+            Err(UdpRoamingError::CandidateRateLimited)
+        ));
+        table
+            .observe_authenticated_candidate_at(
+                second_lookup,
+                path(4, 4000),
+                &derive_udp_cid(&other_s2c, 8, 1),
+                1,
+                100,
+                [0x55; PATH_CHALLENGE_LEN],
+                started_at + rate_window,
+            )
+            .unwrap();
     }
 
     #[test]

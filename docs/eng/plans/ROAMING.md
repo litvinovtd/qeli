@@ -432,9 +432,17 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   fragments have been sent and `auth_ok_sent` is published, preventing an early candidate from
   committing over the epoch-zero bootstrap. Default and non-negotiated wire output remains unchanged.
 
+  Candidate validation is now independently bounded per profile. A candidate has a fixed ten-second
+  lifetime, the profile retains at most `min(max_clients, 1024)` candidates, and a sliding one-second
+  admission window permits at most 64 new candidates. An idempotent retransmit of the same
+  authenticated PATH_INIT adds only its bounded ingress accounting: it neither refreshes lifetime nor
+  consumes another rate slot. Expired tickets fail before egress/commit, while the existing server
+  maintenance tick reaps silent candidates. Commit, abort, CID collision, session teardown, and
+  expiry update the exact shared count.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Candidate expiry/global admission,
-  cross-listener/family races, client path adapters, and mock/Linux live acceptance remain.
+  eight-byte CID framing still cannot activate in production. Cross-listener/family races, client
+  path adapters, bidirectional live PMTU probing, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

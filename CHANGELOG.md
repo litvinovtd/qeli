@@ -228,7 +228,14 @@
   AuthOK и перезаписать epoch-zero state. Focused regression проверяет initial framing, current epoch
   и next-candidate classification; default/non-negotiated wire не изменён. `UDP_ROAM_V1` всё ещё
   не рекламируется: client path adapters, capability activation и live-приёмка остаются впереди.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/912 тестами
+- Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
+  profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
+  секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,
+  но не продлевает TTL и не расходует новый rate slot. Истёкший ticket отклоняется до egress/commit,
+  а общий registry reaper освобождает молчащие candidates из существующего maintenance tick.
+  Счётчик обновляется точно при commit, abort, CID collision, session teardown и expiry; default и
+  non-negotiated data plane не изменены.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/914 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что
