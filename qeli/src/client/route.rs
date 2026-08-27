@@ -1,4 +1,6 @@
 use crate::config::client::ClientRoutingConfig;
+#[cfg(feature = "experimental-roaming")]
+use crate::transport_core::path::PreparedPathCandidate;
 use crate::transport_core::{NetworkAddressFamily, NetworkPlan, NetworkRoute};
 use std::net::IpAddr;
 
@@ -50,10 +52,11 @@ fn family_flag(ipv6: bool) -> Option<&'static str> {
     ipv6.then_some("-6")
 }
 
-fn physical_path_for(
+fn physical_path_query(
     destination: IpAddr,
     tunnel_if: &str,
     source: Option<IpAddr>,
+    output_interface: Option<&str>,
 ) -> Option<PhysicalPath> {
     let mut command = std::process::Command::new("ip");
     if let Some(flag) = family_flag(destination.is_ipv6()) {
@@ -66,12 +69,15 @@ fn physical_path_for(
         }
         command.args(["from", &source.to_string()]);
     }
+    if let Some(interface) = output_interface {
+        command.args(["oif", interface]);
+    }
     let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    let fields: Vec<&str> = text.split_whitespace().collect();
+    let fields: Vec<&str> = text.lines().next()?.split_whitespace().collect();
     let gateway = fields
         .windows(2)
         .find(|pair| pair[0] == "via")
@@ -81,6 +87,113 @@ fn physical_path_for(
         .find(|pair| pair[0] == "dev")
         .map(|pair| pair[1].to_string())?;
     (device != tunnel_if).then_some(PhysicalPath { gateway, device })
+}
+
+fn physical_path_for(
+    destination: IpAddr,
+    tunnel_if: &str,
+    source: Option<IpAddr>,
+) -> Option<PhysicalPath> {
+    physical_path_query(destination, tunnel_if, source, None)
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn physical_path_for_interface(
+    destination: IpAddr,
+    tunnel_if: &str,
+    source: IpAddr,
+    output_interface: &str,
+) -> Option<PhysicalPath> {
+    let path = physical_path_query(destination, tunnel_if, Some(source), Some(output_interface))?;
+    (path.device == output_interface).then_some(path)
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LinuxCandidateRoute {
+    pub remote: IpAddr,
+    pub source: IpAddr,
+    pub gateway: Option<String>,
+    pub interface: String,
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Consumed by the Linux PathCommand executor in the next Phase 4 slice.
+pub(crate) struct LinuxPreparedPathRoutes {
+    pub generation: u64,
+    pub candidate_id: u64,
+    pub routes: Vec<LinuxCandidateRoute>,
+}
+
+/// Resolve every candidate carrier through the exact interface/source pair reported by the
+/// platform. PREPARE is deliberately read-only: the bound candidate socket can prove the new
+/// path before COMMIT replaces any qeli-owned host route.
+#[cfg(feature = "experimental-roaming")]
+#[allow(dead_code)] // Consumed by the Linux PathCommand executor in the next Phase 4 slice.
+pub(crate) fn prepare_candidate_path_routes(
+    candidate: &PreparedPathCandidate,
+    tunnel_if: &str,
+) -> anyhow::Result<LinuxPreparedPathRoutes> {
+    let interface_index = candidate
+        .update
+        .interface_index
+        .ok_or_else(|| anyhow::anyhow!("Linux candidate path requires an interface index"))?;
+    let interface = crate::transport_core::carrier::linux_interface_name(interface_index)?
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("candidate interface name is not valid UTF-8"))?;
+    prepare_candidate_path_routes_on(candidate, tunnel_if, &interface)
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn prepare_candidate_path_routes_on(
+    candidate: &PreparedPathCandidate,
+    tunnel_if: &str,
+    interface: &str,
+) -> anyhow::Result<LinuxPreparedPathRoutes> {
+    if interface.is_empty() || interface == tunnel_if {
+        anyhow::bail!("candidate interface must be a non-tunnel interface");
+    }
+    let local_addresses = candidate
+        .update
+        .local_addresses
+        .iter()
+        .map(|value| {
+            value
+                .parse::<IpAddr>()
+                .map_err(|_| anyhow::anyhow!("invalid validated candidate source '{value}'"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut routes = Vec::new();
+    for remote in candidate.update.compatible_resolved_addresses() {
+        let source = local_addresses
+            .iter()
+            .copied()
+            .find(|source| source.is_ipv4() == remote.is_ipv4())
+            .ok_or_else(|| {
+                anyhow::anyhow!("candidate path has no source address for carrier {remote}")
+            })?;
+        let path =
+            physical_path_for_interface(remote, tunnel_if, source, interface).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "candidate carrier {remote} has no route from {source} through {interface}"
+                )
+            })?;
+        routes.push(LinuxCandidateRoute {
+            remote,
+            source,
+            gateway: path.gateway,
+            interface: path.device,
+        });
+    }
+    if routes.is_empty() {
+        anyhow::bail!("candidate path has no compatible carrier route");
+    }
+    Ok(LinuxPreparedPathRoutes {
+        generation: candidate.update.generation,
+        candidate_id: candidate.candidate_id,
+        routes,
+    })
 }
 
 fn add_tunnel_route(
@@ -1585,5 +1698,81 @@ mod fault_injection {
         let err = cleanup_routes("qtest", "1.2.3.4", &[]).unwrap_err();
         assert!(err.to_string().contains("route flush dev qtest"));
         assert!(err.to_string().contains("Operation not permitted"));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn prepared_candidate() -> PreparedPathCandidate {
+        PreparedPathCandidate {
+            candidate_id: 41,
+            update: crate::transport_core::path::PathUpdate {
+                generation: 7,
+                update_id: 3,
+                platform_path_id: "linux:eth0".to_string(),
+                reason: crate::transport_core::path::PathUpdateReason::ManualProbe,
+                network_token: None,
+                interface_index: Some(2),
+                local_addresses: vec!["192.0.2.10".to_string(), "2001:db8::10".to_string()],
+                resolved_addresses: vec![
+                    crate::transport_core::path::PathResolution {
+                        address: "198.51.100.20".to_string(),
+                        ttl_secs: 30,
+                    },
+                    crate::transport_core::path::PathResolution {
+                        address: "2001:db8::20".to_string(),
+                        ttl_secs: 30,
+                    },
+                ],
+                flags: crate::transport_core::path::PathUpdateFlags::default(),
+            },
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_prepare_is_read_only_and_queries_exact_source_and_interface() {
+        let shim = Shim::new("candidate-prepare", &[], "");
+        let candidate = prepared_candidate();
+        let prepared = prepare_candidate_path_routes_on(&candidate, "qtest", "eth0").unwrap();
+
+        assert_eq!(prepared.generation, 7);
+        assert_eq!(prepared.candidate_id, 41);
+        assert_eq!(prepared.routes.len(), 2);
+        assert_eq!(
+            prepared.routes[0].remote,
+            "198.51.100.20".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            prepared.routes[0].source,
+            "192.0.2.10".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(prepared.routes[0].interface, "eth0");
+        assert_eq!(prepared.routes[0].gateway.as_deref(), Some("10.0.0.254"));
+        assert_eq!(
+            prepared.routes[1].remote,
+            "2001:db8::20".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            prepared.routes[1].source,
+            "2001:db8::10".parse::<IpAddr>().unwrap()
+        );
+
+        let calls = shim.calls();
+        assert!(calls.contains("route get 198.51.100.20 from 192.0.2.10 oif eth0"));
+        assert!(calls.contains("-6 route get 2001:db8::20 from 2001:db8::10 oif eth0"));
+        assert!(!calls.contains(" route add "));
+        assert!(!calls.contains(" route replace "));
+        assert!(!calls.contains(" route del "));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_prepare_rejects_tunnel_or_mismatched_fib_interface() {
+        let _shim = Shim::new("candidate-wrong-interface", &[], "");
+        let candidate = prepared_candidate();
+        assert!(prepare_candidate_path_routes_on(&candidate, "eth0", "eth0").is_err());
+        let error = prepare_candidate_path_routes_on(&candidate, "qtest", "wlan0")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("through wlan0"));
     }
 }

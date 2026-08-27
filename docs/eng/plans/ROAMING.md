@@ -453,9 +453,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   `CorePathController`. The future Linux in-process adapter will use that same controller and its
   already shared bounded `ClientCore`, avoiding another transaction/ACK/supersede/telemetry
   implementation. Linux also has the
-  source-complete exact candidate-socket primitive: before connect it applies
+  source-complete read-only PREPARE route projection: each carrier must resolve through the exact
+  `from <source> oif <interface>` pair and the FIB must return that physical interface. An isolated
+  netns regression proves that source binding plus `SO_BINDTODEVICE` selects the candidate default
+  route despite active tunnel `/1` routes and an old carrier `/32`; no temporary route/policy rule
+  is therefore needed before authenticated proof. The exact candidate-socket primitive then applies
   `SO_BINDTODEVICE` for the validated interface index and binds a same-family local address (including
-  the IPv6 link-local scope). Network detection, PREPARE/COMMIT route ownership, capability activation,
+  the IPv6 link-local scope). Network detection, COMMIT route ownership, capability activation,
   bidirectional live PMTU probing, adversarial listener races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.

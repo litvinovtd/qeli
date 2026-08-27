@@ -132,7 +132,7 @@ pub(crate) fn bind_linux_candidate_socket(
 }
 
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-fn linux_interface_name(interface_index: u32) -> anyhow::Result<std::ffi::CString> {
+pub(crate) fn linux_interface_name(interface_index: u32) -> anyhow::Result<std::ffi::CString> {
     let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
     // SAFETY: `name` is an IF_NAMESIZE writable buffer and remains alive until copied below.
     let resolved = unsafe { libc::if_indextoname(interface_index, name.as_mut_ptr()) };

@@ -661,9 +661,13 @@ AAAA/A не скрывает следующий пригодный адрес. N
 и отмену одному общему Rust `CorePathController`. Будущий Linux in-process adapter использует
 тот же контроллер и уже общее bounded-состояние `ClientCore`: отдельного автомата
 transaction/ACK/supersede/telemetry в Linux не будет. Также готов source-complete точный
-примитив candidate socket: до connect он применяет
+read-only PREPARE: каждый carrier обязан разрешаться через точную пару
+`from <source> oif <interface>`, а FIB должен вернуть тот же физический интерфейс. Изолированный
+netns regression подтвердил, что source bind вместе с `SO_BINDTODEVICE` выбирает candidate
+default route несмотря на активные туннельные `/1` и старый carrier `/32`; временный маршрут
+или policy rule до аутентифицированного proof не нужен. Затем примитив candidate socket применяет
 `SO_BINDTODEVICE` для валидированного interface index и bind адреса того же семейства (включая
-scope для IPv6 link-local). Остаются network detection, ownership маршрутов PREPARE/COMMIT,
+scope для IPv6 link-local). Остаются network detection, ownership маршрутов COMMIT,
 capability activation, двунаправленный live PMTU probing, adversarial listener races и
 mock/Linux live acceptance.
 
