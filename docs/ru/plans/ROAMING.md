@@ -1,13 +1,13 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v5-safe -->
+<!-- normative-sync: roaming-v6-safe -->
 
 > Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
-> UDP registry/migration state, cross-worker dispatch и atomic writer-egress этапов 3A–3C
-> готовы по исходникам; ingress/session actor и оставшиеся вспомогательные egress-пути ещё
-> впереди.
+> UDP registry/migration state, cross-worker dispatch и atomic data/auxiliary egress этапов 3A–3C
+> готовы по исходникам; впереди ещё подключение ingress/session actor и guarded commit к
+> рабочему пути.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
 > На лабе `.10` прошли финальные default/feature suites (862/901 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
@@ -553,9 +553,17 @@ PacketCodec, replay window, rate buckets и TUN ownership. Stale commit не о�
 DATA_FRAG вычитает фактическую длину legacy- или roaming-заголовка. Legacy wire с четырёхбайтовым
 CID остаётся byte-identical. Тринадцать focused unit-тестов покрывают последовательные ротации,
 stale/collision/anti-amplification, local/cross-worker/full/closed routing и atomic writer publish.
+Heartbeat и shaping-cover записи теперь получают тот же per-record snapshot активного egress,
+поэтому после commit используют точные актуальные socket, peer и CID. Уже получившая snapshot запись
+может завершить отправку по draining path, но следующие записи увидят commit. Reverse PMTU probe
+строится под active framing, отправляется с активного socket точному peer и связывается с path epoch
+и адресом. Pending marker разделяется с timeout-задачей, поэтому смена ключа сессии в address map не
+оставляет retry gate занятым. При сертификации ACK проверка epoch/peer удерживает read guard активного
+пути, поэтому ACK старого пути не может расширить бюджет нового.
+
 
 Ingress fabric и guarded commit ещё не подключены к session actor, а `UDP_ROAM_V1` не рекламируется.
-Heartbeat, cover, reverse PMTU probe, полная DATA_FRAG/reassembly/replay интеграция,
+CID-owner ingress, candidate validation, полная DATA_FRAG/reassembly/replay интеграция,
 cross-listener/family races и mock/Linux live-приёмка остаются следующими срезами.
 
 - восьмибайтовый CID и profile-wide registry;

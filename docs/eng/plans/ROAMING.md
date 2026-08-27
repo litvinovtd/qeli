@@ -1,13 +1,13 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v5-safe -->
+<!-- normative-sync: roaming-v6-safe -->
 
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
-> 3A–3C bounded UDP registry, cross-worker dispatch, and atomic writer-egress foundations are
-> source-complete; ingress/session-actor integration and the remaining auxiliary egress paths
-> are still ahead.
+> 3A–3C bounded UDP registry, cross-worker dispatch, and atomic data/auxiliary egress foundations
+> are source-complete; ingress/session-actor integration and guarded commit wiring are still
+> ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
 > On lab `.10`, final default and feature suites pass (862/901 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
@@ -342,9 +342,17 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   actual legacy or roaming header length. The legacy four-byte-CID wire path remains byte-identical.
   Thirteen focused unit tests cover sequential rotations, stale/collision/anti-amplification,
   local/cross-worker/full/closed routing, and atomic writer publication.
+  Heartbeat and shaping-cover records now take the same per-record active-egress snapshot, so a
+  committed path supplies their exact socket, peer, and CID. A record already snapshotted may finish
+  on the draining path, but subsequent records observe the commit. A reverse PMTU probe is built for
+  the active framing, sent from the active socket to the active peer, and bound to the exact path
+  epoch and address. Its pending marker is shared with the timeout task, so changing the session's
+  address-map key cannot strand the retry gate. ACK certification checks epoch and peer while the
+  active-path read guard is held; an old-path ACK therefore cannot widen the new path's budget.
+
 
   The ingress fabric and guarded commit are not connected to the session actor yet and
-  `UDP_ROAM_V1` remains unadvertised. Heartbeat, cover, reverse PMTU probing, complete
+  `UDP_ROAM_V1` remains unadvertised. CID-owner ingress, candidate validation, complete
   DATA_FRAG/reassembly/replay integration, cross-listener/family races, and mock/Linux live
   acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.

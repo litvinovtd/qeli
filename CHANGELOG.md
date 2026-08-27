@@ -144,10 +144,18 @@
   нового IPv4/IPv6-пути. Snapshot пути и PMTU согласованы одним lock; запоздалый `EMSGSIZE` старого
   пути не может расширить или подменить бюджет нового. Расчёт DATA_FRAG вычитает фактические 9 байт
   legacy- или 13 байт roaming-заголовка, а caller-owned encoder не добавляет allocation в hot path.
-  Legacy wire остаётся byte-identical. Capability всё ещё не рекламируется, guarded commit ещё не
-  вызывается из ingress/session actor, а heartbeat, cover и reverse PMTU probe пока используют старую
-  привязку — это следующие срезы до live UDP roaming.
-- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/901 тестами
+  Legacy wire остаётся byte-identical.
+- Следующий срез Stage 3C перевёл heartbeat и shaping cover на тот же per-record snapshot
+  `UdpActiveEgress`: после commit новые вспомогательные записи используют актуальные socket,
+  peer и CID, а уже сформированная запись может только завершить отправку по старому snapshot.
+  Reverse PMTU probe теперь строится с точной длиной active framing, отправляется через активные
+  socket/peer и связывается с точными path epoch и адресом. Pending marker разделяется с timeout-задачей,
+  поэтому перенос ключа сессии не оставляет probe навсегда занятым. ACK старого пути не может
+  расширить бюджет нового: проверка epoch/peer и запись бюджета атомарны относительно guarded commit.
+  Capability всё ещё не рекламируется, а ingress fabric/guarded commit ещё не подключены к session
+  actor; CID-owner ingress, candidate validation, полная DATA_FRAG/reassembly/replay интеграция и
+  live UDP roaming остаются следующими срезами.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/901 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

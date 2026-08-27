@@ -125,6 +125,15 @@ impl UdpEgressSnapshot {
     fn wire_wrapper_len(&self) -> usize {
         self.socket.seal_overhead() + self.framing.wrapper_len()
     }
+
+    fn empty_record_padding_cap(&self, codec: &PacketCodec) -> usize {
+        let record_budget = self
+            .record_budget(self.safe_payload_budget())
+            .expect("conservative UDP budget fits the active path framing");
+        codec
+            .max_padding_for_record_budget(0, record_budget)
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -177,6 +186,25 @@ impl UdpActiveEgress {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let budget = payload_budget.load(std::sync::atomic::Ordering::Relaxed) as usize;
         (current.clone(), budget)
+    }
+
+    /// Widen a reverse-PMTU budget only while the exact path that carried the probe remains
+    /// published. Holding the read guard closes the check-versus-PATH_COMMIT race.
+    fn certify_payload_budget(
+        &self,
+        path_epoch: u64,
+        peer: SocketAddr,
+        payload_budget: &std::sync::atomic::AtomicU32,
+        certified: u32,
+    ) -> Option<u32> {
+        let current = self
+            .0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if current.path_epoch != path_epoch || current.peer != peer {
+            return None;
+        }
+        Some(payload_budget.swap(certified, std::sync::atomic::Ordering::Relaxed))
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -251,54 +279,39 @@ impl UdpActiveEgress {
     }
 }
 
-fn empty_udp_record_padding_cap(
-    codec: &PacketCodec,
-    outer_ipv6: bool,
-    obfs_overhead: usize,
-    quic_enabled: bool,
-) -> usize {
-    let record_budget = crate::protocol::data_frag::unfragmented_record_budget(
-        crate::protocol::data_frag::conservative_udp_payload_budget(outer_ipv6),
-        obfs_overhead,
-        quic_enabled,
-    )
-    .expect("conservative UDP budget always fits one empty encrypted record");
-    codec
-        .max_padding_for_record_budget(0, record_budget)
-        .unwrap_or(0)
+fn max_useful_udp_payload_budget(wire_wrapper_len: usize) -> usize {
+    crate::protocol::data_frag::MAX_REASSEMBLED_RECORD.saturating_add(wire_wrapper_len)
 }
 
-fn max_useful_udp_payload_budget(obfs_overhead: usize, quic_enabled: bool) -> usize {
-    crate::protocol::data_frag::MAX_REASSEMBLED_RECORD
-        + obfs_overhead
-        + if quic_enabled {
-            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-        } else {
-            0
-        }
-}
-
-fn sanitized_udp_payload_budget(
-    reported: u16,
-    outer_ipv6: bool,
-    obfs_overhead: usize,
-    quic_enabled: bool,
-) -> usize {
+fn sanitized_udp_payload_budget(reported: u16, outer_ipv6: bool, wire_wrapper_len: usize) -> usize {
     usize::from(reported).clamp(
         crate::protocol::data_frag::conservative_udp_payload_budget(outer_ipv6),
-        max_useful_udp_payload_budget(obfs_overhead, quic_enabled),
+        max_useful_udp_payload_budget(wire_wrapper_len),
     )
 }
 
 fn note_certified_udp_payload_budget(
+    active_egress: &UdpActiveEgress,
     cell: &std::sync::atomic::AtomicU32,
     who: std::fmt::Arguments<'_>,
-    certified: u32,
+    expected: DownlinkMtuProbe,
 ) {
-    let previous = cell.swap(certified, std::sync::atomic::Ordering::Relaxed);
-    if previous != certified {
+    let Some(previous) = active_egress.certify_payload_budget(
+        expected.path_epoch,
+        expected.peer,
+        cell,
+        expected.udp_payload_budget,
+    ) else {
+        log::debug!(
+            "client {who} ignored stale reverse-PMTU ACK for path epoch {}",
+            expected.path_epoch
+        );
+        return;
+    };
+    if previous != expected.udp_payload_budget {
         log::info!(
-            "client {who} reverse-probe certified UDP downlink budget {certified} bytes (was {previous})"
+            "client {who} reverse-probe certified UDP downlink budget {} bytes (was {previous})",
+            expected.udp_payload_budget
         );
     }
 }
@@ -309,7 +322,8 @@ fn is_message_too_long(error: &std::io::Error) -> bool {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DownlinkMtuProbe {
-    generation: u64,
+    path_epoch: u64,
+    peer: SocketAddr,
     token: u128,
     payload_size: u16,
     udp_payload_budget: u32,
@@ -321,23 +335,20 @@ fn build_downlink_mtu_probe(
     token: u128,
     udp_payload_budget: usize,
     obfs_overhead: usize,
-    quic_enabled: bool,
-    connection_id: &[u8; 4],
+    framing: UdpEgressFraming,
     packet_number: u32,
 ) -> Option<(Vec<u8>, u16)> {
-    let wrapper_bytes = obfs_overhead
-        + if quic_enabled {
-            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-        } else {
-            0
-        };
+    let wrapper_bytes = obfs_overhead + framing.wrapper_len();
     let payload_size = udp_payload_budget.checked_sub(wrapper_bytes)?;
     let payload_size_u16 = u16::try_from(payload_size).ok()?;
     let probe = crate::protocol::udp_frag::mtu_probe_v2_datagram(token, payload_size)?;
-    let packet = if quic_enabled {
-        wrap_quic_short(&probe, connection_id, packet_number)
-    } else {
-        probe
+    let mut wrapped = Vec::with_capacity(framing.wrapper_len() + probe.len());
+    let packet = match framing {
+        UdpEgressFraming::Unmasked => probe,
+        _ => {
+            framing.wrap_into(&probe, packet_number, &mut wrapped);
+            wrapped
+        }
     };
     debug_assert_eq!(packet.len() + obfs_overhead, udp_payload_budget);
     Some((packet, payload_size_u16))
@@ -424,7 +435,6 @@ fn send_downlink_mtu_probe(
 #[allow(clippy::too_many_arguments)]
 async fn schedule_downlink_mtu_probe(
     sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
-    socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     tasks: &super::ProfileTasks,
     profile_name: &str,
     addr: SocketAddr,
@@ -432,21 +442,13 @@ async fn schedule_downlink_mtu_probe(
     reported: u16,
     obfs_key: Option<[u8; 32]>,
 ) {
-    let local_addr = match socket.raw_socket().local_addr() {
-        Ok(value) => value,
-        Err(error) => {
-            log::debug!("UDP {addr}: cannot start reverse PMTU probe: {error}");
-            return;
-        }
-    };
-    let (expected, packet) = {
+    let (expected, packet, local_addr, probe_peer, pending_probe) = {
         let mut guard = sessions.write().await;
         let Some(client) = guard.get_mut(&addr) else {
             return;
         };
         if !matches!(client.state, UdpSessionState::Authenticated { .. })
             || !client.data_frag_enabled
-            || client.downlink_mtu_probe.is_some()
             || client
                 .udp_payload_budget
                 .as_ref()
@@ -454,68 +456,95 @@ async fn schedule_downlink_mtu_probe(
         {
             return;
         }
+        let Some(active_egress) = client.active_egress.as_ref() else {
+            return;
+        };
+        let egress = active_egress.snapshot();
+        // A report received on a draining address must not start a probe for the new path.
+        if egress.peer != addr {
+            return;
+        }
         let target = sanitized_udp_payload_budget(
             reported,
-            addr.is_ipv6(),
-            socket.seal_overhead(),
-            client.quic_enabled,
+            egress.peer.is_ipv6(),
+            egress.wire_wrapper_len(),
         );
         if budget_cell.load(std::sync::atomic::Ordering::Relaxed) as usize >= target {
             return;
         }
+        let mut pending = lock_or_recover(&client.downlink_mtu_probe, "udp::downlink_probe");
+        if pending
+            .as_ref()
+            .is_some_and(|probe| probe.path_epoch == egress.path_epoch && probe.peer == egress.peer)
+        {
+            return;
+        }
         let token: u128 = rand::random();
-        let generation: u64 = rand::random();
         let packet_number = client
             .packet_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let Some((packet, payload_size)) = build_downlink_mtu_probe(
             token,
             target,
-            socket.seal_overhead(),
-            client.quic_enabled,
-            &client.connection_id,
+            egress.socket.seal_overhead(),
+            egress.framing,
             packet_number,
         ) else {
             return;
         };
         let expected = DownlinkMtuProbe {
-            generation,
+            path_epoch: egress.path_epoch,
+            peer: egress.peer,
             token,
             payload_size,
             udp_payload_budget: target as u32,
         };
-        client.downlink_mtu_probe = Some(expected);
-        (expected, packet)
+        let local_addr = match egress.socket.raw_socket().local_addr() {
+            Ok(value) => value,
+            Err(error) => {
+                log::debug!(
+                    "UDP {}: cannot start reverse PMTU probe: {error}",
+                    egress.peer
+                );
+                return;
+            }
+        };
+        *pending = Some(expected);
+        drop(pending);
+        (
+            expected,
+            packet,
+            local_addr,
+            egress.peer,
+            client.downlink_mtu_probe.clone(),
+        )
     };
 
-    let sessions = sessions.clone();
     let profile_name = profile_name.to_string();
     let budget_cell = budget_cell.clone();
     tasks.spawn(async move {
-        let send_result = send_downlink_mtu_probe(local_addr, addr, &packet, obfs_key);
+        let send_result = send_downlink_mtu_probe(local_addr, probe_peer, &packet, obfs_key);
         if send_result.is_ok() {
             tokio::time::sleep(DOWNLINK_MTU_PROBE_TIMEOUT).await;
         }
         let cleared = {
-            let mut guard = sessions.write().await;
-            guard.get_mut(&addr).is_some_and(|client| {
-                if client.downlink_mtu_probe == Some(expected) {
-                    client.downlink_mtu_probe = None;
-                    true
-                } else {
-                    false
-                }
-            })
+            let mut pending = lock_or_recover(&pending_probe, "udp::downlink_probe_timeout");
+            if *pending == Some(expected) {
+                *pending = None;
+                true
+            } else {
+                false
+            }
         };
         if let Err(error) = send_result {
             log::debug!(
-                "UDP {addr} on profile '{profile_name}': reverse PMTU probe send failed: {error}"
+                "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe send failed: {error}"
             );
         } else if cleared
             && budget_cell.load(std::sync::atomic::Ordering::Relaxed) < expected.udp_payload_budget
         {
             log::debug!(
-                "UDP {addr} on profile '{profile_name}': reverse PMTU probe timed out at {} bytes",
+                "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe timed out at {} bytes",
                 expected.udp_payload_budget
             );
         }
@@ -527,7 +556,6 @@ async fn schedule_downlink_mtu_probe(
 async fn forward_udp_uplink_packet(
     packet: ServerTunPacket,
     sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
-    socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     tasks: &super::ProfileTasks,
     profile: &Arc<ProfileRuntime>,
     addr: SocketAddr,
@@ -557,7 +585,6 @@ async fn forward_udp_uplink_packet(
         ) {
             schedule_downlink_mtu_probe(
                 sessions,
-                socket,
                 tasks,
                 &profile.name,
                 addr,
@@ -722,8 +749,9 @@ struct UdpClient {
     /// Kept separate from `path_mtu`: DATA_FRAG makes inner MTU and outer datagram size
     /// independent. `None` until authentication completes.
     udp_payload_budget: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
-    /// One bounded reverse probe awaiting its matching ACK. `None` is also the retry gate.
-    downlink_mtu_probe: Option<DownlinkMtuProbe>,
+    /// One bounded reverse probe awaiting its matching ACK. Shared with the timeout task so
+    /// moving the session's address-map key cannot strand a pending marker.
+    downlink_mtu_probe: Arc<std::sync::Mutex<Option<DownlinkMtuProbe>>>,
     /// Shared with this client's `SessionShared.client_info` — the `(version, platform)` it
     /// reported about itself, written here by the receive loop and read by `list-clients`
     /// through the session. `None` until authenticated; `None` inside means "never said".
@@ -1007,7 +1035,7 @@ pub(crate) async fn run_udp_server(
     // every client on every tick.
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut quic_record = Vec::with_capacity(
-        handler::server_wire_buffer_capacity(pcfg) + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
+        handler::server_wire_buffer_capacity(pcfg) + crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
     );
 
     loop {
@@ -1087,12 +1115,12 @@ pub(crate) async fn run_udp_server(
                 let now = std::time::Instant::now();
                 // Collect packets to send before any .await so non-Send types (MutexGuard,
                 // Obfuscator/ThreadRng) are guaranteed dropped before the async resume point.
-                let to_send: Vec<(std::net::SocketAddr, PooledBuffer, bool, [u8; 4], u32)> = if shaping_on {
+                let to_send: Vec<(UdpEgressSnapshot, PooledBuffer, u32)> = if shaping_on {
                     // Flow-shaping: per-client Poisson idle cover (replaces heartbeat).
                     // Needs a write lock to advance each client's cover deadline + budget.
                     let mut sessions_guard = sessions.write().await;
                     let mut out = Vec::new();
-                    for (addr, client) in sessions_guard.iter_mut() {
+                    for (_addr, client) in sessions_guard.iter_mut() {
                         // Authenticated is not enough: the AuthOK may still be in flight on the
                         // auth task. A cover packet reaching the client first is taken for the
                         // AuthOK, decrypts into nothing, and kills the connect. See
@@ -1115,15 +1143,14 @@ pub(crate) async fn run_udp_server(
                         {
                             continue;
                         }
+                        let Some(active_egress) = client.active_egress.as_ref() else {
+                            continue;
+                        };
+                        let egress = active_egress.snapshot();
                         let requested_size = client.shaper.next_size(&mut rand::rng());
                         let size = {
                             let tx = lock_or_recover(&client.tx_codec, "udp::cover_budget");
-                            requested_size.min(empty_udp_record_padding_cap(
-                                &tx,
-                                addr.is_ipv6(),
-                                socket.seal_overhead(),
-                                client.quic_enabled,
-                            ))
+                            requested_size.min(egress.empty_record_padding_cap(&tx))
                         };
                         if !client.shaper.try_spend(size, now) {
                             continue;
@@ -1146,19 +1173,19 @@ pub(crate) async fn run_udp_server(
                             ok
                         };
                         if encrypted {
-                            let pn = if client.quic_enabled {
+                            let pn = if egress.framing.is_quic() {
                                 client.packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                             } else {
                                 0
                             };
-                            out.push((*addr, pkt, client.quic_enabled, client.connection_id, pn));
+                            out.push((egress, pkt, pn));
                         }
                     }
                     out
                 } else {
                     let mut sessions_guard = sessions.write().await;
                     let mut out = Vec::new();
-                    for (addr, client) in sessions_guard.iter_mut() {
+                    for (_addr, client) in sessions_guard.iter_mut() {
                         // Only beacon AUTHENTICATED clients (a fresh AwaitingAuth entry
                         // is not a real session yet) whose AuthOK has actually gone out —
                         // this loop deliberately does NOT idle-gate (see below), so without
@@ -1188,6 +1215,10 @@ pub(crate) async fn run_udp_server(
                         // only) reconnected every rx_dead. Beaconing unconditionally fixes
                         // that; the redundant beacon under an active server->client flow is
                         // one small packet per interval — negligible.
+                        let Some(active_egress) = client.active_egress.as_ref() else {
+                            continue;
+                        };
+                        let egress = active_egress.snapshot();
                         let Some(mut pkt) = client
                             .wire_pool
                             .as_ref()
@@ -1200,13 +1231,7 @@ pub(crate) async fn run_udp_server(
                             // saturating: data_size_bytes is a u16 config knob — `+ 32`
                             // would wrap in release / panic in debug at the top of range.
                             let mut tx = lock_or_recover(&client.tx_codec, "udp::heartbeat");
-                            let cap = empty_udp_record_padding_cap(
-                                &tx,
-                                addr.is_ipv6(),
-                                socket.seal_overhead(),
-                                client.quic_enabled,
-                            )
-                            .min(u16::MAX as usize) as u16;
+                            let cap = egress.empty_record_padding_cap(&tx).min(u16::MAX as usize) as u16;
                             let low = hb_config.data_size_bytes.min(cap);
                             let high = hb_config.data_size_bytes.saturating_add(32).min(cap);
                             obf.generate_padding_into(low, high, &mut padding);
@@ -1217,30 +1242,22 @@ pub(crate) async fn run_udp_server(
                             ok
                         };
                         if encrypted {
-                            let pn = if client.quic_enabled {
+                            let pn = if egress.framing.is_quic() {
                                 client.packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                             } else {
                                 0
                             };
-                            out.push((*addr, pkt, client.quic_enabled, client.connection_id, pn));
+                            out.push((egress, pkt, pn));
                         }
                     }
                     out
                 };
                 // Now we can .await freely — no non-Send types in scope
-                for (addr, pkt, quic_enabled, connection_id, packet_number) in to_send {
-                    let data: &[u8] = if quic_enabled {
-                        wrap_quic_short_into(
-                            &pkt,
-                            &connection_id,
-                            packet_number,
-                            &mut quic_record,
-                        );
-                        &quic_record
-                    } else {
-                        &pkt
-                    };
-                    let _ = socket.send_to(data, addr).await;
+                for (egress, pkt, packet_number) in to_send {
+                    let data = egress
+                        .framing
+                        .wrap_into(&pkt, packet_number, &mut quic_record);
+                    let _ = egress.socket.send_to(data, egress.peer).await;
                 }
             }
 
@@ -1550,24 +1567,34 @@ async fn handle_udp_datagram(
         let certified = if let Some((token, payload_size)) =
             crate::protocol::udp_frag::parse_mtu_probe_v2_ack(payload)
         {
-            let mut guard = sessions.write().await;
-            guard.get_mut(&addr).and_then(|client| {
-                let expected = client.downlink_mtu_probe?;
-                if expected.token == token && expected.payload_size == payload_size {
-                    client.downlink_mtu_probe = None;
-                    client
-                        .udp_payload_budget
-                        .as_ref()
-                        .map(|cell| (cell.clone(), expected.udp_payload_budget))
-                } else {
-                    None
+            let guard = sessions.read().await;
+            guard.get(&addr).and_then(|client| {
+                let active_egress = client.active_egress.as_ref()?.clone();
+                let mut pending =
+                    lock_or_recover(&client.downlink_mtu_probe, "udp::downlink_probe_ack");
+                let expected = (*pending)?;
+                if expected.token != token
+                    || expected.payload_size != payload_size
+                    || expected.peer != addr
+                {
+                    return None;
                 }
+                *pending = None;
+                client
+                    .udp_payload_budget
+                    .as_ref()
+                    .map(|cell| (active_egress, cell.clone(), expected))
             })
         } else {
             None
         };
-        if let Some((cell, budget)) = certified {
-            note_certified_udp_payload_budget(&cell, format_args!("at {addr}"), budget);
+        if let Some((active_egress, cell, expected)) = certified {
+            note_certified_udp_payload_budget(
+                &active_egress,
+                &cell,
+                format_args!("at {addr}"),
+                expected,
+            );
         }
         return;
     }
@@ -1900,7 +1927,6 @@ async fn handle_udp_datagram(
                     forward_udp_uplink_packet(
                         ServerTunPacket::Pooled(packet),
                         sessions,
-                        socket,
                         tasks,
                         profile,
                         addr,
@@ -1978,7 +2004,6 @@ async fn handle_udp_datagram(
                 ) {
                     schedule_downlink_mtu_probe(
                         sessions,
-                        socket,
                         tasks,
                         &profile.name,
                         addr,
@@ -3573,7 +3598,7 @@ async fn handle_new_udp_client(
             revoked: None,
             path_mtu: None,
             udp_payload_budget: None,
-            downlink_mtu_probe: None,
+            downlink_mtu_probe: Arc::new(std::sync::Mutex::new(None)),
             client_info: None,
             wire_pool: None,
             // Seed the budget with the exchange that just happened, so the session starts
@@ -3633,7 +3658,7 @@ mod tests {
     use super::{
         build_auth_error_datagrams, build_auth_ok_datagrams, build_downlink_mtu_probe,
         max_useful_udp_payload_budget, sanitized_udp_payload_budget, udp_reap_window,
-        AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
+        UdpEgressFraming, AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
     };
     #[cfg(feature = "experimental-roaming")]
     use super::{UdpActiveEgress, UdpEgressCommitError};
@@ -3829,35 +3854,46 @@ mod tests {
 
     #[test]
     fn reported_udp_budget_never_drops_below_the_family_safe_floor() {
-        assert_eq!(sanitized_udp_payload_budget(1, false, 0, false), 548);
-        assert_eq!(sanitized_udp_payload_budget(1, true, 0, false), 1232);
-        assert_eq!(sanitized_udp_payload_budget(1500, false, 13, true), 1500);
-        assert_eq!(sanitized_udp_payload_budget(1500, true, 13, true), 1500);
+        assert_eq!(sanitized_udp_payload_budget(1, false, 0), 548);
+        assert_eq!(sanitized_udp_payload_budget(1, true, 0), 1232);
+        assert_eq!(sanitized_udp_payload_budget(1500, false, 13), 1500);
+        assert_eq!(sanitized_udp_payload_budget(1500, true, 13), 1500);
         assert_eq!(
-            sanitized_udp_payload_budget(u16::MAX, false, 13, true),
-            max_useful_udp_payload_budget(13, true),
+            sanitized_udp_payload_budget(u16::MAX, false, 13),
+            max_useful_udp_payload_budget(13),
             "an authenticated client still cannot make the server emit a useless 64K probe"
         );
     }
 
     #[test]
     fn reverse_probe_exactly_fills_the_reported_udp_payload_budget() {
-        for (obfs, quic) in [(0usize, false), (13, false), (0, true), (13, true)] {
+        for (obfs, framing) in [
+            (0usize, UdpEgressFraming::Unmasked),
+            (13, UdpEgressFraming::Unmasked),
+            (0, UdpEgressFraming::LegacyQuic([1, 2, 3, 4])),
+            (13, UdpEgressFraming::LegacyQuic([1, 2, 3, 4])),
+        ] {
             let target = 1500;
             let (packet, payload_size) =
-                build_downlink_mtu_probe(7, target, obfs, quic, &[1, 2, 3, 4], 9)
-                    .expect("target fits");
+                build_downlink_mtu_probe(7, target, obfs, framing, 9).expect("target fits");
             assert_eq!(packet.len() + obfs, target);
             assert_eq!(
-                usize::from(payload_size)
-                    + obfs
-                    + if quic {
-                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-                    } else {
-                        0
-                    },
+                usize::from(payload_size) + obfs + framing.wrapper_len(),
                 target
             );
+        }
+        #[cfg(feature = "experimental-roaming")]
+        {
+            let framing = UdpEgressFraming::RoamingQuic([9; 8]);
+            let (packet, payload_size) =
+                build_downlink_mtu_probe(11, 1500, 13, framing, 17).expect("target fits");
+            assert_eq!(packet.len() + 13, 1500);
+            assert_eq!(usize::from(payload_size) + 13 + framing.wrapper_len(), 1500);
+            let (header, record) = crate::protocol::roaming::decode_udp_short(&packet)
+                .expect("roaming header decodes");
+            assert_eq!(header.destination_cid(), &[9; 8]);
+            assert_eq!(header.packet_number(), 17);
+            assert_eq!(record.len(), usize::from(payload_size));
         }
     }
 
@@ -3908,6 +3944,14 @@ mod tests {
             1500
         );
         assert_eq!(active.snapshot().peer, first_peer);
+        assert_eq!(
+            active.certify_payload_budget(0, first_peer, &payload_budget, 1492),
+            Some(1500)
+        );
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            1492
+        );
         active
             .commit_roaming(
                 0,
@@ -3930,6 +3974,23 @@ mod tests {
         assert_eq!(
             committed.record_budget(548),
             Some(548 - crate::protocol::roaming::UDP_SHORT_HEADER_LEN)
+        );
+        assert_eq!(
+            active.certify_payload_budget(0, first_peer, &payload_budget, 1492),
+            None,
+            "an ACK for the old path cannot widen the committed path budget"
+        );
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            548
+        );
+        assert_eq!(
+            active.certify_payload_budget(1, second_peer, &payload_budget, 1472),
+            Some(548)
+        );
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            1472
         );
         let encoded = committed.framing.wrap_into(b"record", 8, &mut wire);
         assert_eq!(
