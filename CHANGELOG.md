@@ -155,7 +155,14 @@
   Capability всё ещё не рекламируется, а ingress fabric/guarded commit ещё не подключены к session
   actor; CID-owner ingress, candidate validation, полная DATA_FRAG/reassembly/replay интеграция и
   live UDP roaming остаются следующими срезами.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/901 тестами
+- Добавлен fail-closed bootstrap-контракт UDP roaming. Режим может включиться только при явном
+  двустороннем согласовании `CONTROL_V2 + UDP_ROAM_V1 + UDP_DATA_FRAG_V1`; одного клиентского
+  reserved bit недостаточно. Для согласованной QUIC-сессии зашифрованный AuthOK передаёт
+  `udp_roaming_session` как ненулевой `u64` в канонической строке из 16 hex-символов. Клиент
+  отклоняет отсутствующее или некорректное значение, а legacy builder по-прежнему полностью
+  исключает поле. `UDP_ROAM_V1` пока не входит в advertised server/client capabilities, поэтому
+  runtime остаётся на прежнем четырёхбайтовом CID и новый bootstrap ещё не активируется.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/904 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

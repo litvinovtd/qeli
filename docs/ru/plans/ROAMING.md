@@ -1,15 +1,15 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v6-safe -->
+<!-- normative-sync: roaming-v7-safe -->
 
 > Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
-> UDP registry/migration state, cross-worker dispatch и atomic data/auxiliary egress этапов 3A–3C
-> готовы по исходникам; впереди ещё подключение ingress/session actor и guarded commit к
-> рабочему пути.
+> UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress и negotiated
+> bootstrap этапов 3A–3C готовы по исходникам; впереди ещё подключение ingress/session actor и
+> guarded commit к рабочему пути.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (862/901 library tests,
+> На лабе `.10` прошли финальные default/feature suites (865/904 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -519,7 +519,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 862/901 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 865/904 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -561,10 +561,19 @@ Heartbeat и shaping-cover записи теперь получают тот ж�
 оставляет retry gate занятым. При сертификации ACK проверка epoch/peer удерживает read guard активного
 пути, поэтому ACK старого пути не может расширить бюджет нового.
 
+UDP bootstrap-контракт теперь fail-closed и аддитивен. Вход требует явного authenticated opt-in
+обеих сторон к `CONTROL_V2 + UDP_ROAM_V1 + UDP_DATA_FRAG_V1`: клиент не может активировать
+зарезервированную возможность, которую сервер не рекламировал. Для согласованной QUIC-сессии
+зашифрованный AuthOK передаёт `udp_roaming_session` как ненулевой `u64` ровно из 16 hex-символов.
+После успешного negotiation клиент отклоняет отсутствующий или некорректный идентификатор, а legacy
+AuthOK builder полностью исключает поле. Три focused-теста покрывают negotiation, каноническую
+выдачу/legacy omission и строгий parsing.
 
-Ingress fabric и guarded commit ещё не подключены к session actor, а `UDP_ROAM_V1` не рекламируется.
-CID-owner ingress, candidate validation, полная DATA_FRAG/reassembly/replay интеграция,
-cross-listener/family races и mock/Linux live-приёмка остаются следующими срезами.
+`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
+и восьмибайтовый CID ещё не могут включиться в production. Ingress fabric и guarded commit не
+подключены к session actor. CID-owner ingress, candidate validation, полная
+DATA_FRAG/reassembly/replay интеграция, cross-listener/family races и mock/Linux live-приёмка
+остаются следующими срезами.
 
 - восьмибайтовый CID и profile-wide registry;
 - per-session actor и dynamic egress;

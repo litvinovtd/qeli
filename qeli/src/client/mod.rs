@@ -2855,6 +2855,7 @@ where
         session_token,
         max_streams,
         adaptive,
+        udp_roaming_session_id: _,
     } = ok;
     #[cfg(feature = "experimental-roaming")]
     let tcp_resume: Option<Arc<TcpResumeContext>> = if server_capabilities.is_some_and(|server| {
@@ -6366,7 +6367,20 @@ pub(crate) async fn run_udp_tunnel(
         session_token: _,
         max_streams: max_streams_udp,
         adaptive: adaptive_udp,
+        udp_roaming_session_id: _udp_roaming_session_id,
     } = parse_auth_ok(&response_str)?;
+    #[cfg(feature = "experimental-roaming")]
+    let _udp_roaming_session_id = if quic_enabled
+        && crate::protocol::capabilities::udp_roaming_negotiated(
+            server_capabilities,
+            negotiated_capabilities,
+        ) {
+        Some(_udp_roaming_session_id.ok_or_else(|| {
+            anyhow::anyhow!("server negotiated UDP_ROAM_V1 but omitted its session id")
+        })?)
+    } else {
+        None
+    };
 
     let mut eff_obf = config.obfuscation.clone();
     if let Some(po) = pushed_obf.as_ref() {
@@ -8259,6 +8273,7 @@ mod obf_push_tests {
             "routes survive: {}",
             ok.routes_json
         );
+        assert_eq!(ok.udp_roaming_session_id, None);
         let po = ok.pushed_obf.expect("obf present");
         assert_eq!(po.padding.min_bytes, 99);
         assert_eq!(po.padding.max_bytes, 777);
@@ -8268,6 +8283,24 @@ mod obf_push_tests {
         let recordizer = po.recordizer.expect("authenticated recordizer push");
         assert_eq!(recordizer.policy, "required");
         assert_eq!(recordizer.batch.max_packets, 7);
+    }
+
+    #[test]
+    fn parse_auth_ok_accepts_only_a_nonzero_fixed_width_udp_roaming_session_id() {
+        let ok = parse_auth_ok(
+            r#"OK:{"client_ip":"10.9.0.5","udp_roaming_session":"0102030405060708"}"#,
+        )
+        .expect("valid roaming bootstrap parses");
+        assert_eq!(ok.udp_roaming_session_id, Some(0x0102_0304_0506_0708));
+
+        for invalid in [
+            r#"OK:{"client_ip":"10.9.0.5","udp_roaming_session":"0"}"#,
+            r#"OK:{"client_ip":"10.9.0.5","udp_roaming_session":"0000000000000000"}"#,
+            r#"OK:{"client_ip":"10.9.0.5","udp_roaming_session":"gggggggggggggggg"}"#,
+            r#"OK:{"client_ip":"10.9.0.5","udp_roaming_session":72623859790382856}"#,
+        ] {
+            assert!(parse_auth_ok(invalid).is_err(), "accepted {invalid}");
+        }
     }
 
     #[test]

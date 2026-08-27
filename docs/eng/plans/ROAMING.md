@@ -1,15 +1,15 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v6-safe -->
+<!-- normative-sync: roaming-v7-safe -->
 
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
-> 3A–3C bounded UDP registry, cross-worker dispatch, and atomic data/auxiliary egress foundations
-> are source-complete; ingress/session-actor integration and guarded commit wiring are still
-> ahead.
+> 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, and negotiated
+> bootstrap foundations are source-complete; ingress/session-actor integration and guarded commit
+> wiring are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (862/901 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (865/904 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -313,7 +313,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (862/901 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (865/904 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -350,9 +350,17 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   address-map key cannot strand the retry gate. ACK certification checks epoch and peer while the
   active-path read guard is held; an old-path ACK therefore cannot widen the new path's budget.
 
+  The UDP bootstrap contract is now fail-closed and additive. Entry requires explicit authenticated
+  opt-in from both peers to `CONTROL_V2 + UDP_ROAM_V1 + UDP_DATA_FRAG_V1`; a client cannot activate
+  a reserved capability that the server did not advertise. For a negotiated QUIC session, encrypted
+  AuthOK carries `udp_roaming_session` as a non-zero `u64` encoded by exactly 16 hexadecimal
+  characters. The client rejects a missing or malformed identifier once negotiation succeeds, while
+  the legacy AuthOK builder omits the field byte-for-byte. Three focused tests cover negotiation,
+  canonical emission/legacy omission, and strict parsing.
 
-  The ingress fabric and guarded commit are not connected to the session actor yet and
-  `UDP_ROAM_V1` remains unadvertised. CID-owner ingress, candidate validation, complete
+  `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so the bootstrap
+  and eight-byte CID framing cannot activate in production yet. The ingress fabric and guarded
+  commit are not connected to the session actor. CID-owner ingress, candidate validation, complete
   DATA_FRAG/reassembly/replay integration, cross-listener/family races, and mock/Linux live
   acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.

@@ -33,6 +33,9 @@ pub(crate) struct AuthOk {
     pub session_token: String,
     pub max_streams: u32,
     pub adaptive: bool,
+    /// Present only after bidirectional UDP_ROAM_V1 negotiation. Hex avoids JSON's lossy
+    /// numeric representation in app-layer parsers while retaining the protocol's full u64.
+    pub udp_roaming_session_id: Option<u64>,
 }
 
 /// Complete result of the authenticated primary TCP handshake.
@@ -291,6 +294,25 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
         })
         .transpose()?;
 
+    let udp_roaming_session_id = match value.get("udp_roaming_session") {
+        None => None,
+        Some(serde_json::Value::String(encoded))
+            if encoded.len() == 16 && encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
+        {
+            let session_id = u64::from_str_radix(encoded, 16)
+                .map_err(|_| anyhow::anyhow!("invalid auth OK UDP roaming session id"))?;
+            if session_id == 0 {
+                anyhow::bail!("auth OK UDP roaming session id must be non-zero");
+            }
+            Some(session_id)
+        }
+        Some(_) => {
+            anyhow::bail!(
+                "auth OK UDP roaming session id must be exactly 16 hexadecimal characters"
+            )
+        }
+    };
+
     Ok(AuthOk {
         family_mode,
         addresses,
@@ -309,6 +331,7 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
         session_token: value["session_token"].as_str().unwrap_or("").to_string(),
         max_streams: value["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
         adaptive: value["multipath_adaptive"].as_bool().unwrap_or(false),
+        udp_roaming_session_id,
     })
 }
 

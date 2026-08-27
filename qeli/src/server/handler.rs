@@ -3428,6 +3428,29 @@ pub fn build_auth_ok_for_addresses(
     max_streams: u32,
     client_capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
 ) -> String {
+    build_auth_ok_for_addresses_with_udp_roaming(
+        assigned,
+        pcfg,
+        routes_json,
+        token,
+        max_streams,
+        client_capabilities,
+        None,
+    )
+}
+
+/// UDP-only AuthOK extension. The session id is encrypted inside PacketCodec and emitted only
+/// after UDP_ROAM_V1 negotiation; legacy TCP/UDP callers stay byte-compatible through the wrapper.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_auth_ok_for_addresses_with_udp_roaming(
+    assigned: crate::server::pool::AssignedAddresses,
+    pcfg: &crate::config::server::ProfileConfig,
+    routes_json: &str,
+    token: &[u8; JOIN_TOKEN_LEN],
+    max_streams: u32,
+    client_capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
+    udp_roaming_session_id: Option<u64>,
+) -> String {
     let primary_address = assigned
         .ipv4
         .map(std::net::IpAddr::V4)
@@ -3534,6 +3557,14 @@ pub fn build_auth_ok_for_addresses(
         // opens exactly max_streams. Only meaningful when bonding is active.
         "multipath_adaptive": max_streams > 1 && pcfg.obfuscation.multipath.adaptive,
     });
+    if let Some(session_id) = udp_roaming_session_id {
+        if let Some(object) = body.as_object_mut() {
+            object.insert(
+                "udp_roaming_session".into(),
+                serde_json::json!(format!("{session_id:016x}")),
+            );
+        }
+    }
     let plan_v2 = client_capabilities.is_some_and(|capabilities| {
         capabilities.core_bits & crate::protocol::capabilities::client_capability::NETWORK_PLAN_V2
             != 0
@@ -3591,7 +3622,8 @@ pub fn build_auth_ok_for_addresses(
 #[cfg(test)]
 mod auth_ok_prefix_tests {
     use super::{
-        build_auth_error, build_auth_ok, build_auth_ok_for_addresses, build_routes_json_for_user,
+        build_auth_error, build_auth_ok, build_auth_ok_for_addresses,
+        build_auth_ok_for_addresses_with_udp_roaming, build_routes_json_for_user,
         resolve_static_addresses, JOIN_TOKEN_LEN,
     };
 
@@ -3695,6 +3727,41 @@ mod auth_ok_prefix_tests {
         assert_eq!(
             current["obfuscation"]["recordizer"]["batch"]["max_packets"],
             7
+        );
+    }
+
+    #[test]
+    fn udp_roaming_bootstrap_is_additive_canonical_and_absent_from_legacy_auth_ok() {
+        let profile = crate::config::server::ProfileConfig::baseline();
+        let assigned = crate::server::pool::AssignedAddresses {
+            ipv4: Some("10.9.0.2".parse().unwrap()),
+            ipv6: None,
+        };
+        let legacy =
+            build_auth_ok_for_addresses(assigned, &profile, "[]", &[0; JOIN_TOKEN_LEN], 1, None);
+        let legacy: serde_json::Value =
+            serde_json::from_str(legacy.strip_prefix("OK:").unwrap()).unwrap();
+        assert!(legacy.get("udp_roaming_session").is_none());
+
+        let roaming = build_auth_ok_for_addresses_with_udp_roaming(
+            assigned,
+            &profile,
+            "[]",
+            &[0; JOIN_TOKEN_LEN],
+            1,
+            Some(crate::protocol::capabilities::ClientCapabilities {
+                core_bits: crate::protocol::capabilities::client_capability::CONTROL_V2
+                    | crate::protocol::capabilities::client_capability::UDP_ROAM_V1
+                    | crate::protocol::capabilities::client_capability::UDP_DATA_FRAG_V1,
+                ..Default::default()
+            }),
+            Some(0x0102_0304_0506_0708),
+        );
+        let roaming: serde_json::Value =
+            serde_json::from_str(roaming.strip_prefix("OK:").unwrap()).unwrap();
+        assert_eq!(
+            roaming["udp_roaming_session"],
+            serde_json::json!("0102030405060708")
         );
     }
 

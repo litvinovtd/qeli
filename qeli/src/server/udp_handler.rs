@@ -2714,18 +2714,26 @@ async fn handle_udp_auth(
         let wc = client.tx_codec.clone();
         let wpn = client.packet_counter.clone();
         let fragment_key = client.tx_data_frag_key;
+        let udp_roaming_session_id = (qe
+            && data_frag_enabled
+            && crate::protocol::capabilities::udp_roaming_negotiated(
+                Some(crate::protocol::capabilities::implemented_server_capabilities()),
+                capabilities,
+            ))
+        .then_some(session_id);
 
         // Self-describing keyed OK payload, same as the TCP path (handler.rs).
         let enc_result = {
             // UDP has no head-of-line blocking, so no stream bonding: empty token,
             // single stream.
-            let msg = handler::build_auth_ok_for_addresses(
+            let msg = handler::build_auth_ok_for_addresses_with_udp_roaming(
                 assigned,
                 pcfg,
                 &routes_json,
                 &[0u8; crate::server::handler::JOIN_TOKEN_LEN],
                 1,
                 capabilities,
+                udp_roaming_session_id,
             );
             let mut tx = lock_or_recover(&client.tx_codec, "udp::auth_response");
             tx.encrypt_packet(msg.as_bytes(), &[])

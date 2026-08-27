@@ -102,6 +102,25 @@ pub fn control_v2_supported(client: Option<ClientCapabilities>) -> bool {
             .is_some_and(|capabilities| capabilities.core_bits & client_capability::CONTROL_V2 != 0)
 }
 
+/// UDP migration is entered only after both authenticated capability trailers confirm the
+/// complete protocol prerequisites. Keeping the server value explicit prevents a client from
+/// activating a reserved bit that this server deliberately did not advertise yet.
+pub fn udp_roaming_negotiated(
+    server: Option<ServerCapabilities>,
+    client: Option<ClientCapabilities>,
+) -> bool {
+    let required_server = server_capability::CONTROL_V2
+        | server_capability::UDP_ROAM_V1
+        | server_capability::UDP_DATA_FRAG_V1;
+    let required_client = client_capability::CONTROL_V2
+        | client_capability::UDP_ROAM_V1
+        | client_capability::UDP_DATA_FRAG_V1;
+    cfg!(feature = "experimental-roaming")
+        && server.is_some_and(|capabilities| capabilities.contains(required_server))
+        && client
+            .is_some_and(|capabilities| capabilities.core_bits & required_client == required_client)
+}
+
 /// Server-side support can be advertised before a client supervisor opts in.  A session only
 /// enters the roaming lifecycle after the authenticated client extension confirms this bit.
 pub fn tcp_resume_supported(client: Option<ClientCapabilities>) -> bool {
@@ -480,6 +499,35 @@ mod tests {
         let (parsed, credentials) = split_client_capabilities(&bytes).unwrap();
         assert_eq!(parsed, Some(capabilities));
         assert_eq!(credentials, b"alice:secret");
+    }
+
+    #[test]
+    fn udp_roaming_requires_bidirectional_explicit_opt_in_and_data_frag() {
+        let server = ServerCapabilities {
+            bits: server_capability::CONTROL_V2
+                | server_capability::UDP_ROAM_V1
+                | server_capability::UDP_DATA_FRAG_V1,
+        };
+        let client = ClientCapabilities {
+            core_bits: client_capability::CONTROL_V2
+                | client_capability::UDP_ROAM_V1
+                | client_capability::UDP_DATA_FRAG_V1,
+            ..ClientCapabilities::default()
+        };
+        #[cfg(feature = "experimental-roaming")]
+        assert!(udp_roaming_negotiated(Some(server), Some(client)));
+        #[cfg(not(feature = "experimental-roaming"))]
+        assert!(!udp_roaming_negotiated(Some(server), Some(client)));
+
+        assert!(!udp_roaming_negotiated(None, Some(client)));
+        assert!(!udp_roaming_negotiated(Some(server), None));
+        assert!(!udp_roaming_negotiated(
+            Some(server),
+            Some(ClientCapabilities {
+                core_bits: client.core_bits & !client_capability::UDP_DATA_FRAG_V1,
+                ..client
+            })
+        ));
     }
 
     #[test]
