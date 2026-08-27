@@ -4,7 +4,7 @@
 > Статус: проектирование завершено; этапы 0–2A и срезы authenticated TCP hard resume и
 > explicit close этапа 2B реализованы под `experimental-roaming`. Оба feature-пути прошли
 > изолированный Linux live e2e; make-before-break handover и этапы 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (863/884 library tests,
+> На лабе `.10` прошли финальные default/feature suites (863/886 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -490,7 +490,15 @@ JOIN/resume, закрывает все bonded streams, сразу освобож
 Linux SIGINT/SIGTERM теперь использует этот cooperative cancel path вместо обхода data-plane
 destructors через `process::exit`.
 
-На lab `.10` финальные default/feature suites прошли с 863/884 library tests, 4 CLI и
+Основа make-before-break теперь связывает authenticated resume proof с явным handover-флагом
+и считает перекрывающиеся carrier каждого stable logical slot через refcount. Поэтому завершение
+старого draining carrier не может ошибочно пометить replacement отсутствующим. Сервер также
+требует, чтобы authenticated client capabilities одновременно объявляли TCP handover core bits
+и полный platform-контракт `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`): одного
+core-bit недостаточно для вытеснения живого transport. Клиент по-прежнему не рекламирует
+`TCP_HANDOVER_V1`, пока PathUpdate transaction не подключит этот wire path.
+
+На lab `.10` финальные default/feature suites прошли с 863/886 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password

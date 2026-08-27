@@ -1790,8 +1790,8 @@ async fn send_tcp_close_session(outs: &Arc<std::sync::Mutex<Vec<ClientStreamSend
     log::debug!("no live TCP stream accepted the best-effort CLOSE_SESSION");
 }
 
-/// Original-session material needed for authenticated TCP hard resume. The common core
-/// advertises only TCP_RESUME_V1; make-before-break stays disabled until PathUpdate drives it.
+/// Original-session material shared by authenticated hard resume and the future
+/// PathUpdate-driven make-before-break transaction.
 #[derive(Clone)]
 struct TcpResumeContext {
     #[cfg(feature = "experimental-roaming")]
@@ -1831,7 +1831,10 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 
 #[cfg(all(test, feature = "experimental-roaming"))]
 mod tcp_resume_client_tests {
-    use super::{decode_hex_array, TcpResumeContext, TcpSecondaryAttach};
+    use super::{
+        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, TcpActiveSlots,
+        TcpResumeContext, TcpSecondaryAttach,
+    };
     use portable_atomic::AtomicU64;
     use std::sync::Arc;
 
@@ -1851,6 +1854,7 @@ mod tcp_resume_client_tests {
             context: &context,
             resume_epoch: epoch,
             logical_slot_id: 3,
+            handover: false,
         }
         .first_message(transcript);
         let join = crate::protocol::roaming::TcpResumeJoin::decode(&encoded).unwrap();
@@ -1859,6 +1863,34 @@ mod tcp_resume_client_tests {
         assert_eq!(join.input().resume_epoch(), 2);
         assert_eq!(join.input().logical_slot_id(), 3);
         assert!(!join.input().is_handover());
+
+        let handover = TcpSecondaryAttach::Resume {
+            context: &context,
+            resume_epoch: context.next_epoch().unwrap(),
+            logical_slot_id: 3,
+            handover: true,
+        }
+        .first_message(transcript);
+        let handover = crate::protocol::roaming::TcpResumeJoin::decode(&handover).unwrap();
+        assert!(handover.verify(&secret));
+        assert!(handover.input().is_handover());
+    }
+
+    #[test]
+    fn overlapping_handover_carriers_keep_the_logical_slot_active_until_both_stop() {
+        let active: TcpActiveSlots =
+            Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
+        mark_tcp_slot_started(&active, 3);
+        mark_tcp_slot_started(&active, 3);
+        mark_tcp_slot_stopped(&active, 3);
+        assert_eq!(
+            crate::util::lock_or_recover(&active, "test::active_slots")
+                .get(&3)
+                .copied(),
+            Some(1)
+        );
+        mark_tcp_slot_stopped(&active, 3);
+        assert!(!crate::util::lock_or_recover(&active, "test::active_slots").contains_key(&3));
     }
 
     #[test]
@@ -2055,19 +2087,41 @@ fn deliver_client_tcp_plaintext(
     }
 }
 
+type TcpActiveSlots = Arc<std::sync::Mutex<std::collections::BTreeMap<u32, usize>>>;
+
+fn mark_tcp_slot_started(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
+    let mut active = crate::util::lock_or_recover(active_slots, "client::active_slots");
+    let count = active.entry(logical_slot_id).or_insert(0);
+    *count = count.saturating_add(1);
+}
+
+fn mark_tcp_slot_stopped(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
+    let mut active = crate::util::lock_or_recover(active_slots, "client::active_slots");
+    let remove = if let Some(count) = active.get_mut(&logical_slot_id) {
+        *count = count.saturating_sub(1);
+        *count == 0
+    } else {
+        log::error!("TCP active-slot counter underflow for slot {logical_slot_id}");
+        false
+    };
+    if remove {
+        active.remove(&logical_slot_id);
+    }
+}
+
 fn mark_tcp_stream_stopped(
     logical_slot_id: u32,
     stream_dead: &std::sync::atomic::AtomicBool,
     live: &std::sync::atomic::AtomicUsize,
     dead_tx: &mpsc::Sender<()>,
-    active_slots: Option<&Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>>,
+    active_slots: Option<&TcpActiveSlots>,
     last_live_lost_at: Option<&Arc<std::sync::Mutex<Option<tokio::time::Instant>>>>,
 ) {
     if stream_dead.swap(true, Ordering::AcqRel) {
         return;
     }
     if let Some(active_slots) = active_slots {
-        crate::util::lock_or_recover(active_slots, "client::active_slots").remove(&logical_slot_id);
+        mark_tcp_slot_stopped(active_slots, logical_slot_id);
     }
     let previous = live.fetch_sub(1, Ordering::AcqRel);
     let remaining = previous.saturating_sub(1);
@@ -2109,7 +2163,7 @@ fn spawn_stream<R, W>(
     runtime: Arc<RuntimeCounters>,
     live: Arc<std::sync::atomic::AtomicUsize>,
     logical_slot_id: u32,
-    active_slots: Option<Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>>,
+    active_slots: Option<TcpActiveSlots>,
     last_live_lost_at: Option<Arc<std::sync::Mutex<Option<tokio::time::Instant>>>>,
     // Every task this stream spawns is registered here so the teardown can abort them.
     // Without it the caller had no handle at all: a reader parked in `read_record` on a
@@ -2134,7 +2188,7 @@ where
     // decrements and, only if it was the last, signals a full-tunnel teardown.
     let previous_live = live.fetch_add(1, Ordering::AcqRel);
     if let Some(active_slots) = &active_slots {
-        crate::util::lock_or_recover(active_slots, "client::active_slots").insert(logical_slot_id);
+        mark_tcp_slot_started(active_slots, logical_slot_id);
     }
     if previous_live == 0 {
         if let Some(last_live_lost_at) = &last_live_lost_at {
@@ -2998,9 +3052,10 @@ where
     let outs: Arc<std::sync::Mutex<Vec<ClientStreamSender>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let active_slots = tcp_resume.as_ref().map(|_| {
-        Arc::new(std::sync::Mutex::new(
-            std::collections::BTreeSet::<u32>::new(),
-        ))
+        Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::<
+            u32,
+            usize,
+        >::new()))
     });
     let last_live_lost_at = tcp_resume
         .as_ref()
@@ -3150,6 +3205,7 @@ where
                             &token_bytes,
                             idx as u32,
                             tcp_resume.as_deref(),
+                            false,
                             identity_verifier.clone(),
                         ),
                     )
@@ -3259,6 +3315,7 @@ where
                             &token_r,
                             idx,
                             resume_r.as_deref(),
+                            false,
                             identity_r.clone(),
                         ),
                     )
@@ -3357,7 +3414,7 @@ where
                     };
                     let active = crate::util::lock_or_recover(active_slots, "client::active_slots");
                     let missing = (0..u32::try_from(desired).unwrap_or(u32::MAX))
-                        .find(|slot| !active.contains(slot));
+                        .find(|slot| !active.contains_key(slot));
                     drop(active);
                     let Some(missing) = missing else {
                         joining_m.store(false, Ordering::Release);
@@ -3386,6 +3443,7 @@ where
                             &token_m,
                             logical_slot_id,
                             resume_m.as_deref(),
+                            false,
                             identity_m.clone(),
                         ),
                     )
@@ -3669,6 +3727,7 @@ enum TcpSecondaryAttach<'a> {
         context: &'a TcpResumeContext,
         resume_epoch: u64,
         logical_slot_id: u32,
+        handover: bool,
     },
 }
 
@@ -3701,13 +3760,14 @@ impl TcpSecondaryAttach<'_> {
                 context,
                 resume_epoch,
                 logical_slot_id,
+                handover,
             } => crate::protocol::roaming::TcpResumeJoin::new(
                 crate::protocol::roaming::ResumeProofInput::new(
                     _transcript_hash,
                     context.session_locator,
                     resume_epoch,
                     logical_slot_id,
-                    false,
+                    handover,
                 ),
                 context.resume_secret.as_ref(),
             )
@@ -3723,6 +3783,7 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     token: &[u8],
     logical_slot_id: u32,
     resume: Option<&TcpResumeContext>,
+    handover: bool,
     identity_verifier: IdentityVerifier,
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
     #[cfg(feature = "experimental-roaming")]
@@ -3735,13 +3796,14 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 context,
                 resume_epoch,
                 logical_slot_id,
+                handover,
             },
             identity_verifier,
         )
         .await;
     }
     #[cfg(not(feature = "experimental-roaming"))]
-    let _ = resume;
+    let _ = (resume, handover);
     let stream_index = u8::try_from(logical_slot_id)
         .map_err(|_| anyhow::anyhow!("legacy TCP JOIN stream index exhausted"))?;
     tcp_secondary_handshake(

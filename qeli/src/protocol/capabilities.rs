@@ -117,9 +117,11 @@ pub fn tcp_resume_supported(client: Option<ClientCapabilities>) -> bool {
 pub fn tcp_handover_supported(client: Option<ClientCapabilities>) -> bool {
     cfg!(feature = "experimental-roaming")
         && client.is_some_and(|capabilities| {
-            capabilities.core_bits
-                & (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
-                == (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
+            let required_core =
+                client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1;
+            let required_platform = crate::transport_core::platform_capability::ROAMING_PATH;
+            capabilities.core_bits & required_core == required_core
+                && capabilities.platform_bits & required_platform == required_platform
         })
 }
 
@@ -214,6 +216,13 @@ pub fn negotiate_client_capabilities(
     if platform_bits & required_platform != required_platform {
         // `auto` must downgrade instead of claiming a plan that its adapter cannot apply.
         core_bits &= !client_capability::INNER_IPV6;
+    }
+    if platform_bits & crate::transport_core::platform_capability::ROAMING_PATH
+        != crate::transport_core::platform_capability::ROAMING_PATH
+    {
+        // A handover proof permits replacing a still-live carrier. Never advertise that wire
+        // authority unless the adapter can transactionally prepare and bind the exact path.
+        core_bits &= !client_capability::TCP_HANDOVER_V1;
     }
     if config.routing.ipv6 == ClientIpv6Policy::Required {
         let required_server = server_capability::INNER_IPV6
@@ -646,8 +655,14 @@ mod tests {
             assert!(control_v2_supported(opted_in));
             assert!(tcp_resume_supported(opted_in));
             assert!(!tcp_handover_supported(opted_in));
+            let handover_without_path = Some(ClientCapabilities {
+                core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+                ..ClientCapabilities::default()
+            });
+            assert!(!tcp_handover_supported(handover_without_path));
             let handover = Some(ClientCapabilities {
                 core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+                platform_bits: crate::transport_core::platform_capability::ROAMING_PATH,
                 ..ClientCapabilities::default()
             });
             assert!(tcp_handover_supported(handover));

@@ -4,7 +4,7 @@
 > **Status: design complete; Phases 0–2A and the Phase 2B authenticated TCP hard-resume plus
 > explicit-close slices are implemented behind `experimental-roaming`. Both feature paths passed
 > isolated Linux live e2e; make-before-break handover and Phases 3–6 remain.
-> On lab `.10`, final default and feature suites pass (863/884 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (863/886 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -283,7 +283,15 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   enters orphan grace. Linux SIGINT/SIGTERM uses this cooperative cancel path instead of
   bypassing data-plane destructors with `process::exit`.
 
-  Lab `.10` passes the final default/feature suites (863/884 library tests, 4 CLI,
+  The make-before-break foundation now binds the authenticated resume proof to an explicit
+  handover bit and reference-counts overlapping carriers for each stable logical slot. Draining
+  the old carrier therefore cannot make the replacement appear absent. Server negotiation also
+  requires the authenticated client to advertise both TCP handover core bits and the complete
+  platform `ROAMING_PATH` contract (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`); claiming the core
+  bit alone cannot authorize replacement of a live transport. The client still withholds
+  `TCP_HANDOVER_V1` until the PathUpdate transaction drives this wire path.
+
+  Lab `.10` passes the final default/feature suites (863/886 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,

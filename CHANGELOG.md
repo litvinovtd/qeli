@@ -91,12 +91,19 @@
   negotiated-сессии запрещён. `TCP_HANDOVER_V1` клиент пока намеренно не рекламирует;
   PathUpdate-driven make-before-break и UDP roaming остаются следующими срезами.
   Legacy/non-negotiated scheduler не изменён.
+- Подготовлена безопасная клиентская основа make-before-break: authenticated resume JOIN
+  умеет связывать proof с handover-флагом, а учёт stable logical slot переведён с множества
+  на refcount. Поэтому краткое перекрытие старого и нового carrier не делает слот ложным
+  «отсутствующим», когда первым завершается draining carrier. Сервер принимает handover
+  только если authenticated client capabilities одновременно подтверждают
+  `TCP_RESUME_V1 + TCP_HANDOVER_V1` и полный platform `ROAMING_PATH`; один core-bit без
+  транзакций и exact socket binding больше не даёт права вытеснить живой transport.
 - Намеренная остановка TCP-клиента отправляет строгий пустой `CLOSE_SESSION` внутри
   аутентифицированного CONTROL_V2/PacketCodec, принудительно flush-ит `PACKET_MUX_V1` и
   ограничивает ожидание записи 750 мс. Сервер немедленно закрывает все bonded streams,
   запрещает новые JOIN/resume, освобождает lease и не входит в orphan grace. Linux
   SIGINT/SIGTERM теперь использует cooperative teardown вместо `process::exit`.
-- На lab `.10` default/feature library suites прошли с 863/884 тестами и по одному
+- На lab `.10` default/feature library suites прошли с 863/886 тестами и по одному
   privileged ignored; 4 CLI, 7 integration и strict all-target Clippy прошли в обеих
   конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13:
   authenticated resume занял 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились,
