@@ -236,6 +236,14 @@ pub(crate) enum PathCandidatePhase {
     Aborting,
 }
 
+/// Immutable transport view of a platform-prepared candidate. The transport may borrow this
+/// snapshot only to create and validate the exact socket identified by `candidate_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreparedPathCandidate {
+    pub candidate_id: u64,
+    pub update: PathUpdate,
+}
+
 pub(crate) struct PathCandidate {
     pub candidate_id: u64,
     pub update: PathUpdate,

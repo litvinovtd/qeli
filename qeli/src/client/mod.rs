@@ -42,6 +42,8 @@ type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
+#[cfg(feature = "experimental-roaming")]
+use crate::transport_core::path::PreparedPathCandidate;
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, TcpAuthentication,
@@ -83,6 +85,10 @@ const TCP_RESUME_GRACE: Duration = Duration::from_secs(30);
 const TCP_RESUME_MAINTENANCE_TICK: Duration = Duration::from_secs(1);
 #[cfg(feature = "experimental-roaming")]
 const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
+#[cfg(feature = "experimental-roaming")]
+const TCP_HANDOVER_POLL: Duration = Duration::from_millis(100);
+#[cfg(feature = "experimental-roaming")]
+const TCP_HANDOVER_PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -448,9 +454,39 @@ fn cleanup_routing_features(
 /// The packet/session code is platform-neutral. This is the deliberately small boundary
 /// retained by Linux and Android: identity persistence/trust, NetworkPlan execution and
 /// ownership of the already-created TUN descriptors.
+#[cfg(feature = "experimental-roaming")]
+pub(crate) type PathAckFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
+
+/// Transport-facing half of one platform PathUpdate transaction. The platform owns temporary
+/// routes and exact-network binding; the transport owns the candidate socket and authenticated
+/// proof. Production adapters expose this only together with the complete ROAMING_PATH bits.
+#[cfg(feature = "experimental-roaming")]
+pub(crate) trait TcpPathController: Send + Sync {
+    fn prepared_candidate(&self) -> Option<PreparedPathCandidate>;
+    fn bind_candidate_socket(
+        &self,
+        candidate: &PreparedPathCandidate,
+        socket_fd: i32,
+    ) -> anyhow::Result<PathAckFuture>;
+    fn commit_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+    ) -> anyhow::Result<PathAckFuture>;
+    fn abort_candidate_path(
+        &self,
+        candidate: &PreparedPathCandidate,
+        reason: &str,
+    ) -> anyhow::Result<PathAckFuture>;
+}
+
 pub(crate) trait ClientPlatform {
     fn next_generation(&mut self) -> u64;
     fn platform_capabilities(&self) -> u64;
+    #[cfg(feature = "experimental-roaming")]
+    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+        None
+    }
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]>;
     fn identity_verifier(&self, config: &crate::config::client::ClientConfig) -> IdentityVerifier;
     fn prepare_tunnel(
@@ -1271,12 +1307,32 @@ mod reconnect_jitter_tests {
     }
 }
 
+/// Optional requirements for one additional TCP carrier. Ordinary bonding and hard-resume
+/// callers use the default request; a roaming handover supplies the exact prepared path.
+#[derive(Clone, Default)]
+pub(crate) struct StreamConnectRequest {
+    #[cfg(feature = "experimental-roaming")]
+    pub path_candidate: Option<PreparedPathCandidate>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl StreamConnectRequest {
+    fn for_path(candidate: PreparedPathCandidate) -> Self {
+        Self {
+            path_candidate: Some(candidate),
+        }
+    }
+}
+
 /// A factory that opens one more connection of the SAME concrete stream type, for
 /// stream bonding (multipath). Cloneable + callable from the data-plane to ramp
 /// streams. Every TCP wire mode installs a concrete connector; UDP has its own
 /// transport path and never reaches this type.
 pub(crate) type StreamConnector<S> = std::sync::Arc<
-    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<S>> + Send>>
+    dyn Fn(
+            StreamConnectRequest,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<S>> + Send>>
         + Send
         + Sync,
 >;
@@ -1635,7 +1691,7 @@ async fn connect_and_run_tcp(
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane to open bonded streams (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
             let cfg = cfg.clone();
             Box::pin(async move { connect_obfs(&cfg, false).await })
         });
@@ -1646,7 +1702,7 @@ async fn connect_and_run_tcp(
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
             let cfg = cfg.clone();
             Box::pin(async move { connect_reality(&cfg, false).await })
         });
@@ -1657,7 +1713,7 @@ async fn connect_and_run_tcp(
         log::info!("Wire mode: {} (TCP)", config.obfuscation.mode);
         let first = connect_bare_tcp(config, true).await?;
         let cfg = std::sync::Arc::new(config.clone());
-        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+        let connector: StreamConnector<_> = std::sync::Arc::new(move |_request| {
             let cfg = cfg.clone();
             Box::pin(async move { connect_bare_tcp(&cfg, false).await })
         });
@@ -2819,6 +2875,26 @@ where
         let _ = server_capabilities;
         None
     };
+    #[cfg(feature = "experimental-roaming")]
+    let tcp_path_controller = core.tcp_path_controller();
+    #[cfg(feature = "experimental-roaming")]
+    let tcp_handover_enabled = tcp_path_controller.is_some()
+        && tcp_resume.is_some()
+        && server_capabilities.is_some_and(|server| {
+            server.contains(crate::protocol::capabilities::server_capability::TCP_HANDOVER_V1)
+        })
+        && platform_capabilities & crate::transport_core::platform_capability::ROAMING_PATH
+            == crate::transport_core::platform_capability::ROAMING_PATH;
+    #[cfg(feature = "experimental-roaming")]
+    if tcp_handover_enabled {
+        log::info!(
+            "TCP make-before-break negotiated; prepared PathUpdate candidates may replace slot 0"
+        );
+    } else if tcp_path_controller.is_some() {
+        log::info!(
+            "platform path transactions are available, but this server session requires full reconnect fallback"
+        );
+    }
     // Multipath plan: the primary connection is stream #0; secondaries JOIN with
     // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
@@ -3192,7 +3268,7 @@ where
     if bonding && !adaptive {
         // FIXED: open the remaining streams now.
         for idx in 1..target {
-            match connector().await {
+            match connector(StreamConnectRequest::default()).await {
                 Ok(mut s) => {
                     // Bound the JOIN handshake too (parity with the primary): a stalled
                     // JOIN would otherwise hang this bonded-stream task forever, holding a
@@ -3304,7 +3380,7 @@ where
                 {
                     continue;
                 }
-                match conn_r().await {
+                match conn_r(StreamConnectRequest::default()).await {
                     // Bound the adaptive JOIN handshake as well (see the fixed path); flatten
                     // the timeout Elapsed into an Err so the existing match arms stay put.
                     Ok(mut s) => match tokio::time::timeout(
@@ -3434,7 +3510,7 @@ where
                 };
 
                 let attempt = async {
-                    let mut stream = conn_m().await?;
+                    let mut stream = conn_m(StreamConnectRequest::default()).await?;
                     let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1)),
                         tcp_attach_handshake(
@@ -3522,6 +3598,172 @@ where
         None
     };
 
+    #[cfg(feature = "experimental-roaming")]
+    let handover_handle = tcp_path_controller.map(|path_controller| {
+        let handover_enabled = tcp_handover_enabled;
+        let outs_h = outs.clone();
+        let stream_tasks_h = stream_tasks.clone();
+        let total_h = total_tx.clone();
+        let total_rx_h = total_rx.clone();
+        let tww_h = tun_write_tx.clone();
+        let dead_h = dead_tx.clone();
+        let pump_h = pump.clone();
+        let conn_h = connector.clone();
+        let cfg_h = std::sync::Arc::new(config.clone());
+        let token_h = token_bytes.clone();
+        let live_h = live.clone();
+        let joining_h = join_in_flight.clone();
+        let runtime_h = runtime_counters.clone();
+        let identity_h = identity_verifier.clone();
+        let resume_h = tcp_resume.clone();
+        let active_slots_h = active_slots.clone();
+        let last_live_lost_at_h = last_live_lost_at.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(TCP_HANDOVER_POLL);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                let Some(candidate) = path_controller.prepared_candidate() else {
+                    continue;
+                };
+                if !handover_enabled {
+                    match path_controller
+                        .abort_candidate_path(&candidate, "peer did not negotiate TCP_HANDOVER_V1")
+                    {
+                        Ok(rollback) => {
+                            match tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, rollback)
+                                .await
+                            {
+                                Ok(Ok(())) => log::info!(
+                                    "rolled back candidate {} before full reconnect fallback",
+                                    candidate.candidate_id
+                                ),
+                                Ok(Err(error)) => log::warn!(
+                                    "candidate {} rollback failed before reconnect: {}",
+                                    candidate.candidate_id,
+                                    error
+                                ),
+                                Err(_) => log::warn!(
+                                    "candidate {} rollback timed out before reconnect",
+                                    candidate.candidate_id
+                                ),
+                            }
+                        }
+                        Err(error) => log::warn!(
+                            "could not start candidate {} rollback: {}",
+                            candidate.candidate_id,
+                            error
+                        ),
+                    }
+                    let _ = dead_h.try_send(());
+                    break;
+                }
+                if joining_h
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    continue;
+                }
+
+                let attempt = async {
+                    let resume = resume_h.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("handover requires negotiated TCP resume")
+                    })?;
+                    let mut stream =
+                        conn_h(StreamConnectRequest::for_path(candidate.clone())).await?;
+                    let (rx, tx) = tokio::time::timeout(
+                        Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
+                        tcp_attach_handshake(
+                            &mut stream,
+                            &cfg_h,
+                            &token_h,
+                            0,
+                            Some(resume),
+                            true,
+                            identity_h.clone(),
+                        ),
+                    )
+                    .await
+                    .map_err(|_| anyhow::anyhow!("TCP handover JOIN timed out"))??;
+                    let commit = path_controller.commit_candidate_path(&candidate)?;
+                    tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, commit)
+                        .await
+                        .map_err(|_| anyhow::anyhow!("COMMIT_PATH acknowledgement timed out"))??;
+                    Ok::<_, anyhow::Error>((stream, rx, tx))
+                }
+                .await;
+
+                match attempt {
+                    Ok((stream, rx, tx)) => {
+                        let (reader, writer) = stream.split_io();
+                        let replacement = spawn_stream(
+                            reader,
+                            writer,
+                            rx,
+                            tx,
+                            tww_h.clone(),
+                            dead_h.clone(),
+                            total_h.clone(),
+                            total_rx_h.clone(),
+                            runtime_h.clone(),
+                            live_h.clone(),
+                            0,
+                            active_slots_h.clone(),
+                            last_live_lost_at_h.clone(),
+                            stream_tasks_h.clone(),
+                            pump_h.clone(),
+                        );
+                        let mut outputs = crate::util::lock_or_recover(&outs_h, "client::outs_h");
+                        outputs.retain(|entry| entry.logical_slot_id != 0 && !entry.is_closed());
+                        outputs.push(replacement);
+                        outputs.sort_unstable_by_key(|entry| entry.logical_slot_id);
+                        log::info!(
+                            "TCP make-before-break committed candidate {} ({}) into stable slot 0",
+                            candidate.candidate_id,
+                            candidate.update.platform_path_id
+                        );
+                    }
+                    Err(error) => {
+                        let reason = format!("TCP handover failed: {error}");
+                        match path_controller.abort_candidate_path(&candidate, &reason) {
+                            Ok(rollback) => {
+                                match tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, rollback)
+                                    .await
+                                {
+                                    Ok(Ok(())) => log::debug!(
+                                        "candidate {} rollback completed",
+                                        candidate.candidate_id
+                                    ),
+                                    Ok(Err(abort_error)) => log::warn!(
+                                        "candidate {} rollback failed: {}",
+                                        candidate.candidate_id,
+                                        abort_error
+                                    ),
+                                    Err(_) => log::warn!(
+                                        "candidate {} rollback acknowledgement timed out",
+                                        candidate.candidate_id
+                                    ),
+                                }
+                            }
+                            Err(abort_error) => log::debug!(
+                                "candidate {} rollback was already resolved or superseded: {}",
+                                candidate.candidate_id,
+                                abort_error
+                            ),
+                        }
+                        log::warn!(
+                            "TCP make-before-break candidate {} ({}) failed: {}",
+                            candidate.candidate_id,
+                            candidate.update.platform_path_id,
+                            error
+                        );
+                    }
+                }
+                joining_h.store(false, Ordering::Release);
+            }
+        })
+    });
+
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
     // 5-tuple) so each connection stays in order. Each stream's tasks own
     // encrypt/heartbeat/idle; a dead stream fires dead_rx.
@@ -3594,6 +3836,10 @@ where
         h.abort();
     }
     if let Some(h) = maintenance_handle {
+        h.abort();
+    }
+    #[cfg(feature = "experimental-roaming")]
+    if let Some(h) = handover_handle {
         h.abort();
     }
     // Same reasoning for the per-stream tasks. A reader can sit in `read_record` on a

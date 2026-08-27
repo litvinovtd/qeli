@@ -1,9 +1,11 @@
 # Client roaming (seamless network change) — implementation plan
 <!-- normative-sync: roaming-v3-safe -->
 
-> **Status: design complete; Phases 0–2A and the Phase 2B authenticated TCP hard-resume plus
-> explicit-close slices are implemented behind `experimental-roaming`. Both feature paths passed
-> isolated Linux live e2e; make-before-break handover and Phases 3–6 remain.
+> **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
+> PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
+> Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
+> passed local checks and targeted tests but still requires the live race/device matrix.
+> Production adapters and Phases 3–6 remain.
 > On lab `.10`, final default and feature suites pass (863/886 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
@@ -263,11 +265,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
   proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
   release, cap exhaustion, abort, and late drain acknowledgements.
-- **Phase 2B — 🟡 authenticated hard-resume and explicit-close source/Linux-e2e complete:** the Linux handler
+- **Phase 2B — 🟡 shared TCP resume/handover source complete; live acceptance pending:** the Linux handler
   and shared client supervisor derive and zeroize the original-session resume secret, strictly
   parse authenticated resume JOIN, reserve before JOINOK, and use a fresh KE plus fresh
-  per-carrier data keys on every attach. The feature client advertises `CONTROL_V2` and
-  `TCP_RESUME_V1`; `TCP_HANDOVER_V1` remains withheld.
+  per-carrier data keys on every attach. The feature client core can advertise `CONTROL_V2`,
+  `TCP_RESUME_V1`, and `TCP_HANDOVER_V1`, but negotiation strips handover unless the platform
+  advertises the complete `ROAMING_PATH` contract; no production adapter does so yet.
   Loss of the last carrier preserves the same TUN and NetworkPlan for a 30-second grace and
   retries the same stable logical slot once per second; sibling reader/writer tasks share a
   persistent stop signal. The server permits one bounded authenticated candidate above the
@@ -288,8 +291,21 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   the old carrier therefore cannot make the replacement appear absent. Server negotiation also
   requires the authenticated client to advertise both TCP handover core bits and the complete
   platform `ROAMING_PATH` contract (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`); claiming the core
-  bit alone cannot authorize replacement of a live transport. The client still withholds
-  `TCP_HANDOVER_V1` until the PathUpdate transaction drives this wire path.
+  bit alone cannot authorize replacement of a live transport.
+
+  The shared supervisor now consumes one ACK-confirmed PREPARE candidate at a time, creates a
+  separate unbound socket, requires exact platform `BIND_SOCKET` before connect, and dials only
+  the A/AAAA addresses supplied by that PathUpdate. A fresh-KE authenticated handover JOIN is
+  validated before `COMMIT_PATH`; only after its ACK does the new carrier replace stable slot 0.
+  Overlapping carriers retain the slot by refcount, and the committed address set becomes the
+  repair source for the remaining bonded slots. BIND/COMMIT/ABORT have correlated oneshot results,
+  a 45-second bound, and cancellation on supersede/stop.
+
+  An unsupported peer is rolled back with an ACK-confirmed ABORT before the normal full-reconnect
+  fallback. Candidate connect/JOIN failures also abort temporary platform state. A COMMIT rejection
+  is fail-closed: because the server has already authenticated and switched the carrier, the client
+  recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
+  local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
   Lab `.10` passes the final default/feature suites (863/886 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -298,8 +314,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   traffic recovers, and password AUTH occurs exactly once. A separate `.11 → .10` live test with
   required `PACKET_MUX_V1` passes 3/3 tunnel pings, observes both close markers, leaves zero
   established carriers and no client TUN, and confirms that the server did not enter resume
-  grace. PathUpdate-driven make-before-break and its live race matrix are still required before
-  Phase 2B is complete.
+  grace. Those `.10/.11` results cover hard resume and explicit close, not the newly wired
+  make-before-break path. The new slice locally passes Rust 1.97 Windows FFI checks, strict Clippy,
+  and targeted path/capability tests. Phase 2B acceptance still requires the lab live race matrix;
+  the rerun is pending lab credentials.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.

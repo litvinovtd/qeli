@@ -1,9 +1,9 @@
 //! Wire contracts shared by future TCP resume and UDP path migration.
 //!
 //! UDP remains a protocol-only contract. Under the default-off `experimental-roaming` feature,
-//! the Linux server advertises and consumes authenticated TCP resume/handover messages. The common
-//! client supervisor advertises hard resume only; handover remains withheld until PathUpdate is
-//! wired to make-before-break. Ordinary production builds advertise neither bit.
+//! the Linux server and common client supervisor consume authenticated TCP resume/handover
+//! messages. Negotiation strips handover authority unless a platform adapter advertises the
+//! complete transactional ROAMING_PATH contract. Ordinary production builds advertise no bits.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;

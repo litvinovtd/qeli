@@ -17,8 +17,11 @@
 use super::carrier::{self, ConnectedCarrier};
 use super::{ClientCore, ClientState, NetworkPlan, RuntimeCounters};
 use crate::client::{
-    run_tcp_tunnel, run_udp_tunnel, ClientPlatform, IdentityVerifier, StreamConnector, TunnelSetup,
+    run_tcp_tunnel, run_udp_tunnel, ClientPlatform, IdentityVerifier, StreamConnectRequest,
+    StreamConnector, TunnelSetup,
 };
+#[cfg(feature = "experimental-roaming")]
+use crate::client::{PathAckFuture, TcpPathController};
 use crate::config::client::ClientConfig;
 use crate::protocol::obfs::{AwgParams, ObfsStream};
 use crate::transport_core::network::HandshakeNetwork;
@@ -67,7 +70,7 @@ pub(crate) struct NativeCoreAdapter {
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     fallback_dns_servers: Arc<Vec<String>>,
-    carrier_addresses: Arc<Vec<IpAddr>>,
+    carrier_addresses: Arc<Mutex<Vec<IpAddr>>>,
     carrier_address: Arc<Mutex<Option<IpAddr>>>,
 }
 
@@ -89,10 +92,15 @@ impl NativeCoreAdapter {
     }
 
     async fn carrier_candidates(&self, config: &ClientConfig) -> anyhow::Result<Vec<SocketAddr>> {
+        let supplied = self
+            .carrier_addresses
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         carrier::resolve_ip_candidates(
             &config.server.address,
             config.server.port,
-            self.carrier_addresses.as_slice(),
+            supplied.as_slice(),
         )
         .await
     }
@@ -169,7 +177,17 @@ impl NativeCoreAdapter {
         }
     }
 
-    async fn dial_tcp(&self, config: &ClientConfig) -> anyhow::Result<TcpStream> {
+    async fn dial_tcp(
+        &self,
+        config: &ClientConfig,
+        request: StreamConnectRequest,
+    ) -> anyhow::Result<TcpStream> {
+        #[cfg(feature = "experimental-roaming")]
+        if let Some(candidate) = request.path_candidate.as_ref() {
+            return self.dial_candidate_tcp(config, candidate).await;
+        }
+        #[cfg(not(feature = "experimental-roaming"))]
+        let _ = request;
         let addresses = self.carrier_candidates(config).await?;
         let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
         let deadline = Instant::now() + timeout;
@@ -204,6 +222,62 @@ impl NativeCoreAdapter {
         )
     }
 
+    #[cfg(feature = "experimental-roaming")]
+    async fn dial_candidate_tcp(
+        &self,
+        config: &ClientConfig,
+        candidate: &super::path::PreparedPathCandidate,
+    ) -> anyhow::Result<TcpStream> {
+        let addresses = candidate
+            .update
+            .resolved_addresses
+            .iter()
+            .map(|resolution| {
+                resolution
+                    .address
+                    .parse::<IpAddr>()
+                    .map(|address| SocketAddr::new(address, config.server.port))
+                    .map_err(|_| anyhow::anyhow!("invalid prepared carrier address"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut setup_failures = Vec::new();
+        let (address, socket) = addresses
+            .into_iter()
+            .find_map(
+                |address| match carrier::open_candidate_for(config, address.ip()) {
+                    Ok(socket) => Some((address, socket)),
+                    Err(error) => {
+                        setup_failures.push(format!("{address}: {error}"));
+                        None
+                    }
+                },
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no candidate socket could be created: {}",
+                    setup_failures.join("; ")
+                )
+            })?;
+        let socket_fd = candidate_socket_descriptor(&socket)?;
+        let binding = self.bind_candidate_socket(candidate, socket_fd)?;
+        tokio::time::timeout(NETWORK_ACK_TIMEOUT, binding)
+            .await
+            .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
+
+        let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+        match carrier::connect_to(socket, config, address, timeout).await {
+            Ok(ConnectedCarrier::Tcp(stream)) => {
+                configure_tcp(&stream, config)?;
+                Ok(stream)
+            }
+            Ok(ConnectedCarrier::Udp(_)) => anyhow::bail!("TCP candidate dialer received UDP"),
+            Err(error) => Err(anyhow::anyhow!(
+                "candidate path {} connect to {address} failed: {error}",
+                candidate.update.platform_path_id
+            )),
+        }
+    }
+
     fn note_carrier(&self, carrier: &ConnectedCarrier) {
         let peer = match carrier {
             ConnectedCarrier::Tcp(stream) => stream.peer_addr().ok(),
@@ -219,6 +293,93 @@ impl NativeCoreAdapter {
     }
 }
 
+#[cfg(feature = "experimental-roaming")]
+fn candidate_socket_descriptor(socket: &Socket) -> anyhow::Result<i32> {
+    #[cfg(unix)]
+    {
+        Ok(socket.as_raw_fd())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = socket;
+        anyhow::bail!("candidate socket binding requires an ABI-safe Unix descriptor")
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn path_ack_future(
+    receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    action: &'static str,
+) -> PathAckFuture {
+    Box::pin(async move {
+        match receiver.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(reason)) => Err(anyhow::anyhow!("{action} rejected: {reason}")),
+            Err(_) => Err(anyhow::anyhow!("{action} acknowledgement was cancelled")),
+        }
+    })
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl TcpPathController for NativeCoreAdapter {
+    fn prepared_candidate(&self) -> Option<super::path::PreparedPathCandidate> {
+        let core = self.lock();
+        let required = super::platform_capability::ROAMING_PATH;
+        (core.platform_capabilities() & required == required)
+            .then(|| core.prepared_path_candidate())
+            .flatten()
+    }
+
+    fn bind_candidate_socket(
+        &self,
+        candidate: &super::path::PreparedPathCandidate,
+        socket_fd: i32,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self.lock().request_candidate_socket_binding(
+            candidate.update.generation,
+            candidate.candidate_id,
+            socket_fd,
+        )?;
+        Ok(path_ack_future(receiver, "BIND_SOCKET"))
+    }
+
+    fn commit_candidate_path(
+        &self,
+        candidate: &super::path::PreparedPathCandidate,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self
+            .lock()
+            .candidate_path_validated(candidate.update.generation, candidate.candidate_id)?;
+        let addresses = candidate
+            .update
+            .resolved_addresses
+            .iter()
+            .filter_map(|entry| entry.address.parse::<IpAddr>().ok())
+            .collect::<Vec<_>>();
+        let active_addresses = self.carrier_addresses.clone();
+        Ok(Box::pin(async move {
+            path_ack_future(receiver, "COMMIT_PATH").await?;
+            *active_addresses
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = addresses;
+            Ok(())
+        }))
+    }
+
+    fn abort_candidate_path(
+        &self,
+        candidate: &super::path::PreparedPathCandidate,
+        reason: &str,
+    ) -> anyhow::Result<PathAckFuture> {
+        let (_, receiver) = self.lock().abort_candidate_path(
+            candidate.update.generation,
+            candidate.candidate_id,
+            reason,
+        )?;
+        Ok(path_ack_future(receiver, "ABORT_PATH"))
+    }
+}
+
 impl ClientPlatform for NativeCoreAdapter {
     fn next_generation(&mut self) -> u64 {
         self.lock().last_plan_generation.saturating_add(1)
@@ -226,6 +387,16 @@ impl ClientPlatform for NativeCoreAdapter {
 
     fn platform_capabilities(&self) -> u64 {
         self.lock().platform_capabilities()
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+        let required = super::platform_capability::ROAMING_PATH;
+        if self.platform_capabilities() & required == required {
+            Some(Arc::new(self.clone()))
+        } else {
+            None
+        }
     }
 
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]> {
@@ -416,7 +587,7 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         cancel: cancel.clone(),
         counters: counters.clone(),
         fallback_dns_servers: Arc::new(input.fallback_dns_servers),
-        carrier_addresses: Arc::new(carrier_addresses),
+        carrier_addresses: Arc::new(Mutex::new(carrier_addresses)),
         carrier_address: Arc::new(Mutex::new(None)),
     };
     // `qeli_client_stop` is the ownership boundary used by every GUI adapter. It must cancel
@@ -468,11 +639,11 @@ async fn run_tcp(
             let first = wrap_obfs(stream, config).await?;
             let dialer = adapter.clone();
             let cfg = Arc::new(config.clone());
-            let connector: StreamConnector<_> = Arc::new(move || {
+            let connector: StreamConnector<_> = Arc::new(move |request| {
                 let dialer = dialer.clone();
                 let cfg = cfg.clone();
                 Box::pin(async move {
-                    let stream = dialer.dial_tcp(&cfg).await?;
+                    let stream = dialer.dial_tcp(&cfg, request).await?;
                     wrap_obfs(stream, &cfg).await
                 })
             });
@@ -482,11 +653,11 @@ async fn run_tcp(
             let first = wrap_reality(stream, config).await?;
             let dialer = adapter.clone();
             let cfg = Arc::new(config.clone());
-            let connector: StreamConnector<_> = Arc::new(move || {
+            let connector: StreamConnector<_> = Arc::new(move |request| {
                 let dialer = dialer.clone();
                 let cfg = cfg.clone();
                 Box::pin(async move {
-                    let stream = dialer.dial_tcp(&cfg).await?;
+                    let stream = dialer.dial_tcp(&cfg, request).await?;
                     wrap_reality(stream, &cfg).await
                 })
             });
@@ -495,10 +666,10 @@ async fn run_tcp(
         "fake-tls" | "plain" => {
             let dialer = adapter.clone();
             let cfg = Arc::new(config.clone());
-            let connector: StreamConnector<_> = Arc::new(move || {
+            let connector: StreamConnector<_> = Arc::new(move |request| {
                 let dialer = dialer.clone();
                 let cfg = cfg.clone();
-                Box::pin(async move { dialer.dial_tcp(&cfg).await })
+                Box::pin(async move { dialer.dial_tcp(&cfg, request).await })
             });
             run_tcp_tunnel(stream, connector, config, password, adapter).await
         }

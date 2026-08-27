@@ -1,9 +1,11 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v3-safe -->
 
-> Статус: проектирование завершено; этапы 0–2A и срезы authenticated TCP hard resume и
-> explicit close этапа 2B реализованы под `experimental-roaming`. Оба feature-пути прошли
-> изолированный Linux live e2e; make-before-break handover и этапы 3–6 ещё впереди.
+> Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
+> PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
+> Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
+> прошёл локальные проверки и targeted tests, но ещё требует live-матрицу гонок и устройств.
+> Production-адаптеры и этапы 3–6 ещё впереди.
 > На лабе `.10` прошли финальные default/feature suites (863/886 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
@@ -467,12 +469,13 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
 production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — 🟡 hard resume и explicit close готовы в исходниках и Linux e2e
+### Этап 2B. TCP resume и handover — 🟡 общие исходники готовы, live-приёмка ожидается
 
 Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
 secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
 до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys.
-Feature-клиент рекламирует `CONTROL_V2` и `TCP_RESUME_V1`; `TCP_HANDOVER_V1` пока не объявляется.
+Feature-клиент умеет объявить `CONTROL_V2`, `TCP_RESUME_V1` и `TCP_HANDOVER_V1`, но negotiation
+удаляет handover без полного platform `ROAMING_PATH`; production-адаптеры его пока не объявляют.
 Потеря последнего carrier до 30 секунд сохраняет прежние TUN
 и NetworkPlan; supervisor раз в секунду восстанавливает тот же stable logical slot, а sibling
 reader/writer завершаются общим сохраняющим состояние stop-сигналом.
@@ -495,8 +498,21 @@ destructors через `process::exit`.
 старого draining carrier не может ошибочно пометить replacement отсутствующим. Сервер также
 требует, чтобы authenticated client capabilities одновременно объявляли TCP handover core bits
 и полный platform-контракт `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`): одного
-core-bit недостаточно для вытеснения живого transport. Клиент по-прежнему не рекламирует
-`TCP_HANDOVER_V1`, пока PathUpdate transaction не подключит этот wire path.
+core-bit недостаточно для вытеснения живого transport.
+
+Общий supervisor теперь забирает один ACK-подтверждённый PREPARE candidate, создаёт отдельный
+unbound socket, до connect требует точный platform `BIND_SOCKET` и использует только A/AAAA из
+данного PathUpdate. Fresh-KE authenticated handover JOIN проверяется до `COMMIT_PATH`; только
+после его ACK новый carrier заменяет stable slot 0. Перекрывающиеся carrier удерживают slot через
+refcount, а committed-набор адресов становится источником восстановления остальных bonded slots.
+BIND/COMMIT/ABORT имеют коррелированные oneshot-результаты, 45-секундный предел и отмену при
+supersede/stop.
+
+Если peer не поддерживает handover, временный path проходит ACK-подтверждённый ABORT до обычного
+full-reconnect fallback. Ошибки candidate connect/JOIN также откатывают platform-состояние.
+Отказ COMMIT остаётся fail-closed: сервер к этому моменту уже аутентифицировал и переключил
+carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
+неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
 На lab `.10` финальные default/feature suites прошли с 863/886 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -506,9 +522,10 @@ AUTH выполнилась ровно один раз. Отдельный live 
 `PACKET_MUX_V1` прошёл 3/3 tunnel ping, подтвердил оба close-маркера, отсутствие established
 carrier и клиентского TUN после остановки и отсутствие перехода сервера в resume grace.
 
-Полный этап 2B ещё не завершён: остаются PathUpdate-driven make-before-break и его live-матрица
-гонок; `TCP_HANDOVER_V1` намеренно не рекламируется. Остальные платформы остаются за feature gate
-до этапа 4.
+Эти результаты `.10/.11` относятся к hard resume и explicit close, а не к новому
+make-before-break пути. Новый срез локально прошёл Rust 1.97 Windows FFI checks, strict Clippy и
+targeted path/capability tests. Для приёмки этапа 2B всё ещё нужна live-матрица гонок на лабе;
+повторный прогон ожидает доступы. Остальные платформы остаются за feature gate до этапа 4.
 
 ### Этап 3. UDP migration
 

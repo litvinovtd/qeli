@@ -135,10 +135,13 @@ pub const fn implemented_client_core_capabilities() -> u64 {
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
         | client_capability::PACKET_MUX_V1;
-    // CONTROL_V2 terminal close and hard TCP resume are complete in the common client
-    // supervisor. Handover remains withheld until PathUpdate drives make-before-break.
+    // The shared supervisor owns terminal close, hard resume and PathUpdate-driven TCP
+    // handover. Negotiation still strips handover unless the adapter advertises ROAMING_PATH.
     #[cfg(feature = "experimental-roaming")]
-    let bits = bits | client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1;
+    let bits = bits
+        | client_capability::CONTROL_V2
+        | client_capability::TCP_RESUME_V1
+        | client_capability::TCP_HANDOVER_V1;
     bits
 }
 
@@ -621,6 +624,41 @@ mod tests {
             .contains("PACKET_MUX_V1"));
     }
 
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn client_handover_requires_the_complete_platform_path_contract() {
+        let config = crate::config::client::ClientConfig::default();
+        let server = Some(implemented_server_capabilities());
+        let without_path = negotiate_client_capabilities(&config, server, 0)
+            .unwrap()
+            .expect("authenticated capability extension");
+        assert_eq!(
+            without_path.core_bits & client_capability::TCP_HANDOVER_V1,
+            0
+        );
+
+        let transactions_only = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::PATH_TRANSACTIONS,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_eq!(
+            transactions_only.core_bits & client_capability::TCP_HANDOVER_V1,
+            0
+        );
+
+        let complete = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::ROAMING_PATH,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_ne!(complete.core_bits & client_capability::TCP_HANDOVER_V1, 0);
+    }
+
     #[test]
     fn tcp_roaming_server_bits_follow_the_build_gate_and_require_client_opt_in() {
         let server = implemented_server_capabilities();
@@ -634,11 +672,13 @@ mod tests {
         assert_eq!(server.bits & server_capability::ROAMING_RESERVED, 0);
 
         // Server capability alone never changes a session. The authenticated client
-        // extension must opt in; only the gated hard-resume bit is currently complete.
+        // extension and complete platform contract must opt in.
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1
+            client_capability::CONTROL_V2
+                | client_capability::TCP_RESUME_V1
+                | client_capability::TCP_HANDOVER_V1
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(

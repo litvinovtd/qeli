@@ -12,7 +12,7 @@
 
 use self::path::{
     PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathUpdate,
-    QueuedPathCandidate,
+    PreparedPathCandidate, QueuedPathCandidate,
 };
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -846,6 +846,7 @@ pub struct ClientCore {
     pending_plan: Option<u64>,
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
+    pending_path_command: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     last_plan_generation: u64,
     path_candidate: Option<PathCandidate>,
     queued_path_candidate: Option<QueuedPathCandidate>,
@@ -926,6 +927,7 @@ impl ClientCore {
             pending_plan: None,
             pending_socket_protect: BTreeMap::new(),
             pending_server_identity: BTreeMap::new(),
+            pending_path_command: BTreeMap::new(),
             last_plan_generation: 0,
             path_candidate: None,
             queued_path_candidate: None,
@@ -1020,6 +1022,7 @@ impl ClientCore {
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        self.pending_path_command.clear();
         self.path_candidate = None;
         self.queued_path_candidate = None;
         #[cfg(unix)]
@@ -1780,6 +1783,13 @@ impl ClientCore {
     }
 
     fn begin_path_abort(&mut self, reason: String) {
+        if let Some(sequence) = self
+            .path_candidate
+            .as_ref()
+            .and_then(|candidate| candidate.pending_sequence)
+        {
+            self.pending_path_command.remove(&sequence);
+        }
         self.record_path_failure();
         let command = self
             .path_candidate
@@ -1804,12 +1814,28 @@ impl ClientCore {
             return false;
         };
         self.events.remove(position);
+        self.pending_path_command.remove(&sequence);
         true
     }
 
     fn discard_queued_path_events(&mut self) {
         self.events
             .retain(|event| event.kind != EventKind::PathCommand);
+        self.pending_path_command.clear();
+    }
+
+    /// Return the only candidate which has crossed PREPARE_PATH successfully and is not
+    /// already owned by a socket transaction. Polling is idempotent until BIND_SOCKET starts.
+    #[allow(dead_code)]
+    pub(crate) fn prepared_path_candidate(&self) -> Option<PreparedPathCandidate> {
+        self.path_candidate.as_ref().and_then(|candidate| {
+            (candidate.phase == PathCandidatePhase::Prepared
+                && candidate.pending_sequence.is_none())
+            .then(|| PreparedPathCandidate {
+                candidate_id: candidate.candidate_id,
+                update: candidate.update.clone(),
+            })
+        })
     }
 
     /// Accept one bounded, generation-scoped path observation from a platform adapter.
@@ -1898,7 +1924,7 @@ impl ClientCore {
         generation: u64,
         candidate_id: u64,
         fd: i32,
-    ) -> Result<u64, CoreError> {
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         if fd < 0 {
@@ -1921,6 +1947,7 @@ impl ClientCore {
         }
         self.require_event_slots(1)?;
         let command = candidate.command(PathCommandAction::BindSocket, Some(fd), None);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
         let sequence = self.push_path_event(command);
         let candidate = self
             .path_candidate
@@ -1928,7 +1955,9 @@ impl ClientCore {
             .expect("validated candidate is present");
         candidate.phase = PathCandidatePhase::Binding;
         candidate.pending_sequence = Some(sequence);
-        Ok(sequence)
+        let replaced = self.pending_path_command.insert(sequence, sender);
+        debug_assert!(replaced.is_none());
+        Ok((sequence, receiver))
     }
 
     /// Publish transport proof for a bound candidate. Stage 1 exposes the COMMIT contract,
@@ -1938,7 +1967,7 @@ impl ClientCore {
         &mut self,
         generation: u64,
         candidate_id: u64,
-    ) -> Result<u64, CoreError> {
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         let candidate = self
@@ -1956,6 +1985,7 @@ impl ClientCore {
         }
         self.require_event_slots(1)?;
         let command = candidate.command(PathCommandAction::CommitPath, None, None);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
         let sequence = self.push_path_event(command);
         let candidate = self
             .path_candidate
@@ -1963,7 +1993,9 @@ impl ClientCore {
             .expect("validated candidate is present");
         candidate.phase = PathCandidatePhase::Committing;
         candidate.pending_sequence = Some(sequence);
-        Ok(sequence)
+        let replaced = self.pending_path_command.insert(sequence, sender);
+        debug_assert!(replaced.is_none());
+        Ok((sequence, receiver))
     }
 
     #[allow(dead_code)]
@@ -1972,7 +2004,7 @@ impl ClientCore {
         generation: u64,
         candidate_id: u64,
         reason: &str,
-    ) -> Result<u64, CoreError> {
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         let candidate = self
@@ -1983,9 +2015,10 @@ impl ClientCore {
             return Err(CoreError::StaleRequest { got: candidate_id });
         }
         if candidate.phase == PathCandidatePhase::Aborting {
-            return candidate
-                .pending_sequence
-                .ok_or(CoreError::StaleRequest { got: candidate_id });
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "abort candidate path while rollback is already pending",
+            });
         }
         self.require_event_slots(1)?;
         let reason: String = reason.chars().take(MAX_PLATFORM_ERROR_CHARS).collect();
@@ -1994,11 +2027,15 @@ impl ClientCore {
         } else {
             reason
         });
-        Ok(self
+        let sequence = self
             .path_candidate
             .as_ref()
             .and_then(|candidate| candidate.pending_sequence)
-            .expect("ABORT_PATH event has a sequence"))
+            .expect("ABORT_PATH event has a sequence");
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let replaced = self.pending_path_command.insert(sequence, sender);
+        debug_assert!(replaced.is_none());
+        Ok((sequence, receiver))
     }
 
     /// Acknowledge exactly one PREPARE/BIND/COMMIT/ABORT event.
@@ -2038,6 +2075,8 @@ impl ClientCore {
         let schedules_abort = !accepted && phase != PathCandidatePhase::Aborting;
         self.require_event_slots(usize::from(starts_queued || schedules_abort))?;
 
+        let pending_result = self.pending_path_command.remove(&request_sequence);
+
         if accepted {
             match phase {
                 PathCandidatePhase::Preparing => {
@@ -2075,6 +2114,9 @@ impl ClientCore {
                     });
                 }
             }
+            if let Some(sender) = pending_result {
+                let _ = sender.send(Ok(()));
+            }
             return Ok(());
         }
 
@@ -2083,6 +2125,9 @@ impl ClientCore {
             .chars()
             .take(MAX_PLATFORM_ERROR_CHARS)
             .collect();
+        if let Some(sender) = pending_result {
+            let _ = sender.send(Err(reason.clone()));
+        }
         if phase == PathCandidatePhase::Aborting {
             self.record_path_failure();
             self.roam_reconnect_fallbacks = self.roam_reconnect_fallbacks.saturating_add(1);
@@ -2120,6 +2165,7 @@ impl ClientCore {
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        self.pending_path_command.clear();
         if self.path_candidate.is_some() {
             self.record_path_failure();
         }
@@ -2178,6 +2224,7 @@ impl ClientCore {
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
+        self.pending_path_command.clear();
         if self.path_candidate.is_some() {
             self.record_path_failure();
         }
@@ -3178,15 +3225,22 @@ mod tests {
             Err(CoreError::InvalidState { .. })
         ));
 
-        core.request_candidate_socket_binding(11, candidate, 42)
+        let (_, mut bind_result) = core
+            .request_candidate_socket_binding(11, candidate, 42)
             .unwrap();
         let bind = path_command(&mut core, PathCommandAction::BindSocket);
         assert_eq!(bind.path_command.as_ref().unwrap().socket_fd, Some(42));
+        assert_eq!(
+            bind_result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        );
         acknowledge_path_event(&mut core, &bind, true, None).unwrap();
+        assert_eq!(bind_result.try_recv(), Ok(Ok(())));
 
-        core.candidate_path_validated(11, candidate).unwrap();
+        let (_, mut commit_result) = core.candidate_path_validated(11, candidate).unwrap();
         let commit = path_command(&mut core, PathCommandAction::CommitPath);
         acknowledge_path_event(&mut core, &commit, true, None).unwrap();
+        assert_eq!(commit_result.try_recv(), Ok(Ok(())));
 
         let stats = core.stats();
         assert_eq!(core.state(), ClientState::Running);
@@ -3201,6 +3255,89 @@ mod tests {
             acknowledge_path_event(&mut core, &commit, true, None),
             Err(CoreError::StaleRequest { .. })
         ));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn prepared_candidate_is_single_owner_and_supersede_cancels_bind_waiter() {
+        let mut core = running_path_core(13);
+        let first = core
+            .submit_path_update(&path_update(13, 1, "wifi-a"))
+            .unwrap();
+        assert!(core.prepared_path_candidate().is_none());
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, true, None).unwrap();
+
+        let prepared = core
+            .prepared_path_candidate()
+            .expect("prepared transport snapshot");
+        assert_eq!(prepared.candidate_id, first);
+        assert_eq!(prepared.update.platform_path_id, "wifi-a");
+        let (_, mut bind_result) = core
+            .request_candidate_socket_binding(13, first, 17)
+            .unwrap();
+        assert!(core.prepared_path_candidate().is_none());
+
+        let second = core
+            .submit_path_update(&path_update(13, 2, "wifi-b"))
+            .unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            bind_result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+        let replacement = path_command(&mut core, PathCommandAction::PreparePath);
+        assert_eq!(
+            replacement
+                .path_command
+                .as_ref()
+                .map(|command| command.candidate_id),
+            Some(second)
+        );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_ack_waiters_report_rejection_and_explicit_abort_completion() {
+        let mut rejected = running_path_core(15);
+        let candidate = rejected
+            .submit_path_update(&path_update(15, 1, "wifi-rejected"))
+            .unwrap();
+        let prepare = path_command(&mut rejected, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut rejected, &prepare, true, None).unwrap();
+        let (_, mut binding) = rejected
+            .request_candidate_socket_binding(15, candidate, 19)
+            .unwrap();
+        let bind = path_command(&mut rejected, PathCommandAction::BindSocket);
+        acknowledge_path_event(&mut rejected, &bind, false, Some("network vanished")).unwrap();
+        assert_eq!(binding.try_recv(), Ok(Err("network vanished".into())));
+        let rollback = path_command(&mut rejected, PathCommandAction::AbortPath);
+        acknowledge_path_event(&mut rejected, &rollback, true, None).unwrap();
+
+        let mut aborted = running_path_core(16);
+        let candidate = aborted
+            .submit_path_update(&path_update(16, 1, "wifi-abort"))
+            .unwrap();
+        let prepare = path_command(&mut aborted, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut aborted, &prepare, true, None).unwrap();
+        let _binding = aborted
+            .request_candidate_socket_binding(16, candidate, 23)
+            .unwrap();
+        let bind = path_command(&mut aborted, PathCommandAction::BindSocket);
+        acknowledge_path_event(&mut aborted, &bind, true, None).unwrap();
+        let (_, mut abort_result) = aborted
+            .abort_candidate_path(16, candidate, "candidate connect failed")
+            .unwrap();
+        let abort = path_command(&mut aborted, PathCommandAction::AbortPath);
+        assert_eq!(
+            abort
+                .path_command
+                .as_ref()
+                .and_then(|command| command.reason.as_deref()),
+            Some("candidate connect failed")
+        );
+        acknowledge_path_event(&mut aborted, &abort, true, None).unwrap();
+        assert_eq!(abort_result.try_recv(), Ok(Ok(())));
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -3233,12 +3370,13 @@ mod tests {
         let prepare = path_command(&mut core, PathCommandAction::PreparePath);
         adapter.apply(&mut core, &prepare);
         if fail_at != PathCommandAction::PreparePath {
-            core.request_candidate_socket_binding(17, candidate, 9)
+            let _binding = core
+                .request_candidate_socket_binding(17, candidate, 9)
                 .unwrap();
             let bind = path_command(&mut core, PathCommandAction::BindSocket);
             adapter.apply(&mut core, &bind);
             if fail_at != PathCommandAction::BindSocket {
-                core.candidate_path_validated(17, candidate).unwrap();
+                let _commit = core.candidate_path_validated(17, candidate).unwrap();
                 let commit = path_command(&mut core, PathCommandAction::CommitPath);
                 adapter.apply(&mut core, &commit);
             }

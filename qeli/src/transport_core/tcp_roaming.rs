@@ -1,9 +1,9 @@
 //! Race-safe server lifecycle primitives for TCP resume and make-before-break handover.
 //!
 //! The default-off `experimental-roaming` server handler owns this lifecycle and advertises its
-//! TCP support. Session activation still requires authenticated client opt-in, while the current
-//! client supervisor advertises hard resume only. The state machine keeps JOIN/reaper/kick races
-//! independently testable and preserves the legacy path for every non-negotiated session.
+//! TCP support. Session activation still requires authenticated client opt-in; make-before-break
+//! additionally requires the complete authenticated client/platform path contract. The state
+//! machine keeps JOIN/reaper/kick races testable and preserves every non-negotiated legacy path.
 
 use crate::protocol::roaming::{TcpResumeJoin, SESSION_LOCATOR_LEN};
 use std::collections::{BTreeMap, HashMap};

@@ -29,6 +29,14 @@ pub(crate) fn open_secondary_for(config: &ClientConfig, address: IpAddr) -> anyh
     open_socket(config, address, false)
 }
 
+/// A roaming candidate must not inherit a desktop `local` address from the active path.
+/// PREPARE_PATH installed temporary reachability and BIND_SOCKET will attach this unconnected
+/// socket to the exact candidate network before connect.
+#[cfg(all(feature = "experimental-roaming", not(target_os = "linux")))]
+pub(crate) fn open_candidate_for(config: &ClientConfig, address: IpAddr) -> anyhow::Result<Socket> {
+    open_unbound_socket(config, address)
+}
+
 fn open_socket(
     config: &ClientConfig,
     remote: IpAddr,
@@ -46,6 +54,23 @@ fn open_socket(
     };
     let socket = Socket::new(domain, socket_type, Some(protocol))?;
     bind_desktop(&socket, config, remote, bind_primary)?;
+    socket.set_nonblocking(true)?;
+    Ok(socket)
+}
+
+#[cfg(all(feature = "experimental-roaming", not(target_os = "linux")))]
+fn open_unbound_socket(config: &ClientConfig, remote: IpAddr) -> anyhow::Result<Socket> {
+    let (socket_type, protocol) = match config.server.protocol.as_str() {
+        "tcp" => (Type::STREAM, Protocol::TCP),
+        "udp" => (Type::DGRAM, Protocol::UDP),
+        protocol => anyhow::bail!("unsupported wire protocol '{protocol}'"),
+    };
+    let domain = if remote.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, socket_type, Some(protocol))?;
     socket.set_nonblocking(true)?;
     Ok(socket)
 }

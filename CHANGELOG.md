@@ -40,11 +40,13 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–2B TCP hard resume, default off)
+### Основа роуминга (stages 0–2B TCP resume/handover, default off)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
-  `TCP_HANDOVER_V1`. Обычная production-сборка их не рекламирует; feature-клиент объявляет
-  `CONTROL_V2` и `TCP_RESUME_V1`, а feature-сервер — CONTROL_V2 и TCP resume/handover.
+  `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
+  handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
+  Ни один production-адаптер этот контракт пока не объявляет; feature-сервер предлагает
+  CONTROL_V2 и TCP resume/handover, а обычные production-сборки не меняют поведение.
   Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
@@ -88,9 +90,8 @@
   Сервер допускает один bounded authenticated candidate сверх stream cap: это позволяет
   атомарно заменить stale carrier, когда клиент уже увидел обрыв, а сервер ещё не получил
   EOF/RST. После commit старый carrier переводится в draining и закрывается; bearer JOIN для
-  negotiated-сессии запрещён. `TCP_HANDOVER_V1` клиент пока намеренно не рекламирует;
-  PathUpdate-driven make-before-break и UDP roaming остаются следующими срезами.
-  Legacy/non-negotiated scheduler не изменён.
+  negotiated-сессии запрещён. Legacy/non-negotiated scheduler не изменён; UDP roaming остаётся
+  следующим протокольным срезом.
 - Подготовлена безопасная клиентская основа make-before-break: authenticated resume JOIN
   умеет связывать proof с handover-флагом, а учёт stable logical slot переведён с множества
   на refcount. Поэтому краткое перекрытие старого и нового carrier не делает слот ложным
@@ -98,6 +99,24 @@
   только если authenticated client capabilities одновременно подтверждают
   `TCP_RESUME_V1 + TCP_HANDOVER_V1` и полный platform `ROAMING_PATH`; один core-bit без
   транзакций и exact socket binding больше не даёт права вытеснить живой transport.
+- PathUpdate-driven TCP make-before-break подключён к общему client supervisor. Transport
+  получает только ACK-подтверждённый PREPARE candidate, создаёт отдельный unbound socket,
+  перед connect требует у платформы точный `BIND_SOCKET`, использует только A/AAAA из данного
+  PathUpdate и выполняет fresh-KE authenticated JOIN с handover-флагом. После успешного JOIN
+  запрашивается `COMMIT_PATH`, затем новый carrier атомарно заменяет stable slot 0; refcount
+  сохраняет слот, пока старый carrier завершается. BIND/COMMIT/ABORT возвращают oneshot-результат
+  с 45-секундным пределом ожидания, а supersede/stop закрывает waiter без утечки. После commit
+  новый список carrier-адресов используется для восстановления остальных bonded slots.
+- Если peer не согласовал `TCP_HANDOVER_V1`, candidate сначала проходит ACK-подтверждённый
+  `ABORT_PATH`, затем supervisor выполняет обычный full reconnect. Ошибка candidate connect/JOIN
+  также откатывает временные platform-правила. Отказ COMMIT остаётся fail-closed: сервер уже
+  аутентифицировал и переключил carrier, поэтому клиент восстанавливается существующим hard
+  resume, а не пытается вернуть старый путь. Production adapter bits остаются выключенными до
+  этапа 4 и прохождения live device/race matrix.
+- Новый срез локально прошёл Rust 1.97 checks и strict Clippy для точной Windows FFI feature
+  matrix, а также targeted path/capability tests. Повторный прогон lab/live matrix ожидает
+  доступ к лабе; приведённые ниже результаты `.10/.11` относятся к предыдущему hard-resume и
+  explicit-close срезу и не считаются проверкой нового make-before-break пути.
 - Намеренная остановка TCP-клиента отправляет строгий пустой `CLOSE_SESSION` внутри
   аутентифицированного CONTROL_V2/PacketCodec, принудительно flush-ит `PACKET_MUX_V1` и
   ограничивает ожидание записи 750 мс. Сервер немедленно закрывает все bonded streams,
