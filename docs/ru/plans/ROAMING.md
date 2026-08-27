@@ -6,10 +6,10 @@
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
 > UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress и negotiated
-> bootstrap этапов 3A–3C готовы по исходникам; впереди ещё подключение ingress/session actor и
-> guarded commit к рабочему пути.
+> bootstrap этапов 3A–3C и authenticated ingress/control boundary готовы по исходникам; впереди
+> ещё candidate transitions и подключение guarded commit к рабочему пути.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (865/907 library tests,
+> На лабе `.10` прошли финальные default/feature suites (865/909 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -519,7 +519,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 865/907 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 865/909 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -588,18 +588,24 @@ Pooled datagram без копирования и точный receiving socket �
 Generation-safe индекс `session_id → address` публикуется только после AUTH и очищается вместе с
 address map; stale teardown старой generation не может удалить replacement.
 
-`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. CID ingress уже доходит до
-generation-checked owner boundary, но PacketCodec/session actor намеренно оставляет его fail-closed.
-Candidate validation, полная DATA_FRAG/reassembly/replay интеграция, cross-listener/family races и
-mock/Linux live-приёмка остаются следующими срезами.
+Owner boundary теперь передаёт encrypted record через существующие session-wide `PacketCodec`,
+replay window и bounded DATA_FRAG reassembler. Строгий CONTROL_V2 decoder пропускает только
+одночастные клиентские `PATH_INIT` и `PATH_RESPONSE` без flags. Replay, malformed/fragmented
+control, server-direction messages, обычные data records и неаутентифицированные байты
+отбрасываются до TUN и до изменения path state. Candidate liveness обновляется только после
+успешной AEAD-проверки. Два focused-теста фиксируют direction/shape gates и общий replay window.
 
-- подключение CID-owner ingress к PacketCodec/reassembly/control actor;
+`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
+и восьмибайтовый CID ещё не могут включиться в production. Authenticated CID ingress уже доходит до
+control boundary, но пока намеренно не создаёт candidate и не публикует новый путь.
+PATH_CHALLENGE/RESPONSE transitions, guarded commit, post-commit DATA_FRAG data flow,
+cross-listener/family races и mock/Linux live-приёмка остаются следующими срезами.
+
 - per-session actor и dynamic egress;
 - PATH_INIT/CHALLENGE/RESPONSE/COMMIT;
 - anti-amplification и candidate limits;
 - двунаправленный live PMTU reset/probe;
-- DATA_FRAG/reassembly/replay интеграция;
+- post-commit DATA_FRAG/reassembly/replay интеграция;
 - cross-worker/listener/family tests.
 
 Результат: безопасный UDP роуминг на mock/Linux path.
