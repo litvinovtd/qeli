@@ -1,14 +1,15 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v4-safe -->
+<!-- normative-sync: roaming-v5-safe -->
 
 > **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
-> passed the lab source/unit gates but still requires the live race/device matrix. The Phase 3A/3B
-> bounded UDP registry/migration state and cross-worker dispatch foundations are source-complete;
-> hot-path integration remains.
+> passed the lab source/unit gates but still requires the live race/device matrix. The Phase
+> 3A–3C bounded UDP registry, cross-worker dispatch, and atomic writer-egress foundations are
+> source-complete; ingress/session-actor integration and the remaining auxiliary egress paths
+> are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (862/900 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (862/901 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -312,7 +313,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (862/900 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (862/901 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -323,7 +324,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   make-before-break path. The new shared path passes the source/unit gates above and the exact
   Windows FFI feature matrix, but no production/Linux adapter advertises `ROAMING_PATH` yet.
   Phase 2B live acceptance therefore follows the Phase 4 adapter and its lab race matrix.
-- **Phase 3 — 🟡 registry/migration state foundation source-complete:** a default-off,
+- **Phase 3 — 🟡 registry/migration and writer-egress foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
   3× anti-amplification accounting, atomic collision-safe CID rotation, generation-tagged PMTU reset,
@@ -331,10 +332,21 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   home-worker ownership of each session codec, avoids a global decrypt lock, uses no channel hop for
   local ingress, and uses fail-closed `try_send` for other `SO_REUSEPORT` workers. Unknown CID,
   invalid worker, full and closed mailbox outcomes are distinct, and rejected payloads retain exact
-  ownership without `Debug`. Twelve unit tests include 32 sequential rotations plus
-  stale/collision/anti-amplification and local/cross-worker/full/closed routing cases. The fabric is
-  not wired into the server hot path yet; session actor integration, dynamic egress,
-  DATA_FRAG/reassembly/replay, cross-listener/family races, and mock/Linux live acceptance remain.
+  ownership without `Debug`.
+
+  The authenticated server UDP writer now snapshots the exact socket, peer, framing, path epoch,
+  and matching PMTU budget once per complete encrypted record. An experimental guarded commit can
+  atomically publish the next IPv4/IPv6 path and eight-byte CID without replacing the PacketCodec,
+  replay window, rate buckets, or TUN ownership. A stale commit cannot roll the path back; a late
+  old-path `EMSGSIZE` cannot overwrite the new family's safe budget; and DATA_FRAG subtracts the
+  actual legacy or roaming header length. The legacy four-byte-CID wire path remains byte-identical.
+  Thirteen focused unit tests cover sequential rotations, stale/collision/anti-amplification,
+  local/cross-worker/full/closed routing, and atomic writer publication.
+
+  The ingress fabric and guarded commit are not connected to the session actor yet and
+  `UDP_ROAM_V1` remains unadvertised. Heartbeat, cover, reverse PMTU probing, complete
+  DATA_FRAG/reassembly/replay integration, cross-listener/family races, and mock/Linux live
+  acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

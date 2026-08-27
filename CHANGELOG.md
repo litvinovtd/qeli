@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–3A TCP/UDP, default off)
+### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
@@ -135,7 +135,19 @@
   владельцу и намеренно не реализует `Debug`. Три unit-теста проверяют local/cross-worker delivery,
   immutable ownership, переполнение, закрытие и точный cleanup. Fabric пока не подключён к server
   hot path, поэтому production data plane не изменён.
-- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/900 тестами
+- Stage 3C переводит серверный UDP data writer с навсегда захваченных socket/address/4-byte CID
+  на общий `UdpActiveEgress`. Для каждой полной зашифрованной записи writer получает неизменяемый
+  snapshot точного socket, peer, framing и path epoch; все DATA_FRAG-фрагменты одной записи поэтому
+  уходят по одному пути, а PacketCodec, replay-window, rate buckets и TUN-сессия не заменяются.
+  Под `experimental-roaming` подготовлен guarded commit следующего epoch: он проверяет семейство
+  socket/peer, атомарно публикует новый восьмибайтовый CID и сбрасывает PMTU к безопасному бюджету
+  нового IPv4/IPv6-пути. Snapshot пути и PMTU согласованы одним lock; запоздалый `EMSGSIZE` старого
+  пути не может расширить или подменить бюджет нового. Расчёт DATA_FRAG вычитает фактические 9 байт
+  legacy- или 13 байт roaming-заголовка, а caller-owned encoder не добавляет allocation в hot path.
+  Legacy wire остаётся byte-identical. Capability всё ещё не рекламируется, guarded commit ещё не
+  вызывается из ingress/session actor, а heartbeat, cover и reverse PMTU probe пока используют старую
+  привязку — это следующие срезы до live UDP roaming.
+- Новый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 862/901 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

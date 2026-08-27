@@ -44,6 +44,213 @@ fn max_concurrent_udp_handshakes() -> usize {
     std::cmp::max(64, cores.saturating_mul(4))
 }
 
+/// The data writer must not permanently capture the source address and socket that authenticated
+/// the session. A roaming commit replaces this value atomically while the PacketCodec, replay
+/// window, rate buckets and TUN ownership remain untouched.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UdpEgressFraming {
+    Unmasked,
+    LegacyQuic([u8; 4]),
+    #[cfg(feature = "experimental-roaming")]
+    // Constructed by `commit_roaming`; the server capability remains unadvertised for now.
+    #[allow(dead_code)]
+    RoamingQuic([u8; crate::protocol::roaming::CID_LEN]),
+}
+
+impl UdpEgressFraming {
+    fn legacy(quic_enabled: bool, connection_id: [u8; 4]) -> Self {
+        if quic_enabled {
+            Self::LegacyQuic(connection_id)
+        } else {
+            Self::Unmasked
+        }
+    }
+
+    fn is_quic(self) -> bool {
+        !matches!(self, Self::Unmasked)
+    }
+
+    fn wrapper_len(self) -> usize {
+        match self {
+            Self::Unmasked => 0,
+            Self::LegacyQuic(_) => crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
+            #[cfg(feature = "experimental-roaming")]
+            Self::RoamingQuic(_) => crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
+        }
+    }
+
+    fn wrap_into<'a>(
+        self,
+        record: &'a [u8],
+        packet_number: u32,
+        output: &'a mut Vec<u8>,
+    ) -> &'a [u8] {
+        match self {
+            Self::Unmasked => record,
+            Self::LegacyQuic(connection_id) => {
+                wrap_quic_short_into(record, &connection_id, packet_number, output);
+                output
+            }
+            #[cfg(feature = "experimental-roaming")]
+            Self::RoamingQuic(destination_cid) => {
+                crate::protocol::roaming::UdpShortHeader::new(destination_cid, packet_number)
+                    .encode_into(record, output);
+                output
+            }
+        }
+    }
+}
+
+/// Copyable path metadata plus an `Arc` to the exact egress socket. Deliberately no `Debug`:
+/// the framing contains the complete destination CID in roaming builds.
+#[derive(Clone)]
+struct UdpEgressSnapshot {
+    socket: Arc<crate::protocol::obfs::ObfsUdp>,
+    peer: SocketAddr,
+    framing: UdpEgressFraming,
+    path_epoch: u64,
+}
+
+impl UdpEgressSnapshot {
+    fn safe_payload_budget(&self) -> usize {
+        crate::protocol::data_frag::conservative_udp_payload_budget(self.peer.is_ipv6())
+    }
+
+    fn record_budget(&self, udp_payload_budget: usize) -> Option<usize> {
+        udp_payload_budget
+            .checked_sub(self.wire_wrapper_len())
+            .filter(|value| *value > crate::protocol::data_frag::HEADER_LEN)
+    }
+
+    fn wire_wrapper_len(&self) -> usize {
+        self.socket.seal_overhead() + self.framing.wrapper_len()
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+// Becomes live with PATH_COMMIT; retained now so the publication primitive is testable in isolation.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UdpEgressCommitError {
+    StaleEpoch,
+    InvalidEpoch,
+    FamilyMismatch,
+}
+
+/// Single atomic publication point for server-to-client UDP traffic. Reads are short synchronous
+/// snapshots; no socket send or codec operation happens while the lock is held.
+#[derive(Clone)]
+struct UdpActiveEgress(Arc<std::sync::RwLock<UdpEgressSnapshot>>);
+
+impl UdpActiveEgress {
+    fn new_legacy(
+        socket: Arc<crate::protocol::obfs::ObfsUdp>,
+        peer: SocketAddr,
+        quic_enabled: bool,
+        connection_id: [u8; 4],
+    ) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
+            socket,
+            peer,
+            framing: UdpEgressFraming::legacy(quic_enabled, connection_id),
+            path_epoch: 0,
+        })))
+    }
+
+    fn snapshot(&self) -> UdpEgressSnapshot {
+        self.0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Capture path and PMTU budget under the same read lock. A commit cannot publish a new
+    /// family between these two reads, so one record never combines an old socket with a new
+    /// path's (possibly larger) payload budget.
+    fn snapshot_with_payload_budget(
+        &self,
+        payload_budget: &std::sync::atomic::AtomicU32,
+    ) -> (UdpEgressSnapshot, usize) {
+        let current = self
+            .0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let budget = payload_budget.load(std::sync::atomic::Ordering::Relaxed) as usize;
+        (current.clone(), budget)
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    // Called only after the CID/PATH_RESPONSE slice is connected; see the feature test below.
+    #[allow(dead_code)]
+    fn commit_roaming(
+        &self,
+        expected_epoch: u64,
+        next_epoch: u64,
+        socket: Arc<crate::protocol::obfs::ObfsUdp>,
+        peer: SocketAddr,
+        destination_cid: [u8; crate::protocol::roaming::CID_LEN],
+        payload_budget: &std::sync::atomic::AtomicU32,
+    ) -> Result<(), UdpEgressCommitError> {
+        if next_epoch
+            != expected_epoch
+                .checked_add(1)
+                .ok_or(UdpEgressCommitError::InvalidEpoch)?
+        {
+            return Err(UdpEgressCommitError::InvalidEpoch);
+        }
+        let local = socket
+            .raw_socket()
+            .local_addr()
+            .map_err(|_| UdpEgressCommitError::FamilyMismatch)?;
+        if local.is_ipv4() != peer.is_ipv4() {
+            return Err(UdpEgressCommitError::FamilyMismatch);
+        }
+        let mut current = self
+            .0
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if current.path_epoch != expected_epoch {
+            return Err(UdpEgressCommitError::StaleEpoch);
+        }
+        let safe_payload_budget =
+            crate::protocol::data_frag::conservative_udp_payload_budget(peer.is_ipv6());
+        // The writer cannot snapshot the new path until this write guard is released.
+        payload_budget.store(
+            safe_payload_budget as u32,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        *current = UdpEgressSnapshot {
+            socket,
+            peer,
+            framing: UdpEgressFraming::RoamingQuic(destination_cid),
+            path_epoch: next_epoch,
+        };
+        Ok(())
+    }
+
+    /// EMSGSIZE may arrive after another task committed a new path. Downgrade the currently
+    /// published family, not the stale snapshot that happened to report the error.
+    fn downgrade_payload_budget(
+        &self,
+        attempted_epoch: u64,
+        payload_budget: &std::sync::atomic::AtomicU32,
+    ) -> usize {
+        let current = self
+            .0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let safe = current.safe_payload_budget();
+        if current.path_epoch != attempted_epoch {
+            payload_budget.store(safe as u32, std::sync::atomic::Ordering::Relaxed);
+            return safe;
+        }
+        // Even on the same epoch another control path may already have lowered the budget.
+        // `fetch_min` prevents a delayed send error from widening it again.
+        payload_budget.fetch_min(safe as u32, std::sync::atomic::Ordering::Relaxed);
+        safe
+    }
+}
+
 fn empty_udp_record_padding_cap(
     codec: &PacketCodec,
     outer_ipv6: bool,
@@ -455,6 +662,9 @@ struct UdpClient {
     connection_id: [u8; 4],
     quic_enabled: bool,
     packet_counter: Arc<std::sync::atomic::AtomicU32>,
+    /// Installed only after AUTH succeeds. The writer snapshots it for every record, so a
+    /// future PATH_COMMIT can replace socket/address/CID without replacing the session codec.
+    active_egress: Option<UdpActiveEgress>,
     /// Crypto material kept to verify the client key-proof at auth time
     /// (require_client_key_proof). Mirrors the TCP handshake.
     ephemeral_shared: [u8; 32],
@@ -2513,6 +2723,8 @@ async fn handle_udp_auth(
         }
     };
 
+    let active_egress =
+        UdpActiveEgress::new_legacy(socket.clone(), addr, quic_enabled, connection_id);
     // Shared inbound counter: the UdpClient (RX path) and the SessionShared
     // (read by list-clients) point at the SAME AtomicU64, so UDP receives are
     // accounted (RECV used to be stuck at 0 — never incremented on UDP).
@@ -2677,6 +2889,7 @@ async fn handle_udp_auth(
                 client_ip,
             };
             client.data_frag_enabled = data_frag_enabled;
+            client.active_egress = Some(active_egress.clone());
             client.rx_recordizer =
                 negotiated_rx_recordizer.map(crate::protocol::recordizer::Reassembler::new);
             // Cache for idempotent AuthOK re-emit: a lost AuthOK leaves the client
@@ -2727,27 +2940,19 @@ async fn handle_udp_auth(
     // once `max_clients` has admitted this client — see the send below the capacity check.
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<PooledBuffer>(wire_pool.buffer_count());
-    let writer_socket = socket.clone();
-    let writer_addr = addr;
-    let writer_quic = quic_enabled;
-    let writer_cid = connection_id;
-    let writer_obfs_overhead = socket.seal_overhead();
-    let writer_outer_ipv6 = addr.is_ipv6();
-    let initial_udp_payload_budget =
-        crate::protocol::data_frag::conservative_udp_payload_budget(writer_outer_ipv6);
+    let writer_egress = active_egress;
+    let initial_writer_egress = writer_egress.snapshot();
+    let initial_udp_payload_budget = initial_writer_egress.safe_payload_budget();
     let writer_udp_payload_budget = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(
         initial_udp_payload_budget as u32,
     ));
-    let fallback_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
-        initial_udp_payload_budget,
-        writer_obfs_overhead,
-        writer_quic,
-    )
-    .expect("conservative UDP budget always fits the data-fragment header");
+    let initial_record_budget = initial_writer_egress
+        .record_budget(initial_udp_payload_budget)
+        .expect("conservative UDP budget always fits the data-fragment header");
     let writer_task_codec = writer_codec.clone();
     let writer_profile_config = profile.config.clone();
     let writer_mux_payload_budget = lock_or_recover(&writer_task_codec, "udp::recordizer_budget")
-        .max_data_for_record_budget(fallback_record_budget)
+        .max_data_for_record_budget(initial_record_budget)
         .expect("conservative UDP budget fits encrypted record overhead");
     let writer_recordizer_config = negotiated_recordizer.clone();
     let writer_recordizer_runtime = writer_recordizer_config.as_ref().map(|config| {
@@ -2975,7 +3180,7 @@ async fn handle_udp_auth(
     let profile_name = profile.name.clone();
     tasks.spawn(async move {
         let mut quic_record = Vec::with_capacity(
-            wire_pool.buffer_capacity() + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
+            wire_pool.buffer_capacity() + crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
         );
         let mut record_id: u64 = rand::random();
         let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
@@ -2986,15 +3191,11 @@ async fn handle_udp_auth(
             writer_recordizer_runtime.map(crate::protocol::recordizer::Recordizer::new);
         let mut active_mux_payload_budget = writer_mux_payload_budget;
         'writer: loop {
-            let current_udp_payload_budget = writer_udp_payload_budget
-                .load(std::sync::atomic::Ordering::Relaxed) as usize;
+            let (current_egress, current_udp_payload_budget) =
+                writer_egress.snapshot_with_payload_budget(&writer_udp_payload_budget);
             let current_mux_payload_budget =
-                crate::protocol::data_frag::unfragmented_record_budget(
-                    current_udp_payload_budget,
-                    writer_obfs_overhead,
-                    writer_quic,
-                )
-                .ok()
+                current_egress
+                    .record_budget(current_udp_payload_budget)
                 .and_then(|record_budget| {
                     lock_or_recover(&writer_task_codec, "udp::recordizer_budget_update")
                         .max_data_for_record_budget(record_budget)
@@ -3032,7 +3233,8 @@ async fn handle_udp_auth(
             let payloads = tokio::select! {
                 biased;
                 _ = kick_rx.recv() => {
-                    log::info!("UDP writer for {} kicked on profile '{}'", writer_addr, profile_name);
+                    let peer = writer_egress.snapshot().peer;
+                    log::info!("UDP writer for {} kicked on profile '{}'", peer, profile_name);
                     break 'writer;
                 }
                 _ = tokio::time::sleep_until(mux_deadline),
@@ -3093,15 +3295,16 @@ async fn handle_udp_auth(
                         .load(std::sync::atomic::Ordering::Relaxed);
                     let mut retried_at_floor = false;
                     'budget_attempt: loop {
-                        let current_udp_payload_budget = writer_udp_payload_budget
-                            .load(std::sync::atomic::Ordering::Relaxed) as usize;
-                        let writer_record_budget =
-                            crate::protocol::data_frag::unfragmented_record_budget(
-                                current_udp_payload_budget,
-                                writer_obfs_overhead,
-                                writer_quic,
-                            )
-                            .unwrap_or(fallback_record_budget);
+                        // One complete encrypted record uses one immutable egress snapshot. A
+                        // concurrent commit may affect the next record, never split fragments
+                        // of this one across old and new paths.
+                        let (egress, current_udp_payload_budget) =
+                            writer_egress.snapshot_with_payload_budget(&writer_udp_payload_budget);
+                        let safe_udp_payload_budget = egress.safe_payload_budget();
+                        let writer_record_budget = egress
+                            .record_budget(current_udp_payload_budget)
+                            .or_else(|| egress.record_budget(safe_udp_payload_budget))
+                            .expect("conservative UDP budget fits the active path framing");
                         if data_frag_enabled && data.len() > writer_record_budget {
                             let this_record_id = record_id;
                             record_id = record_id.wrapping_add(1);
@@ -3115,8 +3318,7 @@ async fn handle_udp_auth(
                                 Err(error) => {
                                     log::warn!(
                                         "UDP writer for {} could not fragment a data record: {}",
-                                        writer_addr,
-                                        error
+                                        egress.peer, error
                                     );
                                     writer_session
                                         .dropped
@@ -3124,12 +3326,7 @@ async fn handle_udp_auth(
                                     break 'budget_attempt;
                                 }
                             };
-                            let wrappers = writer_obfs_overhead
-                                + if writer_quic {
-                                    crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-                                } else {
-                                    0
-                                };
+                            let wrappers = egress.wire_wrapper_len();
                             let attempted_wire_len: u64 = fragments
                                 .iter()
                                 .map(|fragment| (fragment.len() + wrappers) as u64)
@@ -3144,20 +3341,17 @@ async fn handle_udp_auth(
                             let mut sent_wire_len = 0u64;
                             let mut send_error = None;
                             for fragment in fragments {
-                                let pkt: &[u8] = if writer_quic {
-                                    let pn = writer_pn
-                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                    wrap_quic_short_into(
-                                        &fragment,
-                                        &writer_cid,
-                                        pn,
-                                        &mut quic_record,
-                                    );
-                                    &quic_record
+                                let packet_number = if egress.framing.is_quic() {
+                                    writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                 } else {
-                                    &fragment
+                                    0
                                 };
-                                match writer_socket.send_to(pkt, writer_addr).await {
+                                let pkt = egress.framing.wrap_into(
+                                    &fragment,
+                                    packet_number,
+                                    &mut quic_record,
+                                );
+                                match egress.socket.send_to(pkt, egress.peer).await {
                                     Ok(sent) => sent_wire_len += sent as u64,
                                     Err(error) => {
                                         send_error = Some(error);
@@ -3173,18 +3367,18 @@ async fn handle_udp_auth(
                             if let Some(error) = send_error {
                                 if is_message_too_long(&error)
                                     && !retried_at_floor
-                                    && current_udp_payload_budget > initial_udp_payload_budget
+                                    && current_udp_payload_budget > safe_udp_payload_budget
                                 {
-                                    writer_udp_payload_budget.store(
-                                        initial_udp_payload_budget as u32,
-                                        std::sync::atomic::Ordering::Relaxed,
+                                    let applied_floor = writer_egress.downgrade_payload_budget(
+                                        egress.path_epoch,
+                                        &writer_udp_payload_budget,
                                     );
                                     retried_at_floor = true;
                                     log::warn!(
                                         "UDP writer for {} hit EMSGSIZE at {} bytes; retrying the complete record at the conservative {}-byte budget",
-                                        writer_addr,
+                                        egress.peer,
                                         current_udp_payload_budget,
-                                        initial_udp_payload_budget
+                                        applied_floor
                                     );
                                     continue 'budget_attempt;
                                 }
@@ -3193,8 +3387,7 @@ async fn handle_udp_auth(
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 log::warn!(
                                     "UDP writer for {} dropped a fragmented record after send failure: {}",
-                                    writer_addr,
-                                    error
+                                    egress.peer, error
                                 );
                             }
                             break 'budget_attempt;
@@ -3203,20 +3396,20 @@ async fn handle_udp_auth(
                         // Build the actual wire datagram before accounting. Only a successful
                         // send is charged; a local EMSGSIZE after a path change downgrades the
                         // session and retries the SAME encrypted record through DATA_FRAG.
-                        let pkt: &[u8] = if writer_quic {
-                            let pn = writer_pn
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            wrap_quic_short_into(data, &writer_cid, pn, &mut quic_record);
-                            &quic_record
+                        let packet_number = if egress.framing.is_quic() {
+                            writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                         } else {
-                            data
+                            0
                         };
-                        let wire_len = (pkt.len() + writer_obfs_overhead) as u64;
+                        let pkt = egress
+                            .framing
+                            .wrap_into(data, packet_number, &mut quic_record);
+                        let wire_len = (pkt.len() + egress.socket.seal_overhead()) as u64;
                         let delay = writer_session.rates.download.consume(wire_len * 8, limit);
                         if !delay.is_zero() {
                             tokio::time::sleep(delay).await;
                         }
-                        match writer_socket.send_to(pkt, writer_addr).await {
+                        match egress.socket.send_to(pkt, egress.peer).await {
                             Ok(sent) => {
                                 writer_session
                                     .bytes_sent
@@ -3226,18 +3419,18 @@ async fn handle_udp_auth(
                                 if data_frag_enabled
                                     && is_message_too_long(&error)
                                     && !retried_at_floor
-                                    && current_udp_payload_budget > initial_udp_payload_budget =>
+                                    && current_udp_payload_budget > safe_udp_payload_budget =>
                             {
-                                writer_udp_payload_budget.store(
-                                    initial_udp_payload_budget as u32,
-                                    std::sync::atomic::Ordering::Relaxed,
+                                let applied_floor = writer_egress.downgrade_payload_budget(
+                                    egress.path_epoch,
+                                    &writer_udp_payload_budget,
                                 );
                                 retried_at_floor = true;
                                 log::warn!(
                                     "UDP writer for {} hit EMSGSIZE at {} bytes; retrying through DATA_FRAG at the conservative {}-byte budget",
-                                    writer_addr,
+                                    egress.peer,
                                     current_udp_payload_budget,
-                                    initial_udp_payload_budget
+                                    applied_floor
                                 );
                                 continue 'budget_attempt;
                             }
@@ -3247,8 +3440,7 @@ async fn handle_udp_auth(
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 log::warn!(
                                     "UDP writer for {} dropped a record after send failure: {}",
-                                    writer_addr,
-                                    error
+                                    egress.peer, error
                                 );
                             }
                         }
@@ -3402,6 +3594,7 @@ async fn handle_new_udp_client(
             connection_id,
             quic_enabled: quic_detected,
             packet_counter: Arc::new(std::sync::atomic::AtomicU32::new(UDP_SESSION_FIRST_PN)),
+            active_egress: None,
             ephemeral_shared: shared.0,
             static_shared: static_shared.0,
             transcript_hash,
@@ -3442,6 +3635,8 @@ mod tests {
         max_useful_udp_payload_budget, sanitized_udp_payload_budget, udp_reap_window,
         AUTH_OK_FIRST_PN, UDP_SESSION_FIRST_PN,
     };
+    #[cfg(feature = "experimental-roaming")]
+    use super::{UdpActiveEgress, UdpEgressCommitError};
     use crate::protocol::udp_frag;
     use std::time::Duration;
 
@@ -3664,5 +3859,87 @@ mod tests {
                 target
             );
         }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[tokio::test]
+    async fn udp_writer_path_commit_is_atomic_epoch_guarded_and_uses_the_new_cid() {
+        let first_socket = std::sync::Arc::new(crate::protocol::obfs::ObfsUdp::new(
+            tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            None,
+        ));
+        let second_socket = std::sync::Arc::new(crate::protocol::obfs::ObfsUdp::new(
+            tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            None,
+        ));
+        let first_peer = "127.0.0.1:41001".parse().unwrap();
+        let second_peer = "127.0.0.1:41002".parse().unwrap();
+        let active =
+            UdpActiveEgress::new_legacy(first_socket.clone(), first_peer, true, [1, 2, 3, 4]);
+
+        let mut wire = Vec::new();
+        let initial = active.snapshot();
+        let encoded = initial.framing.wrap_into(b"record", 7, &mut wire);
+        assert_eq!(
+            encoded,
+            crate::protocol::quic::wrap_quic_short(b"record", &[1, 2, 3, 4], 7)
+        );
+        assert_eq!(initial.peer, first_peer);
+        assert!(std::sync::Arc::ptr_eq(&initial.socket, &first_socket));
+        assert_eq!(
+            initial.record_budget(548),
+            Some(548 - crate::protocol::quic::QUIC_SHORT_HEADER_MIN)
+        );
+
+        let payload_budget = std::sync::atomic::AtomicU32::new(1500);
+        assert_eq!(
+            active.commit_roaming(
+                1,
+                2,
+                second_socket.clone(),
+                second_peer,
+                [9; 8],
+                &payload_budget
+            ),
+            Err(UdpEgressCommitError::StaleEpoch)
+        );
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            1500
+        );
+        assert_eq!(active.snapshot().peer, first_peer);
+        active
+            .commit_roaming(
+                0,
+                1,
+                second_socket.clone(),
+                second_peer,
+                [9; 8],
+                &payload_budget,
+            )
+            .unwrap();
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            548
+        );
+
+        let committed = active.snapshot();
+        assert_eq!(committed.path_epoch, 1);
+        assert_eq!(committed.peer, second_peer);
+        assert!(std::sync::Arc::ptr_eq(&committed.socket, &second_socket));
+        assert_eq!(
+            committed.record_budget(548),
+            Some(548 - crate::protocol::roaming::UDP_SHORT_HEADER_LEN)
+        );
+        let encoded = committed.framing.wrap_into(b"record", 8, &mut wire);
+        assert_eq!(
+            encoded,
+            crate::protocol::roaming::UdpShortHeader::new([9; 8], 8).encode(b"record")
+        );
+        assert_eq!(
+            active.commit_roaming(0, 1, first_socket, first_peer, [7; 8], &payload_budget),
+            Err(UdpEgressCommitError::StaleEpoch)
+        );
+        assert_eq!(active.snapshot().peer, second_peer);
     }
 }

@@ -87,12 +87,20 @@ impl UdpShortHeader {
     }
 
     pub fn encode(&self, encrypted_record: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(UDP_SHORT_HEADER_LEN + encrypted_record.len());
+        let mut out = Vec::new();
+        self.encode_into(encrypted_record, &mut out);
+        out
+    }
+
+    /// Caller-owned variant for the UDP writer hot path. Reusing one buffer keeps a path
+    /// switch from adding a per-datagram allocation merely because the CID is eight bytes.
+    pub fn encode_into(&self, encrypted_record: &[u8], out: &mut Vec<u8>) {
+        out.clear();
+        out.reserve(UDP_SHORT_HEADER_LEN + encrypted_record.len());
         out.push(UDP_SHORT_FLAGS);
         out.extend_from_slice(&self.destination_cid);
         out.extend_from_slice(&self.packet_number.to_be_bytes());
         out.extend_from_slice(encrypted_record);
-        out
     }
 }
 
@@ -465,6 +473,10 @@ mod tests {
         assert_eq!(parsed.destination_cid(), &[0xAB; CID_LEN]);
         assert_eq!(parsed.packet_number(), 0x0102_0304);
         assert_eq!(record, b"ciphertext");
+        let mut reused = vec![0xFF; 64];
+        header.encode_into(b"ciphertext", &mut reused);
+        assert_eq!(reused, wire);
+        assert!(reused.capacity() >= UDP_SHORT_HEADER_LEN + b"ciphertext".len());
         assert_eq!(
             decode_udp_short(&wire[..12]).err(),
             Some(RoamingWireError::Truncated)
