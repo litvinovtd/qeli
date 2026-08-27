@@ -7,8 +7,9 @@
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
 > 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated
 > bootstrap, authenticated ingress/control boundary, and live guarded PATH_RESPONSE/PATH_COMMIT
-> transaction with bounded idempotent replay are source-complete; the post-commit data path and
-> live acceptance are still ahead.
+> transaction with bounded idempotent replay plus post-commit UDP DATA/DATA_FRAG ingress are
+> source-complete; initial-CID bootstrap publication, client adapters, and live acceptance are still
+> ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
 > On lab `.10`, final default and feature suites pass (865/912 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
@@ -415,9 +416,18 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   without rotating CIDs or resetting PMTU; a different token, path, old peer, occupied destination,
   or stale epoch fails closed.
 
+  Post-commit DATA and DATA_FRAG now enter the existing authenticated UDP uplink path. Before AEAD,
+  the owner classifies the routed CID against the writer snapshot under the directory lock: a
+  previous or farther-future epoch is rejected without consuming replay state, the current epoch
+  requires the exact committed socket and peer, and only the next epoch may reach candidate control.
+  After one session-wide decrypt, ordinary records use the existing bounded DATA_FRAG reassembler,
+  recordizer, source guard, destination ACL, bandwidth pacing, accounting, MTU/client-info control,
+  and TUN forwarder. Candidate DATA is rejected; only authenticated path control may use that path.
+  Commit, teardown, and DATA therefore cannot observe a partially moved directory/egress state.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
   eight-byte CID framing still cannot activate in production. Candidate expiry/global admission,
-  post-commit DATA_FRAG ingress, cross-listener/family races, and mock/Linux live acceptance remain.
+  initial-CID egress publication, cross-listener/family races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

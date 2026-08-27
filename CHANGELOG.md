@@ -211,7 +211,16 @@
   переносятся под одним directory lock. Очистка supersede/session-limit/teardown разрешает текущий
   адрес по session id и не использует устаревший connect-time peer. Точный свежезашифрованный
   PATH_RESPONSE replay повторно отправляет PATH_COMMIT без повторной ротации CID и сброса PMTU.
-  `UDP_ROAM_V1` остаётся не рекламируемым: post-commit DATA_FRAG ingress и live-приёмка ещё не готовы.
+- Post-commit UDP DATA/DATA_FRAG подключены к существующему authenticated uplink. До AEAD/replay
+  routed CID классифицируется по writer snapshot под directory lock: previous/farther-future epoch
+  отклоняется без изменения replay window, current epoch требует точные committed socket и peer,
+  next epoch допускается только как candidate control. После единственного session-wide decrypt
+  данные проходят прежние bounded reassembler и recordizer, source guard, destination ACL,
+  bandwidth pacing, accounting, MTU/client-info control и общий TUN forwarder. Candidate DATA
+  отклоняется, а commit/teardown не могут оставить data plane в частично перенесённом состоянии.
+  Regression-тесты фиксируют обычный DATA через общий PacketCodec и exact current/candidate/stale
+  epoch/socket/peer gates. `UDP_ROAM_V1` остаётся не рекламируемым: initial-CID egress publication,
+  клиентские адаптеры и live-приёмка ещё не готовы.
 - Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/912 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и

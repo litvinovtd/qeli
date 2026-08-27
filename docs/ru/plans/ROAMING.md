@@ -7,8 +7,8 @@
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
 > UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress, negotiated
 > bootstrap, authenticated ingress/control boundary и live guarded PATH_RESPONSE/PATH_COMMIT
-> transaction с bounded идемпотентным повтором готовы по исходникам; впереди ещё post-commit
-> data path и live-приёмка.
+> transaction с bounded идемпотентным повтором и post-commit UDP DATA/DATA_FRAG ingress готовы по
+> исходникам; впереди ещё initial-CID bootstrap publication, клиентские адаптеры и live-приёмка.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
 > На лабе `.10` прошли финальные default/feature suites (865/912 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
@@ -623,9 +623,18 @@ supersede и teardown находит текущего владельца по se
 свежезашифрованный повтор PATH_RESPONSE снова отправляет PATH_COMMIT без ротации CID и сброса PMTU;
 другой token, path, старый peer, занятый destination или stale epoch отклоняются fail-closed.
 
+Post-commit DATA и DATA_FRAG теперь входят в существующий authenticated UDP uplink. До AEAD owner
+классифицирует routed CID по writer snapshot под directory lock: previous и farther-future epoch
+отбрасываются без изменения replay state, current epoch требует точные committed socket и peer, а
+только next epoch может попасть в candidate control. После единственного session-wide decrypt обычные
+records используют существующие bounded DATA_FRAG reassembler, recordizer, source guard, destination
+ACL, bandwidth pacing, accounting, MTU/client-info control и TUN forwarder. Candidate DATA
+отклоняется; этот путь может нести только аутентифицированный path control. Commit, teardown и DATA
+не могут увидеть частично перенесённое directory/egress state.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
 и восьмибайтовый CID ещё не могут включиться в production. Candidate expiry/global admission,
-post-commit DATA_FRAG ingress, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
+initial-CID egress publication, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
 
 - per-session actor и dynamic egress;
 - PATH_RESPONSE/COMMIT;

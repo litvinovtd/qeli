@@ -229,6 +229,13 @@ enum UdpEgressPublishError<E> {
 }
 
 #[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UdpRoamingIngressPath {
+    Committed,
+    Candidate,
+}
+
+#[cfg(feature = "experimental-roaming")]
 struct UdpEgressCommit {
     expected_epoch: u64,
     expected_peer: SocketAddr,
@@ -283,6 +290,33 @@ impl UdpActiveEgress {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    /// Classify a routed CID before AEAD/replay state is consumed. The current epoch is valid only
+    /// on the exact path already published to the writer; the next epoch may carry candidate
+    /// control. Previous or farther-future aliases are rejected before they can advance replay.
+    #[cfg(feature = "experimental-roaming")]
+    fn classify_roaming_ingress(
+        &self,
+        path_epoch: u64,
+        peer: SocketAddr,
+        socket: &Arc<crate::protocol::obfs::ObfsUdp>,
+    ) -> Option<UdpRoamingIngressPath> {
+        let current = self
+            .0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if path_epoch == current.path_epoch {
+            return (current.peer == peer
+                && Arc::ptr_eq(&current.socket, socket)
+                && matches!(&current.framing, UdpEgressFraming::RoamingQuic(_)))
+            .then_some(UdpRoamingIngressPath::Committed);
+        }
+        current
+            .path_epoch
+            .checked_add(1)
+            .filter(|next| *next == path_epoch)
+            .map(|_| UdpRoamingIngressPath::Candidate)
     }
 
     /// Capture path and PMTU budget under the same read lock. A commit cannot publish a new
@@ -1371,7 +1405,16 @@ pub(crate) async fn run_udp_server(
             roaming = roaming_worker.recv() => {
                 let event = roaming?;
                 #[cfg(feature = "experimental-roaming")]
-                handle_udp_roaming_ingress(&profile, &sessions, worker_id, &tun_tx, event.0).await;
+                handle_udp_roaming_ingress(
+                    &profile,
+                    &sessions,
+                    worker_id,
+                    &tun_tx,
+                    &tasks,
+                    obfs_key,
+                    event.0,
+                )
+                .await;
                 #[cfg(not(feature = "experimental-roaming"))]
                 match event {}
             }
@@ -1424,7 +1467,16 @@ pub(crate) async fn run_udp_server(
                             envelope,
                         ) {
                             Ok(crate::transport_core::udp_roaming::UdpIngressDispatch::Local(routed)) => {
-                                handle_udp_roaming_ingress(&profile, &sessions, worker_id, &tun_tx, routed).await;
+                                handle_udp_roaming_ingress(
+                                    &profile,
+                                    &sessions,
+                                    worker_id,
+                                    &tun_tx,
+                                    &tasks,
+                                    obfs_key,
+                                    routed,
+                                )
+                                .await;
                             }
                             Ok(crate::transport_core::udp_roaming::UdpIngressDispatch::Queued) => {}
                             Err(failure) => note_udp_roaming_route_failure(&profile, failure),
@@ -1924,7 +1976,6 @@ enum UdpRoamingControlError {
     PoolExhausted,
     Oversize,
     Decrypt,
-    NotControl,
     BadControl,
     FragmentedControl,
     UnexpectedDirection,
@@ -1937,15 +1988,30 @@ struct UdpRoamingControlIngress {
 }
 
 #[cfg(feature = "experimental-roaming")]
-fn decrypt_udp_roaming_control_record(
+enum UdpRoamingIngress {
+    Control(UdpRoamingControlIngress),
+    Data(PooledBuffer),
+}
+
+#[cfg(feature = "experimental-roaming")]
+enum UdpRoamingDispatch {
+    Control(UdpRoamingControlIngress),
+    Uplink(UdpPreparedUplink),
+}
+
+/// Decrypt one session-wide record exactly once. `None` is authenticated ordinary data;
+/// path-control frames are parsed strictly here so malformed or server-direction control can
+/// never fall through into the TUN path after advancing the replay window.
+#[cfg(feature = "experimental-roaming")]
+fn decrypt_udp_roaming_record(
     codec: &mut PacketCodec,
     record: &mut Vec<u8>,
-) -> Result<UdpRoamingControlIngress, UdpRoamingControlError> {
+) -> Result<Option<UdpRoamingControlIngress>, UdpRoamingControlError> {
     codec
         .decrypt_packet_in_place(record)
         .map_err(|_| UdpRoamingControlError::Decrypt)?;
     if !crate::protocol::control_v2::is_control_v2(record) {
-        return Err(UdpRoamingControlError::NotControl);
+        return Ok(None);
     }
     let frame = crate::protocol::control_v2::decode(record)
         .map_err(|_| UdpRoamingControlError::BadControl)?;
@@ -1961,18 +2027,18 @@ fn decrypt_udp_roaming_control_record(
     ) {
         return Err(UdpRoamingControlError::UnexpectedDirection);
     }
-    Ok(UdpRoamingControlIngress {
+    Ok(Some(UdpRoamingControlIngress {
         message_id: frame.message_id,
         message,
-    })
+    }))
 }
 
 #[cfg(feature = "experimental-roaming")]
-fn decode_udp_roaming_control(
+fn decode_udp_roaming_ingress(
     client: &mut UdpClient,
     encrypted_payload: &[u8],
     pool: &BufferPool,
-) -> Result<UdpRoamingControlIngress, UdpRoamingControlError> {
+) -> Result<UdpRoamingIngress, UdpRoamingControlError> {
     let reassembled_record;
     let record = if crate::protocol::data_frag::is_data_fragment(encrypted_payload) {
         if !client.data_frag_enabled {
@@ -1999,8 +2065,169 @@ fn decode_udp_roaming_control(
         return Err(UdpRoamingControlError::Oversize);
     }
     plaintext.as_vec_mut().extend_from_slice(record);
-    let mut codec = lock_or_recover(&client.rx_codec, "udp::roaming_decrypt");
-    decrypt_udp_roaming_control_record(&mut codec, plaintext.as_vec_mut())
+    let control = {
+        let mut codec = lock_or_recover(&client.rx_codec, "udp::roaming_decrypt");
+        decrypt_udp_roaming_record(&mut codec, plaintext.as_vec_mut())?
+    };
+    Ok(match control {
+        Some(control) => UdpRoamingIngress::Control(control),
+        None => UdpRoamingIngress::Data(plaintext),
+    })
+}
+
+#[cfg(feature = "experimental-roaming")]
+struct UdpPreparedUplink {
+    first: Option<ServerTunPacket>,
+    extra: Vec<ServerTunPacket>,
+    session_id: u64,
+    exit_access: crate::server::ExitAccess,
+    path_mtu: Option<Arc<std::sync::atomic::AtomicU32>>,
+    udp_payload_budget: Option<Arc<std::sync::atomic::AtomicU32>>,
+    client_info: Option<crate::server::handler::ClientInfoCell>,
+    src_guard: Option<crate::server::acl::SrcGuard>,
+    dst_acl: crate::server::acl::DstAcl,
+    bandwidth_limit: Option<Arc<std::sync::atomic::AtomicU32>>,
+    upload_tx: Option<mpsc::Sender<ServerTunPacket>>,
+    recv_ctr: Arc<std::sync::atomic::AtomicU64>,
+    client_dropped: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// Convert one authenticated plaintext record into the same bounded uplink work used by the
+/// legacy source-address path. Recordizer output stays pool-backed and all mutable codec state is
+/// consumed while the session-directory lock is held by the caller.
+#[cfg(feature = "experimental-roaming")]
+fn prepare_udp_roaming_uplink(
+    client: &mut UdpClient,
+    plaintext: PooledBuffer,
+    pool: &BufferPool,
+    profile: &ProfileRuntime,
+    addr: SocketAddr,
+) -> Option<UdpPreparedUplink> {
+    let session_id = client.authenticated_session_id()?;
+    let recordizer_active = client.rx_recordizer.is_some();
+    let mut decoded_first = None;
+    let mut decoded_extra = Vec::new();
+    if recordizer_active && !plaintext.is_empty() {
+        let mut pool_exhausted_drops = 0_u64;
+        let mut oversize_drops = 0_u64;
+        let decode_result = client
+            .rx_recordizer
+            .as_mut()
+            .expect("recordizer presence was checked")
+            .decode_with(&plaintext, |bytes| {
+                let Some(mut packet) = pool.try_acquire() else {
+                    pool_exhausted_drops = pool_exhausted_drops.saturating_add(1);
+                    return;
+                };
+                if bytes.len() > packet.capacity() {
+                    oversize_drops = oversize_drops.saturating_add(1);
+                    return;
+                }
+                packet.as_vec_mut().extend_from_slice(bytes);
+                let packet = ServerTunPacket::Pooled(packet);
+                if decoded_first.is_none() {
+                    decoded_first = Some(packet);
+                } else {
+                    decoded_extra.push(packet);
+                }
+            });
+        let total_drops = pool_exhausted_drops.saturating_add(oversize_drops);
+        client
+            .dropped
+            .fetch_add(total_drops, std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..pool_exhausted_drops {
+            profile
+                .udp_buffer_counters
+                .note_internal_drop(InternalDrop::PoolExhausted);
+        }
+        for _ in 0..oversize_drops {
+            profile
+                .udp_buffer_counters
+                .note_internal_drop(InternalDrop::Oversize);
+        }
+        if let Err(error) = decode_result {
+            log::debug!(
+                "UDP roaming recordizer decode error from {} on profile '{}': {}",
+                addr,
+                profile.name,
+                error
+            );
+            return None;
+        }
+    }
+    let first = if recordizer_active {
+        drop(plaintext);
+        decoded_first
+    } else {
+        Some(ServerTunPacket::Pooled(plaintext))
+    };
+    client.last_activity = std::time::Instant::now();
+    Some(UdpPreparedUplink {
+        first,
+        extra: decoded_extra,
+        session_id,
+        exit_access: client.exit_access,
+        path_mtu: client.path_mtu.clone(),
+        udp_payload_budget: client.udp_payload_budget.clone(),
+        client_info: client.client_info.clone(),
+        src_guard: client.src_guard.clone(),
+        dst_acl: client.dst_acl.clone(),
+        bandwidth_limit: client.bandwidth_limit_mbps.clone(),
+        upload_tx: client.upload_tx.clone(),
+        recv_ctr: client.bytes_recv.clone(),
+        client_dropped: client.dropped.clone(),
+    })
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[allow(clippy::too_many_arguments)] // mirrors the established UDP uplink forwarding context
+async fn forward_udp_roaming_uplink(
+    prepared: UdpPreparedUplink,
+    sessions: &Arc<RwLock<UdpSessionDirectory>>,
+    tasks: &super::ProfileTasks,
+    profile: &Arc<ProfileRuntime>,
+    addr: SocketAddr,
+    obfs_key: Option<[u8; 32]>,
+    tun_tx: &TunIngress,
+) {
+    let UdpPreparedUplink {
+        first,
+        extra,
+        session_id,
+        exit_access,
+        path_mtu,
+        udp_payload_budget,
+        client_info,
+        src_guard,
+        dst_acl,
+        bandwidth_limit,
+        upload_tx,
+        recv_ctr,
+        client_dropped,
+    } = prepared;
+    for packet in first.into_iter().chain(extra) {
+        forward_udp_uplink_packet(
+            packet,
+            sessions,
+            tasks,
+            profile,
+            addr,
+            obfs_key,
+            session_id,
+            exit_access,
+            tun_tx,
+            &path_mtu,
+            &udp_payload_budget,
+            &client_info,
+            &src_guard,
+            &dst_acl,
+            &bandwidth_limit,
+            &upload_tx,
+            &recv_ctr,
+            &client_dropped,
+        )
+        .await;
+    }
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -2051,6 +2278,8 @@ async fn handle_udp_roaming_ingress(
     sessions: &Arc<RwLock<UdpSessionDirectory>>,
     worker_id: usize,
     tun_tx: &TunIngress,
+    tasks: &super::ProfileTasks,
+    obfs_key: Option<[u8; 32]>,
     routed: crate::transport_core::udp_roaming::UdpRoutedIngress<UdpRoamingDatagram>,
 ) {
     let lookup = routed.lookup();
@@ -2087,7 +2316,7 @@ async fn handle_udp_roaming_ingress(
         return;
     }
     let encrypted_payload = &envelope.datagram[crate::protocol::roaming::UDP_SHORT_HEADER_LEN..];
-    let control = {
+    let action = {
         let mut guard = sessions.write().await;
         let revoked = guard
             .get(&owner_address)
@@ -2105,12 +2334,49 @@ async fn handle_udp_roaming_ingress(
         }) else {
             return;
         };
-        match decode_udp_roaming_control(client, encrypted_payload, &tun_tx.pool) {
-            Ok(control) => {
+        let Some(active_egress) = client.active_egress.as_ref() else {
+            log::error!(
+                "UDP roaming ingress rejected on profile '{}': authenticated session has no active egress",
+                profile.name
+            );
+            return;
+        };
+        let Some(ingress_path) = active_egress.classify_roaming_ingress(
+            lookup.path_epoch(),
+            received_path.peer(),
+            &envelope.socket,
+        ) else {
+            log::debug!(
+                "UDP roaming ingress rejected on profile '{}': CID epoch or receiving path is stale",
+                profile.name
+            );
+            return;
+        };
+        match decode_udp_roaming_ingress(client, encrypted_payload, &tun_tx.pool) {
+            Ok(UdpRoamingIngress::Control(control)) => {
                 // Candidate liveness is authenticated only after PacketCodec accepted the
                 // record and advanced the one session-wide replay window.
                 client.last_activity = std::time::Instant::now();
-                control
+                UdpRoamingDispatch::Control(control)
+            }
+            Ok(UdpRoamingIngress::Data(plaintext)) => {
+                if ingress_path != UdpRoamingIngressPath::Committed {
+                    log::debug!(
+                        "UDP roaming DATA rejected on profile '{}': candidate CID may carry only path control",
+                        profile.name
+                    );
+                    return;
+                }
+                let Some(prepared) = prepare_udp_roaming_uplink(
+                    client,
+                    plaintext,
+                    &tun_tx.pool,
+                    profile,
+                    received_path.peer(),
+                ) else {
+                    return;
+                };
+                UdpRoamingDispatch::Uplink(prepared)
             }
             Err(UdpRoamingControlError::FragmentPending) => return,
             Err(error) => {
@@ -2132,11 +2398,27 @@ async fn handle_udp_roaming_ingress(
                     _ => {}
                 }
                 log::debug!(
-                    "UDP roaming control rejected on profile '{}' ({error:?})",
+                    "UDP roaming ingress rejected on profile '{}' ({error:?})",
                     profile.name
                 );
                 return;
             }
+        }
+    };
+    let control = match action {
+        UdpRoamingDispatch::Control(control) => control,
+        UdpRoamingDispatch::Uplink(prepared) => {
+            forward_udp_roaming_uplink(
+                prepared,
+                sessions,
+                tasks,
+                profile,
+                received_path.peer(),
+                obfs_key,
+                tun_tx,
+            )
+            .await;
+            return;
         }
     };
     match control.message {
@@ -4689,8 +4971,8 @@ mod tests {
     };
     #[cfg(feature = "experimental-roaming")]
     use super::{
-        decrypt_udp_roaming_control_record, encrypt_udp_roaming_control, UdpActiveEgress,
-        UdpEgressCommit, UdpEgressCommitError, UdpEgressPublishError, UdpRoamingControlError,
+        decrypt_udp_roaming_record, encrypt_udp_roaming_control, UdpActiveEgress, UdpEgressCommit,
+        UdpEgressCommitError, UdpEgressPublishError, UdpRoamingControlError, UdpRoamingIngressPath,
         UdpRoamingOwnerIndex,
     };
     use crate::protocol::udp_frag;
@@ -4727,7 +5009,9 @@ mod tests {
             epoch: 4,
         };
         let mut record = encrypted_path_control(&mut sender, 17, &expected);
-        let decoded = decrypt_udp_roaming_control_record(&mut receiver, &mut record).unwrap();
+        let decoded = decrypt_udp_roaming_record(&mut receiver, &mut record)
+            .unwrap()
+            .expect("PATH_INIT is control");
         assert_eq!(decoded.message_id, 17);
         assert!(decoded.message == expected);
 
@@ -4740,11 +5024,20 @@ mod tests {
             },
         );
         let mut replay = response.clone();
-        assert!(decrypt_udp_roaming_control_record(&mut receiver, &mut response).is_ok());
+        assert!(decrypt_udp_roaming_record(&mut receiver, &mut response)
+            .unwrap()
+            .is_some());
         assert_eq!(
-            decrypt_udp_roaming_control_record(&mut receiver, &mut replay).err(),
+            decrypt_udp_roaming_record(&mut receiver, &mut replay).err(),
             Some(UdpRoamingControlError::Decrypt)
         );
+
+        let expected_data = b"authenticated post-commit data";
+        let mut data = sender.encrypt_packet(expected_data, &[]).unwrap();
+        assert!(decrypt_udp_roaming_record(&mut receiver, &mut data)
+            .unwrap()
+            .is_none());
+        assert_eq!(data, expected_data);
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -4764,7 +5057,7 @@ mod tests {
             },
         );
         assert_eq!(
-            decrypt_udp_roaming_control_record(&mut receiver, &mut challenge).err(),
+            decrypt_udp_roaming_record(&mut receiver, &mut challenge).err(),
             Some(UdpRoamingControlError::UnexpectedDirection)
         );
 
@@ -4780,7 +5073,7 @@ mod tests {
         .unwrap();
         let mut fragmented = sender.encrypt_packet(&fragmented, &[]).unwrap();
         assert_eq!(
-            decrypt_udp_roaming_control_record(&mut receiver, &mut fragmented).err(),
+            decrypt_udp_roaming_record(&mut receiver, &mut fragmented).err(),
             Some(UdpRoamingControlError::FragmentedControl)
         );
     }
@@ -5127,6 +5420,15 @@ mod tests {
         assert_eq!(initial.peer, first_peer);
         assert!(std::sync::Arc::ptr_eq(&initial.socket, &first_socket));
         assert_eq!(
+            active.classify_roaming_ingress(0, first_peer, &first_socket),
+            None,
+            "the current CID must not carry DATA until roaming framing is committed"
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(1, second_peer, &second_socket),
+            Some(UdpRoamingIngressPath::Candidate)
+        );
+        assert_eq!(
             initial.record_budget(548),
             Some(548 - crate::protocol::quic::QUIC_SHORT_HEADER_MIN)
         );
@@ -5206,6 +5508,28 @@ mod tests {
         assert_eq!(committed.path_epoch, 1);
         assert_eq!(committed.peer, second_peer);
         assert!(std::sync::Arc::ptr_eq(&committed.socket, &second_socket));
+        assert_eq!(
+            active.classify_roaming_ingress(1, second_peer, &second_socket),
+            Some(UdpRoamingIngressPath::Committed)
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(2, first_peer, &first_socket),
+            Some(UdpRoamingIngressPath::Candidate)
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(0, second_peer, &second_socket),
+            None,
+            "a previous CID epoch must be rejected before replay state is consumed"
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(1, first_peer, &second_socket),
+            None
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(1, second_peer, &first_socket),
+            None,
+            "a same-family listener cannot impersonate the committed receiving socket"
+        );
         assert_eq!(
             committed.record_budget(548),
             Some(548 - crate::protocol::roaming::UDP_SHORT_HEADER_LEN)
