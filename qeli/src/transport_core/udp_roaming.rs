@@ -184,6 +184,24 @@ impl CommitOutcome {
     }
 }
 
+/// Distinguishes the first registry/path publication from an exact retry after a lost
+/// `PATH_COMMIT`. It deliberately omits `Debug` because the nested outcome contains CIDs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CommitDecision {
+    outcome: CommitOutcome,
+    replayed: bool,
+}
+
+impl CommitDecision {
+    pub fn outcome(self) -> CommitOutcome {
+        self.outcome
+    }
+
+    pub fn is_replay(self) -> bool {
+        self.replayed
+    }
+}
+
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UdpRoamingError {
     #[error("UDP roaming requires a non-zero session id and payload budget")]
@@ -245,6 +263,13 @@ struct CandidatePath {
     sent_bytes: u64,
 }
 
+struct CommittedPath {
+    ticket: CandidateTicket,
+    path: UdpPath,
+    challenge: [u8; PATH_CHALLENGE_LEN],
+    outcome: CommitOutcome,
+}
+
 struct UdpSession {
     generation: u64,
     owner_worker_id: u32,
@@ -253,6 +278,7 @@ struct UdpSession {
     aliases: Vec<(UdpCid, u64)>,
     active: ActivePath,
     candidate: Option<CandidatePath>,
+    last_commit: Option<CommittedPath>,
 }
 
 /// One instance is owned by a profile actor (or protected by one profile-wide mutex).
@@ -359,6 +385,7 @@ impl UdpRoamingTable {
                     pmtu_generation: 0,
                 },
                 candidate: None,
+                last_commit: None,
             },
         );
         Ok(InitialCids {
@@ -487,7 +514,7 @@ impl UdpRoamingTable {
             safe_payload_budget,
             |_| Ok::<(), std::convert::Infallible>(()),
         ) {
-            Ok(outcome) => Ok(outcome),
+            Ok(decision) => Ok(decision.outcome()),
             Err(UdpRoamingCommitError::State(error)) => Err(error),
             Err(UdpRoamingCommitError::Publish(never)) => match never {},
         }
@@ -495,8 +522,9 @@ impl UdpRoamingTable {
 
     /// Validate a response, publish the external socket/address state, and only then rotate the
     /// registry. The synchronous callback runs while this table is locked: it must neither await
-    /// nor re-enter the registry. Returning an error leaves aliases, active path, PMTU generation,
-    /// and candidate ownership unchanged so the authenticated response can be retried safely.
+    /// nor re-enter the registry. A publication error leaves aliases, active path, PMTU generation,
+    /// and candidate ownership unchanged. An exact authenticated retry of the last committed
+    /// response returns the cached decision without invoking `publish` or changing path state.
     #[allow(clippy::too_many_arguments)]
     pub fn validate_response_and_commit_with<E>(
         &mut self,
@@ -507,13 +535,19 @@ impl UdpRoamingTable {
         received_bytes: usize,
         safe_payload_budget: u16,
         publish: impl FnOnce(CommitOutcome) -> Result<(), E>,
-    ) -> Result<CommitOutcome, UdpRoamingCommitError<E>> {
+    ) -> Result<CommitDecision, UdpRoamingCommitError<E>> {
         if received_bytes == 0 || safe_payload_budget == 0 {
             return Err(UdpRoamingCommitError::State(
                 UdpRoamingError::InvalidResponse,
             ));
         }
+        if let Some(replayed) = self
+            .replayed_commit(ticket, path, response_epoch, response_token)
+            .map_err(UdpRoamingCommitError::State)?
         {
+            return Ok(replayed);
+        }
+        let challenge = {
             let candidate = self
                 .candidate_mut(ticket)
                 .map_err(UdpRoamingCommitError::State)?;
@@ -531,7 +565,8 @@ impl UdpRoamingTable {
                 .received_bytes
                 .saturating_add(u64::try_from(received_bytes).unwrap_or(u64::MAX))
                 .min(MAX_CANDIDATE_ACCOUNTED_BYTES);
-        }
+            candidate.challenge
+        };
 
         let (generation, old_path, client_to_server_secret, server_to_client_secret, pmtu) = {
             let session = self
@@ -633,8 +668,17 @@ impl UdpRoamingTable {
             payload_budget: safe_payload_budget,
             pmtu_generation: pmtu,
         };
+        session.last_commit = Some(CommittedPath {
+            ticket,
+            path,
+            challenge,
+            outcome,
+        });
         session.candidate = None;
-        Ok(outcome)
+        Ok(CommitDecision {
+            outcome,
+            replayed: false,
+        })
     }
 
     pub fn abort_candidate(&mut self, ticket: CandidateTicket) -> bool {
@@ -780,6 +824,39 @@ impl UdpRoamingTable {
         Ok(())
     }
 
+    fn replayed_commit(
+        &self,
+        ticket: CandidateTicket,
+        path: UdpPath,
+        response_epoch: u64,
+        response_token: &[u8; PATH_CHALLENGE_LEN],
+    ) -> Result<Option<CommitDecision>, UdpRoamingError> {
+        let session = self
+            .sessions
+            .get(&ticket.session_id)
+            .ok_or(UdpRoamingError::StaleCandidate)?;
+        if session.generation != ticket.session_generation {
+            return Err(UdpRoamingError::StaleCandidate);
+        }
+        let Some(committed) = session
+            .last_commit
+            .as_ref()
+            .filter(|committed| committed.ticket == ticket)
+        else {
+            return Ok(None);
+        };
+        if committed.path != path {
+            return Err(UdpRoamingError::StaleCandidate);
+        }
+        if response_epoch != ticket.path_epoch || response_token != &committed.challenge {
+            return Err(UdpRoamingError::InvalidResponse);
+        }
+        Ok(Some(CommitDecision {
+            outcome: committed.outcome,
+            replayed: true,
+        }))
+    }
+
     fn candidate_mut(
         &mut self,
         ticket: CandidateTicket,
@@ -911,7 +988,7 @@ impl UdpRoamingRegistry {
         received_bytes: usize,
         safe_payload_budget: u16,
         publish: impl FnOnce(CommitOutcome) -> Result<(), E>,
-    ) -> Result<CommitOutcome, UdpRoamingCommitError<E>> {
+    ) -> Result<CommitDecision, UdpRoamingCommitError<E>> {
         self.lock_table().validate_response_and_commit_with(
             ticket,
             path,
@@ -1485,9 +1562,69 @@ mod tests {
                 |_| Ok::<(), ()>(()),
             )
             .unwrap();
-        assert_eq!(committed.path_epoch(), 1);
+        assert!(!committed.is_replay());
+        assert_eq!(committed.outcome().path_epoch(), 1);
         assert_eq!(table.active_path(7), Some(path(2, 2000)));
         assert_eq!(table.candidate_count(), 0);
+    }
+
+    #[test]
+    fn exact_committed_response_is_replayed_without_republication() {
+        let (mut table, _) = table();
+        let challenge = candidate(&mut table);
+        let publications = std::cell::Cell::new(0usize);
+        let committed = table
+            .validate_response_and_commit_with(
+                challenge.ticket(),
+                path(2, 2000),
+                1,
+                challenge.token(),
+                32,
+                1212,
+                |_| {
+                    publications.set(publications.get() + 1);
+                    Ok::<(), ()>(())
+                },
+            )
+            .unwrap();
+        assert!(!committed.is_replay());
+        assert_eq!(publications.get(), 1);
+        let outcome = committed.outcome();
+        assert!(table.raise_payload_budget(outcome.pmtu(), 1400).unwrap());
+
+        let replayed = table
+            .validate_response_and_commit_with(
+                challenge.ticket(),
+                path(2, 2000),
+                1,
+                challenge.token(),
+                32,
+                1200,
+                |_| -> Result<(), ()> { panic!("replay must not republish path state") },
+            )
+            .unwrap();
+        assert!(replayed.is_replay());
+        assert!(replayed.outcome() == outcome);
+        assert_eq!(publications.get(), 1);
+        assert_eq!(table.active_epoch(7), Some(1));
+        assert_eq!(table.active_path(7), Some(path(2, 2000)));
+        assert_eq!(table.payload_budget(7), Some(1400));
+        assert_eq!(table.candidate_count(), 0);
+
+        assert!(matches!(
+            table.validate_response_and_commit_with(
+                challenge.ticket(),
+                path(2, 2000),
+                1,
+                &[0x77; PATH_CHALLENGE_LEN],
+                32,
+                1200,
+                |_| -> Result<(), ()> { panic!("invalid replay must not publish") },
+            ),
+            Err(UdpRoamingCommitError::State(
+                UdpRoamingError::InvalidResponse
+            ))
+        ));
     }
 
     #[test]

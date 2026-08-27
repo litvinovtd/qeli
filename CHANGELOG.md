@@ -199,10 +199,12 @@
   CID aliases, active epoch, PMTU generation и candidate меняются только после успешной публикации;
   отказ publisher оставляет candidate пригодным для безопасной повторной обработки того же
   аутентифицированного ответа. Неверный challenge больше не пополняет anti-amplification budget.
-  Live PATH_RESPONSE и ответ PATH_COMMIT пока намеренно не подключены: до этого нужен
-  идемпотентный повтор commit при потере server reply. Новый regression-тест фиксирует rollback
-  внешней публикации. `UDP_ROAM_V1` остаётся не рекламируемым.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/911 тестами
+  Последний успешный commit хранится одним bounded exact ticket/path/epoch/token outcome на сессию:
+  повторный свежезашифрованный PATH_RESPONSE возвращает тот же PATH_COMMIT без повторного publisher,
+  ротации CID и сброса уже уточнённого PMTU; несовпадающий token/path отклоняется. Два regression-теста
+  фиксируют rollback publisher и идемпотентный replay. Live PATH_RESPONSE handler и отправка
+  PATH_COMMIT пока намеренно не подключены. `UDP_ROAM_V1` остаётся не рекламируемым.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/912 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что
