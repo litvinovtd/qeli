@@ -8,6 +8,11 @@ use crate::crypto::{
     derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
     handshake_transcript_hash, Keypair,
 };
+#[cfg(feature = "experimental-roaming")]
+use crate::crypto::{
+    derive_session_material, derive_session_material_bound, derive_session_material_hybrid,
+    derive_session_material_hybrid_bound,
+};
 use crate::protocol::{read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec};
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -28,6 +33,20 @@ pub(crate) struct AuthOk {
     pub session_token: String,
     pub max_streams: u32,
     pub adaptive: bool,
+}
+
+/// Complete result of the authenticated primary TCP handshake.
+///
+/// Roaming builds retain only the domain-separated resume secret from the original
+/// authentication KDF. It is never serialized, cloned into diagnostics, or reused as a
+/// data-plane key. Default builds do not carry the field at all.
+pub(crate) struct TcpAuthentication {
+    pub client_rx: PacketCodec,
+    pub client_tx: PacketCodec,
+    pub auth: AuthOk,
+    pub server_capabilities: Option<crate::protocol::capabilities::ServerCapabilities>,
+    #[cfg(feature = "experimental-roaming")]
+    pub resume_secret: zeroize::Zeroizing<[u8; 32]>,
 }
 
 /// One hybrid UDP ClientHello flight shared by the live tunnel and native diagnostics.
@@ -305,7 +324,7 @@ pub(crate) async fn authenticate_tcp<S, V, F>(
     device_id: &[u8; crate::protocol::DEVICE_ID_LEN],
     platform_capabilities: u64,
     mut verify_key: V,
-) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)>
+) -> anyhow::Result<TcpAuthentication>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     V: FnMut([u8; 32]) -> F,
@@ -326,9 +345,18 @@ where
         let shared = client_kp
             .derive_shared_checked(&server_pub)
             .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+        let static_shared = static_es(config, &client_kp)?;
+        let (server_to_client, client_to_server) = match static_shared {
             Some(static_shared) => derive_keys_bound(&shared.0, &static_shared),
             None => derive_keys(&shared.0),
+        };
+        #[cfg(feature = "experimental-roaming")]
+        let resume_secret = {
+            let material = match static_shared {
+                Some(static_shared) => derive_session_material_bound(&shared.0, &static_shared),
+                None => derive_session_material(&shared.0),
+            };
+            zeroize::Zeroizing::new(*material.resume_secret())
         };
         let mut client_rx = PacketCodec::new_raw(server_to_client);
         let mut client_tx = PacketCodec::new_raw(client_to_server);
@@ -368,7 +396,14 @@ where
         let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
         let auth = parse_auth_ok(&String::from_utf8(auth_response)?)?;
         log::info!("Auth OK (raw inner), assigned IP: {}", auth.client_ip);
-        return Ok((client_rx, client_tx, auth));
+        return Ok(TcpAuthentication {
+            client_rx,
+            client_tx,
+            auth,
+            server_capabilities,
+            #[cfg(feature = "experimental-roaming")]
+            resume_secret,
+        });
     }
 
     let server_name = config.effective_fake_tls_sni();
@@ -436,9 +471,20 @@ where
         .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+    let static_shared = static_es(config, &client_kp)?;
+    let (server_to_client, client_to_server) = match static_shared {
         Some(static_shared) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &static_shared),
         None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
+    #[cfg(feature = "experimental-roaming")]
+    let resume_secret = {
+        let material = match static_shared {
+            Some(static_shared) => {
+                derive_session_material_hybrid_bound(&shared.0, &mlkem_shared, &static_shared)
+            }
+            None => derive_session_material_hybrid(&shared.0, &mlkem_shared),
+        };
+        zeroize::Zeroizing::new(*material.resume_secret())
     };
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
@@ -489,7 +535,14 @@ where
             auth.routes_json.matches("cidr").count()
         );
     }
-    Ok((client_rx, client_tx, auth))
+    Ok(TcpAuthentication {
+        client_rx,
+        client_tx,
+        auth,
+        server_capabilities,
+        #[cfg(feature = "experimental-roaming")]
+        resume_secret,
+    })
 }
 
 pub(crate) fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {

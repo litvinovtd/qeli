@@ -40,19 +40,20 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–2B server, default off)
+### Основа роуминга (stages 0–2B TCP hard resume, default off)
 
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
-  `TCP_HANDOVER_V1`. Обычная production-сборка и текущий client core их не рекламируют;
-  сервер с `experimental-roaming` объявляет только TCP resume/handover. Добавлены строгий
+  `TCP_HANDOVER_V1`. Обычная production-сборка их не рекламирует; клиент с
+  `experimental-roaming` объявляет только `TCP_RESUME_V1`, а feature-сервер — TCP
+  resume/handover. Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
 - Из исходного handshake IKM доменно-разделённо выводятся resume, directional CID и control
   secrets с zeroization. Known-answer тесты подтверждают новые labels для classic, hybrid и
   static-bound режимов и одновременно фиксируют неизменность существующих data keys.
 - UDP-контракты пока остаются основой последующих этапов. TCP server data plane активирует
-  resume/handover только для сессии с authenticated client opt-in; текущий client core эти
-  биты не отправляет, поэтому обычные соединения сохраняют прежнее поведение.
+  hard resume только для сессии с authenticated client opt-in. Default-сборки и
+  non-negotiated соединения сохраняют прежнее поведение.
 - Source ABI 1.12 добавляет под `experimental-roaming` ограниченный generation-scoped
   `PathUpdate` и транзакцию `PREPARE/BIND/COMMIT/ABORT`. Вход строго ограничен по размеру,
   адресам, TTL и идентификаторам; stale/duplicate update не создаёт работу, а superseding
@@ -78,18 +79,23 @@
   а повторный revoke/reap не уменьшает счётчики дважды. JOIN reservation атомарна, epoch
   сгорает до JOINOK, make-before-break держит старый transport в Draining до точного
   generation-ACK. Race/security unit-тесты добавлены.
-- Серверный срез Stage 2B подключает lifecycle к живому Linux TCP handler под default-off
-  feature: resume secret исходной сессии выводится для всех handshake KDF modes и хранится
-  с zeroization; новый resume JOIN проходит свежий KE, строгий parser и proof, связанный с
-  transcript/locator/epoch/slot. Резервирование выполняется до JOINOK, negotiated-сессии
-  отклоняют старый bearer JOIN, а publication barrier не разрешает resume до фактического
-  добавления initial transport в scheduler. Hard-handover grace удерживает IP/routes/quota
-  под общими session/byte caps и generation-scoped reaper. Make-before-break коммитит новый стабильный
-  slot до drain старого transport; отдельный `TCP_HANDOVER_V1` opt-in обязателен для временного
-  превышения stream cap. Legacy/non-negotiated scheduler не изменён. На lab `.10` финальное
-  дерево прошло default/feature suites (861/879 library tests, 4 CLI, 7 integration; по одному
-  privileged test ignored) и strict all-target Clippy обеих сборок. Client supervisor и live
-  roaming e2e ещё не готовы, поэтому production data plane остаётся выключенным.
+- Stage 2B подключает lifecycle к Linux TCP handler и общему client supervisor под
+  default-off feature. Resume secret исходной сессии выводится для всех handshake KDF modes
+  и хранится с zeroization; каждый resume JOIN выполняет свежий KE и proof, связанный с
+  transcript/locator/монотонным epoch/stable slot. При потере последнего carrier клиент до
+  30 секунд сохраняет прежние TUN и NetworkPlan, раз в секунду восстанавливает тот же slot,
+  а sibling reader/writer завершаются общим stop-сигналом без утечки старых задач.
+  Сервер допускает один bounded authenticated candidate сверх stream cap: это позволяет
+  атомарно заменить stale carrier, когда клиент уже увидел обрыв, а сервер ещё не получил
+  EOF/RST. После commit старый carrier переводится в draining и закрывается; bearer JOIN для
+  negotiated-сессии запрещён. `TCP_HANDOVER_V1` клиент пока намеренно не рекламирует:
+  PathUpdate-driven make-before-break, явный `CLOSE_SESSION` и UDP roaming остаются следующими
+  срезами. Legacy/non-negotiated scheduler не изменён.
+- На lab `.10` default/feature library suites прошли с 861/881 тестами и по одному
+  privileged ignored; 4 CLI, 7 integration и strict all-target Clippy прошли в обеих
+  конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13:
+  authenticated resume занял 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились,
+  ping восстановился, а полная password AUTH выполнилась ровно один раз.
 
 ### Reality-TLS: настоящий HTTP/2 carrier и переход со старой схемы
 

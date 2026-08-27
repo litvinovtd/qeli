@@ -2,7 +2,7 @@
 //!
 //! The default-off `experimental-roaming` server handler owns this lifecycle and advertises its
 //! TCP support. Session activation still requires authenticated client opt-in, while the current
-//! client supervisor advertises no roaming bits. The state machine keeps JOIN/reaper/kick races
+//! client supervisor advertises hard resume only. The state machine keeps JOIN/reaper/kick races
 //! independently testable and preserves the legacy path for every non-negotiated session.
 
 use crate::protocol::roaming::{TcpResumeJoin, SESSION_LOCATOR_LEN};
@@ -115,8 +115,6 @@ pub enum LifecycleError {
     InvalidSlot,
     #[error("make-before-break handover was not negotiated for this session")]
     HandoverNotNegotiated,
-    #[error("logical slot is already ready; replacement requires handover")]
-    SlotOccupied,
     #[error("logical slot still has a draining transport")]
     SlotDraining,
     #[error("resume reservation is stale or belongs to another transaction")]
@@ -454,12 +452,13 @@ impl SessionLifecycle {
         if logical_slot_id >= self.max_slots {
             return Err(LifecycleError::InvalidSlot);
         }
+        // A hard-resume client may know that its carrier is dead before the server sees EOF/RST.
+        // Therefore an authenticated non-handover resume is allowed to replace the ready
+        // transport in the same stable slot. ResumeBusy bounds this to one candidate and commit
+        // atomically marks the old server-side carrier draining before it is kicked.
         if let Some(slot) = self.slots.get(&logical_slot_id) {
             if slot.draining.is_some() {
                 return Err(LifecycleError::SlotDraining);
-            }
-            if slot.ready.is_some() && !input.is_handover() {
-                return Err(LifecycleError::SlotOccupied);
             }
         }
 
@@ -504,9 +503,6 @@ impl SessionLifecycle {
             });
         if slot.draining.is_some() {
             return Err(LifecycleError::SlotDraining);
-        }
-        if slot.ready.is_some() && !reservation.handover {
-            return Err(LifecycleError::SlotOccupied);
         }
         let old = slot.ready.replace(new_transport_id);
         slot.draining = old;
@@ -789,22 +785,20 @@ mod tests {
     }
 
     #[test]
-    fn stable_slot_rejects_accidental_replacement_and_late_drain_ack() {
+    fn hard_resume_replaces_server_stale_carrier_and_rejects_late_drain_ack() {
         let mut limiter = OrphanLimiter::new(2, 1024);
         let mut session = lifecycle(5, 50);
         let transcript = [5; 32];
-        assert_eq!(
-            session.begin_resume(&join(transcript, 1, 0, false), &transcript, &SECRET),
-            Err(LifecycleError::SlotOccupied)
-        );
         let reservation = session
-            .begin_resume(&join(transcript, 2, 0, true), &transcript, &SECRET)
+            .begin_resume(&join(transcript, 1, 0, false), &transcript, &SECRET)
             .unwrap();
+        assert!(!reservation.is_handover());
         let committed = session
             .commit_resume(reservation, 51, &mut limiter)
             .unwrap();
+        assert_eq!(committed.drain_transport, Some(50));
         assert_eq!(
-            session.begin_resume(&join(transcript, 3, 0, true), &transcript, &SECRET),
+            session.begin_resume(&join(transcript, 2, 0, false), &transcript, &SECRET),
             Err(LifecycleError::SlotDraining)
         );
         assert!(!session.complete_drain(0, committed.slot_generation + 1, 50));

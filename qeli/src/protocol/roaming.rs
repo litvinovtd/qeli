@@ -1,8 +1,9 @@
 //! Wire contracts shared by future TCP resume and UDP path migration.
 //!
 //! UDP remains a protocol-only contract. Under the default-off `experimental-roaming` feature,
-//! the Linux server now advertises and consumes the authenticated TCP resume/handover messages;
-//! the client core still advertises neither bit, so ordinary and production sessions are unchanged.
+//! the Linux server advertises and consumes authenticated TCP resume/handover messages. The common
+//! client supervisor advertises hard resume only; handover remains withheld until PathUpdate is
+//! wired to make-before-break. Ordinary production builds advertise neither bit.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -378,8 +379,14 @@ mod tests {
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
 
-        // No client supervisor emits an authenticated resume yet. Keeping both bits absent here
-        // prevents a feature-enabled server from changing normal sessions before that lands.
+        // The gated common supervisor implements hard resume. Handover remains absent until
+        // platform PathUpdate can drive make-before-break.
+        #[cfg(feature = "experimental-roaming")]
+        assert_eq!(
+            implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
+            client_capability::TCP_RESUME_V1
+        );
+        #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             0

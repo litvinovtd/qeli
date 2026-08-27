@@ -118,10 +118,15 @@ pub fn tcp_handover_supported(client: Option<ClientCapabilities>) -> bool {
 /// active. Platform operations remain separate and can still downgrade `auto` or fail
 /// `required` before an IPv6 lease is allocated.
 pub const fn implemented_client_core_capabilities() -> u64 {
-    client_capability::INNER_IPV6
+    let bits = client_capability::INNER_IPV6
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
-        | client_capability::PACKET_MUX_V1
+        | client_capability::PACKET_MUX_V1;
+    // Hard TCP resume is now complete in the common client supervisor. Handover remains
+    // separate and is intentionally withheld until PathUpdate drives make-before-break.
+    #[cfg(feature = "experimental-roaming")]
+    let bits = bits | client_capability::TCP_RESUME_V1;
+    bits
 }
 
 /// True only when the authenticated client extension confirms the complete mux
@@ -607,7 +612,13 @@ mod tests {
         assert_eq!(server.bits & server_capability::ROAMING_RESERVED, 0);
 
         // Server capability alone never changes a session. The authenticated client
-        // extension must opt in, and the normal client core deliberately does not yet do so.
+        // extension must opt in; only the gated hard-resume bit is currently complete.
+        #[cfg(feature = "experimental-roaming")]
+        assert_eq!(
+            implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
+            client_capability::TCP_RESUME_V1
+        );
+        #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             0

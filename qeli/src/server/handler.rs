@@ -603,9 +603,13 @@ impl SessionShared {
     /// Atomically attach a stream iff the session is live and under its `max_streams` cap.
     /// Revocation, the length check and the push are serialized by the same lock, so neither
     /// a concurrent kick nor N concurrent JOINs can race past the decision.
-    fn try_add_stream(&self, h: StreamHandle, handover_overflow: bool) -> bool {
+    fn try_add_stream(&self, h: StreamHandle, authenticated_resume_overflow: bool) -> bool {
         let mut streams = lock_or_recover(&self.streams, "try_add_stream");
-        let limit = self.max_streams as usize + usize::from(handover_overflow);
+        // An authenticated resume gets one temporary candidate above max_streams even without
+        // make-before-break negotiation: after an asymmetric failure the server can still hold
+        // the dead old carrier. SessionLifecycle::ResumeBusy bounds the overflow to one, and
+        // commit immediately drains the obsolete carrier occupying the same stable slot.
+        let limit = self.max_streams as usize + usize::from(authenticated_resume_overflow);
         if self.revoked.load(std::sync::atomic::Ordering::Acquire) || streams.len() >= limit {
             return false;
         }
@@ -711,10 +715,10 @@ impl StreamAttach {
         true
     }
 
-    fn handover_overflow(self) -> bool {
+    fn authenticated_resume_overflow(self) -> bool {
         match self {
             #[cfg(feature = "experimental-roaming")]
-            Self::Resume { reservation } => reservation.is_handover(),
+            Self::Resume { .. } => true,
             _ => false,
         }
     }
@@ -1901,7 +1905,7 @@ async fn run_stream<R, W>(
             kick_tx,
             shutdown_tx: shutdown_tx.clone(),
         },
-        stream_attach.handover_overflow(),
+        stream_attach.authenticated_resume_overflow(),
     ) {
         // The lookup/count in handle_client is only a fast-path. This is the authoritative,
         // lock-serialized admission against both max_streams and session revocation.

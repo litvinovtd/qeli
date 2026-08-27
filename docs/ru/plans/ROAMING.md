@@ -1,9 +1,10 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v3-safe -->
 
-> Статус: проектирование завершено; этапы 0–2A и серверная часть этапа 2B реализованы
-> под `experimental-roaming`. Клиентский supervisor, live e2e роуминга и этапы 3–6 ещё
-> впереди. На лабе `.10` прошли финальные default/feature suites (861/879 library tests,
+> Статус: проектирование завершено; этапы 0–2A и срез authenticated TCP hard resume этапа 2B
+> реализованы под `experimental-roaming`. Feature-путь клиент/сервер прошёл изолированный
+> Linux live e2e; make-before-break handover, явное закрытие и этапы 3–6 ещё впереди.
+> На лабе `.10` прошли финальные default/feature suites (861/881 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -453,8 +454,8 @@ anti-amplification и PMTU reset.
 Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
 текущего data plane.
 ABI 1.12 и stats V3 сохраняют старые префиксы; mock fault injection покрывает отказы
-PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламируют capability до этапа 4,
-платформенные и lab/e2e проверки ещё не выполнялись.
+PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламируют path capability до этапа 4;
+платформенный PathUpdate e2e ещё не выполнялся.
 
 ### Этап 2A. TCP lifecycle — ✅ исходники
 
@@ -466,31 +467,30 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
 production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — 🟡 серверный срез готов
+### Этап 2B. TCP resume и handover — 🟡 hard resume готов в исходниках и Linux e2e
 
-Linux handler под default-off feature уже выводит и обнуляет resume secret исходной
-сессии, строго разбирает authenticated resume JOIN и резервирует lifecycle/slot до JOINOK.
-Отдельный publication barrier отклоняет resume, пока первичный transport реально не добавлен
-в scheduler. Неожиданная потеря последнего TCP path сохраняет сессию на 30 секунд; общий лимитер профиля
-считает как сессии, так и полный retained buffer budget, а generation-scoped reaper не может
-удалить уже восстановленную сессию. Make-before-break сначала коммитит новый transport,
-затем исключает старый из scheduler и отправляет его в drain. Resume и handover требуют
-раздельных authenticated client capability; negotiated-сессия больше не принимает старый
-bearer JOIN. Для legacy/non-negotiated сессий сохранены прежние JOIN и scheduler.
+Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
+secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
+до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys. Feature-клиент
+рекламирует только `TCP_RESUME_V1`. Потеря последнего carrier до 30 секунд сохраняет прежние TUN
+и NetworkPlan; supervisor раз в секунду восстанавливает тот же stable logical slot, а sibling
+reader/writer завершаются общим сохраняющим состояние stop-сигналом.
 
-Текущий client supervisor намеренно не рекламирует `TCP_RESUME_V1`/`TCP_HANDOVER_V1`,
-поэтому новый путь ещё не включается в обычной работе. Осталось:
+Сервер допускает один bounded authenticated candidate сверх stream cap, поэтому hard resume
+атомарно заменяет stale carrier даже тогда, когда клиент уже увидел обрыв, а сервер ещё не получил
+EOF/RST. После commit старый transport переводится в draining и закрывается. Если все server-side
+carrier уже отсоединились, остаются 30-секундный orphan grace, точные session/retained-byte limits
+и generation-scoped reaper. Для legacy/non-negotiated сессий прежние JOIN и scheduler не изменены.
 
-- единый client supervisor;
-- клиентское инициирование make-before-break и hard-handover grace;
+На lab `.10` финальные default/feature suites прошли с 861/881 library tests, 4 CLI и
+7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
+конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
+2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
+AUTH выполнилась ровно один раз.
 
-На lab `.10` финальное дерево прошло default/feature suites: 861/879 library tests,
-4 CLI и 7 integration tests (по одному privileged test ignored), а также strict
-all-target Clippy в обеих конфигурациях. Live смена пути в этот gate ещё не входит.
-- live mock/Linux e2e для hard handover, make-before-break и CLOSE/revoke/reaper races.
-
-Полный результат этапа 2B пока не достигнут: TCP роуминг должен заработать на mock/Linux
-path end-to-end; остальные платформы останутся за feature gate до этапа 4.
+Полный этап 2B ещё не завершён: `TCP_HANDOVER_V1` намеренно не рекламируется; остаются
+PathUpdate-driven make-before-break, явный `CLOSE_SESSION` и live-матрица их гонок. Остальные
+платформы остаются за feature gate до этапа 4.
 
 ### Этап 3. UDP migration
 

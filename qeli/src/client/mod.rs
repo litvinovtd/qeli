@@ -44,7 +44,8 @@ use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
-    parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
+    parse_auth_ok, static_es, verify_server_identity, AuthOk, TcpAuthentication,
+    UdpClientHelloFlight,
 };
 use crate::transport_core::udp_buffer::{
     InternalDrop, UdpBufferController, UdpBufferPolicy, AUTO_MAX_RECV_BYTES,
@@ -76,6 +77,10 @@ const UDP_MTU_REPROBE_TICK: Duration = Duration::from_millis(250);
 const UDP_MTU_REPROBE_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
 const UDP_MTU_REPROBE_SENDS: u8 = 2;
 const UDP_MTU_REPROBE_CONFIRMATIONS: u8 = 3;
+/// Kept equal to the server's experimental grace. The attempt itself is bounded by the
+/// remaining budget; expiry falls back to the ordinary full reconnect and NetworkPlan cycle.
+const TCP_RESUME_GRACE: Duration = Duration::from_secs(30);
+const TCP_RESUME_MAINTENANCE_TICK: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -1737,6 +1742,110 @@ enum ClientUplink {
     Owned(Vec<u8>),
 }
 
+#[derive(Clone)]
+struct ClientStreamSender {
+    logical_slot_id: u32,
+    sender: mpsc::Sender<ClientUplink>,
+}
+
+impl ClientStreamSender {
+    fn try_send(
+        &self,
+        packet: ClientUplink,
+    ) -> Result<(), mpsc::error::TrySendError<ClientUplink>> {
+        self.sender.try_send(packet)
+    }
+
+    fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
+}
+
+/// Original-session material needed for authenticated TCP hard resume. The common core
+/// advertises only TCP_RESUME_V1; make-before-break stays disabled until PathUpdate drives it.
+#[derive(Clone)]
+struct TcpResumeContext {
+    #[cfg(feature = "experimental-roaming")]
+    session_locator: [u8; crate::protocol::roaming::SESSION_LOCATOR_LEN],
+    #[cfg(feature = "experimental-roaming")]
+    resume_secret: Arc<zeroize::Zeroizing<[u8; 32]>>,
+    #[cfg(feature = "experimental-roaming")]
+    next_epoch: Arc<AtomicU64>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl TcpResumeContext {
+    fn next_epoch(&self) -> anyhow::Result<u64> {
+        let previous = self
+            .next_epoch
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                epoch.checked_add(1)
+            })
+            .map_err(|_| anyhow::anyhow!("TCP resume epoch exhausted"))?;
+        previous
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("TCP resume epoch exhausted"))
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
+    if value.len() != N * 2 || !value.is_ascii() {
+        return None;
+    }
+    let mut decoded = [0u8; N];
+    for (index, byte) in decoded.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(value.get(index * 2..index * 2 + 2)?, 16).ok()?;
+    }
+    Some(decoded)
+}
+
+#[cfg(all(test, feature = "experimental-roaming"))]
+mod tcp_resume_client_tests {
+    use super::{decode_hex_array, TcpResumeContext, TcpSecondaryAttach};
+    use portable_atomic::AtomicU64;
+    use std::sync::Arc;
+
+    #[test]
+    fn resume_attach_binds_original_secret_transcript_epoch_and_slot() {
+        let secret = [0x5a; 32];
+        let context = TcpResumeContext {
+            session_locator: [0x33; crate::protocol::roaming::SESSION_LOCATOR_LEN],
+            resume_secret: Arc::new(zeroize::Zeroizing::new(secret)),
+            next_epoch: Arc::new(AtomicU64::new(0)),
+        };
+        assert_eq!(context.next_epoch().unwrap(), 1);
+        let epoch = context.next_epoch().unwrap();
+        assert_eq!(epoch, 2);
+        let transcript = [0xa7; 32];
+        let encoded = TcpSecondaryAttach::Resume {
+            context: &context,
+            resume_epoch: epoch,
+            logical_slot_id: 3,
+        }
+        .first_message(transcript);
+        let join = crate::protocol::roaming::TcpResumeJoin::decode(&encoded).unwrap();
+        assert!(join.verify(&secret));
+        assert!(join.matches_transcript(&transcript));
+        assert_eq!(join.input().resume_epoch(), 2);
+        assert_eq!(join.input().logical_slot_id(), 3);
+        assert!(!join.input().is_handover());
+    }
+
+    #[test]
+    fn session_locator_hex_is_strict() {
+        let expected = [0xabu8; crate::protocol::roaming::SESSION_LOCATOR_LEN];
+        assert_eq!(
+            decode_hex_array::<{ crate::protocol::roaming::SESSION_LOCATOR_LEN }>(
+                &"ab".repeat(crate::protocol::roaming::SESSION_LOCATOR_LEN)
+            ),
+            Some(expected)
+        );
+        assert!(decode_hex_array::<16>("ab").is_none());
+        assert!(decode_hex_array::<16>(&"zz".repeat(16)).is_none());
+    }
+}
+
 impl AsRef<[u8]> for ClientUplink {
     fn as_ref(&self) -> &[u8] {
         match self {
@@ -1914,6 +2023,42 @@ fn deliver_client_tcp_plaintext(
         Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
     }
 }
+
+fn mark_tcp_stream_stopped(
+    logical_slot_id: u32,
+    stream_dead: &std::sync::atomic::AtomicBool,
+    live: &std::sync::atomic::AtomicUsize,
+    dead_tx: &mpsc::Sender<()>,
+    active_slots: Option<&Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>>,
+    last_live_lost_at: Option<&Arc<std::sync::Mutex<Option<tokio::time::Instant>>>>,
+) {
+    if stream_dead.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Some(active_slots) = active_slots {
+        crate::util::lock_or_recover(active_slots, "client::active_slots").remove(&logical_slot_id);
+    }
+    let previous = live.fetch_sub(1, Ordering::AcqRel);
+    let remaining = previous.saturating_sub(1);
+    if previous == 0 {
+        log::error!("TCP live-stream counter underflow for slot {logical_slot_id}");
+        live.store(0, Ordering::Release);
+    }
+    if remaining == 0 {
+        if let Some(last_live_lost_at) = last_live_lost_at {
+            let mut lost_at =
+                crate::util::lock_or_recover(last_live_lost_at, "client::last_live_lost_at");
+            lost_at.get_or_insert_with(tokio::time::Instant::now);
+            log::info!(
+                "TCP stream slot {logical_slot_id} lost; preserving TUN during resume grace"
+            );
+        } else {
+            let _ = dead_tx.try_send(());
+        }
+    } else {
+        log::info!("Bonded stream slot {logical_slot_id} lost; {remaining} stream(s) remain");
+    }
+}
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
 /// tasks (outgoing plaintext → encrypt → socket). Returns the outgoing channel
 /// the distributor feeds. `live` counts streams still up; this stream's death
@@ -1932,6 +2077,9 @@ fn spawn_stream<R, W>(
     total_rx: Arc<AtomicU64>,
     runtime: Arc<RuntimeCounters>,
     live: Arc<std::sync::atomic::AtomicUsize>,
+    logical_slot_id: u32,
+    active_slots: Option<Arc<std::sync::Mutex<std::collections::BTreeSet<u32>>>>,
+    last_live_lost_at: Option<Arc<std::sync::Mutex<Option<tokio::time::Instant>>>>,
     // Every task this stream spawns is registered here so the teardown can abort them.
     // Without it the caller had no handle at all: a reader parked in `read_record` on a
     // half-open connection outlived its connection generation, retaining its socket,
@@ -1939,18 +2087,31 @@ fn spawn_stream<R, W>(
     // clones, but the obsolete stream tasks still must not survive a reconnect.
     tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     cfg: StreamPump,
-) -> mpsc::Sender<ClientUplink>
+) -> ClientStreamSender
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientUplink>(4096);
+    let stream_sender = ClientStreamSender {
+        logical_slot_id,
+        sender: out_tx,
+    };
     let base = tokio::time::Instant::now();
     let last_rx = Arc::new(AtomicU64::new(0));
     // This stream counts itself as live; its first dying task (reader/writer)
     // decrements and, only if it was the last, signals a full-tunnel teardown.
-    live.fetch_add(1, Ordering::AcqRel);
+    let previous_live = live.fetch_add(1, Ordering::AcqRel);
+    if let Some(active_slots) = &active_slots {
+        crate::util::lock_or_recover(active_slots, "client::active_slots").insert(logical_slot_id);
+    }
+    if previous_live == 0 {
+        if let Some(last_live_lost_at) = &last_live_lost_at {
+            *crate::util::lock_or_recover(last_live_lost_at, "client::last_live_lost_at") = None;
+        }
+    }
     let stream_dead = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stream_stop_tx, _) = tokio::sync::watch::channel(false);
 
     // Reader: socket → decrypt → TUN writer.
     //
@@ -1974,6 +2135,10 @@ where
         let family_mode = cfg.family_mode;
         let stream_dead = stream_dead.clone();
         let live = live.clone();
+        let active_slots = active_slots.clone();
+        let last_live_lost_at = last_live_lost_at.clone();
+        let stream_stop_tx = stream_stop_tx.clone();
+        let mut stream_stop_rx = stream_stop_tx.subscribe();
         let total_rx = total_rx.clone();
         let runtime = runtime.clone();
         let record_pool = tun_write_tx.clone();
@@ -2052,7 +2217,12 @@ where
                     Some(record) => record,
                     None => break,
                 };
-                match read_record_into(&mut read_half, framing, record.as_vec_mut()).await {
+                let read = tokio::select! {
+                    biased;
+                    _ = stream_stop_rx.changed() => break,
+                    result = read_record_into(&mut read_half, framing, record.as_vec_mut()) => result,
+                };
+                match read {
                     Ok(()) => {
                         match &mut sink {
                             RxSink::Inline { rx, tun, mux } => {
@@ -2109,16 +2279,15 @@ where
             // Stream lost (read side): tear down the whole tunnel only if this was
             // the last live stream; otherwise the tunnel keeps running on the rest.
             // Dropping `sink` here (its `Pipe` sender, if any) ends the inner task.
-            if !stream_dead.swap(true, Ordering::AcqRel) {
-                if live.fetch_sub(1, Ordering::AcqRel) <= 1 {
-                    let _ = dead_tx.try_send(());
-                } else {
-                    log::info!(
-                        "Bonded stream lost; {} stream(s) remain",
-                        live.load(Ordering::Relaxed)
-                    );
-                }
-            }
+            let _ = stream_stop_tx.send(true);
+            mark_tcp_stream_stopped(
+                logical_slot_id,
+                &stream_dead,
+                &live,
+                &dead_tx,
+                active_slots.as_ref(),
+                last_live_lost_at.as_ref(),
+            );
         });
         crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
     }
@@ -2129,6 +2298,10 @@ where
         let dead_tx = dead_tx.clone();
         let stream_dead = stream_dead.clone();
         let live = live.clone();
+        let active_slots = active_slots.clone();
+        let last_live_lost_at = last_live_lost_at.clone();
+        let stream_stop_tx = stream_stop_tx.clone();
+        let mut stream_stop_rx = stream_stop_tx.subscribe();
         let __h = tokio::spawn(async move {
             let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
             idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -2179,6 +2352,8 @@ where
                     .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
                 tokio::select! {
                     biased;
+
+                    _ = stream_stop_rx.changed() => break,
 
                     Some(pt) = out_rx.recv() => {
                         let data_len = pt.as_ref().len();
@@ -2375,21 +2550,20 @@ where
             }
             // Stream lost (write side): tear down the whole tunnel only if this was
             // the last live stream; otherwise keep running on the remaining streams.
-            if !stream_dead.swap(true, Ordering::AcqRel) {
-                if live.fetch_sub(1, Ordering::AcqRel) <= 1 {
-                    let _ = dead_tx.try_send(());
-                } else {
-                    log::info!(
-                        "Bonded stream lost; {} stream(s) remain",
-                        live.load(Ordering::Relaxed)
-                    );
-                }
-            }
+            let _ = stream_stop_tx.send(true);
+            mark_tcp_stream_stopped(
+                logical_slot_id,
+                &stream_dead,
+                &live,
+                &dead_tx,
+                active_slots.as_ref(),
+                last_live_lost_at.as_ref(),
+            );
         });
         crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
     }
 
-    out_tx
+    stream_sender
 }
 
 pub(crate) async fn run_tcp_tunnel<S>(
@@ -2411,7 +2585,7 @@ where
     let client_device_id = core.device_id()?;
     let platform_capabilities = core.platform_capabilities();
     let identity_verifier = core.identity_verifier(config);
-    let (client_rx, client_tx, ok) = match tokio::time::timeout(
+    let handshake = match tokio::time::timeout(
         hs_to,
         tcp_handshake(
             &mut stream,
@@ -2433,6 +2607,12 @@ where
             ))
         }
     };
+    let server_capabilities = handshake.server_capabilities;
+    #[cfg(feature = "experimental-roaming")]
+    let resume_secret = handshake.resume_secret;
+    let client_rx = handshake.client_rx;
+    let client_tx = handshake.client_tx;
+    let ok = handshake.auth;
     let AuthOk {
         family_mode,
         addresses,
@@ -2449,6 +2629,31 @@ where
         max_streams,
         adaptive,
     } = ok;
+    #[cfg(feature = "experimental-roaming")]
+    let tcp_resume: Option<Arc<TcpResumeContext>> = if server_capabilities.is_some_and(|server| {
+        server.contains(crate::protocol::capabilities::server_capability::TCP_RESUME_V1)
+    }) {
+        let session_locator =
+            decode_hex_array::<{ crate::protocol::roaming::SESSION_LOCATOR_LEN }>(&session_token)
+                .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "server negotiated TCP_RESUME_V1 but returned an invalid session locator"
+                )
+            })?;
+        log::info!("TCP hard-resume negotiated; preserving NetworkPlan during carrier loss");
+        Some(Arc::new(TcpResumeContext {
+            session_locator,
+            resume_secret: Arc::new(resume_secret),
+            next_epoch: Arc::new(AtomicU64::new(0)),
+        }))
+    } else {
+        None
+    };
+    #[cfg(not(feature = "experimental-roaming"))]
+    let tcp_resume: Option<Arc<TcpResumeContext>> = {
+        let _ = server_capabilities;
+        None
+    };
     // Multipath plan: the primary connection is stream #0; secondaries JOIN with
     // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
@@ -2679,8 +2884,16 @@ where
     // Handles for every task the bonded streams spawn, so the teardown can stop them.
     let stream_tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
-    let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<ClientUplink>>>> =
+    let outs: Arc<std::sync::Mutex<Vec<ClientStreamSender>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
+    let active_slots = tcp_resume.as_ref().map(|_| {
+        Arc::new(std::sync::Mutex::new(
+            std::collections::BTreeSet::<u32>::new(),
+        ))
+    });
+    let last_live_lost_at = tcp_resume
+        .as_ref()
+        .map(|_| Arc::new(std::sync::Mutex::new(None::<tokio::time::Instant>)));
     // Bytes encrypted+sent across all streams (uplink half of the adaptive probe).
     let total_tx = Arc::new(AtomicU64::new(0));
     // Bytes decrypted+delivered to TUN across all streams (downlink half). Without
@@ -2749,6 +2962,9 @@ where
         total_rx.clone(),
         runtime_counters.clone(),
         live.clone(),
+        0,
+        active_slots.clone(),
+        last_live_lost_at.clone(),
         stream_tasks.clone(),
         pump.clone(),
     ));
@@ -2817,11 +3033,12 @@ where
                     // tun_write_tx clone. It only degrades bonding (the primary survives).
                     let join = match tokio::time::timeout(
                         Duration::from_secs(config.server.connection_timeout_secs.max(1)),
-                        tcp_join_handshake(
+                        tcp_attach_handshake(
                             &mut s,
                             config,
                             &token_bytes,
-                            idx as u8,
+                            idx as u32,
+                            tcp_resume.as_deref(),
                             identity_verifier.clone(),
                         ),
                     )
@@ -2844,6 +3061,9 @@ where
                                 total_rx.clone(),
                                 runtime_counters.clone(),
                                 live.clone(),
+                                idx as u32,
+                                active_slots.clone(),
+                                last_live_lost_at.clone(),
                                 stream_tasks.clone(),
                                 pump.clone(),
                             ));
@@ -2875,14 +3095,17 @@ where
         let identity_r = identity_verifier.clone();
         let desired_r = desired_streams.clone();
         let joining_r = join_in_flight.clone();
+        let resume_r = tcp_resume.clone();
+        let active_slots_r = active_slots.clone();
+        let last_live_lost_at_r = last_live_lost_at.clone();
         ramp_handle = Some(tokio::spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
             let mut grace = 0u32;
-            let mut idx = 1u8;
+            let mut idx = 1u32;
             loop {
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                let cur = crate::util::lock_or_recover(&outs_r, "client::outs_r").len();
+                let cur = live_r.load(Ordering::Acquire);
                 if cur >= target {
                     break;
                 }
@@ -2919,7 +3142,14 @@ where
                     // the timeout Elapsed into an Err so the existing match arms stay put.
                     Ok(mut s) => match tokio::time::timeout(
                         Duration::from_secs(cfg_r.server.connection_timeout_secs.max(1)),
-                        tcp_join_handshake(&mut s, &cfg_r, &token_r, idx, identity_r.clone()),
+                        tcp_attach_handshake(
+                            &mut s,
+                            &cfg_r,
+                            &token_r,
+                            idx,
+                            resume_r.as_deref(),
+                            identity_r.clone(),
+                        ),
                     )
                     .await
                     .unwrap_or_else(|_| Err(anyhow::anyhow!("JOIN handshake timed out")))
@@ -2938,11 +3168,14 @@ where
                                     total_rx_r.clone(),
                                     runtime_r.clone(),
                                     live_r.clone(),
+                                    idx,
+                                    active_slots_r.clone(),
+                                    last_live_lost_at_r.clone(),
                                     stream_tasks_r.clone(),
                                     pump_r.clone(),
                                 ),
                             );
-                            idx = idx.wrapping_add(1);
+                            idx = idx.saturating_add(1);
                             desired_r.store(cur + 1, Ordering::Release);
                             grace = 1;
                             log::info!(
@@ -2963,7 +3196,7 @@ where
     // Restore lost members of an established bond. Previously a dead secondary
     // merely reduced `live`; once the ramp task had ended nothing ever recreated
     // it, so a long-lived multipath session silently degraded to one stream.
-    let maintenance_handle = if bonding {
+    let maintenance_handle = if bonding || tcp_resume.is_some() {
         let outs_m = outs.clone();
         let stream_tasks_m = stream_tasks.clone();
         let total_m = total_tx.clone();
@@ -2980,9 +3213,22 @@ where
         let joining_m = join_in_flight.clone();
         let runtime_m = runtime_counters.clone();
         let identity_m = identity_verifier.clone();
+        let resume_m = tcp_resume.clone();
+        let active_slots_m = active_slots.clone();
+        let last_live_lost_at_m = last_live_lost_at.clone();
         Some(tokio::spawn(async move {
+            let mut tick = tokio::time::interval(TCP_RESUME_MAINTENANCE_TICK);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tick.tick().await;
+                let orphaned_at = last_live_lost_at_m.as_ref().and_then(|lost_at| {
+                    *crate::util::lock_or_recover(lost_at, "client::last_live_lost_at")
+                });
+                if orphaned_at.is_some_and(|lost_at| lost_at.elapsed() >= TCP_RESUME_GRACE) {
+                    log::warn!("TCP resume grace expired; falling back to full reconnect");
+                    let _ = dead_m.try_send(());
+                    break;
+                }
                 let desired = desired_m.load(Ordering::Acquire).min(target);
                 if live_m.load(Ordering::Acquire) >= desired {
                     continue;
@@ -2993,35 +3239,67 @@ where
                 {
                     continue;
                 }
-                let raw_index = next_m.fetch_add(1, Ordering::AcqRel);
-                if raw_index > u8::MAX as usize {
-                    // JOIN derives per-stream state from the u8 index. Never wrap and
-                    // reuse it in one session; reconnect to obtain a fresh session key.
-                    log::warn!("Multipath JOIN index exhausted — reconnecting tunnel");
-                    let _ = dead_m.try_send(());
-                    joining_m.store(false, Ordering::Release);
-                    break;
-                }
-                let joined = match conn_m().await {
-                    Ok(mut stream) => tokio::time::timeout(
+                let logical_slot_id = if resume_m.is_some() {
+                    let Some(active_slots) = active_slots_m.as_ref() else {
+                        joining_m.store(false, Ordering::Release);
+                        continue;
+                    };
+                    let active = crate::util::lock_or_recover(active_slots, "client::active_slots");
+                    let missing = (0..u32::try_from(desired).unwrap_or(u32::MAX))
+                        .find(|slot| !active.contains(slot));
+                    drop(active);
+                    let Some(missing) = missing else {
+                        joining_m.store(false, Ordering::Release);
+                        continue;
+                    };
+                    missing
+                } else {
+                    let raw_index = next_m.fetch_add(1, Ordering::AcqRel);
+                    if raw_index > u8::MAX as usize {
+                        // Legacy JOIN derives state from a u8 index. Never wrap and reuse it.
+                        log::warn!("Multipath JOIN index exhausted — reconnecting tunnel");
+                        let _ = dead_m.try_send(());
+                        joining_m.store(false, Ordering::Release);
+                        break;
+                    }
+                    raw_index as u32
+                };
+
+                let attempt = async {
+                    let mut stream = conn_m().await?;
+                    let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1)),
-                        tcp_join_handshake(
+                        tcp_attach_handshake(
                             &mut stream,
                             &cfg_m,
                             &token_m,
-                            raw_index as u8,
+                            logical_slot_id,
+                            resume_m.as_deref(),
                             identity_m.clone(),
                         ),
                     )
                     .await
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("JOIN handshake timed out")))
-                    .map(|(rx, tx)| (stream, rx, tx)),
-                    Err(error) => Err(error),
+                    .map_err(|_| anyhow::anyhow!("TCP attach handshake timed out"))??;
+                    Ok::<_, anyhow::Error>((stream, rx, tx))
                 };
+                let joined = if let Some(lost_at) = orphaned_at {
+                    let remaining = TCP_RESUME_GRACE.saturating_sub(lost_at.elapsed());
+                    if remaining.is_zero() {
+                        Err(anyhow::anyhow!("TCP resume grace expired"))
+                    } else {
+                        tokio::time::timeout(remaining, attempt)
+                            .await
+                            .map_err(|_| anyhow::anyhow!("TCP resume grace expired"))
+                            .and_then(|result| result)
+                    }
+                } else {
+                    attempt.await
+                };
+
                 match joined {
                     Ok((stream, rx, tx)) => {
                         let (reader, writer) = stream.split_io();
-                        crate::util::lock_or_recover(&outs_m, "client::outs_m").push(spawn_stream(
+                        let replacement = spawn_stream(
                             reader,
                             writer,
                             rx,
@@ -3032,18 +3310,43 @@ where
                             total_rx_m.clone(),
                             runtime_m.clone(),
                             live_m.clone(),
+                            logical_slot_id,
+                            active_slots_m.clone(),
+                            last_live_lost_at_m.clone(),
                             stream_tasks_m.clone(),
                             pump_m.clone(),
-                        ));
+                        );
+                        let mut outputs = crate::util::lock_or_recover(&outs_m, "client::outs_m");
+                        // Drop an obsolete writer for the same stable slot before publishing
+                        // the replacement. Other closed slots are cheap to purge here too.
+                        outputs.retain(|entry| {
+                            entry.logical_slot_id != logical_slot_id && !entry.is_closed()
+                        });
+                        outputs.push(replacement);
+                        outputs.sort_unstable_by_key(|entry| entry.logical_slot_id);
                         log::info!(
-                            "Multipath: restored bond to {}/{} live stream(s)",
+                            "TCP stream slot {} resumed; {}/{} stream(s) active",
+                            logical_slot_id,
                             live_m.load(Ordering::Acquire),
                             desired
                         );
                     }
-                    Err(error) => log::warn!("Multipath replacement JOIN failed: {error}"),
+                    Err(error) => {
+                        log::warn!(
+                            "TCP stream slot {} resume/attach attempt failed: {}",
+                            logical_slot_id,
+                            error
+                        );
+                    }
                 }
                 joining_m.store(false, Ordering::Release);
+                if last_live_lost_at_m.as_ref().is_some_and(|lost_at| {
+                    crate::util::lock_or_recover(lost_at, "client::last_live_lost_at")
+                        .is_some_and(|at| at.elapsed() >= TCP_RESUME_GRACE)
+                }) {
+                    let _ = dead_m.try_send(());
+                    break;
+                }
             }
         }))
     } else {
@@ -3216,7 +3519,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     client_device_id: &[u8; crate::protocol::DEVICE_ID_LEN],
     platform_capabilities: u64,
     identity_verifier: IdentityVerifier,
-) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)> {
+) -> anyhow::Result<TcpAuthentication> {
     let result = authenticate_tcp(
         stream,
         config,
@@ -3237,15 +3540,112 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     })
 }
 
-/// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
-/// same key exchange and server-identity verification as the primary, but with
-/// the per-session JOIN token instead of credentials. Returns the stream's own
-/// codecs for modes that support wire bonding.
-async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+#[derive(Clone, Copy)]
+enum TcpSecondaryAttach<'a> {
+    Legacy {
+        token: &'a [u8],
+        stream_index: u8,
+    },
+    #[cfg(feature = "experimental-roaming")]
+    Resume {
+        context: &'a TcpResumeContext,
+        resume_epoch: u64,
+        logical_slot_id: u32,
+    },
+}
+
+impl TcpSecondaryAttach<'_> {
+    fn logical_slot_id(self) -> u32 {
+        match self {
+            Self::Legacy { stream_index, .. } => u32::from(stream_index),
+            #[cfg(feature = "experimental-roaming")]
+            Self::Resume {
+                logical_slot_id, ..
+            } => logical_slot_id,
+        }
+    }
+
+    fn first_message(self, _transcript_hash: [u8; 32]) -> Vec<u8> {
+        match self {
+            Self::Legacy {
+                token,
+                stream_index,
+            } => {
+                let mut join =
+                    Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
+                join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
+                join.extend_from_slice(token);
+                join.push(stream_index);
+                join
+            }
+            #[cfg(feature = "experimental-roaming")]
+            Self::Resume {
+                context,
+                resume_epoch,
+                logical_slot_id,
+            } => crate::protocol::roaming::TcpResumeJoin::new(
+                crate::protocol::roaming::ResumeProofInput::new(
+                    _transcript_hash,
+                    context.session_locator,
+                    resume_epoch,
+                    logical_slot_id,
+                    false,
+                ),
+                context.resume_secret.as_ref(),
+            )
+            .encode()
+            .to_vec(),
+        }
+    }
+}
+
+async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
     token: &[u8],
-    stream_index: u8,
+    logical_slot_id: u32,
+    resume: Option<&TcpResumeContext>,
+    identity_verifier: IdentityVerifier,
+) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+    #[cfg(feature = "experimental-roaming")]
+    if let Some(context) = resume {
+        let resume_epoch = context.next_epoch()?;
+        return tcp_secondary_handshake(
+            stream,
+            config,
+            TcpSecondaryAttach::Resume {
+                context,
+                resume_epoch,
+                logical_slot_id,
+            },
+            identity_verifier,
+        )
+        .await;
+    }
+    #[cfg(not(feature = "experimental-roaming"))]
+    let _ = resume;
+    let stream_index = u8::try_from(logical_slot_id)
+        .map_err(|_| anyhow::anyhow!("legacy TCP JOIN stream index exhausted"))?;
+    tcp_secondary_handshake(
+        stream,
+        config,
+        TcpSecondaryAttach::Legacy {
+            token,
+            stream_index,
+        },
+        identity_verifier,
+    )
+    .await
+}
+
+/// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
+/// same key exchange and server-identity verification as the primary, but with
+/// an authenticated resume proof (or the legacy JOIN token when not negotiated)
+/// instead of credentials. Returns fresh, per-carrier data-plane codecs.
+async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+    attach: TcpSecondaryAttach<'_>,
     identity_verifier: IdentityVerifier,
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
     let client_kp = Keypair::generate();
@@ -3284,10 +3684,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &config.auth.server_public_key,
         )?;
         identity_verifier(server_static_pub_bytes).await?;
-        let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
-        join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
-        join.extend_from_slice(token);
-        join.push(stream_index);
+        let join = attach.first_message(transcript_hash);
         let join_packet = client_tx.encrypt_packet(&join, &[])?;
         stream.write_all(&join_packet).await?;
         let ack_record = read_record(stream, Framing::Raw)
@@ -3297,7 +3694,10 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         if ack != b"JOINOK" {
             return Err(anyhow::anyhow!("JOIN(plain) rejected by server"));
         }
-        log::info!("Bonded stream #{} joined (plain)", stream_index);
+        log::info!(
+            "TCP stream slot {} attached (plain)",
+            attach.logical_slot_id()
+        );
         return Ok((client_rx, client_tx));
     }
 
@@ -3389,11 +3789,8 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     )?;
     identity_verifier(server_static_pub_bytes).await?;
 
-    // Present the session JOIN token (instead of credentials).
-    let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
-    join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
-    join.extend_from_slice(token);
-    join.push(stream_index);
+    // Present an authenticated resume proof, or the legacy token for an old session.
+    let join = attach.first_message(transcript_hash);
     let join_packet = client_tx.encrypt_packet(&join, &[])?;
     stream.write_all(&join_packet).await?;
 
@@ -3404,7 +3801,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     if ack != b"JOINOK" {
         return Err(anyhow::anyhow!("JOIN rejected by server"));
     }
-    log::info!("Bonded stream #{} joined", stream_index);
+    log::info!("TCP stream slot {} attached", attach.logical_slot_id());
     Ok((client_rx, client_tx))
 }
 

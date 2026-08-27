@@ -1,10 +1,11 @@
 # Client roaming (seamless network change) — implementation plan
 <!-- normative-sync: roaming-v3-safe -->
 
-> **Status: design complete; Phases 0–2A and the Phase 2B server slice are implemented
-> behind `experimental-roaming`. The client supervisor, live roaming e2e, and Phases 3–6
-> remain. On lab `.10`, final default and feature suites pass (861/879 library tests plus
-> 4 CLI and 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
+> **Status: design complete; Phases 0–2A and the Phase 2B authenticated TCP hard-resume
+> slice are implemented behind `experimental-roaming`. The feature client/server path passed
+> isolated Linux live e2e; make-before-break handover, explicit close, and Phases 3–6 remain.
+> On lab `.10`, final default and feature suites pass (861/881 library tests plus 4 CLI and
+> 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -254,24 +255,33 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   limits, and KATs are frozen behind the default-off feature gate.
 - **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
-  lifecycle cleanup, and mock fault injection. No production adapter advertises the
-  capability yet; the active data plane is unchanged and lab/e2e has not run.
+  lifecycle cleanup, and mock fault injection. No production adapter advertises the path
+  capability yet; the active production data plane is unchanged and platform PathUpdate e2e remains.
 - **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
   Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
   generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
   proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
   release, cap exhaustion, abort, and late drain acknowledgements.
-- **Phase 2B — 🟡 server slice source/lab-unit complete:** the Linux handler derives and
-  zeroizes the original-session resume secret, strictly parses the authenticated resume JOIN,
-  reserves before JOINOK, and rejects resume until the initial transport is actually visible
-  in the scheduler. It retains orphan sessions under exact session/byte caps and uses a
-  generation-scoped reaper. Stable-slot handover drains the old path only after commit;
-  resume and handover require separate authenticated client bits. Legacy JOIN/scheduling remain
-  unchanged for non-negotiated sessions. The shared client supervisor still advertises neither
-  bit; client integration and live hard-handover/make-before-break e2e remain. Lab `.10` passes
-  the final default/feature suites (861/879 library tests, 4 CLI, 7 integration; one privileged
-  test ignored in each configuration) and strict all-target Clippy for both builds.
+- **Phase 2B — 🟡 authenticated hard-resume source/Linux-e2e complete:** the Linux handler
+  and shared client supervisor derive and zeroize the original-session resume secret, strictly
+  parse authenticated resume JOIN, reserve before JOINOK, and use a fresh KE plus fresh
+  per-carrier data keys on every attach. The feature client advertises `TCP_RESUME_V1` only.
+  Loss of the last carrier preserves the same TUN and NetworkPlan for a 30-second grace and
+  retries the same stable logical slot once per second; sibling reader/writer tasks share a
+  persistent stop signal. The server permits one bounded authenticated candidate above the
+  stream cap so a hard resume can atomically replace a stale carrier before server-side EOF/RST
+  detection, then drains and closes the obsolete transport. Orphan session/byte limits and the
+  generation-scoped reaper remain the fallback when every server-side carrier has detached.
+  Legacy JOIN/scheduling remain unchanged for non-negotiated sessions.
+
+  Lab `.10` passes the final default/feature suites (861/881 library tests, 4 CLI,
+  7 integration; one privileged test ignored in each configuration) and strict all-target
+  Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
+  resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
+  traffic recovers, and password AUTH occurs exactly once. `TCP_HANDOVER_V1` remains withheld;
+  PathUpdate-driven make-before-break, explicit `CLOSE_SESSION`, and their live race matrix
+  are still required before Phase 2B is complete.
 - **Phase 3:** UDP CID registry/actor, validation, anti-amplification, PMTU, and DATA_FRAG.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
