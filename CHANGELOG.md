@@ -202,8 +202,16 @@
   Последний успешный commit хранится одним bounded exact ticket/path/epoch/token outcome на сессию:
   повторный свежезашифрованный PATH_RESPONSE возвращает тот же PATH_COMMIT без повторного publisher,
   ротации CID и сброса уже уточнённого PMTU; несовпадающий token/path отклоняется. Два regression-теста
-  фиксируют rollback publisher и идемпотентный replay. Live PATH_RESPONSE handler и отправка
-  PATH_COMMIT пока намеренно не подключены. `UDP_ROAM_V1` остаётся не рекламируемым.
+  фиксируют rollback publisher и идемпотентный replay.
+- Live server handler подключает аутентифицированный PATH_RESPONSE к guarded commit. Он проверяет
+  old epoch/peer и синхронно отправляет PATH_COMMIT через candidate socket до публикации новых
+  socket/peer/CID/epoch и сброса PMTU. Ошибка неблокирующей отправки, включая `WouldBlock`, оставляет
+  registry и writer state неизменными, а candidate — пригодным для повтора; отдельный regression
+  фиксирует отсутствие частичного commit. После успеха address map и generation-safe owner index
+  переносятся под одним directory lock. Очистка supersede/session-limit/teardown разрешает текущий
+  адрес по session id и не использует устаревший connect-time peer. Точный свежезашифрованный
+  PATH_RESPONSE replay повторно отправляет PATH_COMMIT без повторной ротации CID и сброса PMTU.
+  `UDP_ROAM_V1` остаётся не рекламируемым: post-commit DATA_FRAG ingress и live-приёмка ещё не готовы.
 - Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/912 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и

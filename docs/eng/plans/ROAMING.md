@@ -5,10 +5,10 @@
 > PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
 > Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
-> 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, and negotiated
-> bootstrap foundations plus the authenticated ingress/control boundary and rollback-safe
-> guarded-commit state transaction plus bounded idempotent commit replay are source-complete;
-> live PATH_RESPONSE/PATH_COMMIT and the post-commit data path are still ahead.
+> 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated
+> bootstrap, authenticated ingress/control boundary, and live guarded PATH_RESPONSE/PATH_COMMIT
+> transaction with bounded idempotent replay are source-complete; the post-commit data path and
+> live acceptance are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
 > On lab `.10`, final default and feature suites pass (865/912 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
@@ -405,12 +405,19 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   an already refined PMTU; a mismatching token or path still fails closed. A second focused test
   pins the idempotent replay.
 
+  The live server handler now authenticates PATH_RESPONSE against the retained candidate, validates
+  the old epoch and peer, and synchronously places PATH_COMMIT on the candidate socket before it
+  exposes the new socket, peer, CID, epoch, or family-safe PMTU. `WouldBlock` and any other socket
+  publication failure leave both registry and writer state unchanged and the candidate retryable.
+  After success, the address map and generation-safe owner index move together under the directory
+  lock. Session-limit, supersede, and teardown cleanup resolve the current owner by session id rather
+  than the connect-time address. An exact fresh-encrypted PATH_RESPONSE retry sends PATH_COMMIT again
+  without rotating CIDs or resetting PMTU; a different token, path, old peer, occupied destination,
+  or stale epoch fails closed.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. The server can now create a bounded
-  candidate and send its challenge, but it intentionally does not accept PATH_RESPONSE or publish
-  a new path yet. Candidate expiry/global admission, the live PATH_RESPONSE/guarded-commit handler
-  and PATH_COMMIT send, post-commit DATA_FRAG data flow, cross-listener/family races, and mock/Linux
-  live acceptance remain.
+  eight-byte CID framing still cannot activate in production. Candidate expiry/global admission,
+  post-commit DATA_FRAG ingress, cross-listener/family races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

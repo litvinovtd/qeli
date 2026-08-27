@@ -5,10 +5,10 @@
 > PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
 > Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
-> UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress и negotiated
-> bootstrap этапов 3A–3C, authenticated ingress/control boundary и rollback-safe guarded-commit
-> state transaction с bounded идемпотентным повтором commit готовы по исходникам; впереди ещё
-> live PATH_RESPONSE/PATH_COMMIT и post-commit data path.
+> UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress, negotiated
+> bootstrap, authenticated ingress/control boundary и live guarded PATH_RESPONSE/PATH_COMMIT
+> transaction с bounded идемпотентным повтором готовы по исходникам; впереди ещё post-commit
+> data path и live-приёмка.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
 > На лабе `.10` прошли финальные default/feature suites (865/912 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
@@ -614,11 +614,18 @@ rollback. Последний успешный commit хранится как о�
 повторного publisher, ротации CID и сброса уже уточнённого PMTU; несовпадающий token или path
 по-прежнему отклоняется fail-closed. Второй focused-тест фиксирует идемпотентный replay.
 
+Live server handler теперь аутентифицирует PATH_RESPONSE по сохранённому candidate, проверяет
+старые epoch и peer и синхронно помещает PATH_COMMIT в candidate socket до публикации новых socket,
+peer, CID, epoch и family-safe PMTU. `WouldBlock` и любая другая ошибка socket publication оставляют
+registry и writer state неизменными, а candidate — пригодным для повтора. После успеха address map
+и generation-safe owner index переносятся вместе под directory lock. Очистка при session limit,
+supersede и teardown находит текущего владельца по session id, а не по connect-time address. Точный
+свежезашифрованный повтор PATH_RESPONSE снова отправляет PATH_COMMIT без ротации CID и сброса PMTU;
+другой token, path, старый peer, занятый destination или stale epoch отклоняются fail-closed.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. Сервер уже создаёт bounded candidate и
-отправляет challenge, но намеренно не принимает PATH_RESPONSE и не публикует новый путь.
-Candidate expiry/global admission, live PATH_RESPONSE/guarded-commit handler и отправка PATH_COMMIT,
-post-commit DATA_FRAG data flow, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
+и восьмибайтовый CID ещё не могут включиться в production. Candidate expiry/global admission,
+post-commit DATA_FRAG ingress, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
 
 - per-session actor и dynamic egress;
 - PATH_RESPONSE/COMMIT;

@@ -213,13 +213,49 @@ impl UdpEgressSnapshot {
 }
 
 #[cfg(feature = "experimental-roaming")]
-// Becomes live with PATH_COMMIT; retained now so the publication primitive is testable in isolation.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UdpEgressCommitError {
     StaleEpoch,
+    StalePeer,
     InvalidEpoch,
     FamilyMismatch,
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug)]
+enum UdpEgressPublishError<E> {
+    State(UdpEgressCommitError),
+    Publish(E),
+}
+
+#[cfg(feature = "experimental-roaming")]
+struct UdpEgressCommit {
+    expected_epoch: u64,
+    expected_peer: SocketAddr,
+    next_epoch: u64,
+    socket: Arc<crate::protocol::obfs::ObfsUdp>,
+    peer: SocketAddr,
+    destination_cid: [u8; crate::protocol::roaming::CID_LEN],
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl UdpEgressCommit {
+    fn from_outcome(
+        outcome: crate::transport_core::udp_roaming::CommitOutcome,
+        socket: Arc<crate::protocol::obfs::ObfsUdp>,
+    ) -> Result<Self, UdpEgressCommitError> {
+        Ok(Self {
+            expected_epoch: outcome
+                .path_epoch()
+                .checked_sub(1)
+                .ok_or(UdpEgressCommitError::InvalidEpoch)?,
+            expected_peer: outcome.old_path().peer(),
+            next_epoch: outcome.path_epoch(),
+            socket,
+            peer: outcome.new_path().peer(),
+            destination_cid: *outcome.transmit_cid(),
+        })
+    }
 }
 
 /// Single atomic publication point for server-to-client UDP traffic. Reads are short synchronous
@@ -283,51 +319,79 @@ impl UdpActiveEgress {
         Some(payload_budget.swap(certified, std::sync::atomic::Ordering::Relaxed))
     }
 
-    #[cfg(feature = "experimental-roaming")]
-    // Called only after the CID/PATH_RESPONSE slice is connected; see the feature test below.
-    #[allow(dead_code)]
+    #[cfg(all(feature = "experimental-roaming", test))]
     fn commit_roaming(
         &self,
-        expected_epoch: u64,
-        next_epoch: u64,
-        socket: Arc<crate::protocol::obfs::ObfsUdp>,
-        peer: SocketAddr,
-        destination_cid: [u8; crate::protocol::roaming::CID_LEN],
+        commit: UdpEgressCommit,
         payload_budget: &std::sync::atomic::AtomicU32,
     ) -> Result<(), UdpEgressCommitError> {
-        if next_epoch
-            != expected_epoch
-                .checked_add(1)
-                .ok_or(UdpEgressCommitError::InvalidEpoch)?
-        {
-            return Err(UdpEgressCommitError::InvalidEpoch);
+        match self.commit_roaming_with(commit, payload_budget, |_, _| {
+            Ok::<(), std::convert::Infallible>(())
+        }) {
+            Ok(()) => Ok(()),
+            Err(UdpEgressPublishError::State(error)) => Err(error),
+            Err(UdpEgressPublishError::Publish(never)) => match never {},
         }
-        let local = socket
+    }
+
+    /// Validate the old publication, synchronously emit the commit marker, and expose the new
+    /// writer snapshot only after that marker has been accepted by the socket. The callback runs
+    /// while the egress write lock is held and must neither await nor re-enter this object.
+    #[cfg(feature = "experimental-roaming")]
+    fn commit_roaming_with<E>(
+        &self,
+        commit: UdpEgressCommit,
+        payload_budget: &std::sync::atomic::AtomicU32,
+        publish: impl FnOnce(&crate::protocol::obfs::ObfsUdp, SocketAddr) -> Result<(), E>,
+    ) -> Result<(), UdpEgressPublishError<E>> {
+        if commit.next_epoch
+            != commit
+                .expected_epoch
+                .checked_add(1)
+                .ok_or(UdpEgressCommitError::InvalidEpoch)
+                .map_err(UdpEgressPublishError::State)?
+        {
+            return Err(UdpEgressPublishError::State(
+                UdpEgressCommitError::InvalidEpoch,
+            ));
+        }
+        let local = commit
+            .socket
             .raw_socket()
             .local_addr()
-            .map_err(|_| UdpEgressCommitError::FamilyMismatch)?;
-        if local.is_ipv4() != peer.is_ipv4() {
-            return Err(UdpEgressCommitError::FamilyMismatch);
+            .map_err(|_| UdpEgressPublishError::State(UdpEgressCommitError::FamilyMismatch))?;
+        if local.is_ipv4() != commit.peer.is_ipv4() {
+            return Err(UdpEgressPublishError::State(
+                UdpEgressCommitError::FamilyMismatch,
+            ));
         }
         let mut current = self
             .0
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if current.path_epoch != expected_epoch {
-            return Err(UdpEgressCommitError::StaleEpoch);
+        if current.path_epoch != commit.expected_epoch {
+            return Err(UdpEgressPublishError::State(
+                UdpEgressCommitError::StaleEpoch,
+            ));
+        }
+        if current.peer != commit.expected_peer {
+            return Err(UdpEgressPublishError::State(
+                UdpEgressCommitError::StalePeer,
+            ));
         }
         let safe_payload_budget =
-            crate::protocol::data_frag::conservative_udp_payload_budget(peer.is_ipv6());
+            crate::protocol::data_frag::conservative_udp_payload_budget(commit.peer.is_ipv6());
+        publish(&commit.socket, commit.peer).map_err(UdpEgressPublishError::Publish)?;
         // The writer cannot snapshot the new path until this write guard is released.
         payload_budget.store(
             safe_payload_budget as u32,
             std::sync::atomic::Ordering::Relaxed,
         );
         *current = UdpEgressSnapshot {
-            socket,
-            peer,
-            framing: UdpEgressFraming::RoamingQuic(destination_cid),
-            path_epoch: next_epoch,
+            socket: commit.socket,
+            peer: commit.peer,
+            framing: UdpEgressFraming::RoamingQuic(commit.destination_cid),
+            path_epoch: commit.next_epoch,
         };
         Ok(())
     }
@@ -817,6 +881,42 @@ impl UdpSessionDirectory {
         Some(removed)
     }
 
+    /// Remove the address-map entry that currently owns an authenticated logical session.
+    /// Roaming changes the address key while `SessionShared::peer` remains the connect-time peer,
+    /// so supersede/limit cleanup must resolve the live owner by session id and must never remove
+    /// an unrelated replacement that now occupies the fallback address.
+    fn remove_session_owner(
+        &mut self,
+        session_id: u64,
+        fallback_address: SocketAddr,
+    ) -> Option<UdpClient> {
+        #[cfg(feature = "experimental-roaming")]
+        if let Some(address) = self
+            .roaming_owners
+            .by_session_id
+            .get(&session_id)
+            .map(|owner| owner.address)
+            .filter(|address| {
+                self.by_address
+                    .get(address)
+                    .and_then(UdpClient::authenticated_session_id)
+                    == Some(session_id)
+            })
+        {
+            return self.remove(&address);
+        }
+        if self
+            .by_address
+            .get(&fallback_address)
+            .and_then(UdpClient::authenticated_session_id)
+            == Some(session_id)
+        {
+            self.remove(&fallback_address)
+        } else {
+            None
+        }
+    }
+
     #[cfg(feature = "experimental-roaming")]
     fn publish_roaming_owner(&mut self, address: SocketAddr) -> bool {
         let Some((session_id, session_generation)) = self
@@ -864,6 +964,8 @@ struct UdpClient {
     _udp_roaming_registration: Option<crate::transport_core::udp_roaming::UdpSessionRegistration>,
     #[cfg(feature = "experimental-roaming")]
     _udp_roaming_initial_cids: Option<crate::transport_core::udp_roaming::InitialCids>,
+    /// Retained after commit so a freshly encrypted retry of the last PATH_RESPONSE can receive
+    /// the same PATH_COMMIT; the next accepted PATH_INIT replaces it with its generation ticket.
     #[cfg(feature = "experimental-roaming")]
     udp_roaming_candidate: Option<crate::transport_core::udp_roaming::CandidateTicket>,
     data_frag_enabled: bool,
@@ -1028,18 +1130,23 @@ struct UdpClient {
     auth_ok_sent: bool,
 }
 
-#[cfg(feature = "experimental-roaming")]
 impl UdpClient {
+    fn authenticated_session_id(&self) -> Option<u64> {
+        match self.state {
+            UdpSessionState::Authenticated { session_id, .. } => Some(session_id),
+            UdpSessionState::AwaitingAuth => None,
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
     fn roaming_identity(&self) -> Option<(u64, u64)> {
-        let session_id = match self.state {
-            UdpSessionState::Authenticated { session_id, .. } => session_id,
-            UdpSessionState::AwaitingAuth => return None,
-        };
+        let session_id = self.authenticated_session_id()?;
         let registration = self._udp_roaming_registration.as_ref()?;
         (registration.session_id() == session_id)
             .then_some((session_id, registration.session_generation()))
     }
 
+    #[cfg(feature = "experimental-roaming")]
     fn roaming_enabled(&self) -> bool {
         self.roaming_identity().is_some()
     }
@@ -2134,9 +2241,166 @@ async fn handle_udp_roaming_ingress(
                 outer_packet_number
             );
         }
-        crate::protocol::roaming::PathControl::Response { .. } => {
+        crate::protocol::roaming::PathControl::Response { epoch, token } => {
+            let new_peer = received_path.peer();
+            let safe_payload_budget = u16::try_from(
+                crate::protocol::data_frag::conservative_udp_payload_budget(new_peer.is_ipv6()),
+            )
+            .expect("conservative UDP payload budget fits u16");
+            let replayed = {
+                let mut guard = sessions.write().await;
+                if new_peer != owner_address && guard.contains_key(&new_peer) {
+                    log::warn!(
+                        "UDP PATH_RESPONSE rejected on profile '{}': candidate address already owns another session",
+                        profile.name
+                    );
+                    return;
+                }
+                let Some(client) = guard.get(&owner_address).filter(|client| {
+                    client
+                        ._udp_roaming_registration
+                        .as_ref()
+                        .is_some_and(|registration| registration.matches_lookup(lookup))
+                }) else {
+                    return;
+                };
+                let Some(ticket) = client.udp_roaming_candidate else {
+                    log::debug!(
+                        "UDP PATH_RESPONSE rejected on profile '{}': no matching candidate ticket",
+                        profile.name
+                    );
+                    return;
+                };
+                let Some(active_egress) = client.active_egress.clone() else {
+                    log::error!(
+                        "UDP PATH_RESPONSE rejected on profile '{}': authenticated session has no active egress",
+                        profile.name
+                    );
+                    return;
+                };
+                let Some(payload_budget) = client.udp_payload_budget.clone() else {
+                    log::error!(
+                        "UDP PATH_RESPONSE rejected on profile '{}': roaming session has no shared payload budget",
+                        profile.name
+                    );
+                    return;
+                };
+                let tx_codec = client.tx_codec.clone();
+                let packet_counter = client.packet_counter.clone();
+                let decision = match profile
+                    .udp_roaming_registry
+                    .validate_response_and_commit_with(
+                        ticket,
+                        received_path,
+                        epoch,
+                        &token,
+                        envelope.datagram.len(),
+                        safe_payload_budget,
+                        |outcome| -> anyhow::Result<()> {
+                            let commit =
+                                UdpEgressCommit::from_outcome(outcome, envelope.socket.clone())
+                                    .map_err(|error| {
+                                        anyhow::anyhow!("invalid UDP egress commit: {error:?}")
+                                    })?;
+                            let response = crate::protocol::roaming::PathControl::Commit {
+                                cid: *outcome.receive_cid(),
+                                epoch: outcome.path_epoch(),
+                            };
+                            active_egress
+                                .commit_roaming_with(
+                                    commit,
+                                    &payload_budget,
+                                    |socket, peer| -> anyhow::Result<()> {
+                                        let wire = encrypt_udp_roaming_control(
+                                            &tx_codec,
+                                            &packet_counter,
+                                            *outcome.transmit_cid(),
+                                            control.message_id,
+                                            &response,
+                                        )?;
+                                        socket.try_send_to(&wire, peer)?;
+                                        Ok(())
+                                    },
+                                )
+                                .map_err(|error| match error {
+                                    UdpEgressPublishError::State(error) => anyhow::anyhow!(
+                                        "atomic PATH_COMMIT state validation failed: {error:?}"
+                                    ),
+                                    UdpEgressPublishError::Publish(error) => anyhow::anyhow!(
+                                        "atomic PATH_COMMIT socket publication failed: {error:?}"
+                                    ),
+                                })
+                        },
+                    ) {
+                    Ok(decision) => decision,
+                    Err(crate::transport_core::udp_roaming::UdpRoamingCommitError::State(
+                        error,
+                    )) => {
+                        log::debug!(
+                            "UDP PATH_RESPONSE rejected on profile '{}' ({error})",
+                            profile.name
+                        );
+                        return;
+                    }
+                    Err(crate::transport_core::udp_roaming::UdpRoamingCommitError::Publish(
+                        error,
+                    )) => {
+                        log::warn!(
+                            "UDP PATH_RESPONSE could not publish egress on profile '{}' ({error:?})",
+                            profile.name
+                        );
+                        return;
+                    }
+                };
+                let outcome = decision.outcome();
+                if decision.is_replay() {
+                    let response = crate::protocol::roaming::PathControl::Commit {
+                        cid: *outcome.receive_cid(),
+                        epoch: outcome.path_epoch(),
+                    };
+                    let replay = encrypt_udp_roaming_control(
+                        &tx_codec,
+                        &packet_counter,
+                        *outcome.transmit_cid(),
+                        control.message_id,
+                        &response,
+                    )
+                    .and_then(|wire| {
+                        envelope
+                            .socket
+                            .try_send_to(&wire, new_peer)
+                            .map_err(anyhow::Error::from)
+                    });
+                    if let Err(error) = replay {
+                        log::warn!(
+                            "UDP PATH_COMMIT replay failed on profile '{}': {}",
+                            profile.name,
+                            error
+                        );
+                        return;
+                    }
+                }
+                if owner_address != new_peer {
+                    let Some(client) = guard.remove(&owner_address) else {
+                        log::error!(
+                            "UDP PATH_COMMIT lost its directory owner on profile '{}'",
+                            profile.name
+                        );
+                        return;
+                    };
+                    let replaced = guard.insert(new_peer, client);
+                    debug_assert!(replaced.is_none(), "candidate address was preflighted");
+                    guard.roaming_owners.publish(
+                        lookup.session_id(),
+                        lookup.session_generation(),
+                        new_peer,
+                    );
+                }
+                decision.is_replay()
+            };
             log::trace!(
-                "UDP PATH_RESPONSE reached owner worker {} on profile '{}' (message {}, outer packet {}); guarded commit is not connected yet",
+                "UDP PATH_COMMIT {} by owner worker {} on profile '{}' (message {}, outer packet {})",
+                if replayed { "replayed" } else { "sent" },
                 worker_id,
                 profile.name,
                 control.message_id,
@@ -3078,7 +3342,10 @@ async fn handle_udp_auth(
         };
         if let Some(old) = old {
             old.kick_all();
-            sessions.write().await.remove(&old.peer);
+            sessions
+                .write()
+                .await
+                .remove_session_owner(old.session_id, old.peer);
             evicted_sessions.push(old);
         }
     }
@@ -3129,10 +3396,13 @@ async fn handle_udp_auth(
                                 None => None,
                             }
                         };
-                        sessions.write().await.remove(&peer);
                         deferred_release.push(ev_dkey.clone());
                         if let Some(old) = old {
                             old.kick_all();
+                            sessions
+                                .write()
+                                .await
+                                .remove_session_owner(old.session_id, peer);
                             evicted_sessions.push(old);
                         }
                         log::info!(
@@ -3191,10 +3461,13 @@ async fn handle_udp_auth(
                             None => None,
                         }
                     };
-                    sessions.write().await.remove(&peer);
                     deferred_release.push(ev_dkey.clone());
                     if let Some(old) = old {
                         old.kick_all();
+                        sessions
+                            .write()
+                            .await
+                            .remove_session_owner(old.session_id, peer);
                         evicted_sessions.push(old);
                     }
                     log::info!(
@@ -3224,10 +3497,13 @@ async fn handle_udp_auth(
                         }
                         old
                     };
-                    sessions.write().await.remove(&peer);
                     deferred_release.push(evicted_key.clone());
                     if let Some(old) = old {
                         old.kick_all();
+                        sessions
+                            .write()
+                            .await
+                            .remove_session_owner(old.session_id, peer);
                         evicted_sessions.push(old);
                     }
                     log::info!(
@@ -3829,9 +4105,10 @@ async fn handle_udp_auth(
         if old.device_key != writer_session.device_key {
             profile.pool.lock().await.release(&old.device_key);
         }
-        if old.peer != addr {
-            sessions.write().await.remove(&old.peer);
-        }
+        sessions
+            .write()
+            .await
+            .remove_session_owner(old.session_id, old.peer);
     }
     let mut installed_iroutes: Vec<String> = Vec::new();
     for cidr in &programmed_iroutes {
@@ -4413,7 +4690,8 @@ mod tests {
     #[cfg(feature = "experimental-roaming")]
     use super::{
         decrypt_udp_roaming_control_record, encrypt_udp_roaming_control, UdpActiveEgress,
-        UdpEgressCommitError, UdpRoamingControlError, UdpRoamingOwnerIndex,
+        UdpEgressCommit, UdpEgressCommitError, UdpEgressPublishError, UdpRoamingControlError,
+        UdpRoamingOwnerIndex,
     };
     use crate::protocol::udp_frag;
     use std::time::Duration;
@@ -4509,7 +4787,7 @@ mod tests {
 
     #[cfg(feature = "experimental-roaming")]
     #[test]
-    fn udp_path_challenge_uses_the_verified_cid_and_authenticated_control_shape() {
+    fn udp_path_control_egress_uses_verified_cids_and_authenticated_shapes() {
         use crate::protocol::roaming::PathControl;
 
         let key = [0xB1; 32];
@@ -4533,6 +4811,23 @@ mod tests {
         assert_eq!(frame.message_id, 31);
         assert_eq!(frame.flags, 0);
         assert!(PathControl::decode(frame.message_type, frame.payload).unwrap() == challenge);
+
+        let commit_destination_cid = [0xE4; crate::protocol::roaming::CID_LEN];
+        let commit = PathControl::Commit {
+            cid: [0xF5; crate::protocol::roaming::CID_LEN],
+            epoch: 3,
+        };
+        let wire =
+            encrypt_udp_roaming_control(&sender, &counter, commit_destination_cid, 32, &commit)
+                .unwrap();
+        let (header, record) = crate::protocol::roaming::decode_udp_short(&wire).unwrap();
+        assert_eq!(header.destination_cid(), &commit_destination_cid);
+        assert_eq!(header.packet_number(), 30);
+        let plaintext = receiver.decrypt_packet(record).unwrap();
+        let frame = crate::protocol::control_v2::decode(&plaintext).unwrap();
+        assert_eq!(frame.message_id, 32);
+        assert_eq!(frame.flags, 0);
+        assert!(PathControl::decode(frame.message_type, frame.payload).unwrap() == commit);
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -4839,11 +5134,14 @@ mod tests {
         let payload_budget = std::sync::atomic::AtomicU32::new(1500);
         assert_eq!(
             active.commit_roaming(
-                1,
-                2,
-                second_socket.clone(),
-                second_peer,
-                [9; 8],
+                UdpEgressCommit {
+                    expected_epoch: 1,
+                    expected_peer: first_peer,
+                    next_epoch: 2,
+                    socket: second_socket.clone(),
+                    peer: second_peer,
+                    destination_cid: [9; 8],
+                },
                 &payload_budget
             ),
             Err(UdpEgressCommitError::StaleEpoch)
@@ -4861,13 +5159,41 @@ mod tests {
             payload_budget.load(std::sync::atomic::Ordering::Relaxed),
             1492
         );
+        let rejected = active.commit_roaming_with(
+            UdpEgressCommit {
+                expected_epoch: 0,
+                expected_peer: first_peer,
+                next_epoch: 1,
+                socket: second_socket.clone(),
+                peer: second_peer,
+                destination_cid: [9; 8],
+            },
+            &payload_budget,
+            |_, _| Err("socket busy"),
+        );
+        assert!(matches!(
+            rejected,
+            Err(UdpEgressPublishError::Publish("socket busy"))
+        ));
+        let unchanged = active.snapshot();
+        assert_eq!(unchanged.path_epoch, 0);
+        assert_eq!(unchanged.peer, first_peer);
+        assert!(std::sync::Arc::ptr_eq(&unchanged.socket, &first_socket));
+        assert_eq!(
+            payload_budget.load(std::sync::atomic::Ordering::Relaxed),
+            1492,
+            "a failed PATH_COMMIT send must leave the old path and PMTU intact"
+        );
         active
             .commit_roaming(
-                0,
-                1,
-                second_socket.clone(),
-                second_peer,
-                [9; 8],
+                UdpEgressCommit {
+                    expected_epoch: 0,
+                    expected_peer: first_peer,
+                    next_epoch: 1,
+                    socket: second_socket.clone(),
+                    peer: second_peer,
+                    destination_cid: [9; 8],
+                },
                 &payload_budget,
             )
             .unwrap();
@@ -4907,7 +5233,31 @@ mod tests {
             crate::protocol::roaming::UdpShortHeader::new([9; 8], 8).encode(b"record")
         );
         assert_eq!(
-            active.commit_roaming(0, 1, first_socket, first_peer, [7; 8], &payload_budget),
+            active.commit_roaming(
+                UdpEgressCommit {
+                    expected_epoch: 1,
+                    expected_peer: first_peer,
+                    next_epoch: 2,
+                    socket: first_socket.clone(),
+                    peer: first_peer,
+                    destination_cid: [7; 8],
+                },
+                &payload_budget
+            ),
+            Err(UdpEgressCommitError::StalePeer)
+        );
+        assert_eq!(
+            active.commit_roaming(
+                UdpEgressCommit {
+                    expected_epoch: 0,
+                    expected_peer: first_peer,
+                    next_epoch: 1,
+                    socket: first_socket,
+                    peer: first_peer,
+                    destination_cid: [7; 8],
+                },
+                &payload_budget
+            ),
             Err(UdpEgressCommitError::StaleEpoch)
         );
         assert_eq!(active.snapshot().peer, second_peer);

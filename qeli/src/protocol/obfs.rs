@@ -1126,6 +1126,28 @@ impl ObfsUdp {
         }
     }
 
+    /// Non-blocking datagram send used by atomic control-path publication. Success means the
+    /// complete datagram was accepted by the socket; `WouldBlock` leaves the caller's state
+    /// transaction uncommitted and retryable.
+    pub fn try_send_to(&self, data: &[u8], addr: std::net::SocketAddr) -> io::Result<()> {
+        let sealed;
+        let wire = match &self.key {
+            Some(key) => {
+                sealed = obfs_datagram_seal(key, data);
+                sealed.as_slice()
+            }
+            None => data,
+        };
+        match self.sock.try_send_to(wire, addr) {
+            Ok(sent) if sent == wire.len() => Ok(()),
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "UDP socket accepted only part of one datagram",
+            )),
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.sock.recv(buf).await?;
         match &self.key {
