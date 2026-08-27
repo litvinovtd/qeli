@@ -440,9 +440,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   maintenance tick reaps silent candidates. Commit, abort, CID collision, session teardown, and
   expiry update the exact shared count.
 
+  A cross-listener IPv4-to-IPv6 regression now routes the future CID from a foreign receiving
+  worker to the immutable codec owner, commits that exact candidate socket/family and PMTU
+  generation, then verifies that post-commit ingress still returns to the original owner.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Cross-listener/family races, client
-  path adapters, bidirectional live PMTU probing, and mock/Linux live acceptance remain.
+  eight-byte CID framing still cannot activate in production. Client path adapters, bidirectional
+  live PMTU probing, adversarial listener races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

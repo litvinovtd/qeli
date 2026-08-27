@@ -648,13 +648,16 @@ rate slot. Истёкшие tickets отклоняются до egress/commit, �
 молчащие candidates. Commit, abort, CID collision, session teardown и expiry точно обновляют общий
 счётчик.
 
+Cross-listener IPv4→IPv6 regression теперь направляет future CID с чужого receiving worker к
+неизменяемому codec owner, коммитит точные candidate socket/family и PMTU generation, а затем
+проверяет возврат post-commit ingress тому же исходному owner.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. Cross-listener/family races, client path
-adapters, двунаправленный live PMTU probe и mock/Linux live-приёмка ещё впереди.
+и восьмибайтовый CID ещё не могут включиться в production. Client path adapters, двунаправленный
+live PMTU probe, adversarial listener races и mock/Linux live-приёмка ещё впереди.
 
 - двунаправленный live PMTU reset/probe;
 - client path adapters;
-- cross-worker/listener/family tests.
 
 Результат: безопасный UDP роуминг на mock/Linux path.
 

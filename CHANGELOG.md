@@ -235,7 +235,10 @@
   а общий registry reaper освобождает молчащие candidates из существующего maintenance tick.
   Счётчик обновляется точно при commit, abort, CID collision, session teardown и expiry; default и
   non-negotiated data plane не изменены.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/914 тестами
+- Cross-listener IPv4→IPv6 regression проводит future CID через чужой worker, выполняет полный
+  candidate commit и возвращает post-commit ingress неизменному codec owner. Тест одновременно
+  фиксирует новый IPv6 path/PMTU generation и отсутствие обработки candidate на receiving worker.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/915 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

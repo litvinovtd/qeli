@@ -2025,6 +2025,98 @@ mod tests {
     }
 
     #[test]
+    fn cross_listener_ipv4_to_ipv6_commit_keeps_the_immutable_codec_owner() {
+        let registry = UdpRoamingRegistry::new(4);
+        let (fabric, mut mailboxes) =
+            UdpWorkerFabric::with_registry(registry.clone(), 4, 2).unwrap();
+        let initial_path = path(0, 1000);
+        let initial = fabric
+            .register_session(7, C2S, S2C, initial_path, 1232)
+            .unwrap();
+        assert_eq!(
+            registry
+                .lookup(initial.receive())
+                .unwrap()
+                .owner_worker_id(),
+            0
+        );
+
+        let candidate_path = UdpPath::new(3, "[2001:db8::7]:2000".parse().unwrap());
+        let next_receive_cid = derive_udp_cid(&C2S, 7, 1);
+        assert!(matches!(
+            fabric.route_ingress(&next_receive_cid, 41, candidate_path, vec![1, 2, 3]),
+            Ok(UdpIngressDispatch::Queued)
+        ));
+        let init = mailboxes[0]
+            .try_recv()
+            .expect("the immutable IPv4 codec owner receives the IPv6 candidate");
+        assert_eq!(init.lookup().owner_worker_id(), 0);
+        assert_eq!(init.lookup().path_epoch(), 1);
+        assert_eq!(init.received_path(), candidate_path);
+        assert_eq!(init.packet_number(), 41);
+        assert_eq!(init.into_payload(), vec![1, 2, 3]);
+        assert!(matches!(
+            mailboxes[3].try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+
+        let lookup = registry.lookup(&next_receive_cid).unwrap();
+        let next_transmit_cid = derive_udp_cid(&S2C, 7, 1);
+        let challenge = registry
+            .observe_authenticated_candidate(
+                lookup,
+                candidate_path,
+                &next_transmit_cid,
+                1,
+                128,
+                TOKEN,
+            )
+            .unwrap();
+        registry
+            .authorize_candidate_send(challenge.ticket(), 64)
+            .unwrap();
+        let safe_ipv6_budget = u16::try_from(
+            crate::protocol::data_frag::conservative_udp_payload_budget(true),
+        )
+        .unwrap();
+        let decision = registry
+            .validate_response_and_commit_with(
+                challenge.ticket(),
+                candidate_path,
+                1,
+                challenge.token(),
+                96,
+                safe_ipv6_budget,
+                |_| Ok::<(), std::convert::Infallible>(()),
+            )
+            .unwrap();
+        assert!(!decision.is_replay());
+        let outcome = decision.outcome();
+        assert_eq!(outcome.old_path(), initial_path);
+        assert_eq!(outcome.new_path(), candidate_path);
+        assert_eq!(outcome.pmtu().path(), candidate_path);
+        assert_eq!(outcome.pmtu().path_epoch(), 1);
+        assert_eq!(
+            registry
+                .lookup(&next_receive_cid)
+                .unwrap()
+                .owner_worker_id(),
+            0
+        );
+
+        assert!(matches!(
+            fabric.route_ingress(&next_receive_cid, 42, candidate_path, vec![9]),
+            Ok(UdpIngressDispatch::Queued)
+        ));
+        let committed = mailboxes[0]
+            .try_recv()
+            .expect("post-commit IPv6 ingress returns to the same codec owner");
+        assert_eq!(committed.received_path(), candidate_path);
+        assert_eq!(committed.packet_number(), 42);
+        assert_eq!(committed.into_payload(), vec![9]);
+    }
+
+    #[test]
     fn registration_is_bounded_and_collision_is_atomic() {
         let mut table = UdpRoamingTable::new(1);
         let first = table
