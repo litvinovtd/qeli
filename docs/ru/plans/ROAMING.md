@@ -1,17 +1,17 @@
 # Роуминг клиента: план полной реализации
 <!-- normative-sync: roaming-v8-safe -->
 
-> Статус: проектирование завершено; этапы 0–2A и общие исходники этапа 2B вплоть до
-> PathUpdate-driven TCP make-before-break реализованы под `experimental-roaming`.
-> Hard resume и explicit close прошли изолированный Linux live e2e; новый handover-срез
-> прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
-> UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress, negotiated
-> bootstrap, authenticated ingress/control boundary и live guarded PATH_RESPONSE/PATH_COMMIT
-> transaction с bounded идемпотентным повтором и post-commit UDP DATA/DATA_FRAG ingress готовы по
-> исходникам; впереди ещё клиентские адаптеры, включение capability и live-приёмка.
-> Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (865/912 library tests,
-> 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
+> Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
+> под `experimental-roaming`. Linux in-process TCP adapter теперь наблюдает стабильные смены
+> физического default route/адресов, объявляет полный `ROAMING_PATH` только под этой feature
+> и без фиксированного `server.local_address` и прошёл двухмаршрутный live e2e 15/15.
+> Hard resume и explicit close также прошли Linux live e2e. Ограниченные UDP registry/migration
+> state, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
+> authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
+> post-commit UDP DATA/DATA_FRAG ingress готовы по исходникам; впереди UDP client adapters,
+> включение UDP capability и live-приёмка. Native app adapters и работы этапов 3–6 ещё впереди.
+> Текущие lab gates: strict feature Clippy, базовый Linux netns 26/26 и roaming netns 15/15.
+> Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -462,8 +462,8 @@ anti-amplification и PMTU reset.
 Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
 текущего data plane.
 ABI 1.12 и stats V3 сохраняют старые префиксы; mock fault injection покрывает отказы
-PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламируют path capability до этапа 4;
-платформенный PathUpdate e2e ещё не выполнялся.
+PREPARE/BIND/COMMIT/ABORT. Linux in-process TCP feature adapter уже рекламирует path capability
+и прошёл live e2e; default data plane не изменён, e2e native-адаптеров остаётся впереди.
 
 ### Этап 2A. TCP lifecycle — ✅ исходники
 
@@ -475,13 +475,13 @@ PREPARE/BIND/COMMIT/ABORT. Production-адаптеры не рекламирую
 drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
 production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — 🟡 общие исходники готовы, live-приёмка ожидается
+### Этап 2B. TCP resume и handover — 🟡 Linux feature live принят, native-устройства впереди
 
 Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
 secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
 до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys.
 Feature-клиент умеет объявить `CONTROL_V2`, `TCP_RESUME_V1` и `TCP_HANDOVER_V1`, но negotiation
-удаляет handover без полного platform `ROAMING_PATH`; production-адаптеры его пока не объявляют.
+требует полный platform `ROAMING_PATH`. Linux объявляет его только для feature TCP без fixed source.
 Потеря последнего carrier до 30 секунд сохраняет прежние TUN
 и NetworkPlan; supervisor раз в секунду восстанавливает тот же stable logical slot, а sibling
 reader/writer завершаются общим сохраняющим состояние stop-сигналом.
@@ -518,7 +518,7 @@ supersede/stop.
 full-reconnect fallback. Ошибки candidate connect/JOIN также откатывают platform-состояние.
 Отказ COMMIT остаётся fail-closed: сервер к этому моменту уже аутентифицировал и переключил
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
-неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
+неподтверждённый path. Native application platform bits выключены до их device/race-приёмки.
 
 На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -528,10 +528,10 @@ AUTH выполнилась ровно один раз. Отдельный live 
 `PACKET_MUX_V1` прошёл 3/3 tunnel ping, подтвердил оба close-маркера, отсутствие established
 carrier и клиентского TUN после остановки и отсутствие перехода сервера в resume grace.
 
-Эти результаты `.10/.11` относятся к hard resume и explicit close, а не к новому
-make-before-break пути. Новый общий path прошёл указанные source/unit gates и точную Windows FFI
-feature matrix, но ни один production/Linux adapter пока не рекламирует `ROAMING_PATH`. Поэтому
-live-приёмка этапа 2B следует за platform adapter этапа 4 и его lab race matrix.
+Эти результаты `.10/.11` относятся к hard resume и explicit close. Новый двухмаршрутный Linux
+feature e2e также прошёл 15/15: path B завершил authenticated JOIN/COMMIT, path A был выключен,
+те же PID/TUN сохранились, а 150/150 ping прошли без top-level reconnect. Впереди остаются
+приёмка native-устройств и расширенная transport/family/race matrix.
 
 ### Этап 3. UDP migration
 
@@ -678,21 +678,21 @@ commit, а `replace` разрешён только для маршрута из 
 После authenticated JOIN COMMIT сначала применяет маршруты, затем переключает закреплённый
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
-до connect. Остаются network detection, capability activation, двунаправленный live PMTU probing,
-adversarial listener races и Linux live acceptance.
+до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
+остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
 
 - двунаправленный live PMTU reset/probe;
 - client path adapters;
 
 Результат: безопасный UDP роуминг на mock/Linux path.
 
-### Этап 4. Платформы
+### Этап 4. Платформы — 🟡 Linux TCP feature adapter готов
 
+- Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android;
 - Windows;
 - macOS;
-- iOS;
-- Linux/OpenWrt и exit-node.
+- iOS.
 
 Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
 

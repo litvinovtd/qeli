@@ -42,11 +42,32 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
+  читает только готовые global-адреса и физические default routes, исключает TUN, требует две
+  стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
+  использует уже аутентифицированный закреплённый IP сервера без повторного DNS через возможный
+  сломанный туннель. Полный `ROAMING_PATH` объявляется только в сборке
+  `experimental-roaming`, только для TCP и только без явного `server.local_address`; default-
+  сборка и остальные платформы не меняют поведение.
+- Двухмаршрутный Linux netns e2e прошёл 15/15: lower-metric default подготовил candidate на
+  втором интерфейсе, сервер принял fresh-KE handover JOIN с нового source IP, COMMIT перенёс
+  qeli-owned carrier `/32`, старый интерфейс был выключен, но PID клиента, TUN ifindex и
+  NetworkPlan сохранились без top-level reconnect. Непрерывная серия сохранила 150/150 ping.
+  Базовый routing/IPv6/kill-switch netns gate после исправлений прошёл 26/26.
+- Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
+  подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
+  `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
+  регрессия с мёртвым первым A-ответом подтверждает отсутствие лишнего host route.
+- Kill-switch считает `iptables-nft: Chain 'QELI_KS_*' does not exist` идемпотентным
+  отсутствием только при совпадении ожидаемого имени qeli-цепочки. Поэтому чистый namespace
+  больше не отклоняется до создания chain, а посторонние parser/backend ошибки остаются
+  fail-closed. Routing netns-конфиги явно используют `dns = off`, поскольку тестируют маршруты
+  в namespace без системного DNS-менеджера.
 - Linux in-process adapter теперь исполняет PREPARE/BIND/COMMIT/ABORT из общей очереди
   `ClientCore`, завершает те же correlated oneshot ACK и при отказе немедленно исполняет
   обязательный ABORT. Выбор `PathCommand` не удаляет стоящие перед ним lifecycle/diagnostic
-  события. Platform capability пока не включена: для production остаются обязательными
-  network detection и live-приёмка.
+  события. Сам этот executor capability ещё не включал; наблюдатель и ограниченное
+  feature-gated включение Linux описаны выше.
 - Linux TCP handover использует отдельный unbound candidate-сокет во всех TCP wire-mode:
   `reality-tls`, `obfs`, `fake-tls` и `plain`. До `connect()` сокет проходит точный
   BIND по interface/source из `PathUpdate`; после authenticated JOIN COMMIT атомарно меняет
@@ -66,7 +87,7 @@
 - В общий Rust-слой вынесен `CorePathController`: получение подготовленного кандидата,
   запросы BIND/COMMIT/ABORT, корреляция ACK, отмена и единая диагностика отказов больше
   не реализуются заново в каждом нативном runtime. Android/Windows/macOS/iOS уже делегируют
-  ему; Linux подключится к тому же контроллеру через тонкий route/socket adapter.
+  ему; Linux использует тот же контроллер через тонкий route/socket adapter.
 - Общая модель `PathUpdate` теперь требует хотя бы одну совместимую пару семейств
   local/resolved и сохраняет DNS-порядок только среди реально доступных carrier-адресов.
   Поэтому IPv4-only/IPv6-only путь больше не срывает handover из-за первого несовместимого
@@ -75,12 +96,13 @@
   Это позволяет in-process Linux/OpenWrt controller использовать тот же автомат
   PREPARE/BIND/COMMIT/ABORT, корреляцию ACK, supersede и roaming-телеметрию, что FFI-клиенты,
   вместо отдельной реализации протокола. Системные route/socket операции будут выполняться
-  после освобождения core-lock; production capability этим рефакторингом не включается.
+  после освобождения core-lock; сам по себе этот рефакторинг capability ещё не включал.
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
-  Ни один production-адаптер этот контракт пока не объявляет; feature-сервер предлагает
-  CONTROL_V2 и TCP resume/handover, а обычные production-сборки не меняют поведение.
+  Из платформенных адаптеров полный контракт теперь объявляет только Linux in-process TCP
+  при условиях feature gate, описанных выше; Android/Windows/macOS/iOS его ещё не включают.
+  Feature-сервер предлагает CONTROL_V2 и TCP resume/handover, а обычные сборки не меняют поведение.
   Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
@@ -145,8 +167,8 @@
   `ABORT_PATH`, затем supervisor выполняет обычный full reconnect. Ошибка candidate connect/JOIN
   также откатывает временные platform-правила. Отказ COMMIT остаётся fail-closed: сервер уже
   аутентифицировал и переключил carrier, поэтому клиент восстанавливается существующим hard
-  resume, а не пытается вернуть старый путь. Production adapter bits остаются выключенными до
-  этапа 4 и прохождения live device/race matrix.
+  resume, а не пытается вернуть старый путь. Native application adapter bits остаются
+  выключенными до их этапа 4 и прохождения device/race matrix.
 - Stage 3A добавляет под `experimental-roaming` изолированную profile-wide модель UDP migration.
   Ограниченный реестр связывает восьмибайтовые CID с generation-tagged сессиями и хранит не более
   трёх deterministic aliases на сессию; directional CID secrets zeroize-ятся. На сессию допускается
@@ -275,8 +297,9 @@
 - Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/915 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
-  strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что
-  production/Linux adapter ещё не рекламирует полный `ROAMING_PATH`.
+  strict Clippy. Это был source/unit gate до подключения Linux-наблюдателя; последующий
+  feature-gated Linux TCP adapter уже рекламирует полный `ROAMING_PATH` и прошёл отдельный
+  двухмаршрутный live netns e2e 15/15. Native application adapters остаются впереди.
 - Намеренная остановка TCP-клиента отправляет строгий пустой `CLOSE_SESSION` внутри
   аутентифицированного CONTROL_V2/PacketCodec, принудительно flush-ит `PACKET_MUX_V1` и
   ограничивает ожидание записи 750 мс. Сервер немедленно закрывает все bonded streams,

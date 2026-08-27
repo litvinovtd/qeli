@@ -34,8 +34,8 @@ fixed and `0` leaves the OS setting alone.
 ABI 1.12 adds a gated `experimental-roaming` candidate-path transaction: a bounded,
 generation-scoped `PathUpdate`, `PREPARE/BIND/COMMIT/ABORT` commands, strict
 generation/candidate/sequence correlation, and a 144-byte V3 statistics layout. The 64/96-byte
-V1/V2 prefixes remain compatible. No production adapter advertises the new capability bits
-yet, and Stage 1 never switches the active data plane.
+V1/V2 prefixes remain compatible. The Linux in-process TCP adapter advertises the complete path
+contract only behind `experimental-roaming`; default builds and native app adapters remain unchanged.
 
 ---
 

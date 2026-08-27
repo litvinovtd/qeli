@@ -34,8 +34,8 @@ dual-family NetworkPlan/platform-capability contract без изменения �
 ABI 1.12 добавляет закрытую feature gate `experimental-roaming` транзакцию candidate path:
 ограниченный generation-scoped `PathUpdate`, команды `PREPARE/BIND/COMMIT/ABORT`, строгую
 корреляцию по generation/candidate/sequence и статистику V3 размером 144 байта. Префиксы
-V1/V2 размером 64/96 байт сохранены. Ни один production-адаптер пока не рекламирует новые
-capability-биты, а этап 1 не переключает действующий data plane.
+V1/V2 размером 64/96 байт сохранены. Linux in-process TCP adapter объявляет полный path-контракт
+только под `experimental-roaming`; default-сборки и native app adapters не меняют поведение.
 
 ---
 

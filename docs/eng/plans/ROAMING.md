@@ -1,17 +1,17 @@
 # Client roaming (seamless network change) — implementation plan
 <!-- normative-sync: roaming-v8-safe -->
 
-> **Status: design complete; Phases 0–2A and the Phase 2B shared source slices through
-> PathUpdate-driven TCP make-before-break are implemented behind `experimental-roaming`.
-> Hard resume and explicit close passed isolated Linux live e2e; the new handover slice has
-> passed the lab source/unit gates but still requires the live race/device matrix. The Phase
-> 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated
-> bootstrap, authenticated ingress/control boundary, and live guarded PATH_RESPONSE/PATH_COMMIT
-> transaction with bounded idempotent replay plus post-commit UDP DATA/DATA_FRAG ingress are
-> source-complete; client adapters, capability activation, and live acceptance are still ahead.
-> Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (865/912 library tests plus 4 CLI and
-> 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
+> **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
+> implemented behind `experimental-roaming`. The Linux in-process TCP adapter now observes
+> stable physical default-route/address changes, advertises the complete `ROAMING_PATH` only
+> under that feature and without a fixed `server.local_address`, and passed isolated two-path
+> live e2e 15/15. Hard resume and explicit close also passed Linux live e2e. The Phase 3A–3C
+> bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
+> authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
+> post-commit UDP DATA/DATA_FRAG ingress are source-complete; UDP client adapters, UDP capability
+> activation, and live acceptance remain. Native app adapters and remaining Phase 3–6 work remain.
+> Current lab gates pass strict feature Clippy, base Linux netns 26/26, and roaming netns 15/15.
+> The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -264,20 +264,20 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   limits, and KATs are frozen behind the default-off feature gate.
 - **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
-  lifecycle cleanup, and mock fault injection. No production adapter advertises the path
-  capability yet; the active production data plane is unchanged and platform PathUpdate e2e remains.
+  lifecycle cleanup, and mock fault injection. The Linux in-process TCP feature adapter now
+  advertises the path contract and passed live e2e; default data plane and native adapters remain unchanged.
 - **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
   Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
   generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
   proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
   release, cap exhaustion, abort, and late drain acknowledgements.
-- **Phase 2B — 🟡 shared TCP resume/handover source complete; live acceptance pending:** the Linux handler
+- **Phase 2B — 🟡 shared TCP resume/handover complete; Linux feature live accepted, native devices pending:** the Linux handler
   and shared client supervisor derive and zeroize the original-session resume secret, strictly
   parse authenticated resume JOIN, reserve before JOINOK, and use a fresh KE plus fresh
   per-carrier data keys on every attach. The feature client core can advertise `CONTROL_V2`,
-  `TCP_RESUME_V1`, and `TCP_HANDOVER_V1`, but negotiation strips handover unless the platform
-  advertises the complete `ROAMING_PATH` contract; no production adapter does so yet.
+  `TCP_RESUME_V1`, and `TCP_HANDOVER_V1`, but negotiation requires the complete platform contract.
+  Linux advertises it only for feature TCP without a fixed source; native app adapters do not yet.
   Loss of the last carrier preserves the same TUN and NetworkPlan for a 30-second grace and
   retries the same stable logical slot once per second; sibling reader/writer tasks share a
   persistent stop signal. The server permits one bounded authenticated candidate above the
@@ -312,7 +312,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   fallback. Candidate connect/JOIN failures also abort temporary platform state. A COMMIT rejection
   is fail-closed: because the server has already authenticated and switched the carrier, the client
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
-  local path. Production platform bits remain disabled until Phase 4 and live acceptance.
+  local path. Native application platform bits remain disabled until their Phase 4 device/race acceptance.
 
   Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -321,10 +321,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   traffic recovers, and password AUTH occurs exactly once. A separate `.11 → .10` live test with
   required `PACKET_MUX_V1` passes 3/3 tunnel pings, observes both close markers, leaves zero
   established carriers and no client TUN, and confirms that the server did not enter resume
-  grace. Those `.10/.11` results cover hard resume and explicit close, not the newly wired
-  make-before-break path. The new shared path passes the source/unit gates above and the exact
-  Windows FFI feature matrix, but no production/Linux adapter advertises `ROAMING_PATH` yet.
-  Phase 2B live acceptance therefore follows the Phase 4 adapter and its lab race matrix.
+  grace. Those `.10/.11` results cover hard resume and explicit close. The two-path Linux
+  feature e2e now also passes 15/15: path B completes authenticated JOIN/COMMIT, path A can be
+  removed, the same PID/TUN survive, and 150/150 probes pass without a top-level reconnect.
+  Native device/race acceptance and the broader transport/family matrix remain.
 - **Phase 3 — 🟡 registry/migration and writer-egress foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
@@ -468,9 +468,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   uses only the first compatible address from that PathUpdate. After authenticated JOIN, COMMIT applies
   routes first and only then publishes the new pinned carrier-address set for later bonded streams. An
   unprivileged regression proves that the dialer ignores an intentionally unreachable configured address,
-  connects to the candidate address, and binds before connect. Network detection, capability activation,
-  bidirectional live PMTU probing, adversarial listener races, and Linux live acceptance remain.
-- **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
+  connects to the candidate address, and binds before connect. Linux observation, capability activation,
+  and initial live acceptance are complete; PMTU/race/soak and native app adapters remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt in-process TCP is feature-complete; Android, Windows, macOS, iOS, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
