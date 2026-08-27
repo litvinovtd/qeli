@@ -285,6 +285,20 @@ impl UdpActiveEgress {
         })))
     }
 
+    #[cfg(feature = "experimental-roaming")]
+    fn new_roaming(
+        socket: Arc<crate::protocol::obfs::ObfsUdp>,
+        peer: SocketAddr,
+        destination_cid: [u8; crate::protocol::roaming::CID_LEN],
+    ) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
+            socket,
+            peer,
+            framing: UdpEgressFraming::RoamingQuic(destination_cid),
+            path_epoch: 0,
+        })))
+    }
+
     fn snapshot(&self) -> UdpEgressSnapshot {
         self.0
             .read()
@@ -2327,10 +2341,11 @@ async fn handle_udp_roaming_ingress(
             return;
         }
         let Some(client) = guard.get_mut(&owner_address).filter(|client| {
-            client
-                ._udp_roaming_registration
-                .as_ref()
-                .is_some_and(|registration| registration.matches_lookup(lookup))
+            client.auth_ok_sent
+                && client
+                    ._udp_roaming_registration
+                    .as_ref()
+                    .is_some_and(|registration| registration.matches_lookup(lookup))
         }) else {
             return;
         };
@@ -3944,6 +3959,10 @@ async fn handle_udp_auth(
             None
         }
     };
+    #[cfg(feature = "experimental-roaming")]
+    let initial_roaming_transmit_cid = udp_roaming_registration
+        .as_ref()
+        .map(|(initial_cids, _)| *initial_cids.transmit());
 
     // Extract session data in a scoped borrow so sessions_guard is free for error handling
     let (
@@ -4031,6 +4050,14 @@ async fn handle_udp_auth(
         }
     };
 
+    #[cfg(feature = "experimental-roaming")]
+    let active_egress = match initial_roaming_transmit_cid {
+        Some(destination_cid) => {
+            UdpActiveEgress::new_roaming(socket.clone(), addr, destination_cid)
+        }
+        None => UdpActiveEgress::new_legacy(socket.clone(), addr, quic_enabled, connection_id),
+    };
+    #[cfg(not(feature = "experimental-roaming"))]
     let active_egress =
         UdpActiveEgress::new_legacy(socket.clone(), addr, quic_enabled, connection_id);
     // Shared inbound counter: the UdpClient (RX path) and the SessionShared
@@ -5407,6 +5434,25 @@ mod tests {
         ));
         let first_peer = "127.0.0.1:41001".parse().unwrap();
         let second_peer = "127.0.0.1:41002".parse().unwrap();
+
+        let bootstrapped = UdpActiveEgress::new_roaming(first_socket.clone(), first_peer, [6; 8]);
+        let bootstrapped_snapshot = bootstrapped.snapshot();
+        let mut bootstrapped_wire = Vec::new();
+        assert_eq!(
+            bootstrapped_snapshot
+                .framing
+                .wrap_into(b"record", 6, &mut bootstrapped_wire),
+            crate::protocol::roaming::UdpShortHeader::new([6; 8], 6).encode(b"record")
+        );
+        assert_eq!(
+            bootstrapped.classify_roaming_ingress(0, first_peer, &first_socket),
+            Some(UdpRoamingIngressPath::Committed)
+        );
+        assert_eq!(
+            bootstrapped.classify_roaming_ingress(1, second_peer, &second_socket),
+            Some(UdpRoamingIngressPath::Candidate)
+        );
+
         let active =
             UdpActiveEgress::new_legacy(first_socket.clone(), first_peer, true, [1, 2, 3, 4]);
 

@@ -219,8 +219,15 @@
   bandwidth pacing, accounting, MTU/client-info control и общий TUN forwarder. Candidate DATA
   отклоняется, а commit/teardown не могут оставить data plane в частично перенесённом состоянии.
   Regression-тесты фиксируют обычный DATA через общий PacketCodec и exact current/candidate/stale
-  epoch/socket/peer gates. `UDP_ROAM_V1` остаётся не рекламируемым: initial-CID egress publication,
-  клиентские адаптеры и live-приёмка ещё не готовы.
+  epoch/socket/peer gates.
+- Negotiated epoch-zero UDP bootstrap теперь создаёт `UdpActiveEgress` сразу с initial
+  server-to-client CID; первый post-auth writer snapshot и его PMTU/recordizer budget используют
+  13-byte roaming header. AuthOK и cached AuthOK retransmit остаются в legacy 4-byte QUIC framing,
+  поскольку клиент узнаёт session id для вывода directional CID только из AuthOK. Routed CID
+  ingress закрыт до публикации `auth_ok_sent`, поэтому ранний PATH_INIT не может обогнать отправку
+  AuthOK и перезаписать epoch-zero state. Focused regression проверяет initial framing, current epoch
+  и next-candidate classification; default/non-negotiated wire не изменён. `UDP_ROAM_V1` всё ещё
+  не рекламируется: client path adapters, capability activation и live-приёмка остаются впереди.
 - Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/912 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и

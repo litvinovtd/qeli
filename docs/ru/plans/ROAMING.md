@@ -8,7 +8,7 @@
 > UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress, negotiated
 > bootstrap, authenticated ingress/control boundary и live guarded PATH_RESPONSE/PATH_COMMIT
 > transaction с bounded идемпотентным повтором и post-commit UDP DATA/DATA_FRAG ingress готовы по
-> исходникам; впереди ещё initial-CID bootstrap publication, клиентские адаптеры и live-приёмка.
+> исходникам; впереди ещё клиентские адаптеры, включение capability и live-приёмка.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
 > На лабе `.10` прошли финальные default/feature suites (865/912 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
@@ -632,9 +632,17 @@ ACL, bandwidth pacing, accounting, MTU/client-info control и TUN forwarder. Can
 отклоняется; этот путь может нести только аутентифицированный path control. Commit, teardown и DATA
 не могут увидеть частично перенесённое directory/egress state.
 
+Полностью согласованная epoch-zero сессия теперь сразу публикует initial server-to-client CID в
+`UdpActiveEgress`, поэтому writer с первой post-auth записи рассчитывает PMTU/recordizer budget для
+13-байтового roaming header. AuthOK и его cached retransmit намеренно сохраняют legacy 4-byte QUIC
+framing: клиент должен получить AuthOK до того, как узнает session id для вывода обоих directional
+CID. Ingress owner отклоняет любой routed CID, пока не отправлены все фрагменты AuthOK и не
+опубликован `auth_ok_sent`; ранний candidate не может обогнать epoch-zero bootstrap. Default и
+non-negotiated wire остаются неизменными.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
 и восьмибайтовый CID ещё не могут включиться в production. Candidate expiry/global admission,
-initial-CID egress publication, cross-listener/family races и mock/Linux live-приёмка ещё впереди.
+cross-listener/family races, client path adapters и mock/Linux live-приёмка ещё впереди.
 
 - per-session actor и dynamic egress;
 - PATH_RESPONSE/COMMIT;

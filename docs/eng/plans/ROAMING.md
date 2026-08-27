@@ -8,8 +8,7 @@
 > 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated
 > bootstrap, authenticated ingress/control boundary, and live guarded PATH_RESPONSE/PATH_COMMIT
 > transaction with bounded idempotent replay plus post-commit UDP DATA/DATA_FRAG ingress are
-> source-complete; initial-CID bootstrap publication, client adapters, and live acceptance are still
-> ahead.
+> source-complete; client adapters, capability activation, and live acceptance are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
 > On lab `.10`, final default and feature suites pass (865/912 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
@@ -425,9 +424,17 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and TUN forwarder. Candidate DATA is rejected; only authenticated path control may use that path.
   Commit, teardown, and DATA therefore cannot observe a partially moved directory/egress state.
 
+  A fully negotiated epoch-zero session now publishes its initial server-to-client CID directly in
+  `UdpActiveEgress`, so writer PMTU/recordizer budgets are computed for the 13-byte roaming header
+  from the first post-auth record. AuthOK and its cached retransmit deliberately retain the legacy
+  four-byte QUIC framing: the client must receive AuthOK before it knows the session id from which
+  both directional CIDs are derived. The ingress owner rejects every routed CID until all AuthOK
+  fragments have been sent and `auth_ok_sent` is published, preventing an early candidate from
+  committing over the epoch-zero bootstrap. Default and non-negotiated wire output remains unchanged.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
   eight-byte CID framing still cannot activate in production. Candidate expiry/global admission,
-  initial-CID egress publication, cross-listener/family races, and mock/Linux live acceptance remain.
+  cross-listener/family races, client path adapters, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
