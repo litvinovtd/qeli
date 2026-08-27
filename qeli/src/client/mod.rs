@@ -4,6 +4,8 @@ pub mod dns;
 pub mod gateway;
 #[cfg(target_os = "linux")]
 pub mod killswitch;
+#[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+mod roaming_linux;
 #[cfg(target_os = "linux")]
 pub mod route;
 
@@ -353,7 +355,9 @@ fn select_carrier_pin_targets(
     }
     if candidates.is_empty() {
         if let Some(literal) = literal_server {
-            candidates.push(crate::transport_core::carrier::canonical_carrier_ip(literal));
+            candidates.push(crate::transport_core::carrier::canonical_carrier_ip(
+                literal,
+            ));
         }
     }
     candidates
@@ -376,6 +380,13 @@ fn mark_carrier_candidates_pinned(addresses: &[std::net::IpAddr]) {
         state.addresses = addresses.to_vec();
         state.pinned = true;
     }
+}
+
+#[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+fn carrier_candidate_ips() -> Vec<std::net::IpAddr> {
+    crate::util::lock_or_recover(&CARRIER_CANDIDATES, "client::carrier_candidates")
+        .addresses
+        .clone()
 }
 
 #[cfg(target_os = "linux")]
@@ -578,7 +589,7 @@ impl CorePathController {
 /// Linux OS executor for the shared PathUpdate transaction. It owns only prepared route facts;
 /// phase/order/idempotency and every ACK waiter remain in `ClientCore`/`CorePathController`.
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-struct LinuxPathController {
+pub(crate) struct LinuxPathController {
     core: Arc<std::sync::Mutex<ClientCore>>,
     shared: CorePathController,
     tunnel_interface: String,
@@ -668,7 +679,9 @@ impl LinuxPathController {
                     .compatible_resolved_addresses()
                     .into_iter()
                     .next()
-                    .ok_or_else(|| anyhow::anyhow!("COMMIT_PATH has no compatible carrier address"))?;
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("COMMIT_PATH has no compatible carrier address")
+                    })?;
                 prepared.commit()?;
                 mark_carrier_candidates_pinned(&[address]);
                 note_connected_peer(address);
@@ -740,7 +753,6 @@ impl LinuxPathController {
         Ok(rejection)
     }
 
-    #[allow(dead_code)] // Called by the Linux route/default-interface monitor in the next slice.
     fn submit_path_update(&self, update_json: &str) -> anyhow::Result<u64> {
         let candidate_id = self.with_core(|core| core.submit_path_update(update_json))?;
         if let Some(reason) = self.dispatch_pending(PathCommandAction::PreparePath, candidate_id)? {
@@ -816,6 +828,10 @@ pub(crate) trait ClientPlatform {
     fn platform_capabilities(&self) -> u64;
     #[cfg(feature = "experimental-roaming")]
     fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+        None
+    }
+    #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+    fn linux_path_controller(&self) -> Option<Arc<LinuxPathController>> {
         None
     }
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]>;
@@ -1069,6 +1085,10 @@ impl LinuxCoreAdapter {
             | platform_capability::IPV6_TUN
             | platform_capability::IPV6_ROUTES
             | platform_capability::IPV6_DNS;
+        #[cfg(feature = "experimental-roaming")]
+        if preview.server.protocol == "tcp" && preview.server.local_address.is_none() {
+            platform_capabilities |= platform_capability::ROAMING_PATH;
+        }
         if killswitch::ipv6_available() {
             platform_capabilities |= platform_capability::IPV6_KILL_SWITCH;
         }
@@ -1238,6 +1258,16 @@ impl ClientPlatform for LinuxCoreAdapter {
 
     #[cfg(feature = "experimental-roaming")]
     fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+        let required = crate::transport_core::platform_capability::ROAMING_PATH;
+        if self.platform_capabilities() & required == required {
+            Some(self.path_controller.clone())
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn linux_path_controller(&self) -> Option<Arc<LinuxPathController>> {
         let required = crate::transport_core::platform_capability::ROAMING_PATH;
         if self.platform_capabilities() & required == required {
             Some(self.path_controller.clone())
@@ -3428,6 +3458,8 @@ where
     };
     #[cfg(feature = "experimental-roaming")]
     let tcp_path_controller = core.tcp_path_controller();
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let linux_path_controller = core.linux_path_controller();
     #[cfg(feature = "experimental-roaming")]
     let tcp_handover_enabled = tcp_path_controller.is_some()
         && tcp_resume.is_some()
@@ -3487,6 +3519,8 @@ where
         fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let path_generation = plan.generation;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
     plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
@@ -4315,6 +4349,11 @@ where
         })
     });
 
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let path_monitor_handle = linux_path_controller.map(|path_controller| {
+        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
+    });
+
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
     // 5-tuple) so each connection stays in order. Each stream's tasks own
     // encrypt/heartbeat/idle; a dead stream fires dead_rx.
@@ -4387,6 +4426,10 @@ where
         h.abort();
     }
     if let Some(h) = maintenance_handle {
+        h.abort();
+    }
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    if let Some(h) = path_monitor_handle {
         h.abort();
     }
     #[cfg(feature = "experimental-roaming")]
