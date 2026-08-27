@@ -196,6 +196,8 @@ pub enum UdpRoamingError {
     StaleSession,
     #[error("UDP CID collision")]
     CidCollision,
+    #[error("UDP path init CID does not match the negotiated session epoch")]
+    InvalidCid,
     #[error("UDP path epoch is stale or not the next expected epoch")]
     StaleEpoch,
     #[error("another UDP path candidate already owns this session")]
@@ -364,6 +366,8 @@ impl UdpRoamingTable {
         &mut self,
         lookup: CidLookup,
         path: UdpPath,
+        init_transmit_cid: &UdpCid,
+        init_epoch: u64,
         received_bytes: usize,
         challenge: [u8; PATH_CHALLENGE_LEN],
     ) -> Result<CandidateChallenge, UdpRoamingError> {
@@ -384,8 +388,19 @@ impl UdpRoamingTable {
                 .epoch
                 .checked_add(1)
                 .ok_or(UdpRoamingError::GenerationExhausted)?;
-            if lookup.path_epoch != expected || path == session.active.path {
+            if lookup.path_epoch != expected
+                || init_epoch != expected
+                || path == session.active.path
+            {
                 return Err(UdpRoamingError::StaleEpoch);
+            }
+            let expected_transmit_cid = derive_udp_cid(
+                &session.server_to_client_cid_secret,
+                lookup.session_id,
+                expected,
+            );
+            if init_transmit_cid != &expected_transmit_cid {
+                return Err(UdpRoamingError::InvalidCid);
             }
             if let Some(candidate) = session.candidate.as_mut() {
                 if candidate.ticket.path_epoch != lookup.path_epoch || candidate.path != path {
@@ -805,6 +820,39 @@ impl UdpRoamingRegistry {
         self.lock_table().lookup(cid)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn observe_authenticated_candidate(
+        &self,
+        lookup: CidLookup,
+        path: UdpPath,
+        init_transmit_cid: &UdpCid,
+        init_epoch: u64,
+        received_bytes: usize,
+        challenge: [u8; PATH_CHALLENGE_LEN],
+    ) -> Result<CandidateChallenge, UdpRoamingError> {
+        self.lock_table().observe_authenticated_candidate(
+            lookup,
+            path,
+            init_transmit_cid,
+            init_epoch,
+            received_bytes,
+            challenge,
+        )
+    }
+
+    pub fn authorize_candidate_send(
+        &self,
+        ticket: CandidateTicket,
+        wire_bytes: usize,
+    ) -> Result<(), UdpRoamingError> {
+        self.lock_table()
+            .authorize_candidate_send(ticket, wire_bytes)
+    }
+
+    pub fn abort_candidate(&self, ticket: CandidateTicket) -> bool {
+        self.lock_table().abort_candidate(ticket)
+    }
+
     pub fn remove_session(&self, session_id: u64) -> bool {
         self.lock_table().remove_session(session_id)
     }
@@ -1138,11 +1186,15 @@ mod tests {
         (table, cids)
     }
 
+    fn transmit_cid(epoch: u64) -> UdpCid {
+        derive_udp_cid(&S2C, 7, epoch)
+    }
+
     fn candidate(table: &mut UdpRoamingTable) -> CandidateChallenge {
         let future = derive_udp_cid(&C2S, 7, 1);
         let lookup = table.lookup(&future).expect("future CID alias");
         table
-            .observe_authenticated_candidate(lookup, path(2, 2000), 100, TOKEN)
+            .observe_authenticated_candidate(lookup, path(2, 2000), &transmit_cid(1), 1, 100, TOKEN)
             .unwrap()
     }
 
@@ -1175,20 +1227,63 @@ mod tests {
         let (mut table, initial) = table();
         let current = table.lookup(initial.receive()).unwrap();
         assert!(matches!(
-            table.observe_authenticated_candidate(current, path(2, 2000), 100, TOKEN),
+            table.observe_authenticated_candidate(
+                current,
+                path(2, 2000),
+                &transmit_cid(0),
+                0,
+                100,
+                TOKEN,
+            ),
             Err(UdpRoamingError::StaleEpoch)
         ));
         let future = table.lookup(&derive_udp_cid(&C2S, 7, 1)).unwrap();
+        assert!(matches!(
+            table.observe_authenticated_candidate(
+                future,
+                path(2, 2000),
+                &[0xAB; CID_LEN],
+                1,
+                100,
+                TOKEN,
+            ),
+            Err(UdpRoamingError::InvalidCid)
+        ));
+        assert!(matches!(
+            table.observe_authenticated_candidate(
+                future,
+                path(2, 2000),
+                &transmit_cid(1),
+                2,
+                100,
+                TOKEN,
+            ),
+            Err(UdpRoamingError::StaleEpoch)
+        ));
         let first = table
-            .observe_authenticated_candidate(future, path(2, 2000), 100, TOKEN)
+            .observe_authenticated_candidate(future, path(2, 2000), &transmit_cid(1), 1, 100, TOKEN)
             .unwrap();
         let duplicate = table
-            .observe_authenticated_candidate(future, path(2, 2000), 50, [0x44; 16])
+            .observe_authenticated_candidate(
+                future,
+                path(2, 2000),
+                &transmit_cid(1),
+                1,
+                50,
+                [0x44; 16],
+            )
             .unwrap();
         assert_eq!(first.ticket(), duplicate.ticket());
         assert_eq!(first.token(), duplicate.token());
         assert!(matches!(
-            table.observe_authenticated_candidate(future, path(3, 3000), 100, [0x55; 16]),
+            table.observe_authenticated_candidate(
+                future,
+                path(3, 3000),
+                &transmit_cid(1),
+                1,
+                100,
+                [0x55; 16],
+            ),
             Err(UdpRoamingError::CandidateBusy)
         ));
         assert_eq!(table.candidate_count(), 1);
@@ -1207,7 +1302,14 @@ mod tests {
         );
         let future = table.lookup(&derive_udp_cid(&C2S, 7, 1)).unwrap();
         table
-            .observe_authenticated_candidate(future, path(2, 2000), 10, [0x99; 16])
+            .observe_authenticated_candidate(
+                future,
+                path(2, 2000),
+                &transmit_cid(1),
+                1,
+                10,
+                [0x99; 16],
+            )
             .unwrap();
         table
             .authorize_candidate_send(challenge.ticket(), 30)
@@ -1361,7 +1463,14 @@ mod tests {
             );
             let token = [u8::try_from(epoch).unwrap(); PATH_CHALLENGE_LEN];
             let challenge = table
-                .observe_authenticated_candidate(lookup, new_path, 128, token)
+                .observe_authenticated_candidate(
+                    lookup,
+                    new_path,
+                    &transmit_cid(epoch),
+                    epoch,
+                    128,
+                    token,
+                )
                 .unwrap();
             table
                 .authorize_candidate_send(challenge.ticket(), 64)

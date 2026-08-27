@@ -7,9 +7,9 @@
 > прошёл lab source/unit gates, но ещё требует live-матрицу гонок и устройств. Ограниченные
 > UDP registry/migration state, cross-worker dispatch, atomic data/auxiliary egress и negotiated
 > bootstrap этапов 3A–3C и authenticated ingress/control boundary готовы по исходникам; впереди
-> ещё candidate transitions и подключение guarded commit к рабочему пути.
+> ещё PATH_RESPONSE, guarded commit и post-commit data path.
 > Production-адаптеры и оставшиеся работы этапов 3–6 ещё впереди.
-> На лабе `.10` прошли финальные default/feature suites (865/909 library tests,
+> На лабе `.10` прошли финальные default/feature suites (865/910 library tests,
 > 4 CLI и 7 integration), а также strict Clippy обеих сборок. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -519,7 +519,7 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Production platform bits остаются выключенными до этапа 4 и live-приёмки.
 
-На lab `.10` финальные default/feature suites прошли с 865/909 library tests, 4 CLI и
+На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
 конфигурациях. Изолированный Linux netns e2e с односторонним TCP RST прошёл 13/13: resume занял
 2 секунды, внешний carrier сменился, TUN ifindex/IP сохранились, ping восстановился, а password
@@ -595,15 +595,23 @@ control, server-direction messages, обычные data records и неауте�
 отбрасываются до TUN и до изменения path state. Candidate liveness обновляется только после
 успешной AEAD-проверки. Два focused-теста фиксируют direction/shape gates и общий replay window.
 
+Authenticated `PATH_INIT` теперь одной операцией profile registry проверяет next epoch, future
+C2S CID, ожидаемый S2C CID и новый socket/peer. Затем он создаёт или идемпотентно находит
+единственный candidate с non-zero 128-bit token. `PATH_CHALLENGE` шифруется общим TX PacketCodec,
+получает проверенный восьмибайтовый destination CID и отправляется через точный receiving socket.
+Cumulative budget резервируется до send, включает roaming header и obfs overhead и не превышает
+3× от консервативно посчитанного authenticated candidate ingress. Generation-scoped ticket
+сохраняется в session actor для следующего PATH_RESPONSE-среза.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому bootstrap
-и восьмибайтовый CID ещё не могут включиться в production. Authenticated CID ingress уже доходит до
-control boundary, но пока намеренно не создаёт candidate и не публикует новый путь.
-PATH_CHALLENGE/RESPONSE transitions, guarded commit, post-commit DATA_FRAG data flow,
-cross-listener/family races и mock/Linux live-приёмка остаются следующими срезами.
+и восьмибайтовый CID ещё не могут включиться в production. Сервер уже создаёт bounded candidate и
+отправляет challenge, но намеренно не принимает PATH_RESPONSE и не публикует новый путь.
+Candidate expiry/global admission, guarded commit, post-commit DATA_FRAG data flow,
+cross-listener/family races и mock/Linux live-приёмка ещё впереди.
 
 - per-session actor и dynamic egress;
-- PATH_INIT/CHALLENGE/RESPONSE/COMMIT;
-- anti-amplification и candidate limits;
+- PATH_RESPONSE/COMMIT;
+- candidate expiry, global admission и rate limits;
 - двунаправленный live PMTU reset/probe;
 - post-commit DATA_FRAG/reassembly/replay интеграция;
 - cross-worker/listener/family tests.

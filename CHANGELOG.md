@@ -154,8 +154,7 @@
   расширить бюджет нового: проверка epoch/peer и запись бюджета атомарны относительно guarded commit.
   Capability всё ещё не рекламируется. Fabric и CID ingress уже доведены через общий PacketCodec,
   replay window и DATA_FRAG reassembler до строгого client-direction CONTROL_V2 boundary, но
-  candidate state transitions, challenge/response, guarded commit и post-commit data path остаются
-  следующими срезами.
+  PATH_RESPONSE, guarded commit и post-commit data path остаются следующими срезами.
 - Добавлен fail-closed bootstrap-контракт UDP roaming. Режим может включиться только при явном
   двустороннем согласовании `CONTROL_V2 + UDP_ROAM_V1 + UDP_DATA_FRAG_V1`; одного клиентского
   reserved bit недостаточно. Для согласованной QUIC-сессии зашифрованный AuthOK передаёт
@@ -185,10 +184,17 @@
   legacy ingress, а `DATA_FRAG_V1` проходит через существующий bounded reassembler. После успешной
   AEAD-проверки строгий CONTROL_V2 decoder принимает только одночастные клиентские `PATH_INIT` и
   `PATH_RESPONSE` без status flags; replay, server-direction, malformed, non-control и обычные data
-  records отклоняются до TUN и до изменения пути. Liveness обновляется только после AEAD. Candidate
-  state пока намеренно не меняется; `UDP_ROAM_V1` не рекламируется, поэтому production wire/runtime
-  остаются прежними. Два regression-теста фиксируют direction/shape gates и общий replay window.
-- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/909 тестами
+  records отклоняются до TUN и до изменения пути. Liveness обновляется только после AEAD. Два
+  regression-теста фиксируют direction/shape gates и общий replay window.
+- `PATH_INIT` теперь одной операцией profile-wide registry проверяет next epoch, future C2S CID,
+  ожидаемый S2C CID и новый socket/peer, после чего создаёт или идемпотентно находит единственный
+  candidate с non-zero 128-bit challenge. `PATH_CHALLENGE` шифруется общим TX PacketCodec,
+  получает восьмибайтовый проверенный destination CID и отправляется точным receiving socket.
+  Cumulative reply budget резервируется до send и учитывает roaming header плюс obfs overhead;
+  он не может превысить 3× от консервативно посчитанного authenticated candidate ingress.
+  Ticket сохраняется в session actor для следующего PATH_RESPONSE-среза. `UDP_ROAM_V1` по-прежнему
+  не рекламируется, новый path не публикуется. Wire-тест проверяет CID, packet number и CONTROL_V2.
+- Обновлённый срез прошёл на lab `.10` Rust fmt, default/feature library suites с 865/910 тестами
   (по одному privileged ignored), 4 CLI и 7 integration tests, а также strict all-target Clippy
   в обеих конфигурациях. Точная Windows FFI feature matrix отдельно прошла Rust 1.97 checks и
   strict Clippy. Это source/unit gates: live make-before-break остаётся за этапом 4, потому что

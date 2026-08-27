@@ -7,9 +7,9 @@
 > passed the lab source/unit gates but still requires the live race/device matrix. The Phase
 > 3A–3C bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, and negotiated
 > bootstrap foundations plus the authenticated ingress/control boundary are source-complete;
-> candidate transitions and guarded commit wiring are still ahead.
+> PATH_RESPONSE, guarded commit, and the post-commit data path are still ahead.
 > Production adapters and the remaining Phase 3–6 work are still ahead.
-> On lab `.10`, final default and feature suites pass (865/909 library tests plus 4 CLI and
+> On lab `.10`, final default and feature suites pass (865/910 library tests plus 4 CLI and
 > 7 integration tests), as does strict Clippy in both builds. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -313,7 +313,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Production platform bits remain disabled until Phase 4 and live acceptance.
 
-  Lab `.10` passes the final default/feature suites (865/909 library tests, 4 CLI,
+  Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
   Clippy for both builds. An isolated Linux netns e2e with an asymmetric TCP RST passes 13/13:
   resume completes in 2 seconds, the outer carrier changes, TUN ifindex/address survive,
@@ -385,11 +385,19 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   after successful AEAD verification. Two focused tests pin the direction/shape gates and shared
   replay-window behaviour.
 
+  An authenticated `PATH_INIT` now validates the next epoch, future C2S CID, expected S2C CID,
+  and new socket/peer under one profile-registry operation. It creates or idempotently finds the
+  session's sole candidate with a non-zero 128-bit token. `PATH_CHALLENGE` uses the shared TX
+  PacketCodec and verified eight-byte destination CID, then leaves through the exact receiving
+  socket. Its cumulative budget is reserved before send and includes the roaming header plus obfs
+  overhead; it cannot exceed 3× the conservatively counted authenticated candidate ingress. The
+  generation-scoped ticket remains in the session actor for the following PATH_RESPONSE slice.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Authenticated CID ingress reaches the
-  control boundary, but it intentionally does not create a candidate or publish a path yet.
-  PATH_CHALLENGE/RESPONSE state transitions, guarded commit, post-commit DATA_FRAG data flow,
-  cross-listener/family races, and mock/Linux live acceptance remain.
+  eight-byte CID framing still cannot activate in production. The server can now create a bounded
+  candidate and send its challenge, but it intentionally does not accept PATH_RESPONSE or publish
+  a new path yet. Candidate expiry/global admission, guarded commit, post-commit DATA_FRAG data
+  flow, cross-listener/family races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

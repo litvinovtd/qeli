@@ -864,6 +864,8 @@ struct UdpClient {
     _udp_roaming_registration: Option<crate::transport_core::udp_roaming::UdpSessionRegistration>,
     #[cfg(feature = "experimental-roaming")]
     _udp_roaming_initial_cids: Option<crate::transport_core::udp_roaming::InitialCids>,
+    #[cfg(feature = "experimental-roaming")]
+    udp_roaming_candidate: Option<crate::transport_core::udp_roaming::CandidateTicket>,
     data_frag_enabled: bool,
     data_reassembler: crate::protocol::data_frag::DataReassembler,
     /// Authenticated PACKET_MUX_V1 receiver. Empty until negotiation completes,
@@ -1895,6 +1897,48 @@ fn decode_udp_roaming_control(
 }
 
 #[cfg(feature = "experimental-roaming")]
+fn random_udp_path_challenge() -> [u8; crate::protocol::roaming::PATH_CHALLENGE_LEN] {
+    loop {
+        let token = rand::random();
+        if token != [0; crate::protocol::roaming::PATH_CHALLENGE_LEN] {
+            return token;
+        }
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn encrypt_udp_roaming_control(
+    tx_codec: &Arc<std::sync::Mutex<PacketCodec>>,
+    packet_counter: &std::sync::atomic::AtomicU32,
+    destination_cid: [u8; crate::protocol::roaming::CID_LEN],
+    message_id: u32,
+    message: &crate::protocol::roaming::PathControl,
+) -> anyhow::Result<Vec<u8>> {
+    let mut frames = crate::protocol::control_v2::fragment_message(
+        message.message_type(),
+        0,
+        message_id,
+        &message.encode_body(),
+    )?;
+    anyhow::ensure!(
+        frames.len() == 1,
+        "fixed UDP path control unexpectedly required fragmentation"
+    );
+    let frame = frames
+        .pop()
+        .expect("a fixed UDP path control produces one frame");
+    let record = {
+        let mut codec = lock_or_recover(tx_codec, "udp::roaming_encrypt");
+        codec.encrypt_packet(&frame, &[])?
+    };
+    let packet_number = packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(
+        crate::protocol::roaming::UdpShortHeader::new(destination_cid, packet_number)
+            .encode(&record),
+    )
+}
+
+#[cfg(feature = "experimental-roaming")]
 async fn handle_udp_roaming_ingress(
     profile: &Arc<ProfileRuntime>,
     sessions: &Arc<RwLock<UdpSessionDirectory>>,
@@ -1988,22 +2032,119 @@ async fn handle_udp_roaming_ingress(
             }
         }
     };
-    let control_name = match control.message {
-        crate::protocol::roaming::PathControl::Init { .. } => "PATH_INIT",
-        crate::protocol::roaming::PathControl::Response { .. } => "PATH_RESPONSE",
+    match control.message {
+        crate::protocol::roaming::PathControl::Init { cid, epoch } => {
+            let challenge = match profile
+                .udp_roaming_registry
+                .observe_authenticated_candidate(
+                    lookup,
+                    received_path,
+                    &cid,
+                    epoch,
+                    envelope.datagram.len(),
+                    random_udp_path_challenge(),
+                ) {
+                Ok(challenge) => challenge,
+                Err(error) => {
+                    log::debug!(
+                        "UDP PATH_INIT rejected on profile '{}' ({error})",
+                        profile.name
+                    );
+                    return;
+                }
+            };
+            let ticket = challenge.ticket();
+            let response = crate::protocol::roaming::PathControl::Challenge {
+                epoch,
+                token: *challenge.token(),
+            };
+            let wire = {
+                let mut guard = sessions.write().await;
+                let Some(client) = guard.get_mut(&owner_address).filter(|client| {
+                    client
+                        ._udp_roaming_registration
+                        .as_ref()
+                        .is_some_and(|registration| registration.matches_lookup(lookup))
+                }) else {
+                    profile.udp_roaming_registry.abort_candidate(ticket);
+                    return;
+                };
+                client.udp_roaming_candidate = Some(ticket);
+                encrypt_udp_roaming_control(
+                    &client.tx_codec,
+                    &client.packet_counter,
+                    cid,
+                    control.message_id,
+                    &response,
+                )
+            };
+            let wire = match wire {
+                Ok(wire) => wire,
+                Err(error) => {
+                    profile.udp_roaming_registry.abort_candidate(ticket);
+                    let mut guard = sessions.write().await;
+                    if let Some(client) = guard.get_mut(&owner_address) {
+                        if client.udp_roaming_candidate == Some(ticket) {
+                            client.udp_roaming_candidate = None;
+                        }
+                    }
+                    log::warn!(
+                        "UDP PATH_CHALLENGE build failed on profile '{}': {}",
+                        profile.name,
+                        error
+                    );
+                    return;
+                }
+            };
+            let accounted_wire_bytes = wire.len().saturating_add(envelope.socket.seal_overhead());
+            if let Err(error) = profile
+                .udp_roaming_registry
+                .authorize_candidate_send(ticket, accounted_wire_bytes)
+            {
+                if !matches!(
+                    &error,
+                    crate::transport_core::udp_roaming::UdpRoamingError::AmplificationLimit
+                ) {
+                    let mut guard = sessions.write().await;
+                    if let Some(client) = guard.get_mut(&owner_address) {
+                        if client.udp_roaming_candidate == Some(ticket) {
+                            client.udp_roaming_candidate = None;
+                        }
+                    }
+                }
+                log::debug!(
+                    "UDP PATH_CHALLENGE suppressed on profile '{}' ({error})",
+                    profile.name
+                );
+                return;
+            }
+            if let Err(error) = envelope.socket.send_to(&wire, received_path.peer()).await {
+                log::debug!(
+                    "UDP PATH_CHALLENGE send failed on profile '{}': {}",
+                    profile.name,
+                    error
+                );
+                return;
+            }
+            log::trace!(
+                "UDP PATH_CHALLENGE sent by owner worker {} on profile '{}' (message {}, outer packet {})",
+                worker_id,
+                profile.name,
+                control.message_id,
+                outer_packet_number
+            );
+        }
+        crate::protocol::roaming::PathControl::Response { .. } => {
+            log::trace!(
+                "UDP PATH_RESPONSE reached owner worker {} on profile '{}' (message {}, outer packet {}); guarded commit is not connected yet",
+                worker_id,
+                profile.name,
+                control.message_id,
+                outer_packet_number
+            );
+        }
         _ => unreachable!("client direction was checked by the authenticated decoder"),
-    };
-    log::trace!(
-        "UDP roaming {} reached owner worker {} on profile '{}' (message {}, outer packet {})",
-        control_name,
-        worker_id,
-        profile.name,
-        control.message_id,
-        outer_packet_number
-    );
-    // Candidate state transitions and replies are the next slice. Until then the capability
-    // remains unadvertised, so this authenticated control boundary is unreachable in production
-    // and intentionally does not publish a new path.
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // datagram dispatch threads the shared UDP state
@@ -4196,6 +4337,8 @@ async fn handle_new_udp_client(
             _udp_roaming_registration: None,
             #[cfg(feature = "experimental-roaming")]
             _udp_roaming_initial_cids: None,
+            #[cfg(feature = "experimental-roaming")]
+            udp_roaming_candidate: None,
             data_frag_enabled: false,
             data_reassembler: crate::protocol::data_frag::DataReassembler::new(),
             rx_recordizer: None,
@@ -4269,8 +4412,8 @@ mod tests {
     };
     #[cfg(feature = "experimental-roaming")]
     use super::{
-        decrypt_udp_roaming_control_record, UdpActiveEgress, UdpEgressCommitError,
-        UdpRoamingControlError, UdpRoamingOwnerIndex,
+        decrypt_udp_roaming_control_record, encrypt_udp_roaming_control, UdpActiveEgress,
+        UdpEgressCommitError, UdpRoamingControlError, UdpRoamingOwnerIndex,
     };
     use crate::protocol::udp_frag;
     use std::time::Duration;
@@ -4362,6 +4505,34 @@ mod tests {
             decrypt_udp_roaming_control_record(&mut receiver, &mut fragmented).err(),
             Some(UdpRoamingControlError::FragmentedControl)
         );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn udp_path_challenge_uses_the_verified_cid_and_authenticated_control_shape() {
+        use crate::protocol::roaming::PathControl;
+
+        let key = [0xB1; 32];
+        let sender = std::sync::Arc::new(std::sync::Mutex::new(crate::protocol::PacketCodec::new(
+            key,
+        )));
+        let counter = std::sync::atomic::AtomicU32::new(29);
+        let destination_cid = [0xC2; crate::protocol::roaming::CID_LEN];
+        let challenge = PathControl::Challenge {
+            epoch: 3,
+            token: [0xD3; crate::protocol::roaming::PATH_CHALLENGE_LEN],
+        };
+        let wire = encrypt_udp_roaming_control(&sender, &counter, destination_cid, 31, &challenge)
+            .unwrap();
+        let (header, record) = crate::protocol::roaming::decode_udp_short(&wire).unwrap();
+        assert_eq!(header.destination_cid(), &destination_cid);
+        assert_eq!(header.packet_number(), 29);
+        let mut receiver = crate::protocol::PacketCodec::new(key);
+        let plaintext = receiver.decrypt_packet(record).unwrap();
+        let frame = crate::protocol::control_v2::decode(&plaintext).unwrap();
+        assert_eq!(frame.message_id, 31);
+        assert_eq!(frame.flags, 0);
+        assert!(PathControl::decode(frame.message_type, frame.payload).unwrap() == challenge);
     }
 
     #[cfg(feature = "experimental-roaming")]
