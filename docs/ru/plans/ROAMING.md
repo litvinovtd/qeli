@@ -667,9 +667,13 @@ netns regression подтвердил, что source bind вместе с `SO_BI
 default route несмотря на активные туннельные `/1` и старый carrier `/32`; временный маршрут
 или policy rule до аутентифицированного proof не нужен. Затем примитив candidate socket применяет
 `SO_BINDTODEVICE` для валидированного interface index и bind адреса того же семейства (включая
-scope для IPv6 link-local). Остаются network detection, ownership маршрутов COMMIT,
-capability activation, двунаправленный live PMTU probing, adversarial listener races и
-mock/Linux live acceptance.
+scope для IPv6 link-local). Примитив COMMIT теперь выполняет ownership preflight полного набора
+адресов до мутации: совпадающий операторский маршрут остаётся чужим, конфликтующий отклоняет
+commit, а `replace` разрешён только для маршрута из journal qeli. После каждого `add/replace`
+выполняется обычный source-aware FIB lookup; ошибка следующей IPv4/IPv6 семьи восстанавливает
+предыдущие маршруты в обратном порядке и синхронизирует ownership journal. Остаются подключение
+этих примитивов к in-process PathCommand ACK driver, network detection, capability activation,
+двунаправленный live PMTU probing, adversarial listener races и mock/Linux live acceptance.
 
 - двунаправленный live PMTU reset/probe;
 - client path adapters;

@@ -42,6 +42,23 @@ fn note_created_owned(args: Vec<String>) {
     }
 }
 
+#[cfg(feature = "experimental-roaming")]
+fn created_by_us_owned(args: &[String]) -> bool {
+    CREATED_ROUTES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .any(|entry| entry == args)
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn forget_created_owned(args: &[String]) {
+    CREATED_ROUTES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .retain(|entry| entry != args);
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PhysicalPath {
     gateway: Option<String>,
@@ -124,6 +141,7 @@ pub(crate) struct LinuxPreparedPathRoutes {
     pub generation: u64,
     pub candidate_id: u64,
     pub routes: Vec<LinuxCandidateRoute>,
+    tunnel_interface: String,
 }
 
 /// Resolve every candidate carrier through the exact interface/source pair reported by the
@@ -193,7 +211,252 @@ fn prepare_candidate_path_routes_on(
         generation: candidate.update.generation,
         candidate_id: candidate.candidate_id,
         routes,
+        tunnel_interface: tunnel_if.to_string(),
     })
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug)]
+enum CandidateRouteMutation {
+    None,
+    Add {
+        undo: Vec<String>,
+        journal_was_present: bool,
+    },
+    Replace {
+        ipv6: bool,
+        previous: Vec<String>,
+    },
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug)]
+struct CandidateRouteStep {
+    route: LinuxCandidateRoute,
+    mutation: CandidateRouteMutation,
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn carrier_route_undo(remote: IpAddr) -> Vec<String> {
+    let mut args = Vec::new();
+    if remote.is_ipv6() {
+        args.push("-6".to_string());
+    }
+    args.extend(["route".to_string(), "del".to_string(), remote.to_string()]);
+    args
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn candidate_route_command(action: &str, route: &LinuxCandidateRoute) -> Vec<String> {
+    let mut args = Vec::new();
+    if route.remote.is_ipv6() {
+        args.push("-6".to_string());
+    }
+    args.extend([
+        "route".to_string(),
+        action.to_string(),
+        route.remote.to_string(),
+    ]);
+    if let Some(gateway) = &route.gateway {
+        args.extend([
+            "via".to_string(),
+            gateway.clone(),
+            "dev".to_string(),
+            route.interface.clone(),
+        ]);
+    } else {
+        args.extend([
+            "dev".to_string(),
+            route.interface.clone(),
+            "scope".to_string(),
+            "link".to_string(),
+        ]);
+    }
+    args.extend(["src".to_string(), route.source.to_string()]);
+    args
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn exact_route_tokens(remote: IpAddr) -> anyhow::Result<Option<Vec<String>>> {
+    let mut args = Vec::<String>::new();
+    if remote.is_ipv6() {
+        args.push("-6".to_string());
+    }
+    args.extend(["route".to_string(), "show".to_string(), remote.to_string()]);
+    let output = std::process::Command::new("ip").args(args).output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "could not inspect existing carrier route {remote}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.split_whitespace().map(str::to_string).collect()))
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn candidate_route_expected_tokens(route: &LinuxCandidateRoute) -> Vec<String> {
+    let mut expected = vec![format!("dev {}", route.interface)];
+    if let Some(gateway) = &route.gateway {
+        expected.push(format!("via {gateway}"));
+    }
+    expected
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn run_ip_owned(args: &[String], description: &str) -> anyhow::Result<()> {
+    let output = std::process::Command::new("ip").args(args).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "{description}: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn rollback_candidate_route_steps(applied: &[CandidateRouteStep]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for step in applied.iter().rev() {
+        match &step.mutation {
+            CandidateRouteMutation::None => {}
+            CandidateRouteMutation::Add {
+                undo,
+                journal_was_present,
+            } => match std::process::Command::new("ip").args(undo).output() {
+                Ok(output) if output.status.success() => {
+                    if !journal_was_present {
+                        forget_created_owned(undo);
+                    }
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if route_is_already_absent(&stderr) {
+                        if !journal_was_present {
+                            forget_created_owned(undo);
+                        }
+                    } else {
+                        errors.push(format!("ip {}: {}", undo.join(" "), stderr.trim()));
+                    }
+                }
+                Err(error) => errors.push(format!("ip {}: {error}", undo.join(" "))),
+            },
+            CandidateRouteMutation::Replace { ipv6, previous } => {
+                let mut restore = Vec::new();
+                if *ipv6 {
+                    restore.push("-6".to_string());
+                }
+                restore.extend(["route".to_string(), "replace".to_string()]);
+                restore.extend(previous.iter().cloned());
+                if let Err(error) = run_ip_owned(&restore, "could not restore carrier route") {
+                    errors.push(error.to_string());
+                }
+            }
+        }
+    }
+    errors
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[allow(dead_code)] // Called by the Linux COMMIT_PATH executor in the next Phase 4 slice.
+impl LinuxPreparedPathRoutes {
+    /// Atomically from qeli's ownership perspective: all conflicts are rejected before mutation,
+    /// every applied route is verified through the ordinary (unforced) FIB, and any later failure
+    /// restores earlier qeli routes in reverse order.
+    pub(crate) fn commit(&self) -> anyhow::Result<()> {
+        let mut steps = Vec::with_capacity(self.routes.len());
+        for route in &self.routes {
+            let undo = carrier_route_undo(route.remote);
+            let owned = created_by_us_owned(&undo);
+            let existing = exact_route_tokens(route.remote)?;
+            let expected = candidate_route_expected_tokens(route);
+            let mutation = match existing {
+                Some(previous) if owned => CandidateRouteMutation::Replace {
+                    ipv6: route.remote.is_ipv6(),
+                    previous,
+                },
+                Some(previous)
+                    if route_output_satisfies_all(
+                        &previous.join(" "),
+                        &expected.iter().map(String::as_str).collect::<Vec<_>>(),
+                    ) =>
+                {
+                    CandidateRouteMutation::None
+                }
+                Some(_) => {
+                    anyhow::bail!(
+                        "candidate carrier {} conflicts with an operator-owned route",
+                        route.remote
+                    )
+                }
+                None => CandidateRouteMutation::Add {
+                    undo,
+                    journal_was_present: owned,
+                },
+            };
+            steps.push(CandidateRouteStep {
+                route: route.clone(),
+                mutation,
+            });
+        }
+
+        let mut applied = Vec::with_capacity(steps.len());
+        for step in steps {
+            let result = match &step.mutation {
+                CandidateRouteMutation::None => Ok(()),
+                CandidateRouteMutation::Add {
+                    undo,
+                    journal_was_present,
+                } => {
+                    let args = candidate_route_command("add", &step.route);
+                    run_ip_owned(&args, "could not add candidate carrier route").map(|()| {
+                        if !journal_was_present {
+                            note_created_owned(undo.clone());
+                        }
+                    })
+                }
+                CandidateRouteMutation::Replace { .. } => {
+                    let args = candidate_route_command("replace", &step.route);
+                    run_ip_owned(&args, "could not replace qeli-owned carrier route")
+                }
+            };
+            if let Err(error) = result {
+                let rollback_errors = rollback_candidate_route_steps(&applied);
+                if rollback_errors.is_empty() {
+                    return Err(error);
+                }
+                anyhow::bail!(
+                    "{error}; candidate route rollback failed: {}",
+                    rollback_errors.join("; ")
+                );
+            }
+            applied.push(step);
+
+            let route = &applied.last().expect("applied step is present").route;
+            let expected = PhysicalPath {
+                gateway: route.gateway.clone(),
+                device: route.interface.clone(),
+            };
+            let actual =
+                physical_path_for(route.remote, &self.tunnel_interface, Some(route.source));
+            if actual.as_ref() != Some(&expected) {
+                let rollback_errors = rollback_candidate_route_steps(&applied);
+                let mut message = format!(
+                    "candidate carrier {} failed post-commit FIB verification",
+                    route.remote
+                );
+                if !rollback_errors.is_empty() {
+                    message.push_str("; candidate route rollback failed: ");
+                    message.push_str(&rollback_errors.join("; "));
+                }
+                anyhow::bail!(message);
+            }
+        }
+        Ok(())
+    }
 }
 
 fn add_tunnel_route(
@@ -1484,6 +1747,15 @@ mod fault_injection {
         /// `fail_on` — argument-line substrings that make the fake `ip` exit non-zero
         /// with `stderr_text`. Everything else succeeds.
         fn new(tag: &str, fail_on: &[&str], stderr_text: &str) -> Shim {
+            Self::new_with_route_show(tag, fail_on, stderr_text, Some("shown dev qtest"))
+        }
+
+        fn new_with_route_show(
+            tag: &str,
+            fail_on: &[&str],
+            stderr_text: &str,
+            route_show: Option<&str>,
+        ) -> Shim {
             let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
             let dir = std::env::temp_dir().join(format!("qeli-shim-{tag}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -1503,7 +1775,13 @@ mod fault_injection {
             script.push_str(
                 "  *\"route get\"*) echo '1.2.3.4 via 10.0.0.254 dev eth0 src 10.0.0.5'; exit 0;;\n",
             );
-            script.push_str("  *\"route show\"*) echo 'shown dev qtest'; exit 0;;\n");
+            if let Some(route_show) = route_show {
+                script.push_str(&format!(
+                    "  *\"route show\"*) echo '{route_show}'; exit 0;;\n"
+                ));
+            } else {
+                script.push_str("  *\"route show\"*) exit 0;;\n");
+            }
             script.push_str("esac\nexit 0\n");
 
             let bin = dir.join("ip");
@@ -1774,5 +2052,111 @@ mod fault_injection {
             .unwrap_err()
             .to_string();
         assert!(error.contains("through wlan0"));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn ipv4_candidate() -> PreparedPathCandidate {
+        let mut candidate = prepared_candidate();
+        candidate.update.local_addresses.truncate(1);
+        candidate.update.resolved_addresses.truncate(1);
+        candidate
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_commit_adds_only_missing_routes_and_journals_ownership() {
+        let shim = Shim::new_with_route_show("candidate-add", &[], "", None);
+        let prepared =
+            prepare_candidate_path_routes_on(&prepared_candidate(), "qtest", "eth0").unwrap();
+        prepared.commit().unwrap();
+
+        let calls = shim.calls();
+        assert!(calls.contains("route add 198.51.100.20 via 10.0.0.254 dev eth0 src 192.0.2.10"));
+        assert!(
+            calls.contains("-6 route add 2001:db8::20 via 10.0.0.254 dev eth0 src 2001:db8::10")
+        );
+        assert!(created_by_us_owned(&carrier_route_undo(
+            "198.51.100.20".parse::<IpAddr>().unwrap()
+        )));
+        assert!(created_by_us_owned(&carrier_route_undo(
+            "2001:db8::20".parse::<IpAddr>().unwrap()
+        )));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_commit_rejects_operator_conflict_before_mutation() {
+        let shim = Shim::new("candidate-conflict", &[], "");
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
+        let error = prepared.commit().unwrap_err().to_string();
+        assert!(error.contains("operator-owned"));
+
+        let calls = shim.calls();
+        assert!(!calls.contains(" route add "));
+        assert!(!calls.contains(" route replace "));
+        assert!(!calls.contains(" route del "));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_commit_preserves_matching_operator_route_without_claiming_it() {
+        let shim = Shim::new_with_route_show(
+            "candidate-operator-match",
+            &[],
+            "",
+            Some("198.51.100.20 via 10.0.0.254 dev eth0"),
+        );
+        let remote = "198.51.100.20".parse::<IpAddr>().unwrap();
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
+        prepared.commit().unwrap();
+
+        let calls = shim.calls();
+        assert!(!calls.contains(" route add "));
+        assert!(!calls.contains(" route replace "));
+        assert!(!calls.contains(" route del "));
+        assert!(!created_by_us_owned(&carrier_route_undo(remote)));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_commit_replaces_only_a_qeli_owned_route() {
+        let shim = Shim::new_with_route_show(
+            "candidate-replace",
+            &[],
+            "",
+            Some("198.51.100.20 via 192.0.2.1 dev old0"),
+        );
+        let remote = "198.51.100.20".parse::<IpAddr>().unwrap();
+        note_created_owned(carrier_route_undo(remote));
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
+        prepared.commit().unwrap();
+
+        assert!(shim
+            .calls()
+            .contains("route replace 198.51.100.20 via 10.0.0.254 dev eth0 src 192.0.2.10"));
+        assert!(created_by_us_owned(&carrier_route_undo(remote)));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn candidate_commit_rolls_back_prior_add_when_a_later_family_fails() {
+        let shim = Shim::new_with_route_show(
+            "candidate-rollback",
+            &["-6 route add 2001:db8::20"],
+            "RTNETLINK answers: network unreachable",
+            None,
+        );
+        let first = "198.51.100.20".parse::<IpAddr>().unwrap();
+        let prepared =
+            prepare_candidate_path_routes_on(&prepared_candidate(), "qtest", "eth0").unwrap();
+        let error = prepared.commit().unwrap_err().to_string();
+        assert!(error.contains("network unreachable"));
+
+        let calls = shim.calls();
+        assert!(calls.contains("route del 198.51.100.20"));
+        assert!(!created_by_us_owned(&carrier_route_undo(first)));
     }
 }

@@ -459,8 +459,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   route despite active tunnel `/1` routes and an old carrier `/32`; no temporary route/policy rule
   is therefore needed before authenticated proof. The exact candidate-socket primitive then applies
   `SO_BINDTODEVICE` for the validated interface index and binds a same-family local address (including
-  the IPv6 link-local scope). Network detection, COMMIT route ownership, capability activation,
-  bidirectional live PMTU probing, adversarial listener races, and mock/Linux live acceptance remain.
+  the IPv6 link-local scope). The COMMIT route primitive now preflights the complete address set before
+  mutation: matching operator routes remain unclaimed, conflicting operator routes reject the commit,
+  and only qeli-journalled routes may be replaced. Every add/replace is verified by an ordinary
+  source-aware FIB lookup; a later IPv4/IPv6 failure restores earlier routes in reverse order and
+  reconciles the ownership journal. Wiring these primitives to the in-process PathCommand ACK driver,
+  network detection, capability activation, bidirectional live PMTU probing, adversarial listener
+  races, and mock/Linux live acceptance remain.
 - **Phase 4:** Android, Windows, macOS, iOS, Linux/OpenWrt, and exit-node adapters.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
