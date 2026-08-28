@@ -14,6 +14,9 @@ internal static unsafe class NativeTransportCore
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
     internal const int StaleRequest = -11;
+    internal const uint PayloadNone = 0;
+    internal const uint PayloadJson = 1;
+    internal const uint PayloadUtf8 = 2;
 
     internal const uint StateConnecting = 1;
     internal const uint StateRunning = 3;
@@ -24,6 +27,8 @@ internal static unsafe class NativeTransportCore
     internal const uint EventNetworkPlan = 2;
     internal const uint EventError = 3;
     internal const uint EventServerIdentity = 5;
+    internal const uint EventPathCommand = 6;
+    internal const uint EventPathRefresh = 7;
 
     internal const ulong PlatformRoutes = 1UL << 0;
     internal const ulong PlatformDns = 1UL << 1;
@@ -36,6 +41,10 @@ internal static unsafe class NativeTransportCore
     internal const ulong PlatformIpv6Routes = 1UL << 9;
     internal const ulong PlatformIpv6Dns = 1UL << 10;
     internal const ulong PlatformIpv6KillSwitch = 1UL << 11;
+    internal const ulong PlatformPathTransactions = 1UL << 12;
+    internal const ulong PlatformPathSocketBinding = 1UL << 13;
+    internal const ulong PlatformPathRefresh = 1UL << 14;
+    internal const ulong PlatformRoamingPath = PlatformPathTransactions | PlatformPathSocketBinding;
     internal const ulong PlatformIpv6SystemPlan =
         PlatformIpv6Tun | PlatformIpv6Routes | PlatformIpv6Dns;
     internal const ulong DesktopBaseCapabilities = PlatformRoutes | PlatformDns |
@@ -46,6 +55,8 @@ internal static unsafe class NativeTransportCore
     internal const ulong CoreTunPacketIo = 1UL << 9;
     internal const ulong CoreUdpDiagnostic = 1UL << 10;
     internal const ulong CoreWintunIo = 1UL << 11;
+    internal const ulong CorePathTransactions = 1UL << 13;
+    internal const ulong CorePathRefreshEvents = 1UL << 14;
 
     internal const int MaxPacketBytes = 65_535;
     internal const int MaxBatchPackets = 64;
@@ -86,8 +97,8 @@ internal static unsafe class NativeTransportCore
         internal ulong UdpRecvBufferBytes;
     }
 
-    internal sealed record NativeEvent(uint Kind, uint State, ulong Sequence,
-        ulong PlanGeneration, int ErrorCode, string Payload);
+    internal sealed record NativeEvent(uint Kind, uint State, uint PayloadFormat,
+        ulong Sequence, ulong PlanGeneration, int ErrorCode, string Payload);
     internal sealed record NativeStats(uint State, ulong TxPackets, ulong TxBytes,
         ulong RxPackets, ulong RxBytes, ulong Reconnects, ulong UptimeMs,
         ulong UdpKernelDrops, ulong UdpInternalDrops, ulong UdpBufferGrows,
@@ -153,6 +164,15 @@ internal static unsafe class NativeTransportCore
         byte* packets, nuint packetsCapacity, uint* lengths, nuint lengthCapacity,
         out nuint packetCount, out nuint bytes);
 
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_path_update(ulong handle, byte* input, nuint inputLen,
+        out ulong candidateId);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_path_command_result(ulong handle, ulong generation,
+        ulong candidateId, ulong requestSequence, int resultCode, byte* reason,
+        nuint reasonLen);
+
     internal static void RequireCompatible(bool tunFdOwnership = false, bool wintunOwnership = false)
     {
         if (tunFdOwnership && wintunOwnership)
@@ -171,11 +191,41 @@ internal static unsafe class NativeTransportCore
                 $"native core capabilities 0x{capabilities:x} do not include 0x{required:x}");
     }
 
+    internal static bool SupportsPathTransactions()
+    {
+        uint actual = qeli_client_abi_version();
+        return (actual >> 16) == 1 && (actual & 0xffff) >= 12
+            && (qeli_client_core_capabilities() & CorePathTransactions) != 0;
+    }
+
+    internal static bool SupportsPathRefresh() => SupportsPathTransactions()
+        && (qeli_client_abi_version() & 0xffff) >= 13
+        && (qeli_client_core_capabilities() & CorePathRefreshEvents) != 0;
+
     internal static ulong New(string config, bool tunFdOwnership, bool wintunOwnership,
-        ulong ipv6Capabilities = 0)
+        ulong ipv6Capabilities = 0, ulong roamingCapabilities = 0)
     {
         if (tunFdOwnership && wintunOwnership)
             throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
+        ulong allowedRoaming = PlatformRoamingPath | PlatformPathRefresh;
+        if ((roamingCapabilities & ~allowedRoaming) != 0)
+            throw new ArgumentOutOfRangeException(nameof(roamingCapabilities));
+        ulong roamingPath = roamingCapabilities & PlatformRoamingPath;
+        if (roamingPath != 0 && roamingPath != PlatformRoamingPath)
+            throw new ArgumentException(
+                "path transactions and exact socket binding must be advertised together",
+                nameof(roamingCapabilities));
+        if ((roamingCapabilities & PlatformPathRefresh) != 0
+            && roamingPath != PlatformRoamingPath)
+            throw new ArgumentException(
+                "path refresh requires the complete roaming path contract",
+                nameof(roamingCapabilities));
+        if (roamingPath != 0 && !SupportsPathTransactions())
+            throw new InvalidOperationException(
+                "native core does not expose the path-transaction ABI required by the platform");
+        if ((roamingCapabilities & PlatformPathRefresh) != 0 && !SupportsPathRefresh())
+            throw new InvalidOperationException(
+                "native core does not expose the path-refresh ABI required by the platform");
         byte[] bytes = Encoding.UTF8.GetBytes(config);
         try
         {
@@ -184,7 +234,8 @@ internal static unsafe class NativeTransportCore
                 ulong tunCapability = tunFdOwnership ? PlatformTunFd
                     : wintunOwnership ? PlatformTunWintun
                     : PlatformTunPacketBatch;
-                ulong capabilities = DesktopBaseCapabilities | tunCapability | ipv6Capabilities;
+                ulong capabilities = DesktopBaseCapabilities | tunCapability | ipv6Capabilities
+                    | roamingCapabilities;
                 int rc = qeli_client_new(pointer, (nuint)bytes.Length, capabilities, 128, out ulong handle);
                 Check(rc, "qeli_client_new");
                 if (handle == 0) throw new InvalidOperationException("native core returned a zero handle");
@@ -226,6 +277,32 @@ internal static unsafe class NativeTransportCore
                 (nuint)bytes.Length), "qeli_client_set_wintun_adapter");
     }
 
+    internal static ulong PathUpdate(ulong handle, NativePathUpdate update)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(NativeRoamingPath.EncodeUpdate(update));
+        fixed (byte* pointer = bytes)
+        {
+            Check(qeli_client_path_update(handle, pointer, (nuint)bytes.Length,
+                out ulong candidateId), "qeli_client_path_update");
+            if (candidateId == 0)
+                throw new InvalidOperationException("native core returned a zero path candidate id");
+            return candidateId;
+        }
+    }
+
+    internal static void PathCommandResult(ulong handle, NativeEvent request,
+        NativePathCommand command, bool accepted, string? reason = null)
+    {
+        if (request.Kind != EventPathCommand || request.PayloadFormat != PayloadJson
+            || request.Sequence == 0 || request.PlanGeneration == 0
+            || command.Generation != request.PlanGeneration || command.CandidateId == 0)
+            throw new InvalidDataException("invalid native path-command acknowledgement");
+        ResultWithReason((pointer, length) =>
+            qeli_client_path_command_result(handle, request.PlanGeneration, command.CandidateId,
+                request.Sequence, accepted ? 0 : -1, pointer, length), reason,
+            "qeli_client_path_command_result");
+    }
+
     internal static int Run(ulong handle, string input)
     {
         byte[] bytes = Encoding.UTF8.GetBytes(input);
@@ -261,8 +338,8 @@ internal static unsafe class NativeTransportCore
             string text = payloadLength == 0
                 ? ""
                 : Encoding.UTF8.GetString(payload, 0, checked((int)payloadLength));
-            return new NativeEvent(header.Kind, header.State, header.Sequence,
-                header.PlanGeneration, header.ErrorCode, text);
+            return new NativeEvent(header.Kind, header.State, header.PayloadFormat,
+                header.Sequence, header.PlanGeneration, header.ErrorCode, text);
         }
     }
 

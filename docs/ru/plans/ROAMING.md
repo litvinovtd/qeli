@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v31-windows-socket-core -->
+<!-- normative-sync: roaming-v32-desktop-path-contract -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -82,6 +82,13 @@
 > signed 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP
 > migration actor компилируются на Windows. Windows path capabilities остаются выключенными до
 > device/race-приёмки C# executor для routes, kill switch и `IP_UNICAST_IF`.
+> Общий C#-адаптер теперь содержит ABI 1.12/1.13 bindings для path update/result и строгий
+> ограниченный JSON-контракт PREPARE/BIND/COMMIT/ABORT и событий PATH_REFRESH без payload.
+> Conformance-тесты отклоняют неизвестные поля, stale generation и несовместимые семейства адресов,
+> сохраняя Windows socket values шире `Int32`. Shared- и Windows desktop-проекты собираются без
+> предупреждений, полный managed conformance suite проходит. Ни один desktop-клиент пока не объявляет
+> path capability: этот срез не меняет runtime reconnect до завершения OS executor и его
+> device/race-приёмки.
 > Текущие lab gates: 961 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и

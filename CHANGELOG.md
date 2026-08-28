@@ -83,6 +83,14 @@
   Windows без отдельной protocol-specific логики. Wide-handle regression, строгая Windows host
   feature-сборка и Linux all-target feature gate прошли. Windows path capabilities остаются
   выключенными до реализации и device/race-приёмки C# route/kill-switch/`IP_UNICAST_IF` executor.
+- Общий C# desktop-слой получил optional ABI 1.12/1.13 bindings для `PathUpdate`, коррелированного
+  `PathCommandResult` и формата событий. Добавлен строгий ограниченный parser JSON-контракта
+  PREPARE/BIND/COMMIT/ABORT и no-payload `PATH_REFRESH`: он проверяет generation/sequence/candidate,
+  допустимые причины и flags, сетевой token/interface index, TTL и совместимость IPv4/IPv6, отклоняет
+  неизвестные поля и сохраняет 64-битный Windows `SOCKET` без сужения к `Int32`. Managed conformance
+  suite, shared library и Windows desktop client собираются без предупреждений. Capability по
+  умолчанию остаётся нулевым, поэтому Windows/macOS не могут случайно включить незавершённый executor
+  и сохраняют прежний full-reconnect fallback.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`

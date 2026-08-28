@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v31-windows-socket-core -->
+<!-- normative-sync: roaming-v32-desktop-path-contract -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -83,6 +83,13 @@
 > signed 64-bit Unix descriptor or Windows `SOCKET`, while native TCP candidate dialing and the
 > common UDP migration actor both compile on Windows. Windows path capabilities remain disabled
 > until the C# route, kill-switch and `IP_UNICAST_IF` executor passes device/race acceptance.
+> The shared C# adapter now has the ABI 1.12/1.13 path-update/result bindings and a strict,
+> bounded JSON contract for PREPARE/BIND/COMMIT/ABORT and no-payload PATH_REFRESH events.
+> Conformance tests reject unknown fields, stale generations and incompatible address families,
+> and preserve Windows socket values wider than `Int32`. The shared and Windows desktop projects
+> build without warnings and the complete managed conformance suite passes. No desktop client
+> advertises a path capability yet; this slice cannot change runtime reconnect behavior before the
+> OS executor and its device/race gates are complete.
 > Current lab gates pass 961 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,

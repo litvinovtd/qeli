@@ -103,6 +103,7 @@ public static class Program
         LinkConformance.Run(Check);
         PrpNonceConformance.Run(Check);
         WireConformance.Run(Check);
+        RoamingPathConformance.Run(Check);
 
         var mlKemEk = Enumerable.Range(0, 1184)
             .Select(i => unchecked((byte)(17 + i * 31))).ToArray();
