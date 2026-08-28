@@ -170,6 +170,11 @@
   Детерминированный stateless-translation netns gate прошёл 21/21: серверный peer сменился
   `10.41.3.1 → 10.41.3.254`, candidate закоммитился ровно один раз без второй AUTH, замены PID/TUN
   или reconnect, при неизменном физическом пути клиента.
+- One-attempt-per-epoch, 15-секундный grace, ожидание уже запущенного candidate и reconnect fallback
+  перенесены в общий `udp_roaming_client`; Android, Apple и Linux больше не должны повторять эту
+  policy. `PathController` оставляет платформе только bounded hook запроса свежего snapshot того же
+  физического пути, сохраняя platform ownership update id. Три unit-теста фиксируют request/wait,
+  expiry/fallback и повторное разрешение попытки после authenticated commit.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32`/`/128` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

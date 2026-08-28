@@ -19,6 +19,69 @@ pub const UDP_CLIENT_PATH_VALIDATION_TIMEOUT: Duration =
     super::udp_roaming::UDP_ROAMING_CANDIDATE_TTL;
 pub const UDP_CLIENT_PATH_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 pub const UDP_CLIENT_PATH_MAX_TRANSMISSIONS: u8 = 4;
+/// The protocol candidate lives for ten seconds; five seconds cover platform observation,
+/// command dispatch, and scheduling without allowing receive silence to defer reconnect forever.
+pub const UDP_CLIENT_NAT_RECOVERY_GRACE: Duration = Duration::from_secs(15);
+
+/// Transport-neutral action selected when authenticated receive liveness expires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UdpClientNatRecoveryDecision {
+    /// A platform/transport candidate already exists; keep the actor alive for the bounded grace.
+    WaitForCandidate,
+    /// Ask the platform observer for a fresh snapshot of the unchanged physical path.
+    RequestSameNetworkPath,
+    /// No recovery is available or its single bounded attempt expired.
+    Reconnect,
+}
+
+/// Session-wide policy for recovering a dead NAT mapping without duplicating timers or retry
+/// semantics in Android, Apple, Linux, or future desktop adapters. The platform still owns the
+/// path snapshot and its monotonic update id; this state only decides whether to wait, request one
+/// snapshot for the active epoch, or fall back to the ordinary fail-closed reconnect.
+#[derive(Debug, Default)]
+pub struct UdpClientNatRecoveryPolicy {
+    attempted_epoch: Option<u64>,
+    grace_until: Option<Instant>,
+}
+
+impl UdpClientNatRecoveryPolicy {
+    fn begin_attempt(&mut self, active_epoch: u64, now: Instant) {
+        self.attempted_epoch = Some(active_epoch);
+        self.grace_until = now.checked_add(UDP_CLIENT_NAT_RECOVERY_GRACE);
+    }
+
+    pub fn on_receive_timeout(
+        &mut self,
+        active_epoch: u64,
+        candidate_in_flight: bool,
+        same_network_request_available: bool,
+        now: Instant,
+    ) -> UdpClientNatRecoveryDecision {
+        if self.attempted_epoch == Some(active_epoch) {
+            return if self.grace_until.is_some_and(|deadline| now < deadline) {
+                UdpClientNatRecoveryDecision::WaitForCandidate
+            } else {
+                UdpClientNatRecoveryDecision::Reconnect
+            };
+        }
+        if candidate_in_flight {
+            self.begin_attempt(active_epoch, now);
+            return UdpClientNatRecoveryDecision::WaitForCandidate;
+        }
+        if same_network_request_available {
+            self.begin_attempt(active_epoch, now);
+            return UdpClientNatRecoveryDecision::RequestSameNetworkPath;
+        }
+        UdpClientNatRecoveryDecision::Reconnect
+    }
+
+    /// An authenticated PATH_COMMIT establishes a fresh receive baseline and a new epoch. A later
+    /// dead mapping may therefore consume one new recovery attempt.
+    pub fn on_authenticated_commit(&mut self) {
+        self.attempted_epoch = None;
+        self.grace_until = None;
+    }
+}
 
 pub type UdpClientCid = [u8; CID_LEN];
 
@@ -554,6 +617,64 @@ mod tests {
         roaming
             .begin_candidate(candidate_id, message_id, now)
             .unwrap()
+    }
+
+    #[test]
+    fn nat_recovery_requests_once_and_then_reconnects_after_grace() {
+        let now = Instant::now();
+        let mut policy = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            policy.on_receive_timeout(0, false, true, now),
+            UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        );
+        assert_eq!(
+            policy.on_receive_timeout(
+                0,
+                false,
+                true,
+                now + UDP_CLIENT_NAT_RECOVERY_GRACE - Duration::from_millis(1),
+            ),
+            UdpClientNatRecoveryDecision::WaitForCandidate
+        );
+        assert_eq!(
+            policy.on_receive_timeout(0, false, true, now + UDP_CLIENT_NAT_RECOVERY_GRACE,),
+            UdpClientNatRecoveryDecision::Reconnect
+        );
+    }
+
+    #[test]
+    fn nat_recovery_waits_for_an_existing_candidate_but_never_without_platform_support() {
+        let now = Instant::now();
+        let mut policy = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            policy.on_receive_timeout(4, true, false, now),
+            UdpClientNatRecoveryDecision::WaitForCandidate
+        );
+        assert_eq!(
+            policy.on_receive_timeout(4, false, false, now + UDP_CLIENT_NAT_RECOVERY_GRACE),
+            UdpClientNatRecoveryDecision::Reconnect
+        );
+
+        let mut unsupported = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            unsupported.on_receive_timeout(4, false, false, now),
+            UdpClientNatRecoveryDecision::Reconnect
+        );
+    }
+
+    #[test]
+    fn authenticated_commit_rearms_nat_recovery_for_the_new_epoch() {
+        let now = Instant::now();
+        let mut policy = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            policy.on_receive_timeout(8, false, true, now),
+            UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        );
+        policy.on_authenticated_commit();
+        assert_eq!(
+            policy.on_receive_timeout(9, false, true, now),
+            UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        );
     }
 
     #[test]

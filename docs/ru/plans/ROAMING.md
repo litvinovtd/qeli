@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v25-linux-udp-nat-rebind -->
+<!-- normative-sync: roaming-v26-core-nat-policy -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -66,8 +66,10 @@
 > адрес, default/carrier routes, endpoint, PID и TUN клиента не изменились. Authenticated RX silence
 > запросил один ограниченный `SameNetworkNatFailure` PathUpdate для active epoch; observer остался
 > единственным владельцем наблюдения пути и update id, а candidate закоммитился ровно один раз без
-> второй AUTH или reconnect. Приёмка NAT rebinding на реальных устройствах остаётся отдельным gate.
-> Текущие lab gates: 957 feature library tests при трёх ignored, 872 default tests при
+> второй AUTH или reconnect. Policy one-attempt/grace/fallback теперь находится в общем Rust core;
+> platform controllers дают только bounded-запрос свежего snapshot того же пути. Приёмка NAT
+> rebinding на реальных устройствах остаётся отдельным gate.
+> Текущие lab gates: 960 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
@@ -830,7 +832,9 @@ reassembly и после пятисекундного timeout и удалени�
 Linux same-network NAT dead-mapping срез также завершён: stateless-translation gate 21/21 изменил
 только наблюдаемый сервером внешний peer, сохранил неизменными путь клиента/PID/TUN/session, после
 authenticated RX silence выпустил один `SameNetworkNatFailure` update и закоммитил один candidate
-без новой AUTH или reconnect. Остаются real-device NAT rebinding и soak.
+без новой AUTH или reconnect. Policy request/wait/grace/fallback теперь является общим Rust-state;
+platform controllers предоставляют только bounded hook snapshot того же пути и сохраняют ownership
+update id. Остаются real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь

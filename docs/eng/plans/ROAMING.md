@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v25-linux-udp-nat-rebind -->
+<!-- normative-sync: roaming-v26-core-nat-policy -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -66,8 +66,10 @@
 > default/carrier routes, endpoint, PID, and TUN remained unchanged. Authenticated RX silence requested
 > one bounded `SameNetworkNatFailure` PathUpdate for the active epoch; the observer retained sole
 > ownership of path observation and update IDs, and the candidate committed exactly once without a
-> second AUTH or reconnect. Real-device NAT-rebinding acceptance remains a separate gate.
-> Current lab gates pass 957 feature library tests with three ignored,
+> second AUTH or reconnect. The one-attempt/grace/fallback policy now lives in the shared Rust core;
+> platform controllers only expose a bounded request for a fresh same-path snapshot. Real-device
+> NAT-rebinding acceptance remains a separate gate.
+> Current lab gates pass 960 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
@@ -624,7 +626,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   same-network NAT dead-mapping slice is complete too: a 21/21 stateless-translation gate changed
   only the server-observed external peer, kept the client path/PID/TUN/session unchanged, emitted one
   `SameNetworkNatFailure` update after authenticated RX silence, and committed one candidate without
-  another AUTH or reconnect. Real-device NAT-rebinding and soak gates remain. The Phase 4 Linux/OpenWrt
+  another AUTH or reconnect. Its request/wait/grace/fallback policy is shared Rust state; platform
+  controllers supply only a bounded same-path snapshot hook and retain ownership of update IDs.
+  Real-device NAT-rebinding and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,

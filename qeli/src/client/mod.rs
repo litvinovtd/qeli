@@ -103,10 +103,6 @@ const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
 const TCP_HANDOVER_POLL: Duration = Duration::from_millis(100);
 #[cfg(feature = "experimental-roaming")]
 const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
-/// One same-network NAT recovery attempt gets the protocol's ten-second candidate lifetime plus
-/// observer/dispatch slack. Expiry returns to the ordinary reconnect instead of retrying forever.
-#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-const UDP_SAME_NETWORK_NAT_REBIND_GRACE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -676,6 +672,7 @@ pub(crate) struct LinuxPathController {
     shared: CorePathController,
     tunnel_interface: String,
     prepared_routes: std::sync::Mutex<Option<route::LinuxPreparedPathRoutes>>,
+    same_network_nat_failure_tx: std::sync::Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
     dispatch_lock: std::sync::Mutex<()>,
 }
 
@@ -687,6 +684,7 @@ impl LinuxPathController {
             core,
             tunnel_interface,
             prepared_routes: std::sync::Mutex::new(None),
+            same_network_nat_failure_tx: std::sync::Mutex::new(None),
             dispatch_lock: std::sync::Mutex::new(()),
         }
     }
@@ -694,6 +692,13 @@ impl LinuxPathController {
     fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
         let mut core = crate::util::lock_or_recover(&self.core, "client::linux_path_core");
         action(&mut core)
+    }
+
+    fn install_same_network_nat_failure_trigger(&self, sender: tokio::sync::mpsc::Sender<()>) {
+        *crate::util::lock_or_recover(
+            &self.same_network_nat_failure_tx,
+            "client::linux_nat_failure_trigger",
+        ) = Some(sender);
     }
 
     fn command_candidate(command: &PathCommand) -> PreparedPathCandidate {
@@ -898,6 +903,29 @@ impl PathController for LinuxPathController {
         self.shared.candidate_is_current(candidate)
     }
 
+    fn can_request_same_network_nat_rebind(&self) -> bool {
+        crate::util::lock_or_recover(
+            &self.same_network_nat_failure_tx,
+            "client::linux_nat_failure_trigger",
+        )
+        .is_some()
+    }
+
+    fn request_same_network_nat_rebind(&self) -> anyhow::Result<()> {
+        let sender = crate::util::lock_or_recover(
+            &self.same_network_nat_failure_tx,
+            "client::linux_nat_failure_trigger",
+        )
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Linux roaming observer is unavailable"))?;
+        match sender.try_send(()) {
+            Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Full(())) => Ok(()),
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => {
+                anyhow::bail!("Linux roaming observer has stopped")
+            }
+        }
+    }
+
     fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
@@ -941,6 +969,14 @@ impl PathController for LinuxPathController {
 pub(crate) trait PathController: Send + Sync {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate>;
     fn candidate_is_current(&self, candidate: &PreparedPathCandidate) -> bool;
+    /// Whether the platform can emit a fresh PathUpdate for the unchanged physical path. The
+    /// common UDP actor owns liveness/retry policy; adapters only refresh platform-owned facts.
+    fn can_request_same_network_nat_rebind(&self) -> bool {
+        false
+    }
+    fn request_same_network_nat_rebind(&self) -> anyhow::Result<()> {
+        anyhow::bail!("same-network NAT recovery is unavailable on this platform")
+    }
     // Native FFI and Linux connectors consume BIND_SOCKET while opening the candidate; the
     // default-off capability keeps adapters without this exact binding contract on reconnect.
     #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
@@ -4645,7 +4681,7 @@ where
 
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_monitor_handle = linux_path_controller.map(|path_controller| {
-        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation).0
+        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
     });
 
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
@@ -7990,17 +8026,12 @@ pub(crate) async fn run_udp_tunnel(
     let mut udp_receive_task =
         spawn_client_udp_receive_pump(socket.clone(), 0, received_tx.clone());
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let (path_monitor_handle, same_network_nat_failure_tx) = if udp_handover_enabled {
-        match linux_path_controller {
-            Some(path_controller) => {
-                let (task, trigger) =
-                    roaming_linux::spawn(path_controller, tun_name.clone(), path_generation);
-                (Some(task), Some(trigger))
-            }
-            None => (None, None),
-        }
+    let path_monitor_handle = if udp_handover_enabled {
+        linux_path_controller.map(|path_controller| {
+            roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
+        })
     } else {
-        (None, None)
+        None
     };
     let (_candidate_connect_tx, mut candidate_connect_rx) =
         mpsc::channel::<(PreparedPathCandidate, anyhow::Result<UdpSocket>)>(1);
@@ -8015,10 +8046,9 @@ pub(crate) async fn run_udp_tunnel(
     let mut live_udp_candidate: Option<UdpClientLiveCandidate> = None;
     #[cfg(all(feature = "experimental-roaming", unix))]
     let mut draining_udp_path: Option<UdpClientDrainingPath> = None;
-    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let mut same_network_nat_attempted_epoch: Option<u64> = None;
-    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let mut same_network_nat_grace_until: Option<tokio::time::Instant> = None;
+    #[cfg(all(feature = "experimental-roaming", unix))]
+    let mut same_network_nat_recovery =
+        crate::transport_core::udp_roaming_client::UdpClientNatRecoveryPolicy::default();
 
     let mut unsupported_inner_drops = 0u64;
     'udp: loop {
@@ -8849,11 +8879,8 @@ pub(crate) async fn run_udp_tunnel(
                             // fresh RX-liveness baseline without waiting for an ordinary data record.
                             last_activity = tokio::time::Instant::now();
                             last_rx_inst = last_activity;
-                            #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-                            {
-                                same_network_nat_attempted_epoch = None;
-                                same_network_nat_grace_until = None;
-                            }
+                            #[cfg(all(feature = "experimental-roaming", unix))]
+                            same_network_nat_recovery.on_authenticated_commit();
                             let roaming = udp_roaming
                                 .as_ref()
                                 .expect("committed UDP handover retains roaming state");
@@ -9402,56 +9429,45 @@ pub(crate) async fn run_udp_tunnel(
                 // transport ACK, so it must never be treated as proof that downlink is due.
                 if let Some(deadline) = rx_dead {
                     if last_rx_inst.elapsed() > deadline {
-                        #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+                        #[cfg(all(feature = "experimental-roaming", unix))]
                         if udp_handover_enabled {
-                            let now = tokio::time::Instant::now();
                             let active_epoch = udp_roaming
                                 .as_ref()
                                 .expect("enabled UDP handover retains roaming state")
                                 .active_epoch();
-                            if same_network_nat_attempted_epoch == Some(active_epoch) {
-                                if same_network_nat_grace_until
-                                    .is_some_and(|grace| now < grace)
-                                {
+                            let path_controller = path_controller
+                                .as_deref()
+                                .expect("enabled UDP handover retains path controller");
+                            let candidate_in_flight = live_udp_candidate.is_some()
+                                || candidate_connect_task.is_some()
+                                || path_controller.prepared_candidate().is_some();
+                            let decision = same_network_nat_recovery.on_receive_timeout(
+                                active_epoch,
+                                candidate_in_flight,
+                                path_controller.can_request_same_network_nat_rebind(),
+                                std::time::Instant::now(),
+                            );
+                            match decision {
+                                crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::WaitForCandidate => {
                                     continue 'udp;
                                 }
-                            } else {
-                                let path_controller = path_controller
-                                    .as_deref()
-                                    .expect("enabled UDP handover retains path controller");
-                                let candidate_in_flight = live_udp_candidate.is_some()
-                                    || candidate_connect_task.is_some()
-                                    || path_controller.prepared_candidate().is_some();
-                                if candidate_in_flight {
-                                    same_network_nat_attempted_epoch = Some(active_epoch);
-                                    same_network_nat_grace_until =
-                                        Some(now + UDP_SAME_NETWORK_NAT_REBIND_GRACE);
-                                    log::warn!(
-                                        "UDP: authenticated receive silence at epoch {}; waiting for the in-flight path candidate before reconnect",
-                                        active_epoch
-                                    );
-                                    continue 'udp;
-                                }
-                                if let Some(trigger) = same_network_nat_failure_tx.as_ref() {
-                                    match trigger.try_send(()) {
-                                        Ok(())
-                                        | Err(tokio::sync::mpsc::error::TrySendError::Full(())) => {
-                                            same_network_nat_attempted_epoch = Some(active_epoch);
-                                            same_network_nat_grace_until =
-                                                Some(now + UDP_SAME_NETWORK_NAT_REBIND_GRACE);
+                                crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::RequestSameNetworkPath => {
+                                    match path_controller.request_same_network_nat_rebind() {
+                                        Ok(()) => {
                                             log::warn!(
-                                                "UDP: authenticated receive silence on an unchanged Linux path; requesting same-network NAT rebind at epoch {}",
+                                                "UDP: authenticated receive silence on an unchanged path; requesting same-network NAT rebind at epoch {}",
                                                 active_epoch
                                             );
                                             continue 'udp;
                                         }
-                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => {
+                                        Err(error) => {
                                             log::debug!(
-                                                "Linux roaming monitor is unavailable for same-network NAT recovery"
+                                                "same-network NAT recovery request is unavailable: {error}"
                                             );
                                         }
                                     }
                                 }
+                                crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::Reconnect => {}
                             }
                         }
                         log::warn!(

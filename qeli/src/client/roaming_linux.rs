@@ -248,16 +248,18 @@ fn path_update_json(
     })?)
 }
 
-/// Start the Linux physical-path sampler and return a bounded trigger for transport-proven
-/// same-network NAT failure. The sampler remains the single owner of observation and update IDs,
-/// so liveness recovery cannot race route/wake detection or invent platform facts in the actor.
+/// Start the Linux physical-path sampler and register its bounded transport-proven NAT-failure
+/// trigger with the shared path controller. The sampler remains the single owner of observation
+/// and update IDs, so liveness recovery cannot race route/wake detection or invent platform facts
+/// in the actor.
 pub(super) fn spawn(
     controller: Arc<LinuxPathController>,
     tunnel_interface: String,
     generation: u64,
-) -> (tokio::task::JoinHandle<()>, tokio::sync::mpsc::Sender<()>) {
+) -> tokio::task::JoinHandle<()> {
     let (same_network_nat_failure_tx, mut same_network_nat_failure_rx) =
         tokio::sync::mpsc::channel(1);
+    controller.install_same_network_nat_failure_trigger(same_network_nat_failure_tx);
     let task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -376,7 +378,7 @@ pub(super) fn spawn(
             baseline = Some(candidate);
         }
     });
-    (task, same_network_nat_failure_tx)
+    task
 }
 
 #[cfg(test)]
