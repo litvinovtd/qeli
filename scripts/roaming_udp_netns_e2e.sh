@@ -6,6 +6,8 @@
 # PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover;
 # pmtu moves to a narrower B; pmtu-asym narrows only server-to-client. Both verify independent
 # uplink/downlink re-probes plus DATA_FRAG without replacing the session.
+# drain-reorder keeps authenticated fragments queued on old path A across commit, then verifies
+# deterministic reordering, bounded bidirectional receive drain, and duplicate DATA_FRAG on B.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -21,11 +23,13 @@ FAIL=0
 SERVER_JOB_PID=
 CLIENT_JOB_PID=
 PING_PID=
+DRAIN_UP_PID=
+DRAIN_DOWN_PID=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder]" >&2
     exit 2
     ;;
 esac
@@ -44,6 +48,16 @@ wait_for() { # $1=attempts, $2=command
   done
   return 1
 }
+rule_packets() { # $1=namespace, $2=port matcher, $3=length range
+  ip netns exec "$1" iptables-save -c | awk -v port="$2" -v range="$3" '
+    index($0, port) && index($0, "--length " range) {
+      value=$1
+      gsub(/^\[/, "", value)
+      split(value, counter, ":")
+      print counter[1]
+      exit
+    }'
+}
 
 cleanup() {
   ip netns pids "$CLI_NS" 2>/dev/null | xargs -r kill 2>/dev/null
@@ -51,7 +65,7 @@ cleanup() {
   sleep 1
   ip netns pids "$CLI_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
   ip netns pids "$SRV_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
-  for job_pid in "$PING_PID" "$CLIENT_JOB_PID" "$SERVER_JOB_PID"; do
+  for job_pid in "$DRAIN_UP_PID" "$DRAIN_DOWN_PID" "$PING_PID" "$CLIENT_JOB_PID" "$SERVER_JOB_PID"; do
     if [ -n "$job_pid" ]; then wait "$job_pid" 2>/dev/null || true; fi
   done
   for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns del "$ns" 2>/dev/null; done
@@ -106,6 +120,18 @@ check "path A reaches the server" \
 check "path B reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.41.2.2 -c1 -W2 10.41.3.2"
 
+if [ "$CASE" = drain-reorder ]; then
+  ip netns exec "$CLI_NS" ip link set qru-a mtu 1280
+  ip netns exec "$RTR_NS" ip link set qru-ar mtu 1280
+  ip netns exec "$CLI_NS" ip link set qru-b mtu 1280
+  ip netns exec "$RTR_NS" ip link set qru-br mtu 1280
+  check "paths A and B use a 1280-byte outer MTU for deterministic DATA_FRAG" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-a/mtu)\" = 1280 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-ar/mtu)\" = 1280 && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1280 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1280"
+fi
+
+HEARTBEAT_ENABLED=true
+if [ "$CASE" = drain-reorder ]; then HEARTBEAT_ENABLED=false; fi
+
 cat >"$WORK/server.conf" <<EOF
 [auth]
 users_file = $WORK/users.conf
@@ -130,7 +156,7 @@ obf.mode = fake-tls
 obf.quic.enabled = true
 obf.quic.cid_length = 4
 obf.quic.version = 1
-obf.heartbeat.enabled = true
+obf.heartbeat.enabled = $HEARTBEAT_ENABLED
 obf.heartbeat.interval_ms = 1000
 obf.heartbeat.jitter_ms = 100
 perf.connection.max_clients = 8
@@ -208,7 +234,12 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-if [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
+if [ "$CASE" = drain-reorder ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=roaming_udp_netns_drain_case.sh
+  . "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh"
+  run_drain_reorder_case
+elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"
   else

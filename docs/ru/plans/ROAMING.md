@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v21-linux-udp-asymmetric-pmtu -->
+<!-- normative-sync: roaming-v22-linux-udp-receive-drain -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -43,10 +43,17 @@
 > 1161 байта, сохранил внутренний TUN MTU 1400 и передал payload 1350 байт через DATA_FRAG.
 > В асимметричном gate C2S 1500 / S2C 1280 uplink остался 1461, сервер спустился по общему PMTU ladder
 > и сертифицировал downlink 1161; reverse DATA_FRAG, PID/TUN и сессия сохранились.
+> Детерминированный Linux IPv4 receive-drain gate прошёл 26/26. На старом пути A оба направления
+> работали с MTU 1280, трёхсекундной задержкой и gap-reorder; путь B был закоммичен, пока обе
+> DATA_FRAG-записи по 1350 байт оставались неполными. Точный прежний epoch/peer/socket/CID оставался
+> только принимающим на один reassembly timeout, завершил обе записи и истёк; control и PMTU старого
+> пути отклонялись. Duplicate DATA_FRAG на активном пути B остался идемпотентным без замены PID/TUN
+> и без reconnect.
 > Текущие lab gates: 952 feature library tests при трёх ignored, 871 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
-> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19,
+> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
+> receive-drain/reorder/duplicate 26/26,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -765,7 +772,7 @@ feature Clippy, default suite 871 passed/1 ignored и feature suite 952 passed/3
 QUIC, fixed-source и default-сборки сохраняют прежний reconnect. Изолированный двухмаршрутный Linux
 UDP netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
 парный rollback-сценарий прошёл 20/20 с blackhole только candidate-пути B, bounded expiry,
-exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect. До rollout
+exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect.
 Трёхмаршрутный supersede-gate прошёл 24/24: B пересёк BIND/PATH_INIT, затем exact ABORT старого
 candidate предшествовал PREPARE C, а actor не принял поздний proof B и опубликовал ровно один C.
 Первый adversarial race-срез завершён. Общий client state machine отвергает поздние challenge/commit
@@ -787,7 +794,13 @@ TUN MTU 1400 и передал payload 1350 через DATA_FRAG. В асимм�
 S2C-only blackhole 1280 заставил сервер спуститься по тому же общему ladder до 1161; reverse payload
 1350 прошёл через DATA_FRAG. Один exact pending marker удерживается на всём спуске, поэтому duplicate
 report не запускает второй scheduler, а смена epoch/peer отменяет старый.
-До rollout остаются packet-level deliberate delay/duplicate/reorder, outer IPv4↔IPv6 transitions,
+Linux IPv4 срез in-flight receive-drain также завершён. После PATH_COMMIT точный непосредственно
+предыдущий epoch/peer/socket/CID остаётся только принимающим на один DATA_FRAG reassembly timeout;
+control и PMTU старого пути отклоняются, а по expiry освобождаются прежние receive task/socket snapshot.
+Детерминированный gate 26/26 применил MTU 1280 и трёхсекундный gap-reorder в обоих направлениях
+старого пути A, закоммитил B при двух неполных записях по 1350 байт, затем завершил обе записи через
+ограниченный drain. Duplicate DATA_FRAG на активном B остался идемпотентным, PID/TUN сохранились,
+reconnect не возник. Остаются outer IPv4↔IPv6 transitions, live-проверка deliberate DATA_FRAG loss,
 real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
@@ -814,14 +827,16 @@ commit, а `replace` разрешён только для маршрута из 
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
-остаются outer-family live PMTU transitions, deliberate packet delay/duplicate/reorder,
-native adapters и soak.
+Linux IPv4 packet delay/reorder/duplicate и in-flight receive-drain приняты live-gate. Остаются
+outer-family live PMTU transitions, deliberate DATA_FRAG-loss под live-нагрузкой, native adapters
+и soak.
 
-- Linux UDP deliberate delay/duplicate/reorder, outer-family PMTU transitions,
+- Linux UDP outer-family PMTU transitions, deliberate DATA_FRAG-loss live gate,
   real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
-Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede-приёмку.
+Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
+commit-race, control-loss/replay, PMTU и receive-drain/reorder/duplicate-приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 
@@ -879,8 +894,9 @@ native adapters и soak.
 - stale ACK не расширяет новый путь;
 - reset IPv4→IPv6 и IPv6→IPv4;
 - asymmetric C2S/S2C PMTU — ✅ Linux IPv4 netns; IPv6/family transitions remain;
-- fragments в момент drain;
-- reorder/loss/duplicate/conflict/expiry;
+- fragments в момент drain — ✅ Linux IPv4 netns, оба направления;
+- reorder/duplicate — ✅ Linux IPv4 netns; conflict/expiry — ✅ bounded core unit;
+  deliberate DATA_FRAG loss, outer-family и device/soak gates остаются;
 - неизменный inner TUN MTU при DATA_FRAG_V1.
 
 ### End-to-end матрица

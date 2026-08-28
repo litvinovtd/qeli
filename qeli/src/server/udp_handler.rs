@@ -231,6 +231,7 @@ enum UdpEgressPublishError<E> {
 enum UdpRoamingIngressPath {
     Committed,
     Candidate,
+    Draining,
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -263,10 +264,20 @@ impl UdpEgressCommit {
     }
 }
 
+#[cfg(feature = "experimental-roaming")]
+struct UdpDrainingIngress {
+    snapshot: UdpEgressSnapshot,
+    expires_at: std::time::Instant,
+}
+
 /// Single atomic publication point for server-to-client UDP traffic. Reads are short synchronous
 /// snapshots; no socket send or codec operation happens while the lock is held.
 #[derive(Clone)]
-struct UdpActiveEgress(Arc<std::sync::RwLock<UdpEgressSnapshot>>);
+struct UdpActiveEgress(
+    Arc<std::sync::RwLock<UdpEgressSnapshot>>,
+    #[cfg(feature = "experimental-roaming")] Arc<std::sync::Mutex<Option<UdpDrainingIngress>>>,
+    #[cfg(feature = "experimental-roaming")] Arc<std::sync::atomic::AtomicBool>,
+);
 
 impl UdpActiveEgress {
     fn new_legacy(
@@ -275,12 +286,18 @@ impl UdpActiveEgress {
         quic_enabled: bool,
         connection_id: [u8; 4],
     ) -> Self {
-        Self(Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
-            socket,
-            peer,
-            framing: UdpEgressFraming::legacy(quic_enabled, connection_id),
-            path_epoch: 0,
-        })))
+        Self(
+            Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
+                socket,
+                peer,
+                framing: UdpEgressFraming::legacy(quic_enabled, connection_id),
+                path_epoch: 0,
+            })),
+            #[cfg(feature = "experimental-roaming")]
+            Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "experimental-roaming")]
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -289,12 +306,16 @@ impl UdpActiveEgress {
         peer: SocketAddr,
         destination_cid: [u8; crate::protocol::roaming::CID_LEN],
     ) -> Self {
-        Self(Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
-            socket,
-            peer,
-            framing: UdpEgressFraming::RoamingQuic(destination_cid),
-            path_epoch: 0,
-        })))
+        Self(
+            Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
+                socket,
+                peer,
+                framing: UdpEgressFraming::RoamingQuic(destination_cid),
+                path_epoch: 0,
+            })),
+            Arc::new(std::sync::Mutex::new(None)),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
     }
 
     fn snapshot(&self) -> UdpEgressSnapshot {
@@ -302,6 +323,38 @@ impl UdpActiveEgress {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn expire_draining_ingress(&self) {
+        if !self.2.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        let mut draining = lock_or_recover(&self.1, "udp::expire_draining_ingress");
+        if draining
+            .as_ref()
+            .is_some_and(|previous| std::time::Instant::now() > previous.expires_at)
+        {
+            *draining = None;
+            self.2.store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn schedule_draining_ingress_expiry(&self) {
+        let expires_at = lock_or_recover(&self.1, "udp::schedule_draining_ingress_expiry")
+            .as_ref()
+            .map(|previous| previous.expires_at);
+        let Some(expires_at) = expires_at else {
+            return;
+        };
+        let active_egress = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep_until(tokio::time::Instant::from_std(expires_at)).await;
+            // A newer commit may already have replaced the snapshot. The shared expiry check
+            // clears only the snapshot whose own deadline has elapsed.
+            active_egress.expire_draining_ingress();
+        });
     }
 
     /// Classify a routed CID before AEAD/replay state is consumed. The current epoch is valid only
@@ -319,16 +372,36 @@ impl UdpActiveEgress {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if path_epoch == current.path_epoch {
-            return (current.peer == peer
+            let committed = (current.peer == peer
                 && Arc::ptr_eq(&current.socket, socket)
                 && matches!(&current.framing, UdpEgressFraming::RoamingQuic(_)))
             .then_some(UdpRoamingIngressPath::Committed);
+            drop(current);
+            self.expire_draining_ingress();
+            return committed;
         }
-        current
+        let candidate = current
             .path_epoch
             .checked_add(1)
             .filter(|next| *next == path_epoch)
-            .map(|_| UdpRoamingIngressPath::Candidate)
+            .map(|_| UdpRoamingIngressPath::Candidate);
+        drop(current);
+        self.expire_draining_ingress();
+        if candidate.is_some() {
+            return candidate;
+        }
+        if !self.2.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        let draining = lock_or_recover(&self.1, "udp::draining_ingress");
+        draining.as_ref().and_then(|previous| {
+            let snapshot = &previous.snapshot;
+            (snapshot.path_epoch == path_epoch
+                && snapshot.peer == peer
+                && Arc::ptr_eq(&snapshot.socket, socket)
+                && matches!(&snapshot.framing, UdpEgressFraming::RoamingQuic(_)))
+            .then_some(UdpRoamingIngressPath::Draining)
+        })
     }
 
     /// Capture path and PMTU budget under the same read lock. A commit cannot publish a new
@@ -415,6 +488,7 @@ impl UdpActiveEgress {
             .0
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut draining = lock_or_recover(&self.1, "udp::commit_draining_ingress");
         if current.path_epoch != commit.expected_epoch {
             return Err(UdpEgressPublishError::State(
                 UdpEgressCommitError::StaleEpoch,
@@ -433,6 +507,17 @@ impl UdpActiveEgress {
             safe_payload_budget as u32,
             std::sync::atomic::Ordering::Relaxed,
         );
+        let drain = matches!(&current.framing, UdpEgressFraming::RoamingQuic(_)).then(|| {
+            UdpDrainingIngress {
+                snapshot: current.clone(),
+                expires_at: std::time::Instant::now()
+                    + crate::protocol::data_frag::REASSEMBLY_TIMEOUT,
+            }
+        });
+        let has_drain = drain.is_some();
+        *draining = drain;
+        self.2
+            .store(has_drain, std::sync::atomic::Ordering::Release);
         *current = UdpEgressSnapshot {
             socket: commit.socket,
             peer: commit.peer,
@@ -2528,13 +2613,18 @@ async fn handle_udp_roaming_ingress(
         }
         match decode_udp_roaming_ingress(client, roaming_payload, &tun_tx.pool) {
             Ok(UdpRoamingIngress::Control(control)) => {
+                if ingress_path == UdpRoamingIngressPath::Draining {
+                    // Previous-path receive drain exists only for already in-flight DATA and
+                    // DATA_FRAG. Control and PMTU must act on the committed/candidate path.
+                    return;
+                }
                 // Candidate liveness is authenticated only after PacketCodec accepted the
                 // record and advanced the one session-wide replay window.
                 client.last_activity = std::time::Instant::now();
                 UdpRoamingDispatch::Control(control)
             }
             Ok(UdpRoamingIngress::Data(plaintext)) => {
-                if ingress_path != UdpRoamingIngressPath::Committed {
+                if ingress_path == UdpRoamingIngressPath::Candidate {
                     log::debug!(
                         "UDP roaming DATA rejected on profile '{}': candidate CID may carry only path control",
                         profile.name
@@ -2810,6 +2900,9 @@ async fn handle_udp_roaming_ingress(
                         return;
                     }
                 };
+                if !decision.is_replay() {
+                    active_egress.schedule_draining_ingress_expiry();
+                }
                 let outcome = decision.outcome();
                 if decision.is_replay() {
                     let response = crate::protocol::roaming::PathControl::Commit {
@@ -5751,13 +5844,23 @@ mod tests {
             Some(UdpRoamingIngressPath::Committed)
         );
         assert_eq!(
+            active.classify_roaming_ingress(0, first_peer, &first_socket),
+            None,
+            "legacy bootstrap framing is not a roaming receive-drain alias"
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(0, second_peer, &first_socket),
+            None,
+            "the draining epoch still pins its exact peer and socket"
+        );
+        assert_eq!(
             active.classify_roaming_ingress(2, first_peer, &first_socket),
             Some(UdpRoamingIngressPath::Candidate)
         );
         assert_eq!(
             active.classify_roaming_ingress(0, second_peer, &second_socket),
             None,
-            "a previous CID epoch must be rejected before replay state is consumed"
+            "a previous CID epoch cannot migrate to the new peer/socket"
         );
         assert_eq!(
             active.classify_roaming_ingress(1, first_peer, &second_socket),
@@ -5814,7 +5917,7 @@ mod tests {
                     expected_epoch: 0,
                     expected_peer: first_peer,
                     next_epoch: 1,
-                    socket: first_socket,
+                    socket: first_socket.clone(),
                     peer: first_peer,
                     destination_cid: [7; 8],
                 },
@@ -5822,6 +5925,50 @@ mod tests {
             ),
             Err(UdpEgressCommitError::StaleEpoch)
         );
-        assert_eq!(active.snapshot().peer, second_peer);
+        active
+            .commit_roaming(
+                UdpEgressCommit {
+                    expected_epoch: 1,
+                    expected_peer: second_peer,
+                    next_epoch: 2,
+                    socket: first_socket.clone(),
+                    peer: first_peer,
+                    destination_cid: [7; 8],
+                },
+                &payload_budget,
+            )
+            .unwrap();
+        assert_eq!(active.snapshot().peer, first_peer);
+        assert_eq!(
+            active.classify_roaming_ingress(2, first_peer, &first_socket),
+            Some(UdpRoamingIngressPath::Committed)
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(1, second_peer, &second_socket),
+            Some(UdpRoamingIngressPath::Draining),
+            "the exact previous roaming path remains receive-only for bounded DATA_FRAG drain"
+        );
+        assert_eq!(
+            active.classify_roaming_ingress(1, first_peer, &second_socket),
+            None,
+            "the draining epoch remains pinned to its exact peer and socket"
+        );
+        {
+            let mut draining = active
+                .1
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            draining.as_mut().expect("draining snapshot").expires_at =
+                std::time::Instant::now() - std::time::Duration::from_millis(1);
+        }
+        assert_eq!(
+            active.classify_roaming_ingress(1, second_peer, &second_socket),
+            None,
+            "previous roaming ingress is rejected after the bounded drain expires"
+        );
+        assert!(
+            !active.2.load(std::sync::atomic::Ordering::Acquire),
+            "classifying current or stale ingress releases the expired socket snapshot"
+        );
     }
 }

@@ -6617,6 +6617,7 @@ async fn send_client_udp_payload(
 enum ClientUdpReceivePath {
     Active,
     Candidate,
+    Draining,
     Stale,
 }
 
@@ -6624,12 +6625,15 @@ enum ClientUdpReceivePath {
 fn classify_client_udp_receive_path(
     active_epoch: u64,
     candidate_epoch: Option<u64>,
+    draining_epoch: Option<u64>,
     received_epoch: u64,
 ) -> ClientUdpReceivePath {
     if received_epoch == active_epoch {
         ClientUdpReceivePath::Active
     } else if candidate_epoch == Some(received_epoch) {
         ClientUdpReceivePath::Candidate
+    } else if draining_epoch == Some(received_epoch) {
+        ClientUdpReceivePath::Draining
     } else {
         ClientUdpReceivePath::Stale
     }
@@ -6642,23 +6646,36 @@ mod udp_receive_path_tests {
     #[test]
     fn candidate_becomes_active_only_after_epoch_publication() {
         assert_eq!(
-            classify_client_udp_receive_path(0, Some(1), 1),
+            classify_client_udp_receive_path(0, Some(1), None, 1),
             ClientUdpReceivePath::Candidate
         );
         assert_eq!(
-            classify_client_udp_receive_path(1, None, 1),
+            classify_client_udp_receive_path(1, None, Some(0), 1),
             ClientUdpReceivePath::Active
         );
         assert_eq!(
-            classify_client_udp_receive_path(1, None, 0),
+            classify_client_udp_receive_path(1, None, Some(0), 0),
+            ClientUdpReceivePath::Draining
+        );
+        assert_eq!(
+            classify_client_udp_receive_path(1, None, None, 0),
             ClientUdpReceivePath::Stale
         );
     }
 }
 
+#[cfg(all(feature = "experimental-roaming", unix))]
+struct UdpClientDrainingPath {
+    epoch: u64,
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
+    expires_at: tokio::time::Instant,
+    receive_task: tokio::task::JoinHandle<()>,
+}
+
 /// One pooled datagram tagged by the path epoch of the socket that received it. The tag is local
 /// actor metadata, never wire input. It lets a future commit reject already-queued old-path traffic
-/// and accept datagrams queued by the candidate pump only after that epoch becomes active.
+/// and accept datagrams queued by the candidate pump only after that epoch becomes active. The
+/// immediately previous pump may remain receive-only for one bounded DATA_FRAG reassembly window.
 struct ClientUdpReceivedDatagram {
     path_epoch: u64,
     datagram: crate::transport_core::udp_receive::PooledUdpDatagram,
@@ -7916,6 +7933,8 @@ pub(crate) async fn run_udp_tunnel(
     let candidate_config = Arc::new(config.clone());
     #[cfg(all(feature = "experimental-roaming", unix))]
     let mut live_udp_candidate: Option<UdpClientLiveCandidate> = None;
+    #[cfg(all(feature = "experimental-roaming", unix))]
+    let mut draining_udp_path: Option<UdpClientDrainingPath> = None;
 
     let mut unsupported_inner_drops = 0u64;
     'udp: loop {
@@ -7936,6 +7955,19 @@ pub(crate) async fn run_udp_tunnel(
             _ = candidate_tick.tick(), if udp_handover_enabled => {
                 #[cfg(all(feature = "experimental-roaming", unix))]
                 {
+                let drain_expired = draining_udp_path
+                    .as_ref()
+                    .is_some_and(|draining| tokio::time::Instant::now() > draining.expires_at);
+                if drain_expired {
+                    let draining = draining_udp_path
+                        .take()
+                        .expect("expired UDP receive drain was present");
+                    draining.receive_task.abort();
+                    log::debug!(
+                        "UDP receive drain expired for path epoch {}",
+                        draining.epoch
+                    );
+                }
                 let superseded = live_udp_candidate.as_ref().and_then(|candidate| {
                     (!path_controller
                         .as_deref()
@@ -8514,11 +8546,16 @@ pub(crate) async fn run_udp_tunnel(
                 let active_path_epoch = 0;
 
                 #[cfg(all(feature = "experimental-roaming", unix))]
+                let draining_path_epoch = draining_udp_path.as_ref().and_then(|draining| {
+                    (tokio::time::Instant::now() <= draining.expires_at).then_some(draining.epoch)
+                });
+                #[cfg(all(feature = "experimental-roaming", unix))]
                 let receive_path = classify_client_udp_receive_path(
                     active_path_epoch,
                     live_udp_candidate
                         .as_ref()
                         .map(|candidate| candidate.epoch),
+                    draining_path_epoch,
                     recv_buf.path_epoch,
                 );
                 #[cfg(all(feature = "experimental-roaming", unix))]
@@ -8735,9 +8772,18 @@ pub(crate) async fn run_udp_tunnel(
                                 .take()
                                 .expect("committed candidate retains live socket");
                             let (prepared, next_socket, next_receive_task) = candidate.into_active();
+                            if let Some(previous) = draining_udp_path.take() {
+                                previous.receive_task.abort();
+                            }
                             let old_receive_task =
                                 std::mem::replace(&mut udp_receive_task, next_receive_task);
-                            old_receive_task.abort();
+                            draining_udp_path = Some(UdpClientDrainingPath {
+                                epoch: active_path_epoch,
+                                framing: udp_framing,
+                                expires_at: tokio::time::Instant::now()
+                                    + crate::protocol::data_frag::REASSEMBLY_TIMEOUT,
+                                receive_task: old_receive_task,
+                            });
                             socket = next_socket;
                             udp_framing = next_framing;
                             udp_buffer = UdpBufferController::configure(
@@ -8794,16 +8840,27 @@ pub(crate) async fn run_udp_tunnel(
                     continue;
                 }
                 #[cfg(all(feature = "experimental-roaming", unix))]
+                let draining_framing = draining_udp_path.as_ref().and_then(|draining| {
+                    (receive_path == ClientUdpReceivePath::Draining
+                        && draining.epoch == recv_buf.path_epoch
+                        && tokio::time::Instant::now() <= draining.expires_at)
+                        .then_some(draining.framing)
+                });
+                #[cfg(all(feature = "experimental-roaming", unix))]
                 if receive_path == ClientUdpReceivePath::Stale {
                     continue;
                 }
-                if recv_buf.path_epoch != active_path_epoch { continue; }
+                #[cfg(all(feature = "experimental-roaming", unix))]
+                let receive_framing = draining_framing.unwrap_or(udp_framing);
+                #[cfg(not(all(feature = "experimental-roaming", unix)))]
+                let receive_framing = udp_framing;
                 let n = recv_buf.len();
-                udp_buffer.note_receive(n);
-                let payload = match udp_framing.unwrap(&recv_buf[..n]) {
+                if recv_buf.path_epoch == active_path_epoch { udp_buffer.note_receive(n); }
+                let payload = match receive_framing.unwrap(&recv_buf[..n]) {
                     Ok(payload) => payload,
                     Err(_) => continue,
                 };
+                let receive_is_draining = recv_buf.path_epoch != active_path_epoch;
                 // The periodic uplink PMTU state machine shares this receive loop. Consume
                 // only an exact echo of its current challenge; stale/foreign ACKs continue
                 // through the normal authenticated packet path and are rejected there.
@@ -8812,6 +8869,7 @@ pub(crate) async fn run_udp_tunnel(
                 {
                     let matches_live_challenge = live_mtu_probe
                         .challenge
+                        .filter(|_| !receive_is_draining)
                         .map(|challenge| {
                             challenge.id == probe_id && challenge.outer_size == probe_size
                         })
@@ -8909,7 +8967,7 @@ pub(crate) async fn run_udp_tunnel(
                 // only after this tiny echo returns. Handle it before DATA_FRAG/PacketCodec:
                 // the probe is deliberately a bare carrier record, just like the original
                 // uplink PMTU exchange. It does not count as authenticated liveness.
-                if data_frag_enabled {
+                if data_frag_enabled && !receive_is_draining {
                     if let Some((probe_token, probe_size)) =
                         crate::protocol::udp_frag::parse_mtu_probe_v2_request(payload)
                     {
@@ -9306,6 +9364,11 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
+    #[cfg(all(feature = "experimental-roaming", unix))]
+    if let Some(draining) = draining_udp_path.take() {
+        draining.receive_task.abort();
+        let _ = draining.receive_task.await;
+    }
     udp_receive_task.abort();
     let _ = udp_receive_task.await;
 

@@ -134,6 +134,15 @@
   uplink сохранил budget 1461, downlink независимо сертифицировал 1161, reverse ping payload 1350
   прошёл через DATA_FRAG, PID/TUN и сессия сохранились без reconnect. Симметричный PMTU gate повторно
   прошёл 19/19; остальные UDP roaming gates также зелёные.
+- После PATH_COMMIT клиент и сервер сохраняют точный непосредственно предыдущий UDP receive-path
+  только для DATA/DATA_FRAG и только на один `REASSEMBLY_TIMEOUT` (5 секунд). Старые epoch/peer/socket/CID
+  не могут переноситься на новый адрес, candidate по-прежнему принимает лишь authenticated PATH-control,
+  а на draining-пути запрещены control и PMTU. Следующий commit, expiry или teardown освобождает прежние
+  receive task/socket snapshot.
+- Детерминированный Linux IPv4 netns gate прошёл 26/26: оба направления старого пути A работали с
+  MTU 1280, трёхсекундной задержкой и gap-reorder; путь B закоммитился при двух неполных DATA_FRAG-
+  записях по 1350 байт, после чего bounded drain завершил обе. Duplicate 100% на активном B остался
+  идемпотентным, PID/TUN и сессия сохранились без reconnect.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

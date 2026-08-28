@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v21-linux-udp-asymmetric-pmtu -->
+<!-- normative-sync: roaming-v22-linux-udp-receive-drain -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -42,10 +42,17 @@
 > 1161 bytes, retained the inner TUN MTU 1400, and carried a 1350-byte payload through DATA_FRAG.
 > An asymmetric C2S 1500 / S2C 1280 gate kept uplink at 1461 while the server descended the shared
 > PMTU ladder and certified downlink at 1161; reverse DATA_FRAG, PID/TUN, and the session survived.
+> A deterministic Linux IPv4 receive-drain gate passed 26/26. Both directions on old path A used
+> MTU 1280 with a three-second delay and gap reordering; path B committed while each 1350-byte
+> DATA_FRAG record was incomplete. The exact previous epoch/peer/socket/CID remained receive-only
+> for one reassembly timeout, completed both records, and then expired; old control and PMTU stayed
+> rejected. Duplicate DATA_FRAG on active path B remained idempotent without replacing PID/TUN or
+> reconnecting.
 > Current lab gates pass 952 feature library tests with three ignored,
 > 871 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
-> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, and asymmetric IPv4 PMTU 19/19,
+> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
+> receive-drain/reorder/duplicate 26/26,
 > an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -580,8 +587,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   asymmetric gate, C2S stayed at 1461 while an S2C-only 1280 blackhole forced the server down the same
   shared ladder to 1161; a 1350-byte reverse payload crossed through DATA_FRAG. One exact pending marker
   spans the whole descent, so duplicate reports cannot start another scheduler and an epoch/peer change
-  cancels it. Packet-level deliberate delay/duplication/reordering, outer IPv4↔IPv6 transitions,
-  real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
+  cancels it. The Linux IPv4 in-flight receive-drain slice is complete as well. After PATH_COMMIT,
+  the exact immediately previous epoch/peer/socket/CID remains receive-only for one DATA_FRAG
+  reassembly timeout; old path control and PMTU remain rejected, and expiry releases the old receive
+  task/socket snapshot. A deterministic 26/26 gate used MTU 1280 and three-second gap reordering in
+  both directions on old path A, committed B while both 1350-byte records were incomplete, then
+  completed both records through the bounded drain. Duplicate DATA_FRAG on active B remained
+  idempotent, with the same PID/TUN and no reconnect. Outer IPv4↔IPv6 transitions, deliberate
+  DATA_FRAG-loss live coverage, real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
@@ -607,7 +620,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   connects to the candidate address, and binds before connect. Linux observation, capability activation,
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
-  acceptance are complete. Deliberate packet delay/duplicate/reorder, outer-family PMTU transitions,
+  acceptance are complete. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
+  acceptance are complete. Outer-family PMTU transitions, deliberate DATA_FRAG-loss live coverage,
   real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
