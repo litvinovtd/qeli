@@ -245,7 +245,7 @@ pub struct PathCommand {
     pub action: PathCommandAction,
     pub path: PathUpdate,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub socket_fd: Option<i32>,
+    pub socket_fd: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -281,7 +281,7 @@ impl PathCandidate {
     pub(crate) fn command(
         &self,
         action: PathCommandAction,
-        socket_fd: Option<i32>,
+        socket_fd: Option<i64>,
         reason: Option<String>,
     ) -> PathCommand {
         PathCommand {

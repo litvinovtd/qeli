@@ -292,7 +292,8 @@ int32_t qeli_client_network_plan_result(uint64_t handle,
  * idempotent. On success out_candidate_id receives a non-zero transaction id.
  *
  * QELI_CLIENT_PATH_COMMAND carries JSON with generation, candidate_id, action, the validated
- * path object and optional socket_fd/reason. Actions are "prepare_path", "bind_socket",
+ * path object and optional socket_fd/reason. socket_fd is a borrowed signed 64-bit integer:
+ * a Unix file descriptor or a Windows SOCKET value. Actions are "prepare_path", "bind_socket",
  * "commit_path" and "abort_path". Every command must be acknowledged with all three
  * correlation values below. Rejecting PREPARE/BIND/COMMIT produces ABORT; rejecting ABORT is
  * a platform error requiring a full reconnect and increments the reconnect-fallback counter.

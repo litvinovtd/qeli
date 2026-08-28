@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v30-android-udp-matrix -->
+<!-- normative-sync: roaming-v31-windows-socket-core -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -78,6 +78,10 @@
 > NetworkPlan, замены процесса/TUN или reconnect. Android `Network` handle остался прежним,
 > tunnel ping прошёл 5/5 до и после миграции в каждом режиме. NAT-rebinding на реальных
 > устройствах остаётся отдельным gate.
+> Общий feature core теперь готов к Windows socket handle: `PATH_COMMAND` передаёт заимствованный
+> signed 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP
+> migration actor компилируются на Windows. Windows path capabilities остаются выключенными до
+> device/race-приёмки C# executor для routes, kill switch и `IP_UNICAST_IF`.
 > Текущие lab gates: 961 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
@@ -893,7 +897,7 @@ deliberate DATA_FRAG-loss приняты live-gate; детерминирован
 commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family,
 deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
-### Этап 4. Платформы — 🟡 Linux и Android TCP live, Android UDP source-ready
+### Этап 4. Платформы — 🟡 Linux/Android live, Windows core-ready
 
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
@@ -902,7 +906,9 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
   через ABI 1.13 запрашивает same-network NAT snapshot без Android retry policy. Полная API 34
   feature-APK matrix для fake-TLS/QUIC/obfs/AWG закрыта для same-Network, same-session NAT rebind
   без AUTH/reconnect; real-device NAT-rebinding впереди;
-- Windows;
+- Windows: общий core сохраняет 64-битный `SOCKET` и запускает ту же TCP/UDP migration state
+  machine; strict Windows-host и Linux all-target feature checks готовы. C# path executor и
+  device/race live acceptance впереди, поэтому capability пока выключена;
 - macOS;
 - iOS.
 

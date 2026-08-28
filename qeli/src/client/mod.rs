@@ -630,7 +630,7 @@ impl CorePathController {
     pub(crate) fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
-        socket_fd: i32,
+        socket_fd: i64,
     ) -> anyhow::Result<PathAckFuture> {
         let (_, receiver) = self.with_core(|core| {
             core.request_candidate_socket_binding(
@@ -746,7 +746,9 @@ impl LinuxPathController {
                     .socket_fd
                     .ok_or_else(|| anyhow::anyhow!("BIND_SOCKET omitted the candidate fd"))?;
                 crate::transport_core::carrier::bind_linux_candidate_socket(
-                    socket_fd,
+                    i32::try_from(socket_fd).map_err(|_| {
+                        anyhow::anyhow!("candidate socket handle is outside the Unix fd range")
+                    })?,
                     &Self::command_candidate(command),
                 )
             }
@@ -929,7 +931,7 @@ impl PathController for LinuxPathController {
     fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
-        socket_fd: i32,
+        socket_fd: i64,
     ) -> anyhow::Result<PathAckFuture> {
         let _dispatch =
             crate::util::lock_or_recover(&self.dispatch_lock, "client::linux_path_dispatch");
@@ -983,7 +985,7 @@ pub(crate) trait PathController: Send + Sync {
     fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
-        socket_fd: i32,
+        socket_fd: i64,
     ) -> anyhow::Result<PathAckFuture>;
     fn commit_candidate_path(
         &self,
@@ -1980,7 +1982,10 @@ async fn connect_tcp_path_candidate(
         .ok_or_else(|| anyhow::anyhow!("candidate path has no compatible carrier address"))?;
     let remote = std::net::SocketAddr::new(remote_ip, config.server.port);
     let socket = crate::transport_core::carrier::open_candidate_for(config, remote_ip)?;
-    let binding = path_controller.bind_candidate_socket(candidate, socket.as_raw_fd())?;
+    let binding = path_controller.bind_candidate_socket(
+        candidate,
+        crate::transport_core::carrier::candidate_socket_handle(&socket)?,
+    )?;
     tokio::time::timeout(total.min(PATH_ACK_TIMEOUT), binding)
         .await
         .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
@@ -2003,7 +2008,7 @@ async fn connect_tcp_path_candidate(
     }
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 pub(crate) async fn connect_udp_path_candidate(
     config: &crate::config::client::ClientConfig,
     total: Duration,
@@ -2022,7 +2027,10 @@ pub(crate) async fn connect_udp_path_candidate(
         .ok_or_else(|| anyhow::anyhow!("candidate path has no compatible carrier address"))?;
     let remote = std::net::SocketAddr::new(remote_ip, config.server.port);
     let socket = crate::transport_core::carrier::open_candidate_for(config, remote_ip)?;
-    let binding = path_controller.bind_candidate_socket(candidate, socket.as_raw_fd())?;
+    let binding = path_controller.bind_candidate_socket(
+        candidate,
+        crate::transport_core::carrier::candidate_socket_handle(&socket)?,
+    )?;
     tokio::time::timeout(total.min(PATH_ACK_TIMEOUT), binding)
         .await
         .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
@@ -2190,7 +2198,7 @@ mod linux_candidate_dialer_tests {
         fn bind_candidate_socket(
             &self,
             _candidate: &PreparedPathCandidate,
-            socket_fd: i32,
+            socket_fd: i64,
         ) -> anyhow::Result<PathAckFuture> {
             assert!(socket_fd >= 0);
             self.bound.store(true, Ordering::Release);
@@ -6779,7 +6787,7 @@ mod udp_receive_path_tests {
     }
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 struct UdpClientDrainingPath {
     epoch: u64,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
@@ -6855,7 +6863,7 @@ fn spawn_client_udp_receive_pump(
     })
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 struct UdpClientLiveCandidate {
     prepared: Option<PreparedPathCandidate>,
     epoch: u64,
@@ -6863,7 +6871,7 @@ struct UdpClientLiveCandidate {
     receive_task: Option<tokio::task::JoinHandle<()>>,
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 impl UdpClientLiveCandidate {
     fn new(
         prepared: PreparedPathCandidate,
@@ -6904,7 +6912,7 @@ impl UdpClientLiveCandidate {
     }
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 impl Drop for UdpClientLiveCandidate {
     fn drop(&mut self) {
         if let Some(task) = self.receive_task.take() {
@@ -6913,7 +6921,7 @@ impl Drop for UdpClientLiveCandidate {
     }
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 async fn send_udp_path_transmit(
     socket: &crate::protocol::obfs::ObfsUdp,
     client_tx: &mut PacketCodec,
@@ -6930,7 +6938,7 @@ async fn send_udp_path_transmit(
     Ok(())
 }
 
-#[cfg(all(feature = "experimental-roaming", unix))]
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 async fn abort_udp_platform_candidate(
     path_controller: &dyn PathController,
     candidate: &PreparedPathCandidate,
@@ -7530,7 +7538,10 @@ pub(crate) async fn run_udp_tunnel(
             )
         })
         .transpose()?;
-    #[cfg_attr(not(all(feature = "experimental-roaming", unix)), allow(unused_mut))]
+    #[cfg_attr(
+        not(all(feature = "experimental-roaming", any(unix, windows))),
+        allow(unused_mut)
+    )]
     let mut udp_framing = {
         #[cfg(feature = "experimental-roaming")]
         {
@@ -7555,22 +7566,22 @@ pub(crate) async fn run_udp_tunnel(
             )
         }
     };
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let path_controller = core.path_controller();
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let linux_path_controller = core.linux_path_controller();
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let udp_handover_enabled = udp_roaming.is_some()
         && path_controller.is_some()
         && core.platform_capabilities() & crate::transport_core::platform_capability::ROAMING_PATH
             == crate::transport_core::platform_capability::ROAMING_PATH;
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     if udp_handover_enabled {
         log::info!(
             "UDP make-before-break negotiated; prepared PathUpdate candidates may migrate this session"
         );
     }
-    #[cfg(not(all(feature = "experimental-roaming", unix)))]
+    #[cfg(not(all(feature = "experimental-roaming", any(unix, windows))))]
     let udp_handover_enabled = false;
 
     let mut eff_obf = config.obfuscation.clone();
@@ -7816,7 +7827,10 @@ pub(crate) async fn run_udp_tunnel(
     // the only way to notice a vanished server.)
     let mut last_rx_inst = tokio::time::Instant::now();
     let idle_timeout = Duration::from_secs(config.performance.idle_timeout_secs);
-    #[cfg_attr(not(all(feature = "experimental-roaming", unix)), allow(unused_mut))]
+    #[cfg_attr(
+        not(all(feature = "experimental-roaming", any(unix, windows))),
+        allow(unused_mut)
+    )]
     let mut socket = Arc::new(socket);
 
     // Flow-shaping (client->server idle cover): mirror of the TCP path; replaces
@@ -8025,7 +8039,10 @@ pub(crate) async fn run_udp_tunnel(
     drop(recv_buf);
     let (received_tx, mut received_rx) =
         mpsc::channel(crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS);
-    #[cfg_attr(not(all(feature = "experimental-roaming", unix)), allow(unused_mut))]
+    #[cfg_attr(
+        not(all(feature = "experimental-roaming", any(unix, windows))),
+        allow(unused_mut)
+    )]
     let mut udp_receive_task =
         spawn_client_udp_receive_pump(socket.clone(), 0, received_tx.clone());
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
@@ -8038,18 +8055,18 @@ pub(crate) async fn run_udp_tunnel(
     };
     let (_candidate_connect_tx, mut candidate_connect_rx) =
         mpsc::channel::<(PreparedPathCandidate, anyhow::Result<UdpSocket>)>(1);
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut candidate_connect_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut candidate_tick = tokio::time::interval(Duration::from_millis(100));
     candidate_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     candidate_tick.tick().await;
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let candidate_config = Arc::new(config.clone());
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut live_udp_candidate: Option<UdpClientLiveCandidate> = None;
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut draining_udp_path: Option<UdpClientDrainingPath> = None;
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut same_network_nat_recovery =
         crate::transport_core::udp_roaming_client::UdpClientNatRecoveryPolicy::default();
 
@@ -8070,7 +8087,7 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             _ = candidate_tick.tick(), if udp_handover_enabled => {
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 {
                 let drain_expired = draining_udp_path
                     .as_ref()
@@ -8206,7 +8223,7 @@ pub(crate) async fn run_udp_tunnel(
 
             connected = candidate_connect_rx.recv(), if udp_handover_enabled => {
                 let _ = &connected;
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 {
                 let Some((prepared, result)) = connected else { continue; };
                 candidate_connect_task.take();
@@ -8662,11 +8679,11 @@ pub(crate) async fn run_udp_tunnel(
                 #[cfg(not(feature = "experimental-roaming"))]
                 let active_path_epoch = 0;
 
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 let draining_path_epoch = draining_udp_path.as_ref().and_then(|draining| {
                     (tokio::time::Instant::now() <= draining.expires_at).then_some(draining.epoch)
                 });
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 let receive_path = classify_client_udp_receive_path(
                     active_path_epoch,
                     live_udp_candidate
@@ -8675,7 +8692,7 @@ pub(crate) async fn run_udp_tunnel(
                     draining_path_epoch,
                     recv_buf.path_epoch,
                 );
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 if receive_path == ClientUdpReceivePath::Candidate {
                     let candidate_matches = live_udp_candidate.as_ref().is_some_and(|candidate| {
                         candidate.epoch == recv_buf.path_epoch
@@ -8882,7 +8899,7 @@ pub(crate) async fn run_udp_tunnel(
                             // fresh RX-liveness baseline without waiting for an ordinary data record.
                             last_activity = tokio::time::Instant::now();
                             last_rx_inst = last_activity;
-                            #[cfg(all(feature = "experimental-roaming", unix))]
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                             same_network_nat_recovery.on_authenticated_commit();
                             let roaming = udp_roaming
                                 .as_ref()
@@ -8963,20 +8980,20 @@ pub(crate) async fn run_udp_tunnel(
                     }
                     continue;
                 }
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 let draining_framing = draining_udp_path.as_ref().and_then(|draining| {
                     (receive_path == ClientUdpReceivePath::Draining
                         && draining.epoch == recv_buf.path_epoch
                         && tokio::time::Instant::now() <= draining.expires_at)
                         .then_some(draining.framing)
                 });
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 if receive_path == ClientUdpReceivePath::Stale {
                     continue;
                 }
-                #[cfg(all(feature = "experimental-roaming", unix))]
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 let receive_framing = draining_framing.unwrap_or(udp_framing);
-                #[cfg(not(all(feature = "experimental-roaming", unix)))]
+                #[cfg(not(all(feature = "experimental-roaming", any(unix, windows))))]
                 let receive_framing = udp_framing;
                 let n = recv_buf.len();
                 if recv_buf.path_epoch == active_path_epoch { udp_buffer.note_receive(n); }
@@ -9432,7 +9449,7 @@ pub(crate) async fn run_udp_tunnel(
                 // transport ACK, so it must never be treated as proof that downlink is due.
                 if let Some(deadline) = rx_dead {
                     if last_rx_inst.elapsed() > deadline {
-                        #[cfg(all(feature = "experimental-roaming", unix))]
+                        #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                         if udp_handover_enabled {
                             let active_epoch = udp_roaming
                                 .as_ref()
@@ -9492,14 +9509,14 @@ pub(crate) async fn run_udp_tunnel(
     if let Some(task) = path_monitor_handle {
         task.abort();
     }
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let connect_was_in_flight = if let Some(task) = candidate_connect_task.take() {
         task.abort();
         true
     } else {
         false
     };
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     if let Some(candidate) = live_udp_candidate.take() {
         let prepared = candidate.prepared().clone();
         if let Some(roaming) = udp_roaming.as_mut() {
@@ -9529,7 +9546,7 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
-    #[cfg(all(feature = "experimental-roaming", unix))]
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     if let Some(draining) = draining_udp_path.take() {
         draining.receive_task.abort();
         let _ = draining.receive_task.await;

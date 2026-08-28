@@ -254,8 +254,8 @@ impl NativeCoreAdapter {
                     setup_failures.join("; ")
                 )
             })?;
-        let socket_fd = candidate_socket_descriptor(&socket)?;
-        let binding = self.bind_candidate_socket(candidate, socket_fd)?;
+        let socket_handle = carrier::candidate_socket_handle(&socket)?;
+        let binding = self.bind_candidate_socket(candidate, socket_handle)?;
         tokio::time::timeout(NETWORK_ACK_TIMEOUT, binding)
             .await
             .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
@@ -290,19 +290,6 @@ impl NativeCoreAdapter {
 }
 
 #[cfg(feature = "experimental-roaming")]
-fn candidate_socket_descriptor(socket: &Socket) -> anyhow::Result<i32> {
-    #[cfg(unix)]
-    {
-        Ok(socket.as_raw_fd())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = socket;
-        anyhow::bail!("candidate socket binding requires an ABI-safe Unix descriptor")
-    }
-}
-
-#[cfg(feature = "experimental-roaming")]
 impl PathController for NativeCoreAdapter {
     fn prepared_candidate(&self) -> Option<super::path::PreparedPathCandidate> {
         let required = super::platform_capability::ROAMING_PATH;
@@ -329,7 +316,7 @@ impl PathController for NativeCoreAdapter {
     fn bind_candidate_socket(
         &self,
         candidate: &super::path::PreparedPathCandidate,
-        socket_fd: i32,
+        socket_fd: i64,
     ) -> anyhow::Result<PathAckFuture> {
         self.path_controller
             .bind_candidate_socket(candidate, socket_fd)

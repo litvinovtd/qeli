@@ -2015,7 +2015,7 @@ impl ClientCore {
         &mut self,
         generation: u64,
         candidate_id: u64,
-        fd: i32,
+        fd: i64,
     ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
@@ -3429,11 +3429,17 @@ mod tests {
             Err(CoreError::InvalidState { .. })
         ));
 
+        let wide_socket_handle = i64::from(i32::MAX) + 42;
         let (_, mut bind_result) = core
-            .request_candidate_socket_binding(11, candidate, 42)
+            .request_candidate_socket_binding(11, candidate, wide_socket_handle)
             .unwrap();
         let bind = path_command(&mut core, PathCommandAction::BindSocket);
-        assert_eq!(bind.path_command.as_ref().unwrap().socket_fd, Some(42));
+        let command = bind.path_command.as_ref().unwrap();
+        assert_eq!(command.socket_fd, Some(wide_socket_handle));
+        assert_eq!(
+            serde_json::to_value(command).unwrap()["socket_fd"],
+            wide_socket_handle
+        );
         assert_eq!(
             bind_result.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty)

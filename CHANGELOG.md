@@ -77,6 +77,12 @@
   `-D warnings`; Unix raw-fd trait импортируется без предупреждений всегда на Linux и только вместе
   с `experimental-roaming` на остальных Unix-платформах. Оба path JNI export присутствуют в
   feature-сборке. Kotlin unit tests и `assembleDebug` прошли.
+- Общий roaming core больше не ограничивает native candidate socket Unix-дескриптором `i32`:
+  `PATH_COMMAND.socket_fd` сохраняет заимствованный signed 64-bit Unix fd или Windows `SOCKET`,
+  а native TCP candidate dialer и единый UDP make-before-break actor теперь компилируются на
+  Windows без отдельной protocol-specific логики. Wide-handle regression, строгая Windows host
+  feature-сборка и Linux all-target feature gate прошли. Windows path capabilities остаются
+  выключенными до реализации и device/race-приёмки C# route/kill-switch/`IP_UNICAST_IF` executor.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`

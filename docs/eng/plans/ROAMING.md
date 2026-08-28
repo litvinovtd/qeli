@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v30-android-udp-matrix -->
+<!-- normative-sync: roaming-v31-windows-socket-core -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -79,6 +79,10 @@
 > NetworkPlan, process/TUN replacement or reconnect. The Android `Network` handle remained
 > unchanged and tunnel ping passed 5/5 before and after migration in every mode. Real-device
 > NAT-rebinding remains a separate gate.
+> The shared feature core is now Windows socket-handle ready: `PATH_COMMAND` carries a borrowed
+> signed 64-bit Unix descriptor or Windows `SOCKET`, while native TCP candidate dialing and the
+> common UDP migration actor both compile on Windows. Windows path capabilities remain disabled
+> until the C# route, kill-switch and `IP_UNICAST_IF` executor passes device/race acceptance.
 > Current lab gates pass 961 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
@@ -676,11 +680,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   The complete UDP API 34 feature-APK gate covers fake-TLS, QUIC, obfs and obfs-AWG with a
   same-Network, same-session NAT rebind and no AUTH/reconnect; real-device UDP/NAT-rebinding remains
   pending.
+  The native candidate contract now preserves a borrowed signed 64-bit Unix descriptor or Windows
+  `SOCKET`, and the same UDP migration actor compiles on Windows. Strict Windows-host and Linux
+  all-target feature checks pass; the C# path executor and Windows live acceptance remain pending.
   Linux IPv4 packet delay/reorder/duplicate
   and in-flight receive-drain acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate
   bidirectional DATA_FRAG-loss are complete. Deterministic Linux same-network NAT dead-mapping is
   accepted in netns; real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted, while Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core is socket/migration-ready, while its C# path executor, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
