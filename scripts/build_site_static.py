@@ -13,7 +13,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SITE = REPO / "site"
 BASE = "https://qeli.ru"
-UPDATED = "2026-08-20"
+UPDATED = "2026-08-27"
 HEADER_START = "<!-- shared-header:start -->"
 HEADER_END = "<!-- shared-header:end -->"
 FOOTER_START = "<!-- shared-footer:start -->"
