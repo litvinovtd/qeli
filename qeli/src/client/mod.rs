@@ -273,7 +273,11 @@ static CONNECTED_PEER: std::sync::Mutex<Option<std::net::IpAddr>> = std::sync::M
 #[cfg(target_os = "linux")]
 #[derive(Default)]
 struct CarrierCandidateState {
+    /// Exact addresses currently admitted to bypass routes and later bonded streams. Once pinned,
+    /// this remains restricted to the authenticated connected/committed endpoint.
     addresses: Vec<std::net::IpAddr>,
+    /// Generation-scoped DNS results retained only to prepare an authenticated roaming candidate.
+    roaming_discovery_addresses: Vec<std::net::IpAddr>,
     /// Once the host routes are committed, bonded streams must stay within this set.
     /// Re-resolving to an unpinned address after full-tunnel capture would route the
     /// encrypted carrier into qeli itself.
@@ -286,9 +290,57 @@ struct CarrierCandidateState {
 }
 
 #[cfg(target_os = "linux")]
+impl CarrierCandidateState {
+    fn reset(&mut self, rotation: usize) {
+        self.addresses.clear();
+        self.roaming_discovery_addresses.clear();
+        self.pinned = false;
+        self.rotation = rotation;
+    }
+
+    fn note_resolved(&mut self, candidates: impl IntoIterator<Item = std::net::IpAddr>) {
+        if self.pinned {
+            return;
+        }
+        self.addresses.clear();
+        self.roaming_discovery_addresses.clear();
+        for address in candidates {
+            let address = crate::transport_core::carrier::canonical_carrier_ip(address);
+            if !self.addresses.contains(&address) {
+                self.addresses.push(address);
+                self.roaming_discovery_addresses.push(address);
+            }
+        }
+    }
+
+    fn pin_authenticated(&mut self, addresses: &[std::net::IpAddr]) {
+        if self.roaming_discovery_addresses.is_empty() {
+            self.roaming_discovery_addresses.extend(
+                addresses
+                    .iter()
+                    .copied()
+                    .map(crate::transport_core::carrier::canonical_carrier_ip),
+            );
+        }
+        self.addresses = addresses
+            .iter()
+            .copied()
+            .map(crate::transport_core::carrier::canonical_carrier_ip)
+            .collect();
+        self.pinned = true;
+    }
+
+    #[cfg(any(feature = "experimental-roaming", test))]
+    fn roaming_discovery(&self) -> Vec<std::net::IpAddr> {
+        self.roaming_discovery_addresses.clone()
+    }
+}
+
+#[cfg(target_os = "linux")]
 static CARRIER_CANDIDATES: std::sync::Mutex<CarrierCandidateState> =
     std::sync::Mutex::new(CarrierCandidateState {
         addresses: Vec::new(),
+        roaming_discovery_addresses: Vec::new(),
         pinned: false,
         rotation: 0,
     });
@@ -304,9 +356,7 @@ fn note_connected_peer(ip: std::net::IpAddr) {
 #[cfg(target_os = "linux")]
 fn reset_carrier_candidates(rotation: usize) {
     if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
-        state.addresses.clear();
-        state.pinned = false;
-        state.rotation = rotation;
+        state.reset(rotation);
     }
     if let Ok(mut peer) = CONNECTED_PEER.lock() {
         *peer = None;
@@ -329,16 +379,7 @@ fn rotate_carrier_candidates<T>(candidates: &mut [T]) {
 #[cfg(target_os = "linux")]
 fn note_carrier_candidates(candidates: impl IntoIterator<Item = std::net::IpAddr>) {
     if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
-        if state.pinned {
-            return;
-        }
-        state.addresses.clear();
-        for address in candidates {
-            let address = crate::transport_core::carrier::canonical_carrier_ip(address);
-            if !state.addresses.contains(&address) {
-                state.addresses.push(address);
-            }
-        }
+        state.note_resolved(candidates);
     }
 }
 
@@ -379,16 +420,24 @@ fn carrier_pin_targets(config: &crate::config::client::ClientConfig) -> Vec<std:
 #[cfg(target_os = "linux")]
 fn mark_carrier_candidates_pinned(addresses: &[std::net::IpAddr]) {
     if let Ok(mut state) = CARRIER_CANDIDATES.lock() {
-        state.addresses = addresses.to_vec();
-        state.pinned = true;
+        state.pin_authenticated(addresses);
     }
 }
 
 #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
 fn carrier_candidate_ips() -> Vec<std::net::IpAddr> {
     crate::util::lock_or_recover(&CARRIER_CANDIDATES, "client::carrier_candidates")
-        .addresses
-        .clone()
+        .roaming_discovery()
+}
+
+#[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+fn active_carrier_ips() -> Vec<std::net::IpAddr> {
+    let state = crate::util::lock_or_recover(&CARRIER_CANDIDATES, "client::active_carriers");
+    if state.pinned {
+        state.addresses.clone()
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -419,8 +468,8 @@ fn pin_target(config: &crate::config::client::ClientConfig) -> String {
 
 #[cfg(all(test, target_os = "linux"))]
 mod carrier_pin_tests {
-    use super::select_carrier_pin_targets;
-    use std::net::{IpAddr, Ipv4Addr};
+    use super::{select_carrier_pin_targets, CarrierCandidateState};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
     fn authenticated_peer_excludes_unconnected_dns_candidates() {
@@ -439,6 +488,27 @@ mod carrier_pin_tests {
             select_carrier_pin_targets(Vec::new(), None, Some(literal)),
             vec![literal]
         );
+    }
+
+    #[test]
+    fn roaming_discovery_survives_exact_active_pinning() {
+        let ipv4 = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+        let ipv6 = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0, 0, 0, 10));
+        let mut state = CarrierCandidateState::default();
+        state.note_resolved([ipv4, ipv6, ipv4]);
+        state.pin_authenticated(&[ipv4]);
+
+        assert_eq!(
+            state.addresses,
+            vec![ipv4],
+            "bypass and bonded carriers remain restricted to the authenticated peer"
+        );
+        assert_eq!(
+            state.roaming_discovery(),
+            vec![ipv4, ipv6],
+            "the other family remains available only for an authenticated path transaction"
+        );
+        assert!(state.pinned);
     }
 }
 
@@ -692,7 +762,8 @@ impl LinuxPathController {
                     .ok_or_else(|| {
                         anyhow::anyhow!("COMMIT_PATH has no compatible carrier address")
                     })?;
-                prepared.commit()?;
+                let previous_carriers = active_carrier_ips();
+                prepared.commit(&previous_carriers)?;
                 mark_carrier_candidates_pinned(&[address]);
                 note_connected_peer(address);
                 *current = None;

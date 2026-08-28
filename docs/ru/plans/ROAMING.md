@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v22-linux-udp-receive-drain -->
+<!-- normative-sync: roaming-v23-linux-udp-outer-family -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -49,11 +49,17 @@
 > только принимающим на один reassembly timeout, завершил обе записи и истёк; control и PMTU старого
 > пути отклонялись. Duplicate DATA_FRAG на активном пути B остался идемпотентным без замены PID/TUN
 > и без reconnect.
-> Текущие lab gates: 952 feature library tests при трёх ignored, 871 default tests при
+> Dual-listener Linux outer-family gate прошёл 32/32. Одна authenticated session переместилась
+> IPv4 → IPv6 → IPv4 через разные receiving workers без новой AUTH и reconnect, сохранив codec owner,
+> PID и TUN. Оба направления независимо пересертифицировали PMTU 1461 → 1341 → 1461, через IPv6
+> прошёл DATA_FRAG-sized пакет, а каждый commit оставил ровно один активный qeli-owned `/32` или
+> `/128`. Generation-scoped discovery A/AAAA теперь переживает точный pin активного peer только для
+> будущей authenticated PathUpdate; bypass и bonded carriers остаются ограничены committed peer.
+> Текущие lab gates: 956 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
-> receive-drain/reorder/duplicate 26/26,
+> receive-drain/reorder/duplicate 26/26 плюс outer-family round-trip 32/32,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -800,8 +806,11 @@ control и PMTU старого пути отклоняются, а по expiry �
 Детерминированный gate 26/26 применил MTU 1280 и трёхсекундный gap-reorder в обоих направлениях
 старого пути A, закоммитил B при двух неполных записях по 1350 байт, затем завершил обе записи через
 ограниченный drain. Duplicate DATA_FRAG на активном B остался идемпотентным, PID/TUN сохранились,
-reconnect не возник. Остаются outer IPv4↔IPv6 transitions, live-проверка deliberate DATA_FRAG loss,
-real-device NAT rebinding и soak.
+reconnect не возник. Linux outer-family срез также завершён: dual-listener gate 32/32 перенёс одну
+authenticated session IPv4 → IPv6 → IPv4, сохранил codec owner/PID/TUN, пересертифицировал оба
+направления 1461 → 1341 → 1461, передал DATA_FRAG-sized пакет и удалил stale qeli-owned route после
+каждого commit. Непрерывный трафик сохранил не менее 245 из 260 ping без top-level reconnect.
+Остаются live-проверка deliberate DATA_FRAG loss, real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -820,23 +829,25 @@ scope для IPv6 link-local). Примитив COMMIT теперь выполн
 адресов до мутации: совпадающий операторский маршрут остаётся чужим, конфликтующий отклоняет
 commit, а `replace` разрешён только для маршрута из journal qeli. После каждого `add/replace`
 выполняется обычный source-aware FIB lookup; ошибка следующей IPv4/IPv6 семьи восстанавливает
-предыдущие маршруты в обратном порядке и синхронизирует ownership journal. Все TCP wire-mode
+предыдущие маршруты в обратном порядке. После проверки нового пути COMMIT удаляет только прежние
+qeli-owned carriers, которых нет в desired family-set; ошибка очистки откатывает новый маршрут и
+восстанавливает уже снятые старые маршруты вместе с ownership journal. Активный pin отделён от
+generation-scoped discovery A/AAAA: альтернативы доступны только будущей authenticated candidate-
+транзакции и заранее не попадают в активный bypass или bonded-набор. Все TCP wire-mode
 (`reality-tls`, `obfs`, `fake-tls`, `plain`) уже создают отдельный unbound candidate-сокет,
 получают BIND ACK до connect и используют только первый совместимый адрес данного PathUpdate.
 После authenticated JOIN COMMIT сначала применяет маршруты, затем переключает закреплённый
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
-Linux IPv4 packet delay/reorder/duplicate и in-flight receive-drain приняты live-gate. Остаются
-outer-family live PMTU transitions, deliberate DATA_FRAG-loss под live-нагрузкой, native adapters
-и soak.
+Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain и outer-family PMTU round-trip
+приняты live-gate. Остаются deliberate DATA_FRAG-loss под live-нагрузкой, native adapters и soak.
 
-- Linux UDP outer-family PMTU transitions, deliberate DATA_FRAG-loss live gate,
-  real-device NAT rebinding и soak;
+- Linux UDP deliberate DATA_FRAG-loss live gate, real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
-commit-race, control-loss/replay, PMTU и receive-drain/reorder/duplicate-приёмку.
+commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate и outer-family-приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 
@@ -892,11 +903,11 @@ commit-race, control-loss/replay, PMTU и receive-drain/reorder/duplicate-при
 
 - live probe не забирает data datagram;
 - stale ACK не расширяет новый путь;
-- reset IPv4→IPv6 и IPv6→IPv4;
-- asymmetric C2S/S2C PMTU — ✅ Linux IPv4 netns; IPv6/family transitions remain;
+- reset IPv4→IPv6 и IPv6→IPv4 — ✅ Linux dual-listener netns;
+- asymmetric C2S/S2C PMTU — ✅ Linux IPv4 netns; outer-family round-trip — ✅ Linux netns;
 - fragments в момент drain — ✅ Linux IPv4 netns, оба направления;
 - reorder/duplicate — ✅ Linux IPv4 netns; conflict/expiry — ✅ bounded core unit;
-  deliberate DATA_FRAG loss, outer-family и device/soak gates остаются;
+  deliberate DATA_FRAG loss и device/soak gates остаются;
 - неизменный inner TUN MTU при DATA_FRAG_V1.
 
 ### End-to-end матрица

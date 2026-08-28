@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v22-linux-udp-receive-drain -->
+<!-- normative-sync: roaming-v23-linux-udp-outer-family -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -48,11 +48,18 @@
 > for one reassembly timeout, completed both records, and then expired; old control and PMTU stayed
 > rejected. Duplicate DATA_FRAG on active path B remained idempotent without replacing PID/TUN or
 > reconnecting.
-> Current lab gates pass 952 feature library tests with three ignored,
-> 871 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
+> A dual-listener Linux outer-family gate passed 32/32. One authenticated session moved
+> IPv4 → IPv6 → IPv4 through distinct receiving workers without another AUTH or reconnect, while
+> retaining its codec owner, PID, and TUN. Each direction independently re-certified PMTU
+> 1461 → 1341 → 1461, a DATA_FRAG-sized packet crossed the IPv6 leg, and each commit left exactly
+> one active qeli-owned `/32` or `/128`. Generation-scoped A/AAAA discovery now survives exact
+> active-peer pinning only for a future authenticated PathUpdate; the bypass and bonded carriers
+> remain restricted to the committed peer.
+> Current lab gates pass 956 feature library tests with three ignored,
+> 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
-> receive-drain/reorder/duplicate 26/26,
+> receive-drain/reorder/duplicate 26/26 plus outer-family round-trip 32/32,
 > an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -593,8 +600,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   task/socket snapshot. A deterministic 26/26 gate used MTU 1280 and three-second gap reordering in
   both directions on old path A, committed B while both 1350-byte records were incomplete, then
   completed both records through the bounded drain. Duplicate DATA_FRAG on active B remained
-  idempotent, with the same PID/TUN and no reconnect. Outer IPv4↔IPv6 transitions, deliberate
-  DATA_FRAG-loss live coverage, real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
+  idempotent, with the same PID/TUN and no reconnect. The Linux outer-family slice is complete too:
+  a deterministic dual-listener 32/32 gate moved one authenticated session IPv4 → IPv6 → IPv4,
+  retained the codec owner/PID/TUN, re-certified both directions at 1461 → 1341 → 1461, carried a
+  DATA_FRAG-sized packet, and removed the stale qeli-owned route after each commit. Continuous traffic
+  retained at least 245 of 260 probes without top-level reconnect. Deliberate DATA_FRAG-loss live
+  coverage, real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
@@ -611,8 +622,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   the IPv6 link-local scope). The COMMIT route primitive now preflights the complete address set before
   mutation: matching operator routes remain unclaimed, conflicting operator routes reject the commit,
   and only qeli-journalled routes may be replaced. Every add/replace is verified by an ordinary
-  source-aware FIB lookup; a later IPv4/IPv6 failure restores earlier routes in reverse order and
-  reconciles the ownership journal. Every TCP wire mode (`reality-tls`, `obfs`, `fake-tls`, `plain`)
+  source-aware FIB lookup; a later IPv4/IPv6 failure restores earlier routes in reverse order. Once
+  the new route is usable, COMMIT retires only previous qeli-owned carriers absent from the desired
+  family set; a retirement failure rolls back the new route and restores already retired routes and
+  journal ownership. Active pinning and generation-scoped A/AAAA discovery are separate: alternatives
+  remain eligible only for a future authenticated candidate transaction and never enter the active
+  bypass or bonded set early. Every TCP wire mode (`reality-tls`, `obfs`, `fake-tls`, `plain`)
   now creates a separate unbound candidate socket, receives BIND acknowledgement before connect, and
   uses only the first compatible address from that PathUpdate. After authenticated JOIN, COMMIT applies
   routes first and only then publishes the new pinned carrier-address set for later bonded streams. An
@@ -621,8 +636,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
   acceptance are complete. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
-  acceptance are complete. Outer-family PMTU transitions, deliberate DATA_FRAG-loss live coverage,
-  real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
+  acceptance plus the Linux IPv4↔IPv6 PMTU round-trip are complete. Deliberate DATA_FRAG-loss live
+  coverage, real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

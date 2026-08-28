@@ -359,11 +359,62 @@ fn rollback_candidate_route_steps(applied: &[CandidateRouteStep]) -> Vec<String>
 }
 
 #[cfg(feature = "experimental-roaming")]
+#[derive(Debug)]
+struct RetiredCarrierRoute {
+    undo: Vec<String>,
+    ipv6: bool,
+    previous: Vec<String>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn restore_retired_carrier_routes(retired: &[RetiredCarrierRoute]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for route in retired.iter().rev() {
+        let mut restore = Vec::new();
+        if route.ipv6 {
+            restore.push("-6".to_string());
+        }
+        restore.extend(["route".to_string(), "replace".to_string()]);
+        restore.extend(route.previous.iter().cloned());
+        match run_ip_owned(&restore, "could not restore retired carrier route") {
+            Ok(()) => note_created_owned(route.undo.clone()),
+            Err(error) => errors.push(error.to_string()),
+        }
+    }
+    errors
+}
+
+#[cfg(feature = "experimental-roaming")]
 impl LinuxPreparedPathRoutes {
     /// Atomically from qeli's ownership perspective: all conflicts are rejected before mutation,
     /// every applied route is verified through the ordinary (unforced) FIB, and any later failure
-    /// restores earlier qeli routes in reverse order.
-    pub(crate) fn commit(&self) -> anyhow::Result<()> {
+    /// restores earlier qeli routes in reverse order. After the candidate is usable, qeli-owned
+    /// host routes for the previous carrier are retired so another-family handover leaves exactly
+    /// the authenticated active bypass; operator-owned routes are never removed.
+    pub(crate) fn commit(&self, previous_carriers: &[IpAddr]) -> anyhow::Result<()> {
+        let desired = self
+            .routes
+            .iter()
+            .map(|route| route.remote)
+            .collect::<Vec<_>>();
+        let mut retire = Vec::new();
+        for remote in previous_carriers.iter().copied() {
+            if desired.contains(&remote) {
+                continue;
+            }
+            let undo = carrier_route_undo(remote);
+            if !created_by_us_owned(&undo) {
+                continue;
+            }
+            match exact_route_tokens(remote)? {
+                Some(previous) => retire.push(RetiredCarrierRoute {
+                    undo,
+                    ipv6: remote.is_ipv6(),
+                    previous,
+                }),
+                None => forget_created_owned(&undo),
+            }
+        }
         let mut steps = Vec::with_capacity(self.routes.len());
         for route in &self.routes {
             let undo = carrier_route_undo(route.remote);
@@ -450,6 +501,46 @@ impl LinuxPreparedPathRoutes {
                     message.push_str(&rollback_errors.join("; "));
                 }
                 anyhow::bail!(message);
+            }
+        }
+
+        let mut retired = Vec::with_capacity(retire.len());
+        for route in retire {
+            let output = std::process::Command::new("ip").args(&route.undo).output();
+            match output {
+                Ok(output) if output.status.success() => {
+                    forget_created_owned(&route.undo);
+                    retired.push(route);
+                }
+                Ok(output) if route_is_already_absent(&String::from_utf8_lossy(&output.stderr)) => {
+                    forget_created_owned(&route.undo);
+                }
+                Ok(output) => {
+                    let mut rollback_errors = restore_retired_carrier_routes(&retired);
+                    rollback_errors.extend(rollback_candidate_route_steps(&applied));
+                    let error = format!(
+                        "could not retire previous carrier route: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                    if rollback_errors.is_empty() {
+                        anyhow::bail!(error);
+                    }
+                    anyhow::bail!(
+                        "{error}; route rollback failed: {}",
+                        rollback_errors.join("; ")
+                    );
+                }
+                Err(error) => {
+                    let mut rollback_errors = restore_retired_carrier_routes(&retired);
+                    rollback_errors.extend(rollback_candidate_route_steps(&applied));
+                    if rollback_errors.is_empty() {
+                        anyhow::bail!("could not retire previous carrier route: {error}");
+                    }
+                    anyhow::bail!(
+                        "could not retire previous carrier route: {error}; route rollback failed: {}",
+                        rollback_errors.join("; ")
+                    );
+                }
             }
         }
         Ok(())
@@ -1747,10 +1838,31 @@ mod fault_injection {
             Self::new_with_route_show(tag, fail_on, stderr_text, Some("shown dev qtest"))
         }
 
+        #[cfg(feature = "experimental-roaming")]
+        fn new_with_route_show_cases(
+            tag: &str,
+            fail_on: &[&str],
+            stderr_text: &str,
+            route_show_cases: &[(&str, Option<&str>)],
+            route_show: Option<&str>,
+        ) -> Shim {
+            Self::build(tag, fail_on, stderr_text, route_show_cases, route_show)
+        }
+
         fn new_with_route_show(
             tag: &str,
             fail_on: &[&str],
             stderr_text: &str,
+            route_show: Option<&str>,
+        ) -> Shim {
+            Self::build(tag, fail_on, stderr_text, &[], route_show)
+        }
+
+        fn build(
+            tag: &str,
+            fail_on: &[&str],
+            stderr_text: &str,
+            route_show_cases: &[(&str, Option<&str>)],
             route_show: Option<&str>,
         ) -> Shim {
             let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
@@ -1772,6 +1884,13 @@ mod fault_injection {
             script.push_str(
                 "  *\"route get\"*) echo '1.2.3.4 via 10.0.0.254 dev eth0 src 10.0.0.5'; exit 0;;\n",
             );
+            for (pattern, result) in route_show_cases {
+                if let Some(result) = result {
+                    script.push_str(&format!("  *\"{pattern}\"*) echo '{result}'; exit 0;;\n"));
+                } else {
+                    script.push_str(&format!("  *\"{pattern}\"*) exit 0;;\n"));
+                }
+            }
             if let Some(route_show) = route_show {
                 script.push_str(&format!(
                     "  *\"route show\"*) echo '{route_show}'; exit 0;;\n"
@@ -2065,7 +2184,7 @@ mod fault_injection {
         let shim = Shim::new_with_route_show("candidate-add", &[], "", None);
         let prepared =
             prepare_candidate_path_routes_on(&prepared_candidate(), "qtest", "eth0").unwrap();
-        prepared.commit().unwrap();
+        prepared.commit(&[]).unwrap();
 
         let calls = shim.calls();
         assert!(calls.contains("route add 198.51.100.20 via 10.0.0.254 dev eth0 src 192.0.2.10"));
@@ -2086,7 +2205,7 @@ mod fault_injection {
         let shim = Shim::new("candidate-conflict", &[], "");
         let prepared =
             prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
-        let error = prepared.commit().unwrap_err().to_string();
+        let error = prepared.commit(&[]).unwrap_err().to_string();
         assert!(error.contains("operator-owned"));
 
         let calls = shim.calls();
@@ -2107,7 +2226,7 @@ mod fault_injection {
         let remote = "198.51.100.20".parse::<IpAddr>().unwrap();
         let prepared =
             prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
-        prepared.commit().unwrap();
+        prepared.commit(&[]).unwrap();
 
         let calls = shim.calls();
         assert!(!calls.contains(" route add "));
@@ -2129,7 +2248,7 @@ mod fault_injection {
         note_created_owned(carrier_route_undo(remote));
         let prepared =
             prepare_candidate_path_routes_on(&ipv4_candidate(), "qtest", "eth0").unwrap();
-        prepared.commit().unwrap();
+        prepared.commit(&[]).unwrap();
 
         assert!(shim
             .calls()
@@ -2149,11 +2268,110 @@ mod fault_injection {
         let first = "198.51.100.20".parse::<IpAddr>().unwrap();
         let prepared =
             prepare_candidate_path_routes_on(&prepared_candidate(), "qtest", "eth0").unwrap();
-        let error = prepared.commit().unwrap_err().to_string();
+        let error = prepared.commit(&[]).unwrap_err().to_string();
         assert!(error.contains("network unreachable"));
 
         let calls = shim.calls();
         assert!(calls.contains("route del 198.51.100.20"));
         assert!(!created_by_us_owned(&carrier_route_undo(first)));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    fn ipv6_candidate() -> PreparedPathCandidate {
+        let mut candidate = prepared_candidate();
+        candidate.update.local_addresses.remove(0);
+        candidate.update.resolved_addresses.remove(0);
+        candidate
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn family_commit_retires_the_previous_qeli_owned_carrier() {
+        let old = "198.51.100.20".parse::<IpAddr>().unwrap();
+        let new = "2001:db8::20".parse::<IpAddr>().unwrap();
+        let shim = Shim::new_with_route_show_cases(
+            "candidate-retire-family",
+            &[],
+            "",
+            &[
+                (
+                    "route show 198.51.100.20",
+                    Some("198.51.100.20 via 192.0.2.1 dev old0 src 192.0.2.2"),
+                ),
+                ("-6 route show 2001:db8::20", None),
+            ],
+            None,
+        );
+        note_created_owned(carrier_route_undo(old));
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv6_candidate(), "qtest", "eth0").unwrap();
+        prepared.commit(&[old]).unwrap();
+
+        let calls = shim.calls();
+        assert!(calls.contains("-6 route add 2001:db8::20"));
+        assert!(calls.contains("route del 198.51.100.20"));
+        assert!(!created_by_us_owned(&carrier_route_undo(old)));
+        assert!(created_by_us_owned(&carrier_route_undo(new)));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn family_commit_does_not_retire_an_operator_owned_previous_carrier() {
+        let old = "198.51.100.20".parse::<IpAddr>().unwrap();
+        let new = "2001:db8::20".parse::<IpAddr>().unwrap();
+        let shim = Shim::new_with_route_show_cases(
+            "candidate-keep-operator-family",
+            &[],
+            "",
+            &[
+                (
+                    "route show 198.51.100.20",
+                    Some("198.51.100.20 via 192.0.2.1 dev operator0 src 192.0.2.2"),
+                ),
+                ("-6 route show 2001:db8::20", None),
+            ],
+            None,
+        );
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv6_candidate(), "qtest", "eth0").unwrap();
+        prepared.commit(&[old]).unwrap();
+
+        let calls = shim.calls();
+        assert!(calls.contains("-6 route add 2001:db8::20"));
+        assert!(
+            !calls.contains("route del 198.51.100.20"),
+            "an operator-owned previous route must not be retired:\n{calls}"
+        );
+        assert!(!created_by_us_owned(&carrier_route_undo(old)));
+        assert!(created_by_us_owned(&carrier_route_undo(new)));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn failed_old_carrier_retirement_rolls_back_the_new_family() {
+        let old = "198.51.100.20".parse::<IpAddr>().unwrap();
+        let new = "2001:db8::20".parse::<IpAddr>().unwrap();
+        let shim = Shim::new_with_route_show_cases(
+            "candidate-retire-rollback",
+            &["route del 198.51.100.20"],
+            "RTNETLINK answers: operation not permitted",
+            &[
+                (
+                    "route show 198.51.100.20",
+                    Some("198.51.100.20 via 192.0.2.1 dev old0 src 192.0.2.2"),
+                ),
+                ("-6 route show 2001:db8::20", None),
+            ],
+            None,
+        );
+        note_created_owned(carrier_route_undo(old));
+        let prepared =
+            prepare_candidate_path_routes_on(&ipv6_candidate(), "qtest", "eth0").unwrap();
+        let error = prepared.commit(&[old]).unwrap_err().to_string();
+
+        assert!(error.contains("could not retire previous carrier route"));
+        assert!(shim.calls().contains("-6 route del 2001:db8::20"));
+        assert!(created_by_us_owned(&carrier_route_undo(old)));
+        assert!(!created_by_us_owned(&carrier_route_undo(new)));
     }
 }

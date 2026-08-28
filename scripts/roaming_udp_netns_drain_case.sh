@@ -43,10 +43,13 @@ run_drain_reorder_case() {
     "test \"\$(rule_packets $CLI_NS '--sport 4444' '1100:1280')\" -eq 0 && test \"\$(rule_packets $SRV_NS '--dport 4444' '1100:1280')\" -eq 0"
 
   ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
-  if wait_for 10 "grep -q 'UDP make-before-break committed candidate' $WORK/client.log"; then
+  # The observer intentionally requires two stable one-second samples. Give it a bounded five
+  # seconds; the independent pending-process and fragment-counter assertions below still prove
+  # that COMMIT happened before either delayed first fragment was released.
+  if wait_for 25 "grep -q 'UDP make-before-break committed candidate' $WORK/client.log"; then
     ok "path B committed while old DATA_FRAG records were incomplete"
   else
-    bad "path B did not commit before old fragment release"
+    bad "path B did not commit within the bounded observer window"
   fi
   check "both fragmented pings remain pending across commit" \
     "kill -0 '$DRAIN_UP_PID' && kill -0 '$DRAIN_DOWN_PID'"

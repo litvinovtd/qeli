@@ -8,6 +8,8 @@
 # uplink/downlink re-probes plus DATA_FRAG without replacing the session.
 # drain-reorder keeps authenticated fragments queued on old path A across commit, then verifies
 # deterministic reordering, bounded bidirectional receive drain, and duplicate DATA_FRAG on B.
+# family-switch moves one session IPv4 -> IPv6 -> IPv4 across distinct listeners, re-probes the
+# family-specific PMTU, and proves that active bypass routes remain exact.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -25,11 +27,12 @@ CLIENT_JOB_PID=
 PING_PID=
 DRAIN_UP_PID=
 DRAIN_DOWN_PID=
+NETNS_ETC=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch]" >&2
     exit 2
     ;;
 esac
@@ -69,6 +72,10 @@ cleanup() {
     if [ -n "$job_pid" ]; then wait "$job_pid" 2>/dev/null || true; fi
   done
   for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns del "$ns" 2>/dev/null; done
+  if [ -n "$NETNS_ETC" ]; then
+    rm -f "$NETNS_ETC/hosts"
+    rmdir "$NETNS_ETC" 2>/dev/null || true
+  fi
   sleep 0.2
 }
 trap cleanup EXIT
@@ -120,6 +127,28 @@ check "path A reaches the server" \
 check "path B reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.41.2.2 -c1 -W2 10.41.3.2"
 
+if [ "$CASE" = family-switch ]; then
+  ip netns exec "$CLI_NS" ip -6 addr add fd41:2::2/64 dev qru-b
+  ip netns exec "$RTR_NS" ip -6 addr add fd41:2::1/64 dev qru-br
+  ip netns exec "$RTR_NS" ip -6 addr add fd41:3::1/64 dev qru-sr
+  ip netns exec "$SRV_NS" ip -6 addr add fd41:3::2/64 dev qru-s
+  ip netns exec "$CLI_NS" ip link set qru-b mtu 1400
+  ip netns exec "$RTR_NS" ip link set qru-br mtu 1400
+  ip netns exec "$RTR_NS" sysctl -qw net.ipv6.conf.all.forwarding=1
+  # This case must have no alternative IPv4 default after A is withdrawn; otherwise the
+  # observer correctly selects the first A record on B instead of exercising another family.
+  ip netns exec "$CLI_NS" ip route del default via 10.41.2.1 dev qru-b metric 200
+  ip netns exec "$CLI_NS" ip route del default via 10.41.4.1 dev qru-c metric 300
+  ip netns exec "$SRV_NS" ip -6 route add default via fd41:3::1 dev qru-s
+  wait_for 50 "! ip netns exec $CLI_NS ip -6 -o addr show dev qru-b tentative | grep -q inet6 && ! ip netns exec $RTR_NS ip -6 -o addr show dev qru-br tentative | grep -q inet6 && ! ip netns exec $RTR_NS ip -6 -o addr show dev qru-sr tentative | grep -q inet6 && ! ip netns exec $SRV_NS ip -6 -o addr show dev qru-s tentative | grep -q inet6"
+  check "IPv6 candidate link reaches its router" \
+    "ip netns exec $CLI_NS ping -6 -I fd41:2::2 -c1 -W2 fd41:2::1"
+  check "IPv6 server link reaches the dual-stack listener address" \
+    "ip netns exec $RTR_NS ping -6 -I fd41:3::1 -c1 -W2 fd41:3::2"
+  check "IPv6 path B uses a narrower 1400-byte outer MTU" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1400 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1400"
+fi
+
 if [ "$CASE" = drain-reorder ]; then
   ip netns exec "$CLI_NS" ip link set qru-a mtu 1280
   ip netns exec "$RTR_NS" ip link set qru-ar mtu 1280
@@ -131,6 +160,20 @@ fi
 
 HEARTBEAT_ENABLED=true
 if [ "$CASE" = drain-reorder ]; then HEARTBEAT_ENABLED=false; fi
+
+SERVER_HOST=10.41.3.2
+EXTRA_LISTENER=
+if [ "$CASE" = family-switch ]; then
+  SERVER_HOST=roam-family.qeli.test
+  EXTRA_LISTENER='listen = [fd41:3::2]:4444'
+  NETNS_ETC="/etc/netns/$CLI_NS"
+  mkdir -p "$NETNS_ETC"
+  cp /etc/hosts "$NETNS_ETC/hosts"
+  {
+    echo '10.41.3.2 roam-family.qeli.test'
+    echo 'fd41:3::2 roam-family.qeli.test'
+  } >>"$NETNS_ETC/hosts"
+fi
 
 cat >"$WORK/server.conf" <<EOF
 [auth]
@@ -146,6 +189,7 @@ enabled = true
 bind.address = 0.0.0.0
 bind.port = 4444
 bind.transport = udp
+$EXTRA_LISTENER
 tun.name = qrus0
 tun.address = 10.89.0.1
 tun.mtu = 1400
@@ -170,9 +214,13 @@ ip netns exec "$SRV_NS" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log"
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnu | grep -q ':4444'" || bad "server did not listen"
 
+if [ "$CASE" = family-switch ]; then
+  check "server owns distinct IPv4 and IPv6 UDP listeners" \
+    "ip netns exec $SRV_NS ss -4 -lnu | grep -q '0.0.0.0:4444' && ip netns exec $SRV_NS ss -6 -lnu | grep -q '\[fd41:3::2\]:4444'"
+fi
 cat >"$WORK/client.conf" <<EOF
 [qeli]
-server = 10.41.3.2:4444
+server = $SERVER_HOST:4444
 proto = udp
 user = roam-user
 pass = roam-pass-1234
@@ -239,6 +287,11 @@ if [ "$CASE" = drain-reorder ]; then
   # shellcheck source=roaming_udp_netns_drain_case.sh
   . "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh"
   run_drain_reorder_case
+elif [ "$CASE" = family-switch ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=roaming_udp_netns_family_case.sh
+  . "$SCRIPT_DIR/roaming_udp_netns_family_case.sh"
+  run_family_switch_case
 elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"
