@@ -78,7 +78,7 @@ const UDP_CONTROL_REPORT_RESENDS: u8 = 3;
 /// PacketCodec framing/nonce/counter/tag/padding-trailer plus probe safety margin. This is
 /// used only to translate the existing inner-MTU-shaped probe into the independently tracked
 /// UDP payload budget that the probe actually certified.
-const UDP_RECORD_PROBE_OVERHEAD: usize = 48;
+const UDP_RECORD_PROBE_OVERHEAD: usize = crate::protocol::udp_frag::UDP_RECORD_PROBE_OVERHEAD;
 /// A widened mobile/Wi-Fi path should not remain pinned to the conservative startup budget
 /// for the lifetime of a long session. Re-probing is sparse and uses the one existing socket
 /// receive loop, so it neither creates a competing reader nor loses ordinary data records.
@@ -5713,28 +5713,7 @@ fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize, peer_is_ipv6: bool) -> 
         crate::config::server::MTU_MIN as i32
     }
     .clamp(crate::config::server::MTU_MIN as i32, ceiling);
-    // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet number.
-    // While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once the ceiling
-    // became record-sized the same ladder went straight from the ceiling to 1360, so a path that carries
-    // 9000 — an ordinary jumbo LAN, which is exactly who configures a large MTU — was certified
-    // at 1360 and lost ~85% of its frame. These rungs cost nothing on a normal path: they are
-    // all above a 1500 ceiling and the filter below drops them.
-    //
-    // The set is a COMPROMISE, not an exact answer: probing fixed rungs certifies the best rung
-    // that FITS, not the path's real maximum, so a 7000-byte path lands on 6000. Closing that
-    // needs a binary search between the highest failing rung and the best passing one — worth
-    // doing, and deliberately not smuggled in here, since it changes the probe's control flow
-    // in all four ports. (Audit 2026-08-01, §8.)
-    let mut ladder: Vec<i32> = [
-        ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500, 1360, 1320, 1280, 1200, 1100, 1000,
-        900, 800, 700, floor,
-    ]
-    .into_iter()
-    .filter(|&m| (floor..=ceiling).contains(&m))
-    .collect();
-    ladder.sort_unstable_by(|a, b| b.cmp(a));
-    ladder.dedup();
-    ladder
+    crate::protocol::udp_frag::mtu_probe_ladder(ceiling, floor)
 }
 
 #[cfg(test)]

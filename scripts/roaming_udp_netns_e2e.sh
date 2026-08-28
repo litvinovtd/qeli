@@ -4,7 +4,8 @@
 # rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
 # commit-race changes to C while the platform is still committing B; loss-replay drops the first
 # PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover;
-# pmtu moves to a narrower B and verifies independent uplink/downlink re-probes plus DATA_FRAG.
+# pmtu moves to a narrower B; pmtu-asym narrows only server-to-client. Both verify independent
+# uplink/downlink re-probes plus DATA_FRAG without replacing the session.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -22,9 +23,9 @@ CLIENT_JOB_PID=
 PING_PID=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym]" >&2
     exit 2
     ;;
 esac
@@ -207,7 +208,7 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-if [ "$CASE" = pmtu ]; then
+if [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"
   else
@@ -222,12 +223,21 @@ if [ "$CASE" = pmtu ]; then
     's/.*UDP path probe: inner MTU [0-9][0-9]*, uplink UDP payload budget \([0-9][0-9]*\).*/\1/p' \
     "$WORK/client.log" | head -n1)
 
-  # The original path remains at MTU 1500; B is deliberately narrower in both directions.
-  # The inner TUN remains 1400 and therefore must rely on DATA_FRAG after handover.
-  ip netns exec "$CLI_NS" ip link set qru-b mtu 1280
-  ip netns exec "$RTR_NS" ip link set qru-br mtu 1280
-  check "candidate path B has a 1280-byte bidirectional outer MTU" \
-    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1280 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1280"
+  # A veth pair cannot model independent directional MTUs reliably: the smaller peer can also
+  # constrain reverse xmit. Keep both ends at 1500 and blackhole only oversized S2C UDP packets.
+  if [ "$CASE" = pmtu-asym ]; then
+    ip netns exec "$CLI_NS" ip link set qru-b mtu 1500
+    ip netns exec "$RTR_NS" ip link set qru-br mtu 1500
+    ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-sr -o qru-br \
+      -p udp --sport 4444 -m length --length 1281:65535 -j DROP
+    check "candidate path B has C2S 1500 and a directional S2C 1280 blackhole" \
+      "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1500 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1500 && ip netns exec $RTR_NS iptables -C FORWARD -i qru-sr -o qru-br -p udp --sport 4444 -m length --length 1281:65535 -j DROP"
+  else
+    ip netns exec "$CLI_NS" ip link set qru-b mtu 1280
+    ip netns exec "$RTR_NS" ip link set qru-br mtu 1280
+    check "candidate path B has a 1280-byte bidirectional outer MTU" \
+      "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1280 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1280"
+  fi
 
   ip netns exec "$CLI_NS" ping -n -i 0.2 -c 180 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
   PING_PID=$!
@@ -253,12 +263,21 @@ if [ "$CASE" = pmtu ]; then
   ROAMED_DOWNLINK=$(sed -n \
     's/.*client at 10\.41\.2\.2:[0-9][0-9]* reverse-probe certified UDP downlink budget \([0-9][0-9]*\) bytes.*/\1/p' \
     "$WORK/server.log" | tail -n1)
-  check "narrow path reduced the certified uplink budget" \
-    "test -n '$INITIAL_UPLINK' && test -n '$ROAMED_UPLINK' && test '$ROAMED_UPLINK' -lt '$INITIAL_UPLINK' && test '$ROAMED_UPLINK' -gt 548"
-  check "both PMTU directions certified the same 1280-byte path ceiling" \
-    "test -n '$ROAMED_DOWNLINK' && test '$ROAMED_DOWNLINK' = '$ROAMED_UPLINK'"
-  check "large inner packet survives through DATA_FRAG on narrow path" \
-    "ip netns exec $CLI_NS ping -M do -s 1350 -c5 -W2 10.89.0.1"
+  if [ "$CASE" = pmtu-asym ]; then
+    check "wide C2S retained its original certified uplink budget" \
+      "test -n '$INITIAL_UPLINK' && test -n '$ROAMED_UPLINK' && test '$ROAMED_UPLINK' = '$INITIAL_UPLINK'"
+    check "narrow S2C independently certified below the uplink budget" \
+      "test -n '$ROAMED_DOWNLINK' && test '$ROAMED_DOWNLINK' -lt '$ROAMED_UPLINK' && test '$ROAMED_DOWNLINK' -gt 548"
+    check "large S2C inner packet survives through DATA_FRAG on the narrow direction" \
+      "ip netns exec $SRV_NS ping -M do -s 1350 -c5 -W2 10.89.0.2"
+  else
+    check "narrow path reduced the certified uplink budget" \
+      "test -n '$INITIAL_UPLINK' && test -n '$ROAMED_UPLINK' && test '$ROAMED_UPLINK' -lt '$INITIAL_UPLINK' && test '$ROAMED_UPLINK' -gt 548"
+    check "both PMTU directions certified the same 1280-byte path ceiling" \
+      "test -n '$ROAMED_DOWNLINK' && test '$ROAMED_DOWNLINK' = '$ROAMED_UPLINK'"
+    check "large inner packet survives through DATA_FRAG on narrow path" \
+      "ip netns exec $CLI_NS ping -M do -s 1350 -c5 -W2 10.89.0.1"
+  fi
   check "inner TUN MTU remains 1400 after outer PMTU reset" \
     "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/mtu)\" = 1400"
   check "carrier bypass ends on narrow path B" \

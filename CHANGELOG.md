@@ -124,7 +124,16 @@
   Изолированный Linux netns gate прошёл 19/19: epoch-zero uplink/downlink сертифицировали 1461 байт,
   после commit пути MTU 1280 оба направления независимо пересертифицировали 1161 байт, внутренний TUN
   сохранил MTU 1400, а ping payload 1350 прошёл через DATA_FRAG без замены PID/TUN и без reconnect.
-  Асимметричный PMTU, IPv4↔IPv6 и реальные устройства остаются отдельными gate.
+  IPv4↔IPv6 и реальные устройства остаются отдельными gate.
+- Серверный reverse PMTU больше не остаётся на conservative budget 548, когда S2C уже сообщённого
+  клиентом C2S. Uplink и downlink теперь используют один ladder из protocol core; сервер держит один
+  exact pending marker на всём спуске и последовательно пробует меньшие rungs после `EMSGSIZE` или
+  timeout. Точный ACK завершает scheduler, смена epoch/peer отменяет его, duplicate budget-report не
+  создаёт параллельную последовательность.
+- Асимметричный Linux IPv4 netns gate прошёл 19/19: при C2S 1500 и одностороннем S2C blackhole 1280
+  uplink сохранил budget 1461, downlink независимо сертифицировал 1161, reverse ping payload 1350
+  прошёл через DATA_FRAG, PID/TUN и сессия сохранились без reconnect. Симметричный PMTU gate повторно
+  прошёл 19/19; остальные UDP roaming gates также зелёные.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

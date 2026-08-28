@@ -151,6 +151,30 @@ pub const MSG_MTU_PROBE_V2: u8 = 7;
 pub const MSG_MTU_PROBE_ACK_V2: u8 = 8;
 /// V2 reverse-probe body: `token(16 LE) + outer_size(2 LE)`.
 pub const PROBE_V2_BODY_LEN: usize = 18;
+/// PacketCodec framing/nonce/counter/tag/padding-trailer plus the probe safety margin.
+/// Both directions use the same inner-shaped PMTU ladder and translate it to an outer UDP
+/// payload budget with this allowance.
+pub(crate) const UDP_RECORD_PROBE_OVERHEAD: usize = 48;
+
+/// Build the shared descending inner-shaped PMTU ladder between an already-derived floor and
+/// ceiling. Callers account for their exact seal/CID/UDP/IP overhead when deriving the floor and
+/// when translating a certified rung back to a UDP payload budget.
+pub(crate) fn mtu_probe_ladder(ceiling: i32, floor: i32) -> Vec<i32> {
+    let floor = floor.clamp(crate::config::server::MTU_MIN as i32, ceiling);
+    // Fixed rungs are intentionally conservative: they certify the best known rung that fits,
+    // not the path's exact maximum. Keeping this list in the protocol core prevents client uplink
+    // and server downlink probing from silently choosing different ceilings on asymmetric paths.
+    let mut ladder: Vec<i32> = [
+        ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500, 1360, 1320, 1280, 1200, 1100, 1000,
+        900, 800, 700, floor,
+    ]
+    .into_iter()
+    .filter(|&candidate| (floor..=ceiling).contains(&candidate))
+    .collect();
+    ladder.sort_unstable_by(|left, right| right.cmp(left));
+    ladder.dedup();
+    ladder
+}
 
 /// True if `d` (a datagram payload, after obfs/QUIC unwrap) is a qeli handshake
 /// fragment. Lets a backward-compatible peer tell fragments from a legacy single

@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v20-linux-udp-pmtu -->
+<!-- normative-sync: roaming-v21-linux-udp-asymmetric-pmtu -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -37,15 +37,16 @@
 > Детерминированный control-loss-сценарий прошёл 18/18: firewall counters подтвердили потерю ровно
 > первого PATH_CHALLENGE и первого PATH_COMMIT, свежие PATH_INIT/PATH_RESPONSE восстановили оба
 > обмена, а сервер повторил PATH_COMMIT без второй публикации пути и без reconnect.
-> Linux IPv4 roaming PMTU-срез прошёл 19/19. Bare probes и ACK теперь обрабатываются после точной
+> Оба Linux IPv4 roaming PMTU-среза прошли по 19/19. Bare probes и ACK обрабатываются после точной
 > классификации committed CID/epoch/socket/peer, а не отбрасываются как не прошедшие AEAD records.
-> Переход с carrier MTU 1500 на MTU 1280 независимо пересертифицировал uplink и downlink budgets
-> с 1461 до 1161 байта, сохранил внутренний TUN MTU 1400 и передал payload 1350 байт через DATA_FRAG
-> без замены PID/TUN и без reconnect.
-> Текущие lab gates: 951 feature library tests при трёх ignored, 871 default tests при
+> Симметричный переход MTU 1500 → 1280 независимо пересертифицировал оба направления с 1461 до
+> 1161 байта, сохранил внутренний TUN MTU 1400 и передал payload 1350 байт через DATA_FRAG.
+> В асимметричном gate C2S 1500 / S2C 1280 uplink остался 1461, сервер спустился по общему PMTU ladder
+> и сертифицировал downlink 1161; reverse DATA_FRAG, PID/TUN и сессия сохранились.
+> Текущие lab gates: 952 feature library tests при трёх ignored, 871 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
-> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19,
+> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -757,7 +758,7 @@ epoch отклоняются, а candidate DATA не становится active
 сервер уже переключился к моменту получения PATH_COMMIT, любая локальная ошибка после него
 fail-closed завершает actor для полного reconnect, а не оставляет ложный старый путь. Focused-тест
 фиксирует переход receive-классификации candidate → active и отказ старой epoch; strict default и
-feature Clippy, default suite 871 passed/1 ignored и feature suite 951 passed/3 ignored проходят.
+feature Clippy, default suite 871 passed/1 ignored и feature suite 952 passed/3 ignored проходят.
 
 `UDP_ROAM_V1` теперь включается только в `experimental-roaming` для точного UDP+QUIC handshake,
 когда сервер рекламирует тот же бит, а платформа даёт полный `ROAMING_PATH`. Generic TCP, UDP без
@@ -777,15 +778,17 @@ Linux in-process executor сериализует emit/consume/OS mutation, по�
 однократными commit, неизменными PID/TUN и без reconnect. Первый packet-loss-срез также завершён:
 fixed-length firewall gate отбросил ровно первые PATH_CHALLENGE и PATH_COMMIT, свежие зашифрованные
 повторы восстановили оба обмена, а live gate 18/18 сохранил PID/TUN и опубликовал один commit.
-Симметричный Linux IPv4 PMTU-срез также завершён. Negotiated bare PMTU-control обрабатывается до
-PacketCodec decode только после разрешения directional CID в сессию и точного совпадения committed
-epoch, receiving socket и peer; candidate-путь по-прежнему принимает только authenticated PATH-control.
-На epoch 0 оба направления сертифицировали payload budget 1461 байт. После commit двунаправленного
-carrier MTU 1280 оба направления сбросились до 548 и независимо пересертифицировали 1161 байт.
-Внутренний TUN сохранил MTU 1400, payload 1350 байт прошёл через DATA_FRAG. Промежуточные ступени
-IPv4 ladder устраняют прежний провал сразу с 1200 до 576.
-До rollout остаются packet-level deliberate delay/duplicate/reorder, асимметричные C2S/S2C ceilings,
-outer IPv4↔IPv6 transitions, real-device NAT rebinding и soak.
+Симметричный и асимметричный Linux IPv4 PMTU-срезы завершены. Negotiated bare PMTU-control
+обрабатывается до PacketCodec decode только после разрешения directional CID в сессию и точного
+совпадения committed epoch, receiving socket и peer; candidate-путь по-прежнему принимает только
+authenticated PATH-control. На epoch 0 оба направления сертифицировали payload budget 1461 байт.
+Двунаправленный carrier MTU 1280 пересертифицировал оба направления до 1161, сохранил внутренний
+TUN MTU 1400 и передал payload 1350 через DATA_FRAG. В асимметричном gate C2S остался 1461, а
+S2C-only blackhole 1280 заставил сервер спуститься по тому же общему ladder до 1161; reverse payload
+1350 прошёл через DATA_FRAG. Один exact pending marker удерживается на всём спуске, поэтому duplicate
+report не запускает второй scheduler, а смена epoch/peer отменяет старый.
+До rollout остаются packet-level deliberate delay/duplicate/reorder, outer IPv4↔IPv6 transitions,
+real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -811,10 +814,10 @@ commit, а `replace` разрешён только для маршрута из 
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
-остаются асимметричный/family-transition live PMTU, deliberate packet delay/duplicate/reorder,
+остаются outer-family live PMTU transitions, deliberate packet delay/duplicate/reorder,
 native adapters и soak.
 
-- Linux UDP deliberate delay/duplicate/reorder, asymmetric/family-transition PMTU,
+- Linux UDP deliberate delay/duplicate/reorder, outer-family PMTU transitions,
   real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
@@ -875,7 +878,7 @@ native adapters и soak.
 - live probe не забирает data datagram;
 - stale ACK не расширяет новый путь;
 - reset IPv4→IPv6 и IPv6→IPv4;
-- asymmetric C2S/S2C PMTU;
+- asymmetric C2S/S2C PMTU — ✅ Linux IPv4 netns; IPv6/family transitions remain;
 - fragments в момент drain;
 - reorder/loss/duplicate/conflict/expiry;
 - неизменный inner TUN MTU при DATA_FRAG_V1.

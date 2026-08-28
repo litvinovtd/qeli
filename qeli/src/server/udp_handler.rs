@@ -476,6 +476,37 @@ fn sanitized_udp_payload_budget(reported: u16, outer_ipv6: bool, wire_wrapper_le
     )
 }
 
+fn downlink_mtu_probe_budgets(
+    reported: u16,
+    peer_is_ipv6: bool,
+    obfs_overhead: usize,
+    framing: UdpEgressFraming,
+) -> Vec<usize> {
+    let wrapper_overhead = obfs_overhead + framing.wrapper_len();
+    let target = sanitized_udp_payload_budget(reported, peer_is_ipv6, wrapper_overhead);
+    let record_overhead = crate::protocol::udp_frag::UDP_RECORD_PROBE_OVERHEAD + wrapper_overhead;
+    let ceiling = i32::try_from(target.saturating_sub(record_overhead)).unwrap_or(i32::MAX);
+    if ceiling < crate::config::server::MTU_MIN as i32 {
+        return vec![target];
+    }
+    let outer_overhead = record_overhead + 8 + if peer_is_ipv6 { 40 } else { 20 };
+    let floor = if peer_is_ipv6 {
+        (1280 - outer_overhead as i32).max(crate::config::server::MTU_MIN as i32)
+    } else {
+        crate::config::server::MTU_MIN as i32
+    }
+    .clamp(crate::config::server::MTU_MIN as i32, ceiling);
+    crate::protocol::udp_frag::mtu_probe_ladder(ceiling, floor)
+        .into_iter()
+        .filter_map(|candidate| {
+            usize::try_from(candidate)
+                .ok()
+                .and_then(|inner| inner.checked_add(record_overhead))
+        })
+        .filter(|budget| *budget <= target)
+        .collect()
+}
+
 fn note_certified_udp_payload_budget(
     active_egress: &UdpActiveEgress,
     cell: &std::sync::atomic::AtomicU32,
@@ -628,7 +659,7 @@ async fn schedule_downlink_mtu_probe(
     reported: u16,
     obfs_key: Option<[u8; 32]>,
 ) {
-    let (expected, packet, local_addr, probe_peer, pending_probe) = {
+    let (flights, local_addr, probe_peer, pending_probe, active_egress) = {
         let mut guard = sessions.write().await;
         let Some(client) = guard.get_mut(&addr) else {
             return;
@@ -650,12 +681,18 @@ async fn schedule_downlink_mtu_probe(
         if egress.peer != addr {
             return;
         }
-        let target = sanitized_udp_payload_budget(
+        let targets = downlink_mtu_probe_budgets(
             reported,
             egress.peer.is_ipv6(),
-            egress.wire_wrapper_len(),
-        );
-        if budget_cell.load(std::sync::atomic::Ordering::Relaxed) as usize >= target {
+            egress.socket.seal_overhead(),
+            egress.framing,
+        )
+        .into_iter()
+        .filter(|target| {
+            (budget_cell.load(std::sync::atomic::Ordering::Relaxed) as usize) < *target
+        })
+        .collect::<Vec<_>>();
+        if targets.is_empty() {
             return;
         }
         let mut pending = lock_or_recover(&client.downlink_mtu_probe, "udp::downlink_probe");
@@ -665,25 +702,34 @@ async fn schedule_downlink_mtu_probe(
         {
             return;
         }
-        let token: u128 = rand::random();
-        let packet_number = client
-            .packet_counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let Some((packet, payload_size)) = build_downlink_mtu_probe(
-            token,
-            target,
-            egress.socket.seal_overhead(),
-            egress.framing,
-            packet_number,
-        ) else {
+        let flights = targets
+            .into_iter()
+            .filter_map(|target| {
+                let token: u128 = rand::random();
+                let packet_number = client
+                    .packet_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (packet, payload_size) = build_downlink_mtu_probe(
+                    token,
+                    target,
+                    egress.socket.seal_overhead(),
+                    egress.framing,
+                    packet_number,
+                )?;
+                Some((
+                    DownlinkMtuProbe {
+                        path_epoch: egress.path_epoch,
+                        peer: egress.peer,
+                        token,
+                        payload_size,
+                        udp_payload_budget: u32::try_from(target).ok()?,
+                    },
+                    packet,
+                ))
+            })
+            .collect::<Vec<_>>();
+        let Some((first, _)) = flights.first() else {
             return;
-        };
-        let expected = DownlinkMtuProbe {
-            path_epoch: egress.path_epoch,
-            peer: egress.peer,
-            token,
-            payload_size,
-            udp_payload_budget: target as u32,
         };
         let local_addr = match egress.socket.raw_socket().local_addr() {
             Ok(value) => value,
@@ -695,44 +741,75 @@ async fn schedule_downlink_mtu_probe(
                 return;
             }
         };
-        *pending = Some(expected);
+        *pending = Some(*first);
         drop(pending);
         (
-            expected,
-            packet,
+            flights,
             local_addr,
             egress.peer,
             client.downlink_mtu_probe.clone(),
+            active_egress.clone(),
         )
     };
 
     let profile_name = profile_name.to_string();
-    let budget_cell = budget_cell.clone();
     tasks.spawn(async move {
-        let send_result = send_downlink_mtu_probe(local_addr, probe_peer, &packet, obfs_key);
-        if send_result.is_ok() {
-            tokio::time::sleep(DOWNLINK_MTU_PROBE_TIMEOUT).await;
+        let mut previous = None;
+        for (expected, packet) in flights {
+            let egress = active_egress.snapshot();
+            if egress.path_epoch != expected.path_epoch || egress.peer != expected.peer {
+                let mut pending =
+                    lock_or_recover(&pending_probe, "udp::downlink_probe_path_changed");
+                if previous.is_some_and(|value| *pending == Some(value))
+                    || (previous.is_none() && *pending == Some(expected))
+                {
+                    *pending = None;
+                }
+                return;
+            }
+            {
+                let mut pending =
+                    lock_or_recover(&pending_probe, "udp::downlink_probe_next_rung");
+                match previous {
+                    None if *pending != Some(expected) => return,
+                    Some(value) if *pending != Some(value) => return,
+                    Some(_) => *pending = Some(expected),
+                    None => {}
+                }
+            }
+
+            let send_result =
+                send_downlink_mtu_probe(local_addr, probe_peer, &packet, obfs_key);
+            if send_result.is_ok() {
+                tokio::time::sleep(DOWNLINK_MTU_PROBE_TIMEOUT).await;
+            }
+            let unanswered = {
+                let pending = lock_or_recover(&pending_probe, "udp::downlink_probe_timeout");
+                *pending == Some(expected)
+            };
+            if !unanswered {
+                // An exact ACK cleared the pending marker and certified this rung, or a newer
+                // path transaction invalidated the sequence. Either way this scheduler is done.
+                return;
+            }
+            if let Err(error) = send_result {
+                log::debug!(
+                    "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe send failed at {} bytes: {error}",
+                    expected.udp_payload_budget
+                );
+            } else {
+                log::debug!(
+                    "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe timed out at {} bytes",
+                    expected.udp_payload_budget
+                );
+            }
+            previous = Some(expected);
         }
-        let cleared = {
-            let mut pending = lock_or_recover(&pending_probe, "udp::downlink_probe_timeout");
+        if let Some(expected) = previous {
+            let mut pending = lock_or_recover(&pending_probe, "udp::downlink_probe_exhausted");
             if *pending == Some(expected) {
                 *pending = None;
-                true
-            } else {
-                false
             }
-        };
-        if let Err(error) = send_result {
-            log::debug!(
-                "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe send failed: {error}"
-            );
-        } else if cleared
-            && budget_cell.load(std::sync::atomic::Ordering::Relaxed) < expected.udp_payload_budget
-        {
-            log::debug!(
-                "UDP {probe_peer} on profile '{profile_name}': reverse PMTU probe timed out at {} bytes",
-                expected.udp_payload_budget
-            );
         }
     });
 }
@@ -5477,6 +5554,30 @@ mod tests {
             sanitized_udp_payload_budget(u16::MAX, false, 13),
             max_useful_udp_payload_budget(13),
             "an authenticated client still cannot make the server emit a useless 64K probe"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "experimental-roaming")]
+    fn reverse_probe_ladder_can_certify_a_narrower_downlink_than_reported_uplink() {
+        let framing = UdpEgressFraming::RoamingQuic([9; 8]);
+        let budgets = super::downlink_mtu_probe_budgets(1461, false, 0, framing);
+        assert_eq!(budgets.first().copied(), Some(1461));
+        let highest_fitting = budgets
+            .iter()
+            .copied()
+            .find(|budget| budget + 8 + 20 <= 1280)
+            .expect("the IPv4 floor fits");
+        assert_eq!(highest_fitting, 1161);
+        assert!(budgets.windows(2).all(|pair| pair[0] > pair[1]));
+
+        let ipv6 = super::downlink_mtu_probe_budgets(1461, true, 0, framing);
+        assert_eq!(
+            ipv6.last().copied(),
+            Some(crate::protocol::data_frag::conservative_udp_payload_budget(
+                true
+            )),
+            "the final IPv6 rung must exactly fit the 1280-byte path minimum"
         );
     }
 
