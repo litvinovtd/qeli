@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using Qeli.Shared.Vpn;
 
 namespace QeliWin.Vpn;
 
@@ -22,15 +23,20 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly List<OwnedRoute> _ownedRoutes = new();
     private string? _dnsAlias;
 
-    private sealed class OwnedRoute
+    internal sealed class OwnedRoute
     {
         public required string Network { get; init; }
         public required int Prefix { get; init; }
+        public required uint InterfaceIndex { get; init; }
+        public string? NextHop { get; init; }
+        public bool ServerCarrier { get; init; }
         public required string Description { get; init; }
         public required Func<bool> Delete { get; init; }
         public bool Active { get; set; } = true;
+        public required Func<bool> Restore { get; init; }
     }
 
+    internal sealed record RouteKey(string Network, int Prefix, uint InterfaceIndex, string? NextHop);
     /// <summary>
     /// Network setup steps that FAILED but did not abort the connect. These used to be
     /// swallowed by `optional: true` while the log still printed the success line and the
@@ -126,13 +132,15 @@ public sealed class NetworkConfigurator : IDisposable
         return null;
     }
 
-    private sealed record RoutePath(uint InterfaceIndex, IPAddress? Gateway, IPAddress? Source);
+    private sealed record RoutePath(
+        uint InterfaceIndex, IPAddress? Gateway, IPAddress? Source, uint Metric);
 
     /// <summary>Ask the Windows routing stack for the complete selected path. Unlike
     /// GetBestInterfaceEx + "first gateway on that NIC", GetBestRoute2 returns the actual
     /// next-hop chosen for this destination and correctly represents on-link routes with an
     /// unspecified next-hop.</summary>
-    private static RoutePath? BestRouteFor(IPAddress destination, IPAddress? source = null)
+    private static RoutePath? BestRouteFor(
+        IPAddress destination, IPAddress? source = null, uint interfaceIndex = 0)
     {
         IntPtr dst = Marshal.AllocHGlobal(SockaddrInetSize);
         IntPtr src = source == null ? IntPtr.Zero : Marshal.AllocHGlobal(SockaddrInetSize);
@@ -149,13 +157,14 @@ public sealed class NetworkConfigurator : IDisposable
                 Clear(src, SockaddrInetSize);
                 WriteSockaddr(src, 0, source);
             }
-            if (GetBestRoute2(IntPtr.Zero, 0, src, dst, 0, row, bestSource) != 0)
+            if (GetBestRoute2(IntPtr.Zero, interfaceIndex, src, dst, 0, row, bestSource) != 0)
                 return null;
             uint ifIndex = unchecked((uint)Marshal.ReadInt32(row, OffIfIndex));
             IPAddress? nextHop = ReadSockaddr(row, OffNextHopFamily);
             if (nextHop != null && IsUnspecified(nextHop)) nextHop = null;
             IPAddress? selectedSource = ReadSockaddr(bestSource, 0);
-            return ifIndex == 0 ? null : new RoutePath(ifIndex, nextHop, selectedSource);
+            uint metric = unchecked((uint)Marshal.ReadInt32(row, OffMetric));
+            return ifIndex == 0 ? null : new RoutePath(ifIndex, nextHop, selectedSource, metric);
         }
         catch { return null; }
         finally
@@ -175,6 +184,269 @@ public sealed class NetworkConfigurator : IDisposable
             : (path.Gateway, path.InterfaceIndex);
     }
 
+    /// <summary>Capture a bounded physical path while the tunnel's old host routes still
+    /// exist. Each GetBestRoute2 query is constrained to one live non-Qeli interface, so an
+    /// old /32 or /128 pin cannot hide a newly available Ethernet/Wi-Fi path.</summary>
+    internal static NativePathUpdate CaptureRoamingPath(
+        IReadOnlyList<IPAddress> carrierAddresses,
+        ulong generation,
+        ulong updateId,
+        string reason)
+    {
+        if (carrierAddresses.Count == 0)
+            throw new InvalidOperationException("roaming has no last-known carrier addresses");
+        var locals = new List<(uint index, string token, IPAddress address)>();
+        foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (adapter.OperationalStatus != OperationalStatus.Up
+                || adapter.NetworkInterfaceType is NetworkInterfaceType.Loopback
+                    or NetworkInterfaceType.Tunnel)
+                continue;
+            string searchable = (adapter.Name + " " + adapter.Description).ToLowerInvariant();
+            if (searchable.Contains("qeli") || searchable.Contains("wintun")
+                || searchable.Contains("windivert") || searchable.Contains("utun"))
+                continue;
+            IPInterfaceProperties properties;
+            try { properties = adapter.GetIPProperties(); }
+            catch { continue; }
+            foreach (UnicastIPAddressInformation item in properties.UnicastAddresses)
+            {
+                IPAddress address = item.Address.IsIPv4MappedToIPv6
+                    ? item.Address.MapToIPv4() : item.Address;
+                if (!UsablePhysicalAddress(address)) continue;
+                int signedIndex;
+                try
+                {
+                    signedIndex = address.AddressFamily == AddressFamily.InterNetwork
+                        ? properties.GetIPv4Properties()?.Index ?? -1
+                        : properties.GetIPv6Properties()?.Index ?? -1;
+                }
+                catch { continue; }
+                if (signedIndex > 0)
+                    locals.Add((unchecked((uint)signedIndex), adapter.Id, address));
+            }
+        }
+
+        var choices = new List<(uint index, string token, IPAddress source,
+            IPAddress remote, uint metric)>();
+        foreach (var local in locals)
+        foreach (IPAddress remote in carrierAddresses)
+        {
+            if (local.address.AddressFamily != remote.AddressFamily) continue;
+            RoutePath? path = BestRouteFor(remote, local.address, local.index);
+            if (path == null || path.InterfaceIndex != local.index
+                || path.Source == null || !path.Source.Equals(local.address))
+                continue;
+            choices.Add((local.index, local.token, local.address, remote, path.Metric));
+        }
+        var selected = choices
+            .OrderBy(item => item.metric)
+            .ThenBy(item => item.index)
+            .ThenBy(item => item.remote.ToString(), StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (selected.index == 0)
+            throw new InvalidOperationException(
+                "Windows found no live physical interface that can route a carrier address");
+
+        List<string> selectedLocals = OrderPathLocalAddresses(
+            locals.Where(item => item.index == selected.index)
+                .Select(item => item.address).Distinct(),
+            selected.source);
+        return new NativePathUpdate
+        {
+            Generation = generation,
+            UpdateId = updateId,
+            PlatformPathId = $"windows-if:{selected.index}:{selected.token}",
+            Reason = reason,
+            NetworkToken = selected.token,
+            InterfaceIndex = selected.index,
+            LocalAddresses = selectedLocals,
+            ResolvedAddresses = carrierAddresses
+                .Distinct()
+                .OrderBy(item => item.Equals(selected.remote) ? 0 : 1)
+                .ThenBy(item => item.ToString(), StringComparer.Ordinal)
+                .Select(item => new NativePathResolution
+                {
+                    Address = item.ToString(),
+                    TtlSecs = 0,
+                })
+                .ToList(),
+            Flags = new NativePathFlags
+            {
+                DefaultRouteChanged = reason is "network_changed" or "default_route_changed",
+                Wake = reason == "wake",
+                SameNetworkNatFailure = reason == "same_network_nat_failure",
+            },
+        };
+    }
+
+    private static List<string> OrderPathLocalAddresses(
+        IEnumerable<IPAddress> addresses, IPAddress selectedSource) =>
+        addresses
+            .OrderBy(address => address.Equals(selectedSource) ? 0 : 1)
+            .ThenBy(address => address.ToString(), StringComparer.Ordinal)
+            .Select(address => address.ToString())
+            .ToList();
+
+    private static bool UsablePhysicalAddress(IPAddress address) =>
+        address.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6
+        && !address.Equals(IPAddress.Any) && !address.Equals(IPAddress.IPv6Any)
+        && !address.Equals(IPAddress.Broadcast) && !IPAddress.IsLoopback(address)
+        && !address.IsIPv6Multicast && !address.IsIPv6LinkLocal
+        && (address.AddressFamily != AddressFamily.InterNetworkV6 || address.ScopeId == 0);
+
+    /// <summary>Exact temporary host routes created by one native candidate. The rows stay
+    /// outside the session ownership list until COMMIT, so ABORT cannot touch any other route.</summary>
+    internal sealed class RoamingRouteLease
+    {
+        private readonly NetworkConfigurator _owner;
+        internal readonly HashSet<RouteKey> _desired;
+        internal readonly List<OwnedRoute> _created;
+        private bool _finished;
+        internal bool _rollbackUnsafe;
+
+        internal RoamingRouteLease(NetworkConfigurator owner,
+            HashSet<RouteKey> desired, List<OwnedRoute> created)
+        {
+            _owner = owner;
+            _desired = desired;
+            _created = created;
+        }
+
+        internal void Commit()
+        {
+            if (_finished) throw new InvalidOperationException("roaming route lease is already finished");
+            _owner.CommitRoamingRoutes(this);
+            _finished = true;
+        }
+
+        internal void Abort()
+        {
+            if (_finished) return;
+            var failures = new List<string>();
+            foreach (OwnedRoute route in _created.AsEnumerable().Reverse())
+            {
+                if (!route.Active) continue;
+                try
+                {
+                    if (!_owner.DeleteOwnedRoute(route)) failures.Add(route.Description);
+                }
+                catch { failures.Add(route.Description); }
+            }
+            if (_rollbackUnsafe || failures.Count != 0)
+                throw new InvalidOperationException("roaming route rollback is incomplete"
+                    + (failures.Count == 0 ? "" : $": {string.Join(", ", failures)}"));
+            _finished = true;
+        }
+    }
+
+    internal RoamingRouteLease PrepareRoamingRoutes(NativePathUpdate path)
+    {
+        uint ifIndex = path.InterfaceIndex
+            ?? throw new InvalidOperationException("Windows roaming path has no interface index");
+        var locals = path.LocalAddresses.Select(IPAddress.Parse).ToArray();
+        var remotes = path.ResolvedAddresses.Select(item => IPAddress.Parse(item.Address)).ToArray();
+        var desired = new HashSet<RouteKey>();
+        var created = new List<OwnedRoute>();
+        try
+        {
+            foreach (IPAddress remote in remotes)
+            {
+                IPAddress? local = locals.FirstOrDefault(item => item.AddressFamily == remote.AddressFamily);
+                if (local == null) continue;
+                RoutePath? route = BestRouteFor(remote, local, ifIndex);
+                if (route == null || route.InterfaceIndex != ifIndex
+                    || route.Source == null || !route.Source.Equals(local))
+                    continue;
+                int prefix = remote.AddressFamily == AddressFamily.InterNetwork ? 32 : 128;
+                desired.Add(KeyFor(remote, prefix, ifIndex, route.Gateway));
+                var (result, row) = TryCreateRouteApi(remote, prefix, ifIndex, route.Gateway);
+                OwnedRoute? owned = null;
+                if (result == RouteApiResult.Created)
+                {
+                    byte[] exact = row!;
+                    owned = MakeOwnedRoute(remote, prefix, ifIndex, route.Gateway, true,
+                        $"roaming candidate route {remote}",
+                        () => TryDeleteRouteApi(exact), () => TryRestoreRouteApi(exact));
+                }
+                else if (result == RouteApiResult.Failed)
+                {
+                    if (route.Gateway == null)
+                        throw new InvalidOperationException(
+                            $"on-link roaming route {remote} on interface {ifIndex} was not programmed");
+                    bool ipv6 = remote.AddressFamily == AddressFamily.InterNetworkV6;
+                    string add = ipv6
+                        ? $"-6 add {remote}/128 {route.Gateway} metric 1 if {ifIndex}"
+                        : $"add {remote} mask 255.255.255.255 {route.Gateway} metric 1 if {ifIndex}";
+                    string delete = ipv6
+                        ? $"-6 delete {remote}/128 {route.Gateway} if {ifIndex}"
+                        : $"delete {remote} mask 255.255.255.255 {route.Gateway} if {ifIndex}";
+                    if (!Run("route", add, optional: true))
+                        throw new InvalidOperationException($"roaming route {remote} was not programmed");
+                    owned = MakeOwnedRoute(remote, prefix, ifIndex, route.Gateway, true,
+                        $"roaming candidate route {remote}",
+                        () => Run("route", delete, optional: true),
+                        () => Run("route", add, optional: true));
+                }
+                if (owned != null) created.Add(owned);
+            }
+            if (desired.Count == 0)
+                throw new InvalidOperationException("roaming path has no family-compatible carrier route");
+            _log($"Prepared {desired.Count} roaming carrier route(s) on interface {ifIndex}");
+            return new RoamingRouteLease(this, desired, created);
+        }
+        catch (Exception prepareError)
+        {
+            var rollbackFailures = new List<Exception>();
+            foreach (OwnedRoute route in created.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    if (!DeleteOwnedRoute(route))
+                        rollbackFailures.Add(new InvalidOperationException(route.Description));
+                }
+                catch (Exception error) { rollbackFailures.Add(error); }
+            }
+            if (rollbackFailures.Count != 0)
+            {
+                rollbackFailures.Insert(0, prepareError);
+                throw new AggregateException("roaming route PREPARE and rollback both failed",
+                    rollbackFailures);
+            }
+            throw;
+        }
+    }
+
+    private void CommitRoamingRoutes(RoamingRouteLease lease)
+    {
+        OwnedRoute[] stale = _ownedRoutes.Where(route => route.Active && route.ServerCarrier
+            && !lease._desired.Contains(KeyFor(route))).ToArray();
+        var removed = new List<OwnedRoute>();
+        try
+        {
+            foreach (OwnedRoute route in stale)
+            {
+                if (!DeleteOwnedRoute(route))
+                    throw new InvalidOperationException($"could not remove {route.Description}");
+                removed.Add(route);
+            }
+        }
+        catch (Exception deleteError)
+        {
+            var restoreFailures = new List<string>();
+            foreach (OwnedRoute route in removed.AsEnumerable().Reverse())
+                if (!RestoreOwnedRoute(route)) restoreFailures.Add(route.Description);
+            lease._rollbackUnsafe = restoreFailures.Count != 0;
+            throw new InvalidOperationException($"could not commit roaming routes ({deleteError.Message})"
+                + (restoreFailures.Count == 0 ? "" :
+                    $"; old-route restore failed: {string.Join(", ", restoreFailures)}"), deleteError);
+        }
+        _ownedRoutes.RemoveAll(route => !route.Active);
+        _ownedRoutes.AddRange(lease._created);
+        lease._created.Clear();
+        _log($"Committed roaming routes; removed {stale.Length} stale Qeli carrier route(s)");
+    }
+
     /// <summary>Pin a /32 or /128 host route to the VPN server through the physical gateway so
     /// the encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
     public void PinServerRoute(IPAddress serverIp, IPAddress? gateway, uint physicalIfIndex)
@@ -189,7 +461,9 @@ public sealed class NetworkConfigurator : IDisposable
         int prefix = v6 ? 128 : 32;
         var (result, row) = TryCreateRouteApi(serverIp, prefix, physicalIfIndex, gateway);
         if (result == RouteApiResult.Created)
-            OwnRoute(serverIp, prefix, $"server route {s}", () => TryDeleteRouteApi(row!));
+            OwnRoute(serverIp, prefix, $"server route {s}", () => TryDeleteRouteApi(row!),
+                () => TryRestoreRouteApi(row!), physicalIfIndex, gateway,
+                serverCarrier: true);
         else if (result == RouteApiResult.Failed)
         {
             if (gateway == null)
@@ -201,7 +475,9 @@ public sealed class NetworkConfigurator : IDisposable
             Run("route", add);
             OwnRoute(serverIp, prefix, $"server route {s}", () => Run("route", v6
                 ? $"-6 delete {s}/128 {gateway} if {physicalIfIndex}"
-                : $"delete {s} mask 255.255.255.255 {gateway} if {physicalIfIndex}", optional: true));
+                : $"delete {s} mask 255.255.255.255 {gateway} if {physicalIfIndex}", optional: true),
+                () => Run("route", add, optional: true), physicalIfIndex, gateway,
+                serverCarrier: true);
         }
         _log(result == RouteApiResult.AlreadyExists
             ? $"Preserving an existing exact server route {s} on interface {physicalIfIndex}"
@@ -522,12 +798,14 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (result, row) = TryCreateRouteApi(address, prefix, ifIndex, nextHop);
         if (result == RouteApiResult.Created)
-            OwnRoute(address, prefix, description, () => TryDeleteRouteApi(row!));
+            OwnRoute(address, prefix, description, () => TryDeleteRouteApi(row!),
+                () => TryRestoreRouteApi(row!), ifIndex, nextHop);
         else if (result == RouteApiResult.Failed && fallbackAdd != null && fallbackDelete != null &&
                  Run("route", fallbackAdd, optional: true))
         {
             OwnRoute(address, prefix, description,
-                () => Run("route", fallbackDelete, optional: true));
+                () => Run("route", fallbackDelete, optional: true),
+                () => Run("route", fallbackAdd, optional: true), ifIndex, nextHop);
             result = RouteApiResult.Created;
         }
         return result;
@@ -556,6 +834,16 @@ public sealed class NetworkConfigurator : IDisposable
         {
             int rc = InvokeRouteApi(create: false, row);
             return rc is 0 or 1168;
+        }
+        catch { return false; }
+    }
+
+    private static bool TryRestoreRouteApi(byte[] row)
+    {
+        try
+        {
+            int rc = InvokeRouteApi(create: true, row);
+            return rc is 0 or 5010;
         }
         catch { return false; }
     }
@@ -633,22 +921,50 @@ public sealed class NetworkConfigurator : IDisposable
     private static bool IsUnspecified(IPAddress address) =>
         address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any);
 
-    private void OwnRoute(IPAddress address, int prefix, string description, Func<bool> delete)
+    private static OwnedRoute MakeOwnedRoute(
+        IPAddress address, int prefix, uint ifIndex, IPAddress? nextHop,
+        bool serverCarrier, string description, Func<bool> delete, Func<bool> restore)
     {
-        _ownedRoutes.Add(new OwnedRoute
+        return new OwnedRoute
         {
             Network = NetworkAddress(address, prefix).ToString(),
             Prefix = prefix,
+            InterfaceIndex = ifIndex,
+            NextHop = nextHop?.ToString(),
+            ServerCarrier = serverCarrier,
             Description = description,
             Delete = delete,
-        });
+            Restore = restore,
+        };
     }
+
+    private void OwnRoute(IPAddress address, int prefix, string description,
+        Func<bool> delete, Func<bool> restore, uint ifIndex, IPAddress? nextHop,
+        bool serverCarrier = false)
+    {
+        _ownedRoutes.Add(MakeOwnedRoute(address, prefix, ifIndex, nextHop,
+            serverCarrier, description, delete, restore));
+    }
+
+    private static RouteKey KeyFor(IPAddress address, int prefix, uint ifIndex, IPAddress? nextHop) =>
+        new(NetworkAddress(address, prefix).ToString(), prefix, ifIndex, nextHop?.ToString());
+
+    private static RouteKey KeyFor(OwnedRoute route) =>
+        new(route.Network, route.Prefix, route.InterfaceIndex, route.NextHop);
 
     private bool DeleteOwnedRoute(OwnedRoute route)
     {
         if (!route.Active) return true;
         if (!route.Delete()) return false;
         route.Active = false;
+        return true;
+    }
+
+    private static bool RestoreOwnedRoute(OwnedRoute route)
+    {
+        if (route.Active) return true;
+        if (!route.Restore()) return false;
+        route.Active = true;
         return true;
     }
 
@@ -927,6 +1243,14 @@ public sealed class NetworkConfigurator : IDisposable
 
     internal static void RunRouteLifecycleSelfTest(Action<string, bool> check)
     {
+        IPAddress selectedSource = IPAddress.Parse("192.0.2.20");
+        List<string> orderedSources = OrderPathLocalAddresses(new[]
+        {
+            IPAddress.Parse("192.0.2.10"), selectedSource, IPAddress.Parse("2001:db8::10"),
+        }, selectedSource);
+        check("roaming path: GetBestRoute2 selected source stays first for BIND",
+            orderedSources.SequenceEqual(new[] { "192.0.2.20", "192.0.2.10", "2001:db8::10" }));
+
         byte[] row = BuildRouteRow(
             IPAddress.Parse("2001:db8:20::beef"), 64, 37,
             new IPAddress(IPAddress.Parse("fe80::1").GetAddressBytes(), 37));
@@ -956,6 +1280,73 @@ public sealed class NetworkConfigurator : IDisposable
                 nextHop != null && IsUnspecified(nextHop));
         }
         finally { Marshal.FreeHGlobal(native); }
+
+        int oldSameDeletes = 0;
+        int oldStaleDeletes = 0;
+        int oldStaleRestores = 0;
+        int candidateDeletes = 0;
+        var leaseOwner = new NetworkConfigurator(_ => { });
+        OwnedRoute oldSame = MakeOwnedRoute(IPAddress.Parse("203.0.113.10"), 32, 12,
+            IPAddress.Parse("192.0.2.1"), true, "same server route",
+            () => { oldSameDeletes++; return true; }, () => true);
+        OwnedRoute oldStale = MakeOwnedRoute(IPAddress.Parse("203.0.113.10"), 32, 7,
+            IPAddress.Parse("198.51.100.1"), true, "stale server route",
+            () => { oldStaleDeletes++; return true; },
+            () => { oldStaleRestores++; return true; });
+        OwnedRoute candidate = MakeOwnedRoute(IPAddress.Parse("2001:db8::10"), 128, 12,
+            IPAddress.Parse("2001:db8::1"), true, "candidate server route",
+            () => { candidateDeletes++; return true; }, () => true);
+        leaseOwner._ownedRoutes.Add(oldSame);
+        leaseOwner._ownedRoutes.Add(oldStale);
+        var desired = new HashSet<RouteKey> { KeyFor(oldSame), KeyFor(candidate) };
+        var lease = new RoamingRouteLease(
+            leaseOwner, desired, new List<OwnedRoute> { candidate });
+        lease.Commit();
+        check("roaming routes: COMMIT preserves matching Qeli route and removes stale exact row",
+            oldSameDeletes == 0 && oldStaleDeletes == 1 && oldStaleRestores == 0
+            && leaseOwner._ownedRoutes.Contains(oldSame)
+            && leaseOwner._ownedRoutes.Contains(candidate));
+        leaseOwner.Dispose();
+        check("roaming routes: committed candidate transfers to disconnect cleanup",
+            oldSameDeletes == 1 && candidateDeletes == 1);
+
+        int abortDeletes = 0;
+        int unrelatedDeletes = 0;
+        var abortOwner = new NetworkConfigurator(_ => { });
+        OwnedRoute unrelated = MakeOwnedRoute(IPAddress.Parse("198.51.100.20"), 32, 4,
+            IPAddress.Parse("198.51.100.1"), true, "unrelated server route",
+            () => { unrelatedDeletes++; return true; }, () => true);
+        OwnedRoute abortedCandidate = MakeOwnedRoute(IPAddress.Parse("203.0.113.20"), 32, 8,
+            IPAddress.Parse("192.0.2.1"), true, "aborted candidate route",
+            () => { abortDeletes++; return true; }, () => true);
+        abortOwner._ownedRoutes.Add(unrelated);
+        var abortLease = new RoamingRouteLease(abortOwner,
+            new HashSet<RouteKey> { KeyFor(abortedCandidate) },
+            new List<OwnedRoute> { abortedCandidate });
+        abortLease.Abort();
+        check("roaming routes: ABORT removes only candidate-owned exact rows",
+            abortDeletes == 1 && unrelatedDeletes == 0 && unrelated.Active);
+        abortOwner.Dispose();
+        check("roaming routes: unrelated Qeli route remains owned after candidate ABORT",
+            unrelatedDeletes == 1);
+
+        int restored = 0;
+        OwnedRoute rollbackOne = MakeOwnedRoute(IPAddress.Parse("203.0.113.30"), 32, 5,
+            IPAddress.Parse("192.0.2.1"), true, "rollback one",
+            () => true, () => { restored++; return true; });
+        OwnedRoute rollbackFailure = MakeOwnedRoute(IPAddress.Parse("203.0.113.31"), 32, 6,
+            IPAddress.Parse("192.0.2.1"), true, "rollback failure",
+            () => false, () => true);
+        var rollbackOwner = new NetworkConfigurator(_ => { });
+        rollbackOwner._ownedRoutes.Add(rollbackOne);
+        rollbackOwner._ownedRoutes.Add(rollbackFailure);
+        var rollbackLease = new RoamingRouteLease(rollbackOwner,
+            new HashSet<RouteKey>(), new List<OwnedRoute>());
+        bool commitRejected = false;
+        try { rollbackLease.Commit(); }
+        catch (InvalidOperationException) { commitRejected = true; }
+        check("roaming routes: failed COMMIT restores already removed old routes",
+            commitRejected && restored == 1 && rollbackOne.Active && rollbackFailure.Active);
     }
 
     /// <summary>Collect an already-exited child's pipe text without ever blocking

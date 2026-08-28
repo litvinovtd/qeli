@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Qeli.Shared.Model;
 using Qeli.Shared.Vpn;
 
@@ -11,6 +12,29 @@ public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
     private bool _useWinDivert;
+    private readonly Dictionary<ulong, RoamingObservation> _roamingObservations = new();
+    private readonly Dictionary<ulong, RoamingCandidate> _roamingCandidates = new();
+
+    private sealed record RoamingObservation(
+        ulong Generation,
+        string PathIdentity,
+        VpnConfig Config,
+        string[] CarrierAddresses);
+
+    private sealed class RoamingCandidate
+    {
+        public required ulong Generation { get; init; }
+        public required ulong CandidateId { get; init; }
+        public required ulong UpdateId { get; init; }
+        public required string PathIdentity { get; init; }
+        public required VpnConfig Config { get; init; }
+        public required string[] OldCarriers { get; init; }
+        public required string[] NewCarriers { get; init; }
+        public required string[] UnionCarriers { get; init; }
+        public required string[] PolicyCarriers { get; set; }
+        public NetworkConfigurator.RoamingRouteLease? Routes { get; init; }
+        public bool Bound { get; set; }
+    }
 
     // Normal profiles keep the zero-copy Rust-owned Wintun path. Per-app profiles use
     // WinDivert as an IPacketTunDevice, so the shared ABI 1.11 packet pumps connect it to
@@ -25,6 +49,231 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override ulong NativeIpv6Capabilities(VpnConfig config) =>
         NativeIpv6SystemPlanCapabilities | NativeIpv6KillSwitchCapability;
+
+    // A fixed source address/port is an explicit user routing contract. Candidate sockets
+    // are deliberately left on reconnect fallback until the Rust candidate factory can
+    // preserve that exact bind. Every ordinary TCP and UDP transport shares this path.
+    protected override ulong NativeRoamingCapabilities(VpnConfig config) =>
+        AllowsNativePathRoaming(config)
+            ? NativeRoamingPathCapabilities | NativePathRefreshCapability
+            : 0;
+
+    internal static bool AllowsNativePathRoaming(VpnConfig config) =>
+        string.IsNullOrWhiteSpace(config.LocalAddress) && config.LocalPort == 0;
+
+    internal static void RunRoamingCapabilitySelfTest(Action<string, bool> check)
+    {
+        var ordinaryProfiles = new[]
+        {
+            new VpnConfig { Protocol = "tcp", WireMode = "fake-tls" },
+            new VpnConfig { Protocol = "udp", WireMode = "fake-tls" },
+            new VpnConfig { Protocol = "udp", WireMode = "fake-tls", QuicEnabled = true },
+            new VpnConfig { Protocol = "udp", WireMode = "obfs" },
+        };
+        check("Native path roaming covers TCP and every UDP camouflage mode",
+            ordinaryProfiles.All(AllowsNativePathRoaming));
+        check("Fixed local address or port stays on reconnect fallback",
+            !AllowsNativePathRoaming(new VpnConfig { LocalAddress = "192.0.2.10" })
+            && !AllowsNativePathRoaming(new VpnConfig { LocalPort = 41000 }));
+    }
+
+    protected override NativePathUpdate? CaptureNativeRoamingPath(VpnConfig config,
+        IReadOnlyList<string> carrierAddresses, ulong generation, ulong updateId, string reason)
+    {
+        IPAddress[] carriers = carrierAddresses
+            .Select(IPAddress.Parse)
+            .Distinct()
+            .ToArray();
+        NativePathUpdate update = NetworkConfigurator.CaptureRoamingPath(
+            carriers, generation, updateId, reason);
+        if (_roamingObservations.Count >= 16)
+            _roamingObservations.Remove(_roamingObservations.Keys.Min());
+        _roamingObservations[updateId] = new RoamingObservation(
+            generation, PathIdentity(update), config,
+            carriers.Select(item => item.ToString()).ToArray());
+        return update;
+    }
+
+    protected override void ApplyNativeRoamingCommand(NativePathCommand command)
+    {
+        switch (command.Action)
+        {
+            case "prepare_path": PrepareRoamingCandidate(command); break;
+            case "bind_socket": BindRoamingCandidate(command); break;
+            case "commit_path": CommitRoamingCandidate(command); break;
+            case "abort_path": AbortRoamingCandidate(command); break;
+            default: throw new InvalidOperationException(
+                $"unsupported Windows roaming action {command.Action}");
+        }
+    }
+
+    protected override void ResetNativeRoamingPath()
+    {
+        var failures = new List<string>();
+        foreach (RoamingCandidate candidate in _roamingCandidates.Values.ToArray())
+        {
+            try
+            {
+                AbortCandidate(candidate);
+                _roamingCandidates.Remove(candidate.CandidateId);
+            }
+            catch (Exception error) { failures.Add(error.Message); }
+        }
+        _roamingObservations.Clear();
+        if (failures.Count != 0)
+            throw new InvalidOperationException(
+                "Windows roaming cleanup failed: " + string.Join("; ", failures));
+    }
+
+    private void PrepareRoamingCandidate(NativePathCommand command)
+    {
+        if (_roamingCandidates.Count != 0 || _roamingCandidates.ContainsKey(command.CandidateId))
+            throw new InvalidOperationException("another Windows roaming candidate is already active");
+        if (!_roamingObservations.TryGetValue(command.Path.UpdateId, out var observation)
+            || observation.Generation != command.Generation
+            || observation.PathIdentity != PathIdentity(command.Path))
+            throw new InvalidOperationException("Windows roaming PREPARE does not match an observation");
+
+        string[] next = command.Path.ResolvedAddresses
+            .Select(item => IPAddress.Parse(item.Address).ToString())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        string[] union = observation.CarrierAddresses.Concat(next)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        NetworkConfigurator.RoamingRouteLease? routes = null;
+        if (_useWinDivert)
+        {
+            if (_tun is not WinDivertAdapter)
+                throw new InvalidOperationException("WinDivert roaming adapter is not active");
+        }
+        else
+        {
+            routes = (_net ?? throw new InvalidOperationException(
+                "Windows network configurator is not active")).PrepareRoamingRoutes(command.Path);
+        }
+
+        var candidate = new RoamingCandidate
+        {
+            Generation = command.Generation,
+            CandidateId = command.CandidateId,
+            UpdateId = command.Path.UpdateId,
+            PathIdentity = observation.PathIdentity,
+            Config = observation.Config,
+            OldCarriers = observation.CarrierAddresses,
+            NewCarriers = next,
+            UnionCarriers = union,
+            PolicyCarriers = observation.CarrierAddresses,
+            Routes = routes,
+        };
+        try
+        {
+            SetCandidatePolicy(candidate, union);
+        }
+        catch (Exception setupError)
+        {
+            var rollbackFailures = new List<Exception>();
+            try { routes?.Abort(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            try { SetCandidatePolicy(candidate, candidate.OldCarriers); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            if (rollbackFailures.Count != 0)
+            {
+                rollbackFailures.Insert(0, setupError);
+                throw new AggregateException(
+                    "Windows roaming PREPARE and rollback both failed", rollbackFailures);
+            }
+            throw;
+        }
+        _roamingCandidates.Add(command.CandidateId, candidate);
+        Log($"Windows roaming PREPARE {command.CandidateId}: interface "
+            + $"{command.Path.InterfaceIndex}, carriers {string.Join(", ", union)}");
+    }
+
+    private void BindRoamingCandidate(NativePathCommand command)
+    {
+        RoamingCandidate candidate = GetCandidate(command);
+        if (candidate.Bound)
+            throw new InvalidOperationException("Windows roaming candidate socket is already bound");
+        uint ifIndex = command.Path.InterfaceIndex
+            ?? throw new InvalidOperationException("Windows roaming BIND has no interface index");
+        long socket = command.SocketHandle
+            ?? throw new InvalidOperationException("Windows roaming BIND has no socket handle");
+        WindowsRoamingSocket.Bind(socket, ifIndex,
+            command.Path.LocalAddresses.Select(IPAddress.Parse).ToArray());
+        candidate.Bound = true;
+        Log($"Windows roaming BIND {command.CandidateId}: SOCKET {socket} -> if {ifIndex}");
+    }
+
+    private void CommitRoamingCandidate(NativePathCommand command)
+    {
+        RoamingCandidate candidate = GetCandidate(command);
+        if (!candidate.Bound)
+            throw new InvalidOperationException("Windows roaming COMMIT arrived before BIND");
+        SetCandidatePolicy(candidate, candidate.NewCarriers);
+        try { candidate.Routes?.Commit(); }
+        catch (Exception routeError)
+        {
+            try { SetCandidatePolicy(candidate, candidate.UnionCarriers); }
+            catch (Exception policyError)
+            {
+                throw new AggregateException(
+                    "Windows roaming route commit and policy rollback both failed",
+                    routeError, policyError);
+            }
+            throw;
+        }
+        _roamingCandidates.Remove(candidate.CandidateId);
+        _roamingObservations.Remove(candidate.UpdateId);
+        Log($"Windows roaming COMMIT {candidate.CandidateId}: "
+            + string.Join(", ", candidate.NewCarriers));
+    }
+
+    private void AbortRoamingCandidate(NativePathCommand command)
+    {
+        RoamingCandidate candidate = GetCandidate(command);
+        AbortCandidate(candidate);
+        _roamingCandidates.Remove(candidate.CandidateId);
+        _roamingObservations.Remove(candidate.UpdateId);
+        Log($"Windows roaming ABORT {candidate.CandidateId}");
+    }
+
+    private void AbortCandidate(RoamingCandidate candidate)
+    {
+        var failures = new List<Exception>();
+        try { candidate.Routes?.Abort(); }
+        catch (Exception error) { failures.Add(error); }
+        try { SetCandidatePolicy(candidate, candidate.OldCarriers); }
+        catch (Exception error) { failures.Add(error); }
+        if (failures.Count != 0)
+            throw new AggregateException("Windows roaming rollback failed", failures);
+    }
+
+    private RoamingCandidate GetCandidate(NativePathCommand command)
+    {
+        if (!_roamingCandidates.TryGetValue(command.CandidateId, out var candidate)
+            || candidate.Generation != command.Generation
+            || candidate.PathIdentity != PathIdentity(command.Path))
+            throw new InvalidOperationException("Windows roaming command is stale or mismatched");
+        return candidate;
+    }
+
+    private void SetCandidatePolicy(RoamingCandidate candidate, string[] next)
+    {
+        if (_tun is WinDivertAdapter divert)
+        {
+            divert.SetCarrierAddresses(next.Select(IPAddress.Parse),
+                candidate.Config.Port, candidate.Config.Protocol);
+        }
+        else if (EgressGuardEngaged)
+        {
+            KillSwitch.UpdateServerAddresses(candidate.PolicyCarriers, next, Log);
+        }
+        candidate.PolicyCarriers = next;
+    }
+
+    private static string PathIdentity(NativePathUpdate path) =>
+        JsonSerializer.Serialize(path);
 
     protected override void PrepareTransport(VpnConfig config) =>
         _useWinDivert = config.UsesAppFilter;
@@ -498,15 +747,28 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        Exception? roamingCleanupError = null;
+        try { ResetNativeRoamingPath(); }
+        catch (Exception error) { roamingCleanupError = error; }
         // Retry here if the pre-dispose restore failed; CleanupPlatform exceptions are
         // surfaced by the shared lifecycle instead of claiming a clean disconnect.
-        RestoreIpForwarding();
-        // A firewall rule may still name an unconsumed adapter after a partial engage.
-        // Keep that alias alive until KillSwitchDisengage has removed the rule.
-        if (!EgressGuardEngaged) DisposeUnusedPrewarm();
-        var network = _net;
-        network?.Dispose();
-        if (ReferenceEquals(_net, network)) _net = null;
+        try
+        {
+            RestoreIpForwarding();
+            // A firewall rule may still name an unconsumed adapter after a partial engage.
+            // Keep that alias alive until KillSwitchDisengage has removed the rule.
+            if (!EgressGuardEngaged) DisposeUnusedPrewarm();
+            var network = _net;
+            network?.Dispose();
+            if (ReferenceEquals(_net, network)) _net = null;
+        }
+        catch (Exception platformError) when (roamingCleanupError != null)
+        {
+            throw new AggregateException(
+                "Windows roaming and platform cleanup both failed",
+                roamingCleanupError, platformError);
+        }
+        if (roamingCleanupError != null) throw roamingCleanupError;
     }
 
     // Firewall kill-switch (full-tunnel only). Allow the Wintun adapter by its

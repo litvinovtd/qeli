@@ -686,6 +686,27 @@ internal static class WinDivertSelfTest
                 retained.LeakPolicyForSelfTest() == (true, true));
             check("persisted per-app plan refreshes app selection mode",
                 retained.AppPolicyForSelfTest() == (1, false));
+
+            retained.SetTunnelUp(true);
+            var beforeCarrierSwap = retained.CarrierStateForSelfTest();
+            retained.SetCarrierAddresses(new[]
+            {
+                IPAddress.Parse("203.0.113.11"),
+                IPAddress.Parse("203.0.113.12"),
+                IPAddress.Parse("2001:db8::12"),
+            }, 443, "tcp");
+            var preparedCarriers = retained.CarrierStateForSelfTest();
+            retained.SetCarrierAddresses(
+                new[] { IPAddress.Parse("203.0.113.12") }, 443, "tcp");
+            var committedCarrier = retained.CarrierStateForSelfTest();
+            check("roaming per-app PREPARE exposes the old/new carrier union",
+                preparedCarriers.addresses == "2001:db8::12,203.0.113.11,203.0.113.12");
+            check("roaming per-app COMMIT narrows the carrier allow-set",
+                committedCarrier.addresses == "203.0.113.12");
+            check("roaming per-app carrier swaps preserve flows and tunnel-up generation",
+                preparedCarriers.generation == beforeCarrierSwap.generation
+                && committedCarrier.generation == beforeCarrierSwap.generation
+                && preparedCarriers.tunnelUp && committedCarrier.tunnelUp);
         }
 
         // Elevated NativeLoader path is ProgramData when admin (document-only check of

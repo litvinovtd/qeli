@@ -50,6 +50,8 @@ public static class CliRunner
 
         Console.WriteLine("qeli-win platform self-test");
         WinDivertSelfTest.RunUnit(Check);
+        WindowsRoamingSocket.RunSelfTest(Check);
+        VpnTunnel.RunRoamingCapabilitySelfTest(Check);
         NetworkConfigurator.RunDnsLifecycleSelfTest(Check);
         NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
 

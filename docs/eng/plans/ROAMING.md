@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v32-desktop-path-contract -->
+<!-- normative-sync: roaming-v33-windows-path-executor -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -30,8 +30,8 @@
 > the same PID/TUN without entering top-level reconnect. A three-path supersede scenario passed 24/24:
 > blackholed B emitted PATH_INIT, then the platform executed `ABORT(B) → PREPARE(C)`, the actor
 > discarded the old socket before retry expiry, and the server saw challenge/commit only on C with
-> exactly one published commit. PID/TUN and traffic survived without reconnect. Windows/macOS/iOS
-> adapters and Phases 4–6 remain. A deterministic commit-race scenario passed 24/24: after server
+> exactly one published commit. PID/TUN and traffic survived without reconnect. The Windows C# path
+> executor is now source-complete; its device/race acceptance, macOS/iOS adapters, and Phases 4–6 remain. A deterministic commit-race scenario passed 24/24: after server
 > PATH_COMMIT(B), local COMMIT(B) route mutation was delayed while the detector observed C, but the
 > serialized executor prevented C from cancelling or overtaking B. B's exact ACK/publication completed
 > before PREPARE(C), after which C committed exactly once; PID/TUN and traffic survived without reconnect.
@@ -79,17 +79,23 @@
 > NetworkPlan, process/TUN replacement or reconnect. The Android `Network` handle remained
 > unchanged and tunnel ping passed 5/5 before and after migration in every mode. Real-device
 > NAT-rebinding remains a separate gate.
-> The shared feature core is now Windows socket-handle ready: `PATH_COMMAND` carries a borrowed
-> signed 64-bit Unix descriptor or Windows `SOCKET`, while native TCP candidate dialing and the
-> common UDP migration actor both compile on Windows. Windows path capabilities remain disabled
-> until the C# route, kill-switch and `IP_UNICAST_IF` executor passes device/race acceptance.
-> The shared C# adapter now has the ABI 1.12/1.13 path-update/result bindings and a strict,
-> bounded JSON contract for PREPARE/BIND/COMMIT/ABORT and no-payload PATH_REFRESH events.
-> Conformance tests reject unknown fields, stale generations and incompatible address families,
-> and preserve Windows socket values wider than `Int32`. The shared and Windows desktop projects
-> build without warnings and the complete managed conformance suite passes. No desktop client
-> advertises a path capability yet; this slice cannot change runtime reconnect behavior before the
-> OS executor and its device/race gates are complete.
+> The shared feature core is Windows socket-handle ready: `PATH_COMMAND` carries a borrowed signed
+> 64-bit Unix descriptor or Windows `SOCKET`, while native TCP candidate dialing and the common UDP
+> migration actor both compile on Windows. The shared C# adapter implements the optional ABI
+> 1.12/1.13 path-update/result bindings and a strict bounded JSON contract for correlated
+> PREPARE/BIND/COMMIT/ABORT and no-payload PATH_REFRESH events. Conformance tests reject unknown
+> fields, stale generations and incompatible address families, and preserve Windows socket values
+> wider than `Int32`.
+> The Windows C# adapter now executes the serialized path transaction. PREPARE installs only
+> exact-interface, exact-source `/32` or `/128` candidate routes and expands the kill switch and
+> WinDivert carrier allow-set to old+new. BIND applies `IP_UNICAST_IF`/`IPV6_UNICAST_IF` to the
+> borrowed 64-bit `SOCKET` and binds the selected local address before the Rust core connects it.
+> COMMIT transfers the candidate routes into session cleanup, removes only stale Qeli-owned carrier
+> rows, and narrows policy to the new path; ABORT removes candidate state and restores the old path.
+> Ordinary TCP and every supported UDP camouflage profile share this executor. Explicit `local` or
+> `lport`, a default/old core, or an unsupported peer retain the existing reconnect fallback.
+> Shared and Windows desktop builds and managed route/socket/policy self-tests pass without warnings.
+> Windows real-device, race, kill-switch and soak acceptance remains required before rollout.
 > Current lab gates pass 961 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
@@ -406,7 +412,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Android enables `ROAMING_PATH` for feature TCP and all UDP modes, and advertises
   `PATH_REFRESH` only when an ABI 1.13 core exposes the matching core capability.
-  Windows/macOS/iOS keep both path capabilities disabled until Phase 4 device/race acceptance.
+  Windows advertises both path capabilities for ordinary profiles when the feature core exposes the
+  matching ABI; fixed `local`/`lport`, macOS, and iOS retain reconnect fallback.
 
   Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -434,8 +441,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   PID/VPN Network/`NetworkPlan 1`, ran AUTH once, and still resolved DNS names. The full Rust library
   suite passed 931 tests with three ignored; strict all-target Clippy and Android release `-D warnings` passed.
 
-  Real devices, platform-specific same-network NAT rebinding, Windows/macOS/iOS, and the broader
-  transport/family/race/soak matrix remain.
+  Real devices, platform-specific same-network NAT rebinding, Windows device/race acceptance,
+  macOS/iOS adapters, and the broader transport/family/race/soak matrix remain.
 - **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
@@ -693,8 +700,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   Linux IPv4 packet delay/reorder/duplicate
   and in-flight receive-drain acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate
   bidirectional DATA_FRAG-loss are complete. Deterministic Linux same-network NAT dead-mapping is
-  accepted in netns; real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core is socket/migration-ready, while its C# path executor, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+  accepted in netns; real-device race/soak/NAT-rebinding, Windows acceptance, macOS/iOS adapters, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core and C# path executor are source-complete; Windows device/race acceptance, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 

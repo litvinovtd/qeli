@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v32-desktop-path-contract -->
+<!-- normative-sync: roaming-v33-windows-path-executor -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -30,8 +30,8 @@
 > тот же PID/TUN и не вошёл в top-level reconnect. Трёхмаршрутный supersede-сценарий прошёл 24/24:
 > blackholed B успел отправить PATH_INIT, затем platform выполнила `ABORT(B) → PREPARE(C)`, actor
 > удалил старый socket до retry-expiry, а сервер challenge/commit увидел только путь C и ровно один
-> commit. PID/TUN и трафик сохранились без reconnect. Впереди Windows/macOS/iOS adapters и работы
-> этапов 4–6. Детерминированный commit-race-сценарий прошёл 24/24: после server PATH_COMMIT(B)
+> commit. PID/TUN и трафик сохранились без reconnect. Windows C# path executor теперь готов по
+> исходникам; впереди его device/race-приёмка, adapters macOS/iOS и этапы 4–6. Детерминированный commit-race-сценарий прошёл 24/24: после server PATH_COMMIT(B)
 > локальная route-мутация COMMIT(B) была задержана, detector увидел C, но сериализованный executor
 > не позволил C отменить или обогнать B. Exact ACK и публикация B завершились до PREPARE(C), после
 > чего C также был подтверждён ровно один раз; PID/TUN и трафик сохранились без reconnect.
@@ -78,17 +78,23 @@
 > NetworkPlan, замены процесса/TUN или reconnect. Android `Network` handle остался прежним,
 > tunnel ping прошёл 5/5 до и после миграции в каждом режиме. NAT-rebinding на реальных
 > устройствах остаётся отдельным gate.
-> Общий feature core теперь готов к Windows socket handle: `PATH_COMMAND` передаёт заимствованный
-> signed 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP
-> migration actor компилируются на Windows. Windows path capabilities остаются выключенными до
-> device/race-приёмки C# executor для routes, kill switch и `IP_UNICAST_IF`.
-> Общий C#-адаптер теперь содержит ABI 1.12/1.13 bindings для path update/result и строгий
-> ограниченный JSON-контракт PREPARE/BIND/COMMIT/ABORT и событий PATH_REFRESH без payload.
-> Conformance-тесты отклоняют неизвестные поля, stale generation и несовместимые семейства адресов,
-> сохраняя Windows socket values шире `Int32`. Shared- и Windows desktop-проекты собираются без
-> предупреждений, полный managed conformance suite проходит. Ни один desktop-клиент пока не объявляет
-> path capability: этот срез не меняет runtime reconnect до завершения OS executor и его
-> device/race-приёмки.
+> Общий feature core готов к Windows socket handle: `PATH_COMMAND` передаёт заимствованный signed
+> 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP migration
+> actor компилируются на Windows. Общий C#-адаптер реализует optional ABI 1.12/1.13 bindings для
+> path update/result и строгий ограниченный JSON-контракт коррелированных
+> PREPARE/BIND/COMMIT/ABORT и событий PATH_REFRESH без payload. Conformance-тесты отклоняют
+> неизвестные поля, stale generation и несовместимые семейства адресов, сохраняя Windows socket
+> values шире `Int32`.
+> Windows C#-адаптер теперь выполняет сериализованную path-транзакцию. PREPARE устанавливает только
+> привязанные к точным interface/source candidate routes `/32` или `/128` и расширяет kill switch и
+> WinDivert carrier allow-set до old+new. BIND применяет `IP_UNICAST_IF`/`IPV6_UNICAST_IF` к
+> заимствованному 64-bit `SOCKET` и связывает выбранный local address до connect в Rust core.
+> COMMIT передаёт candidate routes в session cleanup, удаляет только stale Qeli-owned carrier rows
+> и сужает policy до нового пути; ABORT удаляет candidate state и восстанавливает старый путь.
+> Обычный TCP и все поддерживаемые UDP camouflage profiles используют один executor. Явные `local`
+> или `lport`, default/старое ядро либо unsupported peer сохраняют существующий reconnect fallback.
+> Shared/Windows builds и managed route/socket/policy self-tests проходят без предупреждений.
+> До rollout остаются Windows real-device, race, kill-switch и soak acceptance.
 > Текущие lab gates: 961 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
@@ -617,7 +623,8 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Android включает `ROAMING_PATH` для feature TCP и всех UDP-режимов, а
 `PATH_REFRESH` объявляет только если ядро ABI 1.13 сообщает парный core capability.
-Windows/macOS/iOS сохраняют оба path capability выключенными до Phase 4 device/race-приёмки.
+Windows объявляет оба path capability для обычных профилей, когда feature core предоставляет
+соответствующий ABI; явные `local`/`lport`, macOS и iOS сохраняют reconnect fallback.
 
 На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -647,8 +654,8 @@ hard loss Wi-Fi→cellular и один для обратного make-before-bre
 Полный Rust library suite прошёл 931 тест при трёх ignored; strict all-target Clippy и Android
 release-сборка с `-D warnings` прошли.
 
-Впереди остаются реальные устройства, platform-specific same-network NAT rebinding, Windows/macOS/iOS и расширенная
-transport/family/race/soak matrix.
+Впереди остаются реальные устройства, platform-specific same-network NAT rebinding, Windows
+device/race-приёмка, adapters macOS/iOS и расширенная transport/family/race/soak matrix.
 
 ### Этап 3. UDP migration
 
@@ -895,16 +902,16 @@ generation-scoped discovery A/AAAA: альтернативы доступны т
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain, outer-family PMTU round-trip и
 deliberate DATA_FRAG-loss приняты live-gate; детерминированный Linux same-network NAT dead mapping
-принят в netns. Остаются native adapters, real-device NAT rebinding и soak.
+принят в netns. Остаются Windows device/race-приёмка, adapters macOS/iOS, real-device NAT rebinding и soak.
 
 - Linux UDP real-device NAT rebinding и soak;
-- Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
+- Windows device/race-приёмка, adapters macOS/iOS, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
 commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family,
 deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
-### Этап 4. Платформы — 🟡 Linux/Android live, Windows core-ready
+### Этап 4. Платформы — 🟡 Linux/Android live, Windows executor source-complete
 
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
@@ -914,8 +921,9 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
   feature-APK matrix для fake-TLS/QUIC/obfs/AWG закрыта для same-Network, same-session NAT rebind
   без AUTH/reconnect; real-device NAT-rebinding впереди;
 - Windows: общий core сохраняет 64-битный `SOCKET` и запускает ту же TCP/UDP migration state
-  machine; strict Windows-host и Linux all-target feature checks готовы. C# path executor и
-  device/race live acceptance впереди, поэтому capability пока выключена;
+  machine; C# executor реализует routes, kill switch/WinDivert allow-set и bind через
+  `IP_UNICAST_IF`/`IPV6_UNICAST_IF`. Capability включается для обычных TCP и всех UDP profiles;
+  default/старое ядро и явные `local`/`lport` используют reconnect. Device/race acceptance впереди;
 - macOS;
 - iOS.
 

@@ -82,6 +82,14 @@ public abstract class VpnTunnelBase
     // ABI 1.7+ native whole-transport generation. Kept as a signed slot solely so
     // Interlocked can publish/clear it while Stop() interrupts qeli_client_run.
     private long _nativeHandle;
+    // Optional ABI 1.12/1.13 roaming state. The handle/generation pair is published only
+    // after the authenticated NetworkPlan is applied; callbacks therefore cannot submit a
+    // PathUpdate into a half-configured native generation.
+    private readonly object _nativeRoamingGate = new();
+    private VpnConfig? _nativeRoamingConfig;
+    private ulong _nativeRoamingCapabilities;
+    private long _nativePlanGeneration;
+    private long _nativePathUpdateId;
     protected ITunDevice? _tun;
 
     // Live byte counters (goodput, IP-payload bytes) for the UI speed readout.
@@ -463,6 +471,8 @@ public abstract class VpnTunnelBase
             // The resume path does not pass through OnNetworkChanged, so make the newly
             // observed topology the comparison baseline before its forced rebuild begins.
             _lastNetSig = now;
+            if (TrySubmitNativePathUpdate("wake"))
+                return;
             ForceReconnect(reason, rebuildNetwork: true);
         });
     }
@@ -521,7 +531,83 @@ public abstract class VpnTunnelBase
         var sig = PhysicalNetSignature();
         if (sig == _lastNetSig) return;   // our own TUN up/down, or noise — ignore
         _lastNetSig = sig;
+        if (TrySubmitNativePathUpdate("network_changed"))
+            return;
         ForceReconnect("Network changed", rebuildNetwork: true);
+    }
+
+    /// <summary>Convert one platform observation into the shared generation-scoped path
+    /// transaction. Returning false means the caller must retain the existing full reconnect
+    /// fallback; a successful submit leaves retry/grace/fallback policy inside Rust.</summary>
+    private bool TrySubmitNativePathUpdate(string reason, ulong? requiredGeneration = null)
+    {
+        lock (_nativeRoamingGate)
+        {
+            if (_nativeRoamingCapabilities == 0 || _nativeRoamingConfig == null)
+                return false;
+            ulong handle = unchecked((ulong)Interlocked.Read(ref _nativeHandle));
+            ulong generation = unchecked((ulong)Interlocked.Read(ref _nativePlanGeneration));
+            if (handle == 0 || generation == 0
+                || (requiredGeneration.HasValue && requiredGeneration.Value != generation))
+                return false;
+            long next = Interlocked.Increment(ref _nativePathUpdateId);
+            if (next <= 0)
+                return false;
+            try
+            {
+                NativePathUpdate? update = CaptureNativeRoamingPath(
+                    _nativeRoamingConfig, _carrierAddresses, generation,
+                    unchecked((ulong)next), reason);
+                if (update == null)
+                    return false;
+                ulong candidate = NativeTransportCore.PathUpdate(handle, update);
+                Log($"Native roaming PathUpdate {update.UpdateId} prepared candidate {candidate}: "
+                    + $"{reason}, {update.PlatformPathId}");
+                return true;
+            }
+            catch (Exception error)
+            {
+                Log($"WARN: native roaming path observation failed ({error.Message})");
+                return false;
+            }
+        }
+    }
+
+    private void HandleNativePathCommand(ulong handle, NativeTransportCore.NativeEvent request)
+    {
+        NativePathCommand command = NativeRoamingPath.DecodeCommand(request);
+        bool accepted = false;
+        string? reason = null;
+        try
+        {
+            lock (_nativeRoamingGate)
+            {
+                ulong activeGeneration = unchecked((ulong)Interlocked.Read(ref _nativePlanGeneration));
+                if (_nativeRoamingCapabilities == 0 || command.Generation != activeGeneration)
+                    throw new InvalidDataException("native roaming command is stale or disabled");
+                ApplyNativeRoamingCommand(command);
+                if (command.Action == "commit_path")
+                {
+                    _carrierAddresses = command.Path.ResolvedAddresses
+                        .Select(item => item.Address)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                }
+            }
+            accepted = true;
+        }
+        catch (Exception error)
+        {
+            reason = error.Message;
+            Log($"WARN: native roaming {command.Action} candidate {command.CandidateId} rejected: "
+                + reason);
+        }
+        NativeTransportCore.PathCommandResult(handle, request, command, accepted, reason);
+        if (accepted && command.Action == "commit_path")
+            Log($"Native roaming committed candidate {command.CandidateId} on "
+                + command.Path.PlatformPathId);
+        if (!accepted && command.Action == "abort_path")
+            throw new IOException("native roaming rollback failed: " + reason);
     }
 
     /// <summary>Platform hook: raise the firewall kill-switch (block all egress
@@ -1187,9 +1273,28 @@ public abstract class VpnTunnelBase
     {
         string[] carrierAddresses = ResolveCarrierCandidates(config);
         NativeTransportCore.RequireCompatible(NativeTunFdOwnership, NativeWintunOwnership);
+        ulong roamingCapabilities = NativeRoamingCapabilities(config);
+        if (roamingCapabilities != 0 && !NativeTransportCore.SupportsPathTransactions())
+        {
+            Log("Native core has no experimental path transaction support; using reconnect fallback");
+            roamingCapabilities = 0;
+        }
+        else if ((roamingCapabilities & NativePathRefreshCapability) != 0
+                 && !NativeTransportCore.SupportsPathRefresh())
+        {
+            roamingCapabilities &= ~NativePathRefreshCapability;
+            Log("Native core has no PATH_REFRESH support; same-network NAT failure uses reconnect fallback");
+        }
         ulong handle = NativeTransportCore.New(config.ToTransportCoreIni(), NativeTunFdOwnership,
-            NativeWintunOwnership, NativeIpv6Capabilities(config));
+            NativeWintunOwnership, NativeIpv6Capabilities(config), roamingCapabilities);
         Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
+        lock (_nativeRoamingGate)
+        {
+            _nativeRoamingConfig = roamingCapabilities == 0 ? null : config;
+            _nativeRoamingCapabilities = roamingCapabilities;
+            Interlocked.Exchange(ref _nativePlanGeneration, 0);
+            Interlocked.Exchange(ref _nativePathUpdateId, 0);
+        }
 
         Task<int>? runner = null;
         CancellationTokenSource? packetCts = null;
@@ -1304,6 +1409,8 @@ public abstract class VpnTunnelBase
                                     NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
                                         wintun.AdapterName);
                                 }
+                                Interlocked.Exchange(ref _nativePlanGeneration,
+                                    unchecked((long)plan.Generation));
                                 NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
                                 if (!NativeTunFdOwnership && !NativeWintunOwnership)
                                 {
@@ -1335,6 +1442,17 @@ public abstract class VpnTunnelBase
                             }
                             break;
                         }
+
+                        case NativeTransportCore.EventPathCommand:
+                            HandleNativePathCommand(handle, nativeEvent);
+                            break;
+
+                        case NativeTransportCore.EventPathRefresh:
+                            ulong refreshGeneration =
+                                NativeRoamingPath.DecodeRefreshGeneration(nativeEvent);
+                            if (!TrySubmitNativePathUpdate("same_network_nat_failure", refreshGeneration))
+                                Log("WARN: native roaming PATH_REFRESH could not capture the active path");
+                            break;
 
                         case NativeTransportCore.EventStateChanged
                             when nativeEvent.State == NativeTransportCore.StateRunning && !_wasConnected:
@@ -1381,6 +1499,17 @@ public abstract class VpnTunnelBase
         }
         finally
         {
+            lock (_nativeRoamingGate)
+            {
+                Interlocked.Exchange(ref _nativePlanGeneration, 0);
+                _nativeRoamingCapabilities = 0;
+                _nativeRoamingConfig = null;
+                try { ResetNativeRoamingPath(); }
+                catch (Exception error)
+                {
+                    Log($"WARN: native roaming cleanup deferred to platform teardown ({error.Message})");
+                }
+            }
             try { packetCts?.Cancel(); } catch { }
             try { NativeTransportCore.Stop(handle); } catch { }
             try { uplink?.Wait(2000); } catch { }
@@ -1977,10 +2106,30 @@ public abstract class VpnTunnelBase
     protected const ulong NativeIpv6SystemPlanCapabilities =
         (1UL << 8) | (1UL << 9) | (1UL << 10);
     protected const ulong NativeIpv6KillSwitchCapability = 1UL << 11;
+    protected const ulong NativeRoamingPathCapabilities = (1UL << 12) | (1UL << 13);
+    protected const ulong NativePathRefreshCapability = 1UL << 14;
 
     /// <summary>IPv6 platform operations this concrete adapter can apply completely for
     /// the selected profile.</summary>
     protected virtual ulong NativeIpv6Capabilities(VpnConfig config) => 0;
+
+    /// <summary>Optional platform path capabilities. The default is deliberately zero;
+    /// an adapter must implement every hook below before advertising the paired bits.</summary>
+    protected virtual ulong NativeRoamingCapabilities(VpnConfig config) => 0;
+
+    /// <summary>Capture one bounded physical-path snapshot. The carrier set is the last
+    /// proven DNS answer captured outside the tunnel. Returning null keeps reconnect fallback.</summary>
+    protected virtual NativePathUpdate? CaptureNativeRoamingPath(VpnConfig config,
+        IReadOnlyList<string> carrierAddresses, ulong generation, ulong updateId,
+        string reason) => null;
+
+    /// <summary>Apply one serialized PREPARE/BIND/COMMIT/ABORT command. Throwing rejects the
+    /// exact correlated command; ABORT failure is terminal and forces platform teardown.</summary>
+    protected virtual void ApplyNativeRoamingCommand(NativePathCommand command) =>
+        throw new NotSupportedException("native roaming path commands are not implemented");
+
+    /// <summary>Rollback temporary candidate state when the native handle stops.</summary>
+    protected virtual void ResetNativeRoamingPath() { }
 
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }

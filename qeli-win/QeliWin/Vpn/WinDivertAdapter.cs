@@ -40,7 +40,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private bool _allowIpv6Leak;
     private bool _fullTunnel;
     private readonly Action<string>? _log;
-    private CarrierEndpoint _carrier;
+    private CarrierEndpoint[] _carriers;
     private volatile int _tunnelMtu;
     private readonly byte[] _captureBuffer = new byte[0xFFFF];
     private readonly byte[] _injectBuffer = new byte[0xFFFF];
@@ -124,7 +124,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
             fullTunnel, tunnelSubnets);
         _dnsServers = ParseDns(dnsServers);
-        _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
+        _carriers = MakeCarriers(new[] { carrierIp }, carrierPort, carrierProtocol);
         _tunnelMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);
         _log = log;
     }
@@ -175,7 +175,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         var replacementDest = new WinDivertDestinationPolicy(
             routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
             fullTunnel, tunnelSubnets);
-        var replacementCarrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
+        var replacementCarriers = MakeCarriers(
+            new[] { carrierIp }, carrierPort, carrierProtocol);
         int replacementMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);
         var replacementApps = new ProcessAppMap(apps, includeMode);
         if (replacementApps.SelectedCount == 0)
@@ -197,7 +198,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             _allowIpv6Leak = allowIpv6Leak;
             _fullTunnel = fullTunnel;
             _dest = replacementDest;
-            _carrier = replacementCarrier;
+            _carriers = replacementCarriers;
             _tunnelMtu = replacementMtu;
             _policyGeneration++;
             _flows.Clear();
@@ -210,9 +211,32 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         // old map after the swap. Dispose it outside the gate to keep refresh shutdown out of
         // the capture critical section.
         previousApps.Dispose();
+        CarrierEndpoint carrier = replacementCarriers[0];
         _log?.Invoke(
-            $"WinDivert policy refreshed after reconnect (carrier {_carrier.Ip}:{_carrier.Port}, "
+            $"WinDivert policy refreshed after reconnect (carrier {carrier.Ip}:{carrier.Port}, "
             + $"apps={replacementApps.SelectedCount}, include={replacementApps.IncludeMode})");
+    }
+
+    /// <summary>Atomically replace the carrier bypass allow-set without changing tunnel-up,
+    /// flow/NAT state, fragment queues or the authenticated app policy. PREPARE passes the
+    /// old+new union; COMMIT/ABORT narrows it to the winning set.</summary>
+    internal void SetCarrierAddresses(
+        IEnumerable<IPAddress> addresses, int port, string protocol)
+    {
+        CarrierEndpoint[] replacement = MakeCarriers(addresses, port, protocol);
+        lock (_policyGate) _carriers = replacement;
+        _log?.Invoke("WinDivert carrier allow-set: "
+            + string.Join(", ", replacement.Select(item => $"{item.Ip}:{item.Port}")));
+    }
+
+    internal (string addresses, long generation, bool tunnelUp) CarrierStateForSelfTest()
+    {
+        lock (_policyGate)
+        {
+            return (string.Join(",", _carriers.Select(item => item.Ip.ToString())
+                    .OrderBy(item => item, StringComparer.Ordinal)),
+                _policyGeneration, _tunnelUp);
+        }
     }
 
     internal (bool ipv4, bool ipv6) LeakPolicyForSelfTest()
@@ -2434,15 +2458,32 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     internal static string BuildFilter() =>
         "outbound and !loopback";
 
-    private bool IsCarrier(byte protocol, IPAddress destination, ushort remotePort) =>
-        _carrier is var carrier && protocol == carrier.Protocol && remotePort == carrier.Port
-        && destination.Equals(carrier.Ip);
+    private bool IsCarrier(byte protocol, IPAddress destination, ushort remotePort)
+    {
+        CarrierEndpoint[] carriers = Volatile.Read(ref _carriers);
+        return carriers.Any(carrier => protocol == carrier.Protocol
+            && remotePort == carrier.Port && destination.Equals(carrier.Ip));
+    }
 
     private static CarrierEndpoint MakeCarrier(
         IPAddress ip, int port, string protocol) => new(
             ip,
             checked((ushort)port),
             protocol.Equals("udp", StringComparison.OrdinalIgnoreCase) ? (byte)17 : (byte)6);
+
+    private static CarrierEndpoint[] MakeCarriers(
+        IEnumerable<IPAddress> addresses, int port, string protocol)
+    {
+        IPAddress[] materialized = addresses.Distinct().ToArray();
+        if (materialized.Length == 0)
+            throw new ArgumentException("carrier allow-set must not be empty", nameof(addresses));
+        if (materialized.Any(address => address.AddressFamily is not
+                (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
+            || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any)
+            || IPAddress.IsLoopback(address)))
+            throw new ArgumentException("carrier allow-set contains an unusable address", nameof(addresses));
+        return materialized.Select(address => MakeCarrier(address, port, protocol)).ToArray();
+    }
 
     private static IReadOnlyList<IPAddress> ParseDns(IEnumerable<string> servers) =>
         servers.Select(s => IPAddress.TryParse(s, out var ip) ? ip : null)

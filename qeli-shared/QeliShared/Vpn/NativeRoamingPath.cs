@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace Qeli.Shared.Vpn;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed class NativePathFlags
+public sealed class NativePathFlags
 {
     [JsonPropertyName("default_route_changed")]
     public bool DefaultRouteChanged { get; set; }
@@ -20,7 +20,7 @@ internal sealed class NativePathFlags
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed class NativePathResolution
+public sealed class NativePathResolution
 {
     [JsonPropertyName("address")]
     public string Address { get; set; } = "";
@@ -30,7 +30,7 @@ internal sealed class NativePathResolution
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed class NativePathUpdate
+public sealed class NativePathUpdate
 {
     [JsonPropertyName("generation")]
     public ulong Generation { get; set; }
@@ -63,7 +63,7 @@ internal sealed class NativePathUpdate
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed class NativePathCommand
+public sealed class NativePathCommand
 {
     [JsonPropertyName("generation")]
     public ulong Generation { get; set; }

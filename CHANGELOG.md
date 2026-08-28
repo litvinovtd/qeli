@@ -79,18 +79,27 @@
   feature-сборке. Kotlin unit tests и `assembleDebug` прошли.
 - Общий roaming core больше не ограничивает native candidate socket Unix-дескриптором `i32`:
   `PATH_COMMAND.socket_fd` сохраняет заимствованный signed 64-bit Unix fd или Windows `SOCKET`,
-  а native TCP candidate dialer и единый UDP make-before-break actor теперь компилируются на
-  Windows без отдельной protocol-specific логики. Wide-handle regression, строгая Windows host
-  feature-сборка и Linux all-target feature gate прошли. Windows path capabilities остаются
-  выключенными до реализации и device/race-приёмки C# route/kill-switch/`IP_UNICAST_IF` executor.
+  а native TCP candidate dialer и единый UDP make-before-break actor компилируются на Windows без
+  отдельной protocol-specific логики. Wide-handle regression, строгая Windows host feature-сборка
+  и Linux all-target feature gate прошли.
 - Общий C# desktop-слой получил optional ABI 1.12/1.13 bindings для `PathUpdate`, коррелированного
-  `PathCommandResult` и формата событий. Добавлен строгий ограниченный parser JSON-контракта
-  PREPARE/BIND/COMMIT/ABORT и no-payload `PATH_REFRESH`: он проверяет generation/sequence/candidate,
-  допустимые причины и flags, сетевой token/interface index, TTL и совместимость IPv4/IPv6, отклоняет
-  неизвестные поля и сохраняет 64-битный Windows `SOCKET` без сужения к `Int32`. Managed conformance
-  suite, shared library и Windows desktop client собираются без предупреждений. Capability по
-  умолчанию остаётся нулевым, поэтому Windows/macOS не могут случайно включить незавершённый executor
-  и сохраняют прежний full-reconnect fallback.
+  `PathCommandResult` и формата событий. Строгий ограниченный parser JSON-контракта
+  PREPARE/BIND/COMMIT/ABORT и no-payload `PATH_REFRESH` проверяет generation/sequence/candidate,
+  допустимые причины и flags, сетевой token/interface index, TTL и совместимость IPv4/IPv6,
+  отклоняет неизвестные поля и сохраняет 64-битный Windows `SOCKET` без сужения к `Int32`.
+  Managed conformance suite, shared library и Windows desktop client собираются без предупреждений.
+  Base capability по умолчанию остаётся нулевым; macOS/iOS сохраняют full-reconnect fallback.
+- Windows C# path executor реализует общую для TCP и всех UDP camouflage modes сериализованную
+  транзакцию PREPARE → BIND → COMMIT/ABORT. `GetBestRoute2` ограничивается точным физическим
+  interface/source; candidate lease создаёт только пригодные `/32`/`/128`, сохраняет operator routes,
+  удаляет лишь stale Qeli-owned carrier rows и восстанавливает уже удалённые rows при ошибке COMMIT.
+  BIND применяет `IP_UNICAST_IF` в network byte order или `IPV6_UNICAST_IF` в host byte order к
+  заимствованному 64-битному `SOCKET` и связывает выбранный local address до connect в Rust core.
+  Kill switch и WinDivert используют old+new на PREPARE и new-only после COMMIT без сброса
+  tunnel-up, policy generation, NAT/flow state и uplink. Capability объявляется для обычных TCP,
+  UDP fake-TLS, UDP-QUIC и UDP-obfs профилей. Явные `local`/`lport`, default/старое ядро и
+  unsupported peer используют прежний reconnect fallback. Managed route/socket/policy self-tests
+  проходят; Windows real-device, race, kill-switch и soak acceptance остаются до rollout.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
