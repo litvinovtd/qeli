@@ -42,11 +42,20 @@
 
 ### Основа роуминга (stages 0–3E TCP/UDP, default off)
 
-- Android TCP feature adapter теперь объявляет полный `ROAMING_PATH`, только если загруженное
-  Rust-ядро подтверждает path-transaction ABI. Connectivity callback отправляет ограниченный
-  generation-scoped `PathUpdate`; exact `Network` выполняет DNS, `bindSocket` и `protect`, а
-  `setUnderlyingNetworks` меняется только после COMMIT. Stale generation и superseded Network
-  проверяются до platform mutation. Обычная `.so`, UDP и unsupported peer сохраняют полный reconnect.
+- Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
+  когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
+  согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor
+  один раз просит свежий generation-scoped snapshot той же Android `Network`, а Kotlin отправляет
+  `SameNetworkNatFailure` PathUpdate через прежние exact-Network DNS, `bindSocket`, `protect` и
+  PREPARE/BIND/COMMIT/ABORT. Таймер попытки, 15-секундное окно и full-reconnect fallback остаются
+  только в общем Rust policy; ошибка Android snapshot не запускает второй platform timer.
+  Stale generation и superseded Network проверяются до platform mutation. Default `.so`, старое
+  ядро без нового capability и unsupported peer сохраняют обычный полный reconnect.
+  На API 34 emulator закрыт live gate same-network NAT rebinding для UDP fake-TLS: старый
+  двусторонний 5-tuple был заблокирован без изменения Android `Network`, ядро запросило
+  `PATH_REFRESH`, а сервер выполнил `PATH_CHALLENGE`/`PATH_COMMIT` на новый source port менее чем
+  за секунду. PID приложения, Network handle и TUN/lease сохранились, после commit ping дал 5/5; повторных AUTH,
+  `NetworkPlan` и reconnect не было.
 - Общий TCP supervisor теперь отдаёт приоритет exact-path handover перед generic hard-resume:
   уже подготовленный candidate всегда вытесняет обычное восстановление слота, а после потери
   последнего carrier ядро оставляет платформе ограниченное окно в одну секунду на PathUpdate.

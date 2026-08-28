@@ -11,10 +11,10 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
 **Initiative status: ✅ source refactor complete.** All production clients use the shared
-Rust transport core; the current source API is additive ABI 1.12. The committed
+Rust transport core; the current source API is additive ABI 1.13. The committed
 `.so`/`.dll`/`.dylib` files are still the reproducible ABI 1.10 baseline from commit
 `b1e220d` recorded by `native-libs/PROVENANCE`. These are deliberately separate states:
-before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.12 tree,
+before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.13 tree,
 synchronized to every consumed copy, and pass provenance/hash/ABI/platform gates.
 Until then the tree is source-complete but not package-release-ready. Remaining acceptance
 gates also include administrator Wintun full-tunnel, live macOS utun and physical-device
@@ -34,8 +34,12 @@ fixed and `0` leaves the OS setting alone.
 ABI 1.12 adds a gated `experimental-roaming` candidate-path transaction: a bounded,
 generation-scoped `PathUpdate`, `PREPARE/BIND/COMMIT/ABORT` commands, strict
 generation/candidate/sequence correlation, and a 144-byte V3 statistics layout. The 64/96-byte
-V1/V2 prefixes remain compatible. The Linux in-process TCP adapter advertises the complete path
-contract only behind `experimental-roaming`; default builds and native app adapters remain unchanged.
+V1/V2 prefixes remain compatible. ABI 1.13 adds the optional no-payload, generation-scoped
+`PATH_REFRESH` event and matching core/platform capability bits. The shared core owns request rate,
+grace time and reconnect fallback; a capable adapter only returns a fresh same-path `PathUpdate`.
+Linux handles that request in-process, while Android re-snapshots its unchanged `Network`. Adapters
+that do not advertise the new platform bit never receive the event. The fixed 48-byte event header,
+statistics prefixes and export counts remain unchanged.
 
 ---
 
@@ -255,9 +259,9 @@ Running/Failed/Created → Stopping → Stopped
   leaving a partially completed request-driven state transition; a terminal background-runner
   failure cannot be retried by its caller, so it preempts the oldest queued events and always
   publishes an Error carrying the Failed state (plus StateChanged when capacity is at least 2);
-- the event header has a fixed C-layout structure and version; plan, socket-protect and
-  server-identity and path-command payloads are UTF-8 JSON, an error is UTF-8, and a state
-  transition has no payload;
+- the event header has a fixed C-layout structure and version; plan, socket-protect,
+  server-identity and path-command payloads are UTF-8 JSON, an error is UTF-8, while state
+  transitions and the ABI 1.13 path-refresh request carry no payload;
 - before `new`, an adapter checks the ABI with `QELI_CLIENT_ABI_IS_COMPATIBLE`: the major
   must match and the library minor must be at least the header minor; unknown capability bits,
   event kinds and additive JSON fields are not errors;
@@ -273,6 +277,11 @@ Running/Failed/Created → Stopping → Stopped
   reconnect. `stop/start` and terminal failure discard commands that have not crossed the ABI;
 - if the caller buffer is too small, the API reports the required length and does **not**
   consume the event;
+- ABI 1.13 emits a path-refresh request only when both core and platform capability bits are
+  present. Its positive `sequence` and `plan_generation` reuse the fixed 48-byte header. The
+  adapter answers with a same-generation `PathUpdate` whose reason/flag is
+  `same_network_nat_failure`; it does not implement a second retry timer or reconnect policy.
+  `stop/start` and terminal failure discard a queued refresh together with queued path commands;
 - a plan carries its generation, address/prefix, MTU, tunnel gateway, the actual carrier IP,
   routes with
   gateway/metric, DNS with address/port, full-tunnel, kill-switch, `max_streams` and
@@ -580,7 +589,7 @@ platform code touching not one byte of payload.
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
 | TC-3.2 | Windows | ✅ ABI 1.9 library rebuilt; source path owns Wintun session/rings in Rust; managed runtime and packet methods removed; live handshake/NetworkPlan green | platform gate: administrator Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ ABI 1.9 universal2 dylib rebuilt and packaged; source path hands the utun fd to Rust and touches no payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter is compatible with additive ABI 1.12 and uses the shared Rust transport | code complete; Xcode/device gate remains |
+| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the compact platform adapter is compatible with additive ABI 1.13, does not advertise `PATH_REFRESH`, and uses the shared Rust transport | code complete; Xcode/device gate remains |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
 divergence risk there is demonstrated; iOS last — the only platform with no fd and with a
@@ -593,7 +602,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-4.1 | The previous whole-client cross-build matrix passed for Android arm64/x86_64, Windows x64, and macOS universal2 with 6 Reality + 20 client exports; source ABI 1.12 raises the gate to 22 client exports and 21 Android JNI exports. The `aarch64-apple-ios` whole-client cargo check was green and the build-script minimum remains ABI 1.11; the updated matrix must be rerun before release, while a real device+simulator XCFramework/Xcode build still requires macOS |
+| TC-4.1 | The previous whole-client cross-build matrix passed for Android arm64/x86_64, Windows x64, and macOS universal2 with 6 Reality + 20 client exports; source ABI 1.12 raised the gate to 22 client exports and 21 Android JNI exports. ABI 1.13 adds only event/capability values and keeps those export counts. The `aarch64-apple-ios` whole-client cargo check was green and the build-script minimum remains ABI 1.11; the updated matrix must be rerun before release, while a real device+simulator XCFramework/Xcode build still requires macOS |
 | TC-4.2 | ✅ All four libraries passed live byte-identical A/B builds on labs `.10`/`.11`; the shared mock-tested harness performs scoped source sync, exact-target preflight and verified atomic pulls. Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 and cargo-ndk 4.1.2 are pinned. macOS normalizes the install name, content-derived UUID and Zig's invalid non-deterministic GOT index before deterministic ad-hoc signing; SHA256, exports and provenance are fail-closed gates |
 | TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 

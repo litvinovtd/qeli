@@ -14,14 +14,16 @@ class TransportCoreEventTest {
         kind: Int = 2,
         sequence: Long = 17,
         planGeneration: Long = 9,
+        abiVersion: Int = 0x00010002,
+        payloadFormat: Int = TransportCoreEventCodec.PAYLOAD_JSON,
     ): ByteArray {
         return ByteBuffer.allocate(TransportCoreEventCodec.HEADER_SIZE + payload.size)
             .order(ByteOrder.LITTLE_ENDIAN)
             .putInt(TransportCoreEventCodec.HEADER_SIZE)
-            .putInt(0x00010002)
+            .putInt(abiVersion)
             .putInt(kind)
             .putInt(2)
-            .putInt(1)
+            .putInt(payloadFormat)
             .putInt(0)
             .putLong(sequence)
             .putLong(planGeneration)
@@ -361,6 +363,70 @@ class TransportCoreEventTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun decodesGenerationScopedNoPayloadPathRefresh() {
+        val event = TransportCoreEventCodec.decode(
+            frame(
+                abiVersion = 0x0001000d,
+                kind = TransportCoreEventCodec.KIND_PATH_REFRESH,
+                payloadFormat = TransportCoreEventCodec.PAYLOAD_NONE,
+                sequence = 51,
+                planGeneration = 12,
+            )
+        )
+
+        assertEquals(12L, TransportCoreEventCodec.decodePathRefreshGeneration(event))
+    }
+
+    @Test
+    fun rejectsMalformedPathRefreshCorrelationAndPayload() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodePathRefreshGeneration(
+                TransportCoreEventCodec.decode(
+                    frame(
+                        abiVersion = 0x0001000d,
+                        payload = "{}".toByteArray(),
+                        kind = TransportCoreEventCodec.KIND_PATH_REFRESH,
+                        planGeneration = 12,
+                    )
+                )
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodePathRefreshGeneration(
+                TransportCoreEventCodec.decode(
+                    frame(
+                        abiVersion = 0x0001000d,
+                        kind = TransportCoreEventCodec.KIND_PATH_REFRESH,
+                        payloadFormat = TransportCoreEventCodec.PAYLOAD_NONE,
+                        planGeneration = 0,
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
+    fun encodesSameNetworkNatFailureAsAnExactPathReason() {
+        val payload = org.json.JSONObject(
+            TransportCoreEventCodec.encodePathUpdate(
+                generation = 12,
+                updateId = 5,
+                platformPathId = "android:456",
+                reason = "same_network_nat_failure",
+                networkToken = "456",
+                interfaceIndex = 9,
+                localAddresses = listOf("192.0.2.30"),
+                resolvedAddresses = listOf("198.51.100.20"),
+            )
+        )
+
+        val flags = payload.getJSONObject("flags")
+        assertEquals(true, flags.getBoolean("same_network_nat_failure"))
+        assertEquals(false, flags.getBoolean("default_route_changed"))
+        assertEquals(false, flags.getBoolean("wake"))
     }
 
     @Test

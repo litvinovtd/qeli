@@ -10,12 +10,18 @@ package com.qeli
 internal object AndroidRoamingPolicy {
     const val PLATFORM_PATH_TRANSACTIONS = 1L shl 12
     const val PLATFORM_PATH_SOCKET_BINDING = 1L shl 13
+    const val PLATFORM_PATH_REFRESH = 1L shl 14
     const val PLATFORM_ROAMING_PATH =
         PLATFORM_PATH_TRANSACTIONS or PLATFORM_PATH_SOCKET_BINDING
 
     fun platformCapabilities(
         coreSupportsPathTransactions: Boolean,
-    ): Long = if (coreSupportsPathTransactions) PLATFORM_ROAMING_PATH else 0L
+        coreSupportsPathRefreshRequests: Boolean,
+    ): Long {
+        if (!coreSupportsPathTransactions) return 0L
+        return PLATFORM_ROAMING_PATH or
+            (if (coreSupportsPathRefreshRequests) PLATFORM_PATH_REFRESH else 0L)
+    }
 
     fun canSchedulePathUpdate(pathTransactionsEnabled: Boolean, generation: Long): Boolean =
         pathTransactionsEnabled && generation > 0

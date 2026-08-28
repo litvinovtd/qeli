@@ -7,7 +7,8 @@
 //! Windows core own the Wintun session and packet rings. ABI 1.10 appends UDP buffer/drop
 //! telemetry while preserving the complete 64-byte stats V1 prefix. ABI 1.11 adds the
 //! dual-family NetworkPlan; ABI 1.12 adds generation-scoped path commands and separate roam
-//! telemetry while retaining both fixed ABI prefixes.
+//! telemetry, while ABI 1.13 adds a generation-scoped no-payload path-refresh event. Both fixed
+//! ABI prefixes remain unchanged.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -900,6 +901,10 @@ fn event_payload(event: &ClientEvent) -> Result<(Vec<u8>, u32), ErrorCode> {
                     .map(|payload| (payload, PAYLOAD_JSON))
                     .map_err(|_| ErrorCode::Panic)
             }),
+        EventKind::PathRefresh => event
+            .path_refresh_generation
+            .map(|_| (Vec::new(), PAYLOAD_NONE))
+            .ok_or(ErrorCode::Panic),
     }
 }
 
@@ -922,6 +927,7 @@ fn event_header(event: &ClientEvent, payload_format: u32, payload_len: usize) ->
                     .as_ref()
                     .map(|command| command.generation)
             })
+            .or(event.path_refresh_generation)
             .unwrap_or(0),
         error_code: event.fault.as_ref().map_or(0, |fault| fault.code as i32),
         payload_len: payload_len.min(u32::MAX as usize) as u32,
@@ -1035,7 +1041,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V3_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000c)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000d)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -1043,8 +1049,11 @@ mod tests {
         assert!(header.contains("QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)"));
         assert!(header.contains("QELI_CLIENT_STATS_V3_SIZE UINT32_C(144)"));
         assert!(header.contains("QELI_CLIENT_PATH_COMMAND = 6"));
+        assert!(header.contains("QELI_CLIENT_PATH_REFRESH = 7"));
         assert!(header.contains("QELI_CORE_PATH_TRANSACTIONS"));
         assert!(header.contains("QELI_PLATFORM_PATH_SOCKET_BINDING"));
+        assert!(header.contains("QELI_CORE_PATH_REFRESH_EVENTS"));
+        assert!(header.contains("QELI_PLATFORM_PATH_REFRESH"));
         assert!(header.contains("qeli_client_path_update"));
         assert!(header.contains("qeli_client_path_command_result"));
         assert!(header.contains("qeli_client_network_plan_result"));
@@ -1071,6 +1080,32 @@ mod tests {
         assert!(header.contains("qeli_client_udp_probe"));
     }
 
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_refresh_event_reuses_the_frozen_header_without_a_payload() {
+        let event = ClientEvent {
+            sequence: 73,
+            kind: EventKind::PathRefresh,
+            state: super::super::ClientState::Running,
+            plan: None,
+            socket_protect: None,
+            server_identity: None,
+            path_command: None,
+            path_refresh_generation: Some(19),
+            fault: None,
+        };
+        let (payload, format) = event_payload(&event).unwrap();
+        let header = event_header(&event, format, payload.len());
+
+        assert!(payload.is_empty());
+        assert_eq!(header.struct_size, EVENT_V1_SIZE as u32);
+        assert_eq!(header.abi_version, ABI_VERSION);
+        assert_eq!(header.kind, EventKind::PathRefresh as u32);
+        assert_eq!(header.payload_format, PAYLOAD_NONE);
+        assert_eq!(header.sequence, 73);
+        assert_eq!(header.plan_generation, 19);
+        assert_eq!(header.payload_len, 0);
+    }
     #[test]
     fn udp_probe_abi_rejects_wrong_protocol_and_invalid_outputs() {
         let mut latency = 99;

@@ -295,6 +295,7 @@ internal class TransportCore private constructor(
         const val PLATFORM_IPV6_KILL_SWITCH = 1L shl 11
         const val PLATFORM_PATH_TRANSACTIONS = AndroidRoamingPolicy.PLATFORM_PATH_TRANSACTIONS
         const val PLATFORM_PATH_SOCKET_BINDING = AndroidRoamingPolicy.PLATFORM_PATH_SOCKET_BINDING
+        const val PLATFORM_PATH_REFRESH = AndroidRoamingPolicy.PLATFORM_PATH_REFRESH
         const val PLATFORM_ROAMING_PATH = AndroidRoamingPolicy.PLATFORM_ROAMING_PATH
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
@@ -313,6 +314,7 @@ internal class TransportCore private constructor(
         private const val CORE_HANDSHAKE_NETWORK_INPUT = 1L shl 7
         private const val CORE_NATIVE_DATA_PLANE = 1L shl 8
         private const val CORE_PATH_TRANSACTIONS = 1L shl 13
+        private const val CORE_PATH_REFRESH_EVENTS = 1L shl 14
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
                 CORE_TUN_FD_OWNERSHIP or CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or
@@ -364,6 +366,9 @@ internal class TransportCore private constructor(
 
         fun supportsPathTransactions(): Boolean =
             nativeCoreCapabilities() and CORE_PATH_TRANSACTIONS != 0L
+
+        fun supportsPathRefreshRequests(): Boolean =
+            nativeCoreCapabilities() and CORE_PATH_REFRESH_EVENTS != 0L
 
         /**
          * Send the shared Rust UDP ClientHello first flight and return milliseconds to any

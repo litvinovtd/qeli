@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000c)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000d)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -49,7 +49,8 @@ enum qeli_client_event_kind {
     QELI_CLIENT_ERROR = 3,
     QELI_CLIENT_SOCKET_PROTECT = 4,
     QELI_CLIENT_SERVER_IDENTITY = 5,
-    QELI_CLIENT_PATH_COMMAND = 6
+    QELI_CLIENT_PATH_COMMAND = 6,
+    QELI_CLIENT_PATH_REFRESH = 7
 };
 
 enum qeli_client_payload_format {
@@ -59,8 +60,9 @@ enum qeli_client_payload_format {
 };
 
 /* ABI 1.11 adds the dual-family platform capability contract. ABI 1.12 adds opt-in path
- * transactions and exact candidate socket binding. Unknown bits must be ignored; neither
- * roaming bit may be advertised before the platform implements atomic rollback. */
+ * transactions and exact candidate socket binding. ABI 1.13 adds a same-path snapshot request.
+ * Unknown bits must be ignored; no bit may be advertised before the platform implements its
+ * complete fail-closed contract. */
 enum qeli_client_platform_capability {
     QELI_PLATFORM_ROUTES = UINT64_C(1) << 0,
     QELI_PLATFORM_DNS = UINT64_C(1) << 1,
@@ -75,7 +77,8 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_IPV6_DNS = UINT64_C(1) << 10,
     QELI_PLATFORM_IPV6_KILL_SWITCH = UINT64_C(1) << 11,
     QELI_PLATFORM_PATH_TRANSACTIONS = UINT64_C(1) << 12,
-    QELI_PLATFORM_PATH_SOCKET_BINDING = UINT64_C(1) << 13
+    QELI_PLATFORM_PATH_SOCKET_BINDING = UINT64_C(1) << 13,
+    QELI_PLATFORM_PATH_REFRESH = UINT64_C(1) << 14
 };
 
 enum qeli_client_core_capability {
@@ -92,7 +95,8 @@ enum qeli_client_core_capability {
     QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10,
     QELI_CORE_WINTUN_IO = UINT64_C(1) << 11,
     QELI_CORE_NETWORK_PLAN_V2 = UINT64_C(1) << 12,
-    QELI_CORE_PATH_TRANSACTIONS = UINT64_C(1) << 13
+    QELI_CORE_PATH_TRANSACTIONS = UINT64_C(1) << 13,
+    QELI_CORE_PATH_REFRESH_EVENTS = UINT64_C(1) << 14
 };
 
 typedef struct qeli_client_event {
@@ -297,6 +301,12 @@ int32_t qeli_client_network_plan_result(uint64_t handle,
  * The library advertises QELI_CORE_PATH_TRANSACTIONS only in an experimental-roaming build.
  * A handle must advertise both QELI_PLATFORM_PATH_TRANSACTIONS and
  * QELI_PLATFORM_PATH_SOCKET_BINDING. Stage 1 does not switch the current data plane.
+ *
+ * ABI 1.13 may also emit QELI_CLIENT_PATH_REFRESH only when the core advertises
+ * QELI_CORE_PATH_REFRESH_EVENTS and the handle advertises QELI_PLATFORM_PATH_REFRESH. It has
+ * no payload; sequence and plan_generation are positive. The adapter answers by submitting one
+ * PathUpdate for that same generation with reason/flag same_network_nat_failure. Request rate,
+ * grace time and full-reconnect fallback remain owned by the shared core.
  */
 int32_t qeli_client_path_update(uint64_t handle,
                                 const uint8_t *input,

@@ -944,6 +944,7 @@ class VpnServiceImpl : VpnService() {
             val stableDeviceId = deviceId()
             val roamingCapabilities = AndroidRoamingPolicy.platformCapabilities(
                 coreSupportsPathTransactions = TransportCore.supportsPathTransactions(),
+                coreSupportsPathRefreshRequests = TransportCore.supportsPathRefreshRequests(),
             )
             val core = try {
                 TransportCore.create(
@@ -1140,6 +1141,8 @@ class VpnServiceImpl : VpnService() {
             }
             TransportCoreEventCodec.KIND_PATH_COMMAND ->
                 dispatchTransportCorePathCommand(core, event)
+            TransportCoreEventCodec.KIND_PATH_REFRESH ->
+                dispatchTransportCorePathRefresh(core, event)
             TransportCoreEventCodec.KIND_NETWORK_PLAN -> applyNativeNetworkPlan(core, event)
             else -> throw IllegalStateException("unknown transport core event ${event.kind}")
         }
@@ -1198,6 +1201,31 @@ class VpnServiceImpl : VpnService() {
             )
         } else if (command.action == "commit_path") {
             broadcastLog("Roaming path committed: ${command.path.platformPathId}")
+        }
+    }
+
+    private fun dispatchTransportCorePathRefresh(
+        core: TransportCore,
+        event: TransportCoreEvent,
+    ) {
+        val generation = TransportCoreEventCodec.decodePathRefreshGeneration(event)
+        if (transportCore !== core || activePlanGeneration != generation ||
+            liveStatus != STATUS_CONNECTED
+        ) {
+            debugLog("Ignoring stale Android path refresh for generation $generation")
+            return
+        }
+        val scheduled = scheduleRoamingUpdate(
+            why = "UDP same-network NAT recovery",
+            reason = "same_network_nat_failure",
+            expectedGeneration = generation,
+            reconnectOnFailure = false,
+        )
+        if (!scheduled) {
+            broadcastLog(
+                "UDP same-network NAT refresh could not be scheduled; " +
+                    "the shared core reconnect fallback remains active"
+            )
         }
     }
 
@@ -2153,16 +2181,22 @@ class VpnServiceImpl : VpnService() {
 
     private fun switchedNetwork(why: String, wake: Boolean = false) {
         if (liveStatus != STATUS_CONNECTED) return
-        if (scheduleRoamingUpdate(why, wake)) return
+        if (scheduleRoamingUpdate(why, if (wake) "wake" else "network_changed")) return
         broadcastLog("$why — reconnecting on the current network")
         forceReconnect()
     }
 
-    private fun scheduleRoamingUpdate(why: String, wake: Boolean): Boolean {
+    private fun scheduleRoamingUpdate(
+        why: String,
+        reason: String,
+        expectedGeneration: Long? = null,
+        reconnectOnFailure: Boolean = true,
+    ): Boolean {
         val core = transportCore ?: return false
         val config = activeConfig ?: return false
         val generation = activePlanGeneration
         val network = currentNetwork ?: return false
+        if (expectedGeneration != null && generation != expectedGeneration) return false
         val scope = coroutineScope ?: return false
         if (!AndroidRoamingPolicy.canSchedulePathUpdate(core.pathTransactionsEnabled, generation)) {
             return false
@@ -2172,17 +2206,24 @@ class VpnServiceImpl : VpnService() {
         roamingUpdateJob = scope.launch(Dispatchers.IO) {
             try {
                 delay(350)
-                submitRoamingPath(core, config, network, generation, wake)
+                submitRoamingPath(core, config, network, generation, reason)
             } catch (_: kotlinx.coroutines.CancellationException) {
                 return@launch
             } catch (error: Throwable) {
                 if (transportCore === core && activePlanGeneration == generation &&
                     liveStatus == STATUS_CONNECTED
                 ) {
-                    broadcastLog(
-                        "$why — soft roaming failed (${error.message}); using full reconnect"
-                    )
-                    forceReconnect()
+                    if (reconnectOnFailure) {
+                        broadcastLog(
+                            "$why — soft roaming failed (${error.message}); using full reconnect"
+                        )
+                        forceReconnect()
+                    } else {
+                        broadcastLog(
+                            "$why — path refresh failed (${error.message}); " +
+                                "the shared core will decide the reconnect fallback"
+                        )
+                    }
                 }
             }
         }
@@ -2195,7 +2236,7 @@ class VpnServiceImpl : VpnService() {
         config: VpnConfig,
         network: Network,
         generation: Long,
-        wake: Boolean,
+        reason: String,
     ) {
         val cm = getSystemService(ConnectivityManager::class.java)
             ?: throw IllegalStateException("ConnectivityManager is unavailable")
@@ -2232,7 +2273,7 @@ class VpnServiceImpl : VpnService() {
             generation = generation,
             updateId = updateId,
             platformPathId = "android:${network.networkHandle}",
-            reason = if (wake) "wake" else "network_changed",
+            reason = reason,
             networkToken = network.networkHandle.toString(),
             interfaceIndex = interfaceIndex,
             localAddresses = localAddresses,

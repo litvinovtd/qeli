@@ -1420,6 +1420,11 @@ impl LinuxCoreAdapter {
                         "unexpected path command: this Linux adapter does not advertise roaming"
                     ));
                 }
+                EventKind::PathRefresh => {
+                    return Err(anyhow::anyhow!(
+                        "unexpected path refresh: this Linux adapter owns NAT recovery in-process"
+                    ));
+                }
             }
         }
         Ok(found)

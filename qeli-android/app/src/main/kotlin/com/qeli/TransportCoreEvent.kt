@@ -106,6 +106,8 @@ internal object TransportCoreEventCodec {
     const val KIND_SOCKET_PROTECT = 4
     const val KIND_SERVER_IDENTITY = 5
     const val KIND_PATH_COMMAND = 6
+    const val KIND_PATH_REFRESH = 7
+    const val PAYLOAD_NONE = 0
     const val PAYLOAD_JSON = 1
     const val PAYLOAD_UTF8 = 2
 
@@ -218,6 +220,18 @@ internal object TransportCoreEventCodec {
         )
     }
 
+    fun decodePathRefreshGeneration(event: TransportCoreEvent): Long {
+        require(event.kind == KIND_PATH_REFRESH) { "event is not a path refresh request" }
+        require(event.payloadFormat == PAYLOAD_NONE && event.payload.isEmpty()) {
+            "path refresh request must not carry a payload"
+        }
+        require(event.sequence > 0 && event.planGeneration > 0) {
+            "path refresh correlation values must be positive"
+        }
+        require(event.errorCode == 0) { "path refresh request has an error code" }
+        return event.planGeneration
+    }
+
     fun encodePathUpdate(
         generation: Long,
         updateId: Long,
@@ -229,7 +243,9 @@ internal object TransportCoreEventCodec {
         resolvedAddresses: List<String>,
     ): String {
         require(generation > 0 && updateId > 0) { "path update ids must be positive" }
-        require(reason in setOf("network_changed", "wake")) { "unsupported path reason" }
+        require(reason in setOf("network_changed", "wake", "same_network_nat_failure")) {
+            "unsupported path reason"
+        }
         require(platformPathId.isNotBlank() && platformPathId.length <= 256 &&
             platformPathId.none(Char::isISOControl)) { "invalid platform path id" }
         require(networkToken.isNotBlank() && networkToken.length <= 256 &&
@@ -246,7 +262,7 @@ internal object TransportCoreEventCodec {
         val flags = JSONObject()
             .put("default_route_changed", reason == "network_changed")
             .put("wake", reason == "wake")
-            .put("same_network_nat_failure", false)
+            .put("same_network_nat_failure", reason == "same_network_nat_failure")
         val payload = JSONObject()
             .put("generation", generation)
             .put("update_id", updateId)

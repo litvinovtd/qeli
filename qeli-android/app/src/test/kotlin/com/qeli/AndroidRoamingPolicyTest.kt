@@ -9,9 +9,22 @@ class AndroidRoamingPolicyTest {
     @Test
     fun pathCapabilityIsTransportAgnosticWhenCoreSupportsIt() {
         assertEquals(
+            AndroidRoamingPolicy.PLATFORM_ROAMING_PATH or
+                AndroidRoamingPolicy.PLATFORM_PATH_REFRESH,
+            AndroidRoamingPolicy.platformCapabilities(
+                coreSupportsPathTransactions = true,
+                coreSupportsPathRefreshRequests = true,
+            ),
+        )
+    }
+
+    @Test
+    fun keepsPathTransactionsWhenCoreCannotRequestARefresh() {
+        assertEquals(
             AndroidRoamingPolicy.PLATFORM_ROAMING_PATH,
             AndroidRoamingPolicy.platformCapabilities(
                 coreSupportsPathTransactions = true,
+                coreSupportsPathRefreshRequests = false,
             ),
         )
     }
@@ -22,6 +35,7 @@ class AndroidRoamingPolicyTest {
             0L,
             AndroidRoamingPolicy.platformCapabilities(
                 coreSupportsPathTransactions = false,
+                coreSupportsPathRefreshRequests = true,
             ),
         )
     }

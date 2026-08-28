@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v27-all-udp-modes -->
+<!-- normative-sync: roaming-v29-android-nat-live -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -69,9 +69,16 @@
 > one bounded `SameNetworkNatFailure` PathUpdate for the active epoch; the observer retained sole
 > ownership of path observation and update IDs, and the candidate committed exactly once without a
 > second AUTH or reconnect. The one-attempt/grace/fallback policy now lives in the shared Rust core;
-> platform controllers only expose a bounded request for a fresh same-path snapshot. Real-device
-> NAT-rebinding acceptance remains a separate gate.
-> Current lab gates pass 960 feature library tests with three ignored,
+> platform controllers only expose a bounded request for a fresh same-path snapshot. ABI 1.13 now
+> carries that request to Android as a no-payload, generation-scoped `PATH_REFRESH` event. Kotlin
+> returns a `SameNetworkNatFailure` snapshot of the unchanged `Network` and owns no retry timer;
+> the shared Rust policy still owns the one attempt, 15-second grace and reconnect fallback.
+> Source/JVM regressions and the API 34 fake-TLS emulator NAT-rebinding gate are complete: a
+> bidirectionally dead old 5-tuple produced `PATH_REFRESH`, `PATH_CHALLENGE` and `PATH_COMMIT` on a
+> new source port without a second AUTH, NetworkPlan, process/TUN replacement or reconnect, while
+> the Android `Network` handle remained unchanged and tunnel ping recovered to 5/5 after commit. QUIC/obfs/AWG
+> Android emulator coverage and real-device NAT-rebinding remain separate gates.
+> Current lab gates pass 961 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
@@ -334,9 +341,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   limits, and KATs are frozen behind the default-off feature gate.
 - **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
-  lifecycle cleanup, and mock fault injection. The Linux in-process TCP feature adapter now
-  advertises the path contract and passed live e2e; the Android feature TCP adapter now does the same.
-  The default data plane and remaining native adapters remain unchanged.
+  lifecycle cleanup, and mock fault injection. ABI 1.13 adds the capability-gated same-path
+  refresh request without changing the fixed event/stats prefixes. Linux handles it in-process;
+  Android returns a snapshot of the unchanged `Network`. Other native adapters do not advertise
+  the bit and retain reconnect fallback.
 - **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
   Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
   generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
@@ -384,8 +392,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   fallback. Candidate connect/JOIN failures also abort temporary platform state. A COMMIT rejection
   is fail-closed: because the server has already authenticated and switched the carrier, the client
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
-  local path. Android enables application platform bits only for feature TCP after emulator acceptance;
-  Windows/macOS/iOS keep them disabled until their Phase 4 device/race acceptance.
+  local path. Android enables `ROAMING_PATH` for feature TCP and all UDP modes, and advertises
+  `PATH_REFRESH` only when an ABI 1.13 core exposes the matching core capability.
+  Windows/macOS/iOS keep both path capabilities disabled until Phase 4 device/race acceptance.
 
   Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -662,11 +671,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
   acceptance are complete. The Android source adapter now exposes that same transaction for every
-  UDP mode; emulator/device UDP acceptance is pending. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
-  acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate bidirectional DATA_FRAG-loss are
-  complete. Deterministic Linux same-network NAT dead-mapping is accepted in netns; real-device
-  race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete, while its emulator/device gates, Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+  UDP mode and answers a core-requested same-network NAT refresh without owning retry/fallback policy.
+  The UDP fake-TLS API 34 emulator gate now includes a same-Network, same-session NAT rebind without
+  AUTH/reconnect; QUIC/obfs/AWG emulator coverage and real-device UDP/NAT-rebinding remain pending.
+  Linux IPv4 packet delay/reorder/duplicate
+  and in-flight receive-drain acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate
+  bidirectional DATA_FRAG-loss are complete. Deterministic Linux same-network NAT dead-mapping is
+  accepted in netns; real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and fake-TLS emulator NAT-rebinding is accepted, while the other UDP emulator modes, Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 

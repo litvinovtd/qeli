@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v27-all-udp-modes -->
+<!-- normative-sync: roaming-v29-android-nat-live -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -68,9 +68,16 @@
 > запросил один ограниченный `SameNetworkNatFailure` PathUpdate для active epoch; observer остался
 > единственным владельцем наблюдения пути и update id, а candidate закоммитился ровно один раз без
 > второй AUTH или reconnect. Policy one-attempt/grace/fallback теперь находится в общем Rust core;
-> platform controllers дают только bounded-запрос свежего snapshot того же пути. Приёмка NAT
-> rebinding на реальных устройствах остаётся отдельным gate.
-> Текущие lab gates: 960 feature library tests при трёх ignored, 872 default tests при
+> platform controllers дают только bounded-запрос свежего snapshot того же пути. ABI 1.13 теперь
+> передаёт этот запрос Android как generation-scoped событие `PATH_REFRESH` без payload. Kotlin
+> возвращает `SameNetworkNatFailure` snapshot неизменной `Network` и не владеет retry timer;
+> единая Rust policy по-прежнему задаёт одну попытку, 15-секундный grace и reconnect fallback.
+> Source/JVM-регрессии и fake-TLS NAT-rebinding gate на API 34 emulator готовы: двусторонне
+> потерянный старый 5-tuple вызвал `PATH_REFRESH`, `PATH_CHALLENGE` и `PATH_COMMIT` на новый source
+> port без второй AUTH, NetworkPlan, замены процесса/TUN или reconnect; Android `Network` handle
+> остался прежним, после commit tunnel ping восстановился до 5/5. Android emulator-покрытие QUIC/obfs/AWG и NAT
+> rebinding на реальных устройствах остаются отдельными gate.
+> Текущие lab gates: 961 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
@@ -537,9 +544,10 @@ anti-amplification и PMTU reset.
 Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
 текущего data plane.
 ABI 1.12 и stats V3 сохраняют старые префиксы; mock fault injection покрывает отказы
-PREPARE/BIND/COMMIT/ABORT. Linux in-process TCP и Android TCP feature adapters уже рекламируют
-path capability и прошли live e2e; default data plane не изменён, e2e остальных native-адаптеров
-остаётся впереди.
+PREPARE/BIND/COMMIT/ABORT. ABI 1.13 добавляет capability-gated same-path refresh request без
+изменения фиксированных event/stats prefixes. Linux исполняет его in-process, Android возвращает
+snapshot неизменной `Network`. Остальные native adapters не объявляют новый bit и сохраняют
+reconnect fallback.
 
 ### Этап 2A. TCP lifecycle — ✅ исходники
 
@@ -595,8 +603,9 @@ supersede/stop.
 full-reconnect fallback. Ошибки candidate connect/JOIN также откатывают platform-состояние.
 Отказ COMMIT остаётся fail-closed: сервер к этому моменту уже аутентифицировал и переключил
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
-неподтверждённый path. Android включает application platform bits только для feature TCP после
-эмуляторной приёмки; Windows/macOS/iOS сохраняют их выключенными до своей device/race-приёмки.
+неподтверждённый path. Android включает `ROAMING_PATH` для feature TCP и всех UDP-режимов, а
+`PATH_REFRESH` объявляет только если ядро ABI 1.13 сообщает парный core capability.
+Windows/macOS/iOS сохраняют оба path capability выключенными до Phase 4 device/race-приёмки.
 
 На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -888,8 +897,10 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
   Wi-Fi↔cellular и sleep/wake emulator live готовы; real-device/race/soak/NAT rebinding впереди;
-- Android UDP: тот же exact-Network transaction включён для fake-TLS/QUIC/obfs/AWG; emulator/device
-  acceptance и same-network NAT request hook впереди;
+- Android UDP: тот же exact-Network transaction включён для fake-TLS/QUIC/obfs/AWG; общий Rust core
+  через ABI 1.13 запрашивает same-network NAT snapshot без Android retry policy. Fake-TLS API 34
+  emulator gate закрыт для same-Network, same-session NAT rebind без AUTH/reconnect; emulator
+  coverage QUIC/obfs/AWG и real-device NAT-rebinding впереди;
 - Windows;
 - macOS;
 - iOS.

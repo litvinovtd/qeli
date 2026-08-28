@@ -315,6 +315,17 @@ impl PathController for NativeCoreAdapter {
         self.path_controller.candidate_is_current(candidate)
     }
 
+    fn can_request_same_network_nat_rebind(&self) -> bool {
+        self.platform_capabilities() & super::platform_capability::PATH_REFRESH != 0
+    }
+
+    fn request_same_network_nat_rebind(&self) -> anyhow::Result<()> {
+        self.lock()
+            .request_path_refresh()
+            .map(|_| ())
+            .map_err(anyhow::Error::from)
+    }
+
     fn bind_candidate_socket(
         &self,
         candidate: &super::path::PreparedPathCandidate,

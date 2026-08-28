@@ -8,7 +8,9 @@
 //! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust;
 //! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure; ABI 1.11
 //! adds the dual-family NetworkPlan representation while retaining the legacy IPv4 projection;
-//! ABI 1.12 adds the experimental generation-scoped path transaction contract and telemetry.
+//! ABI 1.12 adds the experimental generation-scoped path transaction contract and telemetry;
+//! ABI 1.13 lets the core request a same-network path snapshot without moving retry policy into
+//! platform clients.
 
 use self::path::{
     PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathUpdate,
@@ -106,7 +108,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 12;
+pub const ABI_VERSION_MINOR: u16 = 13;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -137,8 +139,9 @@ pub mod core_capability {
     pub const WINTUN_IO: u64 = 1 << 11;
     pub const NETWORK_PLAN_V2: u64 = 1 << 12;
     pub const PATH_TRANSACTIONS: u64 = 1 << 13;
+    pub const PATH_REFRESH_EVENTS: u64 = 1 << 14;
     #[cfg(feature = "experimental-roaming")]
-    const EXPERIMENTAL: u64 = PATH_TRANSACTIONS;
+    const EXPERIMENTAL: u64 = PATH_TRANSACTIONS | PATH_REFRESH_EVENTS;
     #[cfg(not(feature = "experimental-roaming"))]
     const EXPERIMENTAL: u64 = 0;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2;
@@ -218,6 +221,8 @@ pub mod platform_capability {
     pub const PATH_TRANSACTIONS: u64 = 1 << 12;
     /// The adapter can bind/protect a core-owned socket to the exact candidate path.
     pub const PATH_SOCKET_BINDING: u64 = 1 << 13;
+    /// The adapter can answer a core request with a fresh snapshot of the current path.
+    pub const PATH_REFRESH: u64 = 1 << 14;
     pub const ROAMING_PATH: u64 = PATH_TRANSACTIONS | PATH_SOCKET_BINDING;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
@@ -243,6 +248,7 @@ pub enum EventKind {
     SocketProtect = 4,
     ServerIdentity = 5,
     PathCommand = 6,
+    PathRefresh = 7,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -786,6 +792,7 @@ pub struct ClientEvent {
     pub socket_protect: Option<SocketProtectRequest>,
     pub server_identity: Option<ServerIdentityRequest>,
     pub path_command: Option<PathCommand>,
+    pub path_refresh_generation: Option<u64>,
     pub fault: Option<CoreFault>,
 }
 
@@ -1755,6 +1762,35 @@ impl ClientCore {
             socket_protect: None,
             server_identity: None,
             path_command: Some(command),
+            path_refresh_generation: None,
+            fault: None,
+        });
+        sequence
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[cfg_attr(
+        not(any(
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        )),
+        allow(dead_code)
+    )]
+    fn push_path_refresh_event(&mut self, generation: u64) -> u64 {
+        debug_assert!(self.events.len() < self.event_capacity);
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.events.push_back(ClientEvent {
+            sequence,
+            kind: EventKind::PathRefresh,
+            state: self.state,
+            plan: None,
+            socket_protect: None,
+            server_identity: None,
+            path_command: None,
+            path_refresh_generation: Some(generation),
             fault: None,
         });
         sequence
@@ -1832,7 +1868,7 @@ impl ClientCore {
 
     fn discard_queued_path_events(&mut self) {
         self.events
-            .retain(|event| event.kind != EventKind::PathCommand);
+            .retain(|event| !matches!(event.kind, EventKind::PathCommand | EventKind::PathRefresh));
         self.pending_path_command.clear();
     }
 
@@ -1944,6 +1980,31 @@ impl ClientCore {
             }
         }
         Ok(candidate_id)
+    }
+
+    /// Ask a capable native adapter for a fresh observation of the current physical path.
+    /// The shared UDP actor owns request rate, grace time and reconnect fallback; this event
+    /// only crosses the ABI so the platform can re-snapshot its existing network object.
+    #[cfg(feature = "experimental-roaming")]
+    #[cfg_attr(
+        not(any(
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn request_path_refresh(&mut self) -> Result<u64, CoreError> {
+        self.ensure_path_transactions_enabled()?;
+        let missing = platform_capability::PATH_REFRESH & !self.platform_capabilities;
+        if missing != 0 {
+            return Err(CoreError::MissingCapability { missing });
+        }
+        let generation = self.last_plan_generation;
+        self.validate_active_path_generation(generation)?;
+        self.require_event_slots(1)?;
+        Ok(self.push_path_refresh_event(generation))
     }
 
     /// Ask the platform to bind/protect a core-owned candidate socket to the prepared path.
@@ -2410,6 +2471,7 @@ impl ClientCore {
             server_identity,
             path_command: None,
             fault,
+            path_refresh_generation: None,
         });
         sequence
     }
@@ -3139,7 +3201,8 @@ mod tests {
             &ini(),
             CoreOptions {
                 platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES
-                    | platform_capability::ROAMING_PATH,
+                    | platform_capability::ROAMING_PATH
+                    | platform_capability::PATH_REFRESH,
                 event_capacity: DEFAULT_EVENT_CAPACITY,
             },
         )
@@ -3153,6 +3216,43 @@ mod tests {
         core.ack_network_plan(generation, true, None).unwrap();
         assert_eq!(core.poll_event().unwrap().state, ClientState::Running);
         core
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_refresh_request_is_capability_generation_queue_and_stop_scoped() {
+        let mut core = running_path_core(41);
+        let sequence = core.request_path_refresh().unwrap();
+        let event = core.poll_event().expect("path refresh event");
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(event.kind, EventKind::PathRefresh);
+        assert_eq!(event.path_refresh_generation, Some(41));
+        assert!(event.path_command.is_none());
+
+        core.platform_capabilities &= !platform_capability::PATH_REFRESH;
+        assert!(matches!(
+            core.request_path_refresh(),
+            Err(CoreError::MissingCapability {
+                missing: platform_capability::PATH_REFRESH
+            })
+        ));
+        core.platform_capabilities |= platform_capability::PATH_REFRESH;
+
+        while core.events.len() < core.event_capacity {
+            core.push_event(EventKind::StateChanged, None, None, None, None);
+        }
+        assert!(matches!(
+            core.request_path_refresh(),
+            Err(CoreError::EventQueueFull)
+        ));
+        core.events.clear();
+
+        core.request_path_refresh().unwrap();
+        core.stop().unwrap();
+        assert!(core
+            .events
+            .iter()
+            .all(|event| event.kind != EventKind::PathRefresh));
     }
 
     #[cfg(feature = "experimental-roaming")]
