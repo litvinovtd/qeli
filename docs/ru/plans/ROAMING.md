@@ -1,10 +1,10 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v26-core-nat-policy -->
+<!-- normative-sync: roaming-v27-all-udp-modes -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
-> под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
-> объявляют полный `ROAMING_PATH` только при наличии реализации в ядре; default-сборки, UDP без
-> QUIC и unsupported platforms сохраняют обычный reconnect. Linux TCP прошёл live e2e 15/15, hard resume и
+> под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
+> `ROAMING_PATH` для TCP и всех поддерживаемых UDP camouflage modes только при наличии реализации
+> в ядре; default-сборки и unsupported platforms сохраняют обычный reconnect. Linux TCP прошёл live e2e 15/15, hard resume и
 > explicit close. Android API 34 emulator прошёл Wi-Fi → cellular (198/200 ping), cellular →
 > Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
 > полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
@@ -19,8 +19,9 @@
 > валидирует отдельный candidate socket, обрабатывает PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT,
 > ждёт точный platform COMMIT ACK и атомарно переключает socket, receive pump, CID framing и
 > консервативный PMTU budget. Ошибка после peer PATH_COMMIT приводит к fail-closed reconnect.
-> В feature-сборке Linux UDP+QUIC теперь рекламирует и согласует `UDP_ROAM_V1` только при полном
-> platform `ROAMING_PATH`; generic TCP, UDP без QUIC, fixed-source и default-сборки бит не получают.
+> В feature-сборке Linux UDP согласует `UDP_ROAM_V1` для fake-TLS, QUIC masking, obfs и AWG только
+> при полном platform `ROAMING_PATH` и аутентифицированном `DATA_FRAG_V1`; fixed-source и
+> default-сборки бит не получают.
 > Двухмаршрутный UDP netns live e2e прошёл 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс
 > authenticated session, carrier `/32`, socket и receive pump до выключения старого интерфейса,
 > сохранив PID, TUN и отсутствие top-level reconnect. Отдельный rollback-сценарий прошёл 20/20:
@@ -110,8 +111,7 @@
 | Транспорт | Целевое поведение |
 |---|---|
 | TCP во всех поддерживаемых режимах | make-before-break, при жёстком обрыве — authenticated JOIN в пределах grace |
-| UDP с qeli QUIC-конвертом и DATA_FRAG_V1 | полная миграция адреса, сокета и PMTU |
-| UDP без QUIC-конверта | полный reconnect; роуминг не объявляется |
+| UDP fake-TLS / QUIC masking / obfs / AWG с согласованными UDP_ROAM_V1 и DATA_FRAG_V1 | полная миграция адреса, сокета и PMTU через единый directional-CID envelope |
 | raw plain | только TCP; отдельного UDP plain в текущем протоколе нет |
 
 Не являются целью первой версии: MPTCP, downstream replay buffer, межузловая миграция
@@ -134,8 +134,9 @@ trailer. Нужны раздельные биты:
 - TCP_RESUME_V1 — authenticated JOIN существующей сессии;
 - TCP_HANDOVER_V1 — замена логического потока make-before-break.
 
-Сервер объявляет только возможности, реально доступные конкретному профилю. UDP_ROAM_V1
-нельзя объявлять для UDP-профиля без QUIC-конверта и DATA_FRAG_V1. Клиент в режиме
+Сервер объявляет только возможности, реально доступные конкретному профилю. UDP_ROAM_V1 требует
+DATA_FRAG_V1, но не требует включённого legacy-параметра `quic`: после взаимного аутентифицированного
+opt-in все UDP camouflage modes переключаются на один roaming CID envelope. Клиент в режиме
 **required** отказывает до передачи credentials/полной AUTH, если нужной capability нет.
 
 Legacy client/server продолжают использовать обычный reconnect. Поэтому обновление можно
@@ -229,12 +230,16 @@ generation не может изменить новый runtime.
 
 ## 6. UDP: новый short header и CID
 
-Существующий четырёхбайтовый формат handshake/long header и известный legacy path сохраняются
-для совместимости. Для согласованного UDP_ROAM_V1 обычная форма QUIC short header сохраняет
-стандартные short flags, но DCID расширяется до восьми байтов. Отдельный постоянный qeli-marker
-запрещён: он создал бы простой DPI-отпечаток. При miss по source address сервер пробует извлечь
-восьмибайтовый CID и выполнить bounded lookup в profile-wide registry; известный legacy path
-продолжает использовать сохранённую четырёхбайтовую форму.
+Существующий handshake и известный legacy path сохраняются для совместимости: QUIC-masked legacy
+профиль имеет четырёхбайтовый CID, fake-TLS/obfs без masking до AuthOK CID не имеют. После
+согласованного UDP_ROAM_V1 все режимы переключаются на общую форму roaming short header со
+стандартными QUIC-shaped flags и восьмибайтовым DCID. Он находится снаружи session PacketCodec,
+чтобы сервер мог выбрать сессионный ключ, но внутри profile-wide UDP obfs transform: fake-TLS и
+QUIC masking оставляют CID-shaped header видимым, а obfs/AWG закрывает его ключом профиля до выхода
+на физический провод. Отдельный постоянный qeli-marker запрещён:
+он создал бы простой DPI-отпечаток. При miss по source address сервер пробует извлечь восьмибайтовый
+CID и выполнить bounded lookup в profile-wide registry; известный legacy path продолжает использовать
+свою исходную форму.
 
 CID:
 
@@ -468,7 +473,7 @@ roaming = auto
 
 Валидация должна отклонять:
 
-- required для UDP без QUIC/DATA_FRAG;
+- required для UDP без согласованного DATA_FRAG/UDP_ROAM;
 - required при отсутствии серверной capability;
 - невозможный cross-interface roam при жёстком client local;
 - нулевые/чрезмерные grace и memory limits.
@@ -788,10 +793,13 @@ fail-closed завершает actor для полного reconnect, а не о
 фиксирует переход receive-классификации candidate → active и отказ старой epoch; strict default и
 feature Clippy, default suite 871 passed/1 ignored и feature suite 952 passed/3 ignored проходят.
 
-`UDP_ROAM_V1` теперь включается только в `experimental-roaming` для точного UDP+QUIC handshake,
-когда сервер рекламирует тот же бит, а платформа даёт полный `ROAMING_PATH`. Generic TCP, UDP без
-QUIC, fixed-source и default-сборки сохраняют прежний reconnect. Изолированный двухмаршрутный Linux
-UDP netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
+`UDP_ROAM_V1` теперь включается в `experimental-roaming` для всех UDP camouflage modes, когда сервер
+рекламирует тот же бит, аутентифицирован `DATA_FRAG_V1`, а платформа даёт полный `ROAMING_PATH`.
+Linux и Android больше не имеют отдельного QUIC-only platform gate. Live-матрица
+QUIC/fake-TLS/obfs/obfs+AWG прошла 4/4 режима и 68/68 проверок, сохранив PID, TUN и authenticated
+session без top-level reconnect. Fixed-source, legacy peers и default-сборки сохраняют прежний
+reconnect. Исходный двухмаршрутный Linux UDP+QUIC
+netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
 парный rollback-сценарий прошёл 20/20 с blackhole только candidate-пути B, bounded expiry,
 exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect.
 Трёхмаршрутный supersede-gate прошёл 24/24: B пересёк BIND/PATH_INIT, затем exact ABORT старого
@@ -875,11 +883,13 @@ deliberate DATA_FRAG-loss приняты live-gate; детерминирован
 commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family,
 deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
-### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
+### Этап 4. Платформы — 🟡 Linux и Android TCP live, Android UDP source-ready
 
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
   Wi-Fi↔cellular и sleep/wake emulator live готовы; real-device/race/soak/NAT rebinding впереди;
+- Android UDP: тот же exact-Network transaction включён для fake-TLS/QUIC/obfs/AWG; emulator/device
+  acceptance и same-network NAT request hook впереди;
 - Windows;
 - macOS;
 - iOS.
@@ -941,7 +951,7 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 - inner IPv4, IPv6, dual-stack на outer IPv4 и IPv6;
 - TUN и TAP;
 - все TCP режимы;
-- UDP fakeTLS/obfs/AWG с QUIC и DATA_FRAG;
+- UDP fakeTLS/QUIC/obfs/AWG с DATA_FRAG;
 - max_streams 1, fixed и adaptive;
 - full/split/per-app routing;
 - kill switch, Trusted Wi-Fi и жёсткий local pin;

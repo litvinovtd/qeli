@@ -471,10 +471,11 @@ development implementation, а не релиз.
 - Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; generation-scoped динамический
   PathUpdate ABI и транзакция PREPARE/COMMIT/ABORT.
-- **UDP с QUIC + DATA_FRAG_V1:** отдельный восьмибайтовый CID short header, profile-wide
-  registry между всеми workers/listeners, per-session actor и dynamic egress socket.
-  PATH_CHALLENGE/PATH_RESPONSE, anti-amplification и двунаправленный PMTU reset/re-probe
-  обязательны до переключения downstream. UDP без QUIC остаётся на полном reconnect.
+- **UDP с UDP_ROAM_V1 + DATA_FRAG_V1:** единый directional восьмибайтовый CID envelope для
+  fake-TLS, QUIC masking, obfs и AWG, profile-wide registry между всеми workers/listeners,
+  per-session actor и dynamic egress socket. PATH_CHALLENGE/PATH_RESPONSE, anti-amplification и
+  двунаправленный PMTU reset/re-probe обязательны до переключения downstream. Legacy peers без
+  согласованных authenticated roaming capabilities остаются на полном reconnect.
 - **TCP:** authenticated JOIN с новым key exchange и fresh AEAD, широкий resume epoch,
   grace с bounded orphan limits, стабильные logical slots и make-before-break. Token
   является locator, но не доказательством владения.

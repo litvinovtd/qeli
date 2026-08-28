@@ -1,10 +1,11 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v26-core-nat-policy -->
+<!-- normative-sync: roaming-v27-all-udp-modes -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
-> implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
-> advertise complete `ROAMING_PATH` only when the core implements it; default builds, non-QUIC UDP,
-> and unsupported platforms retain normal reconnect. Linux TCP passed live e2e 15/15, hard resume, and explicit
+> implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
+> advertise complete `ROAMING_PATH` for TCP and every supported UDP camouflage mode when the core
+> implements it; default builds and unsupported platforms retain normal reconnect. Linux TCP passed
+> live e2e 15/15, hard resume, and explicit
 > close. An Android API 34 emulator passed Wi-Fi → cellular (198/200 probes), cellular → Wi-Fi
 > (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
 > full AUTH ran once, the underlying Network changed atomically, and DNS still resolved after the
@@ -18,8 +19,9 @@
 > candidate socket, handles PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT, waits for the exact platform
 > COMMIT acknowledgement, and atomically replaces the socket, receive pump, CID framing, and
 > conservative PMTU budget. A failure after peer PATH_COMMIT triggers a fail-closed reconnect.
-> A feature-enabled Linux UDP+QUIC session now advertises and negotiates `UDP_ROAM_V1` only with a
-> complete platform `ROAMING_PATH`; generic TCP, non-QUIC UDP, fixed-source, and default builds do not.
+> A feature-enabled Linux UDP session now advertises and negotiates `UDP_ROAM_V1` for fake-TLS,
+> QUIC masking, obfs, and AWG only with a complete platform `ROAMING_PATH` and authenticated
+> `DATA_FRAG_V1`; fixed-source and default builds do not.
 > An isolated two-path UDP netns live e2e passed 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT moved the
 > authenticated session, carrier `/32`, socket, and receive pump before the old interface was disabled,
 > preserving PID, TUN, and the absence of top-level reconnect. A separate rollback scenario passed
@@ -90,9 +92,9 @@ the session or paying Argon2 again.
 
 | Transport | Achievable | How |
 |---|---|---|
-| **UDP + QUIC masking** | Fully seamless (connection migration) | A new authenticated path becomes a candidate; PATH_CHALLENGE/PATH_RESPONSE validation commits the peer address |
+| **UDP** (fake-TLS / QUIC masking / obfs / AWG) | Fully seamless after `UDP_ROAM_V1 + DATA_FRAG_V1` negotiation | All modes switch after AuthOK to one directional-CID envelope; PATH_CHALLENGE/PATH_RESPONSE validation commits the peer address |
 | **TCP** (reality-tls / fake-tls / obfs / plain) | Seamless with make-before-break; otherwise a short gap | Multipath JOIN over the new network *before* the old dies; fallback — grace + JOIN-resume |
-| **UDP plain** (no quic) | Out of scope | No on-wire identifier → roaming requires `quic=1` |
+| **raw plain** | TCP only | The current protocol has no separate raw-plain UDP profile |
 
 **Non-goals:** zero byte loss on a hard handover where only one network is alive at
 the moment of transition (inner-TCP retransmit covers it); MPTCP; buffering +
@@ -112,19 +114,17 @@ Roaming removes that hiccup.
 
 ### 2.1 UDP connection-id (CID) — demux by packet content
 
-Today: the client picks **its own stable 4-byte CID** once
-([client/mod.rs](../../../qeli/src/client/mod.rs)) and puts it on every upstream
-packet; the server **extracts and discards** that CID (`_connection_id`,
-[udp_handler.rs](../../../qeli/src/server/udp_handler.rs)) and demuxes sessions by the
-source `SocketAddr` ([udp_handler.rs](../../../qeli/src/server/udp_handler.rs) /
-[udp_handler.rs](../../../qeli/src/server/udp_handler.rs)). An address change → map miss → treated as a
-new client → full handshake.
+Today the legacy QUIC-masked mode picks one stable four-byte CID, while unmasked fake-TLS/obfs
+has no pre-auth CID. In either case the server demuxes an established legacy session by source
+`SocketAddr`; an address change is a map miss and causes a full handshake.
 
-Change: the server **records the client CID** at handshake and can find the session by
-CID when the source address is unknown. The rotating eight-byte CID lives in the QUIC
-short header **in the clear** (it must — the server has to identify the session **before**
-decrypting, to pick the key). The negotiated form keeps the ordinary QUIC short flags and
-widens the legacy four-byte DCID to eight bytes; it adds no fixed qeli-specific marker. On an
+Change: after authenticated `UDP_ROAM_V1` negotiation every UDP camouflage mode atomically switches
+to the same rotating eight-byte destination-CID envelope. It sits outside the session PacketCodec,
+because the server has to identify the session before selecting that session key, but inside any
+profile-wide UDP obfs transform: fake-TLS and QUIC masking expose the CID-shaped header, whereas
+obfs/AWG seals it with the profile obfs key before it reaches the physical wire. Its flags retain
+the ordinary QUIC-short shape, but this roaming demux envelope does not require the legacy `quic`
+masking option and adds no fixed qeli-specific marker. On an
 address miss the server attempts the eight-byte registry lookup, while a known legacy path
 continues to use its recorded four-byte form.
 
@@ -149,10 +149,10 @@ roam_cid(n) = HKDF-Expand(session_secret, "qeli-roam-cid" ‖ LE64(n))[..8]
 
 Properties: the on-wire CID differs per path (anti-link), the derivation is
 deterministic (no CID-pool exchange), the server precompute is bounded by the window.
-**8 bytes wide** (vs today's 4) — for collision safety; this is a wire change to the
-masking header ([protocol/quic.rs](../../../qeli/src/protocol/quic.rs),
-`wrap_quic_short`/`unwrap_quic`), scheduled for the roaming-capable 0.8.x protocol
-revision after the full-IPv6 0.8.0 release (real QUIC CIDs run up to 20 bytes).
+**8 bytes wide** (vs today's 4) — for collision safety; this is a wire change to the negotiated
+roaming header ([protocol/roaming.rs](../../../qeli/src/protocol/roaming.rs)). Every UDP mode uses
+it only after mutual authenticated capability opt-in; legacy sessions remain byte-for-byte
+unchanged (real QUIC CIDs may be up to 20 bytes).
 
 > Alternative (Design A, QUIC-style "CID pool"): the server hands the client a set of
 > future CIDs in advance (encrypted, post-auth). More flexible, but more state and
@@ -216,7 +216,7 @@ needs exact per-interface socket binding (see 4.4).
 - A secondary index `cid_index: HashMap<[u8;8], SocketAddr>` next to the primary
   `HashMap<SocketAddr, UdpClient>`. The primary stays the fast path (most packets come
   from a known address), with no per-packet cost change.
-- `handle_udp_datagram`: (1) lookup by address — as today; (2) miss + `quic_enabled` →
+- `handle_udp_datagram`: (1) lookup by address — as today; (2) miss + valid roaming short header →
   unwrap → CID → lookup in `cid_index` (incl. the expected roam-CID window) → candidate
   session → trial-decrypt with its `rx_codec` → if Ok and replay-ok, enqueue PATH_INIT
   for the per-session actor and create at most one bounded **CANDIDATE**.
@@ -318,10 +318,10 @@ anyway); Windows `IP_UNICAST_IF` (or bind to the interface address); macOS
   migrates, a spoofed/replayed one doesn't); grace timer; JOIN-resume attach at
   `max_streams=1`.
 - **Fuzz:** extend [qeli/fuzz](../../../qeli/fuzz) along the CID/migration path.
-- **e2e on the lab (.10/.11):** a script flips the client's src-addr mid-flow
-  (netns/iptables SNAT) and asserts: UDP+QUIC → 0 reconnects, the flow continues; TCP →
-  make-before-break 0-gap with two live networks, JOIN-resume <grace on a hard
-  handover; measure gap/loss/"Argon2 skipped".
+- **e2e on the lab (.10/.11):** a script flips the client's src-addr mid-flow.
+  `roaming_udp_all_modes_netns_e2e.sh` runs the same success gate for QUIC, fake-TLS, obfs, and
+  obfs+AWG; each must retain the session with zero reconnects. TCP uses make-before-break with
+  two live networks and JOIN-resume <grace on a hard handover; measure gap/loss/"Argon2 skipped".
 - **Regression:** throughput unchanged (the CID lookup runs only on an address miss,
   not per packet).
 
@@ -581,10 +581,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   epoch rejection; strict default and feature Clippy, the default suite at 871 passed/1 ignored, and
   the feature suite at 952 passed/3 ignored all pass.
 
-  `UDP_ROAM_V1` now activates only in `experimental-roaming` for the exact UDP+QUIC handshake when
-  the server advertises the same bit and the platform provides complete `ROAMING_PATH`. Generic TCP,
-  non-QUIC UDP, fixed-source, and default builds retain reconnect behavior. An isolated two-path Linux
-  UDP netns e2e passed 17/17 with old-path removal and no PID/TUN replacement or top-level reconnect;
+  `UDP_ROAM_V1` now activates in `experimental-roaming` for every UDP camouflage mode when the
+  server advertises the same bit, authenticated `DATA_FRAG_V1` is present, and the platform provides
+  complete `ROAMING_PATH`. Linux and Android no longer duplicate a QUIC-only platform gate; a
+  live four-mode matrix passed QUIC, fake-TLS, obfs, and obfs+AWG: 4/4 modes and 68/68 checks
+  retained PID, TUN, and the authenticated session without top-level reconnect. Fixed-source,
+  legacy peers, and default builds retain reconnect behavior. The
+  original isolated two-path Linux UDP+QUIC netns e2e passed 17/17 with old-path removal and no PID/TUN replacement or top-level reconnect;
   its paired rollback case passed 20/20 with a path-B-only blackhole, bounded expiry, exact platform
   ABORT, and the carrier `/32`, PID/TUN, and traffic retained on path A without reconnect. A three-path
   supersede gate passed 24/24: B crossed BIND/PATH_INIT, exact ABORT of that old candidate preceded
@@ -658,11 +661,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   connects to the candidate address, and binds before connect. Linux observation, capability activation,
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
-  acceptance are complete. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
+  acceptance are complete. The Android source adapter now exposes that same transaction for every
+  UDP mode; emulator/device UDP acceptance is pending. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
   acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate bidirectional DATA_FRAG-loss are
   complete. Deterministic Linux same-network NAT dead-mapping is accepted in netns; real-device
   race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete, while its emulator/device gates, Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 

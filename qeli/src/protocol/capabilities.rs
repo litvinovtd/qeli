@@ -94,24 +94,19 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
     ServerCapabilities { bits }
 }
 
-/// Capabilities safe for this exact UDP handshake. UDP roaming requires the QUIC-shaped
-/// eight-byte CID envelope, so a legacy/unmasked UDP peer must never see the activation bit even
-/// in an experimental build. TCP continues to use `implemented_server_capabilities()` directly.
-pub const fn implemented_udp_server_capabilities(quic_enabled: bool) -> ServerCapabilities {
+/// Capabilities safe for every UDP transport mode. After authenticated opt-in, all modes switch
+/// to the same eight-byte CID envelope; QUIC masking, fake-TLS and obfs remain handshake/profile
+/// choices rather than separate roaming implementations.
+pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
     let capabilities = implemented_server_capabilities();
     #[cfg(feature = "experimental-roaming")]
     {
-        if quic_enabled {
-            ServerCapabilities {
-                bits: capabilities.bits | server_capability::UDP_ROAM_V1,
-            }
-        } else {
-            capabilities
+        ServerCapabilities {
+            bits: capabilities.bits | server_capability::UDP_ROAM_V1,
         }
     }
     #[cfg(not(feature = "experimental-roaming"))]
     {
-        let _ = quic_enabled;
         capabilities
     }
 }
@@ -270,14 +265,13 @@ pub fn negotiate_client_capabilities(
         core_bits &= !client_capability::TCP_HANDOVER_V1;
     }
     let udp_roaming_eligible = config.server.protocol == "udp"
-        && config.obfuscation.quic.enabled
         && server.contains(server_capability::UDP_ROAM_V1)
         && platform_bits & crate::transport_core::platform_capability::ROAMING_PATH
             == crate::transport_core::platform_capability::ROAMING_PATH;
     if !udp_roaming_eligible {
         // UDP roaming changes the post-auth wire envelope and starts a candidate path actor.
-        // Advertise it only for this exact QUIC-shaped UDP connection and a platform that can
-        // transactionally bind/commit the replacement socket.
+        // Advertise it only for a UDP connection whose platform can transactionally bind and
+        // commit the replacement socket. Wire masking remains independent of migration.
         core_bits &= !client_capability::UDP_ROAM_V1;
     }
     if config.routing.ipv6 == ClientIpv6Policy::Required {
@@ -565,16 +559,13 @@ mod tests {
     }
 
     #[test]
-    fn udp_roaming_server_advertisement_is_feature_and_quic_scoped() {
+    fn udp_roaming_server_advertisement_is_feature_and_transport_scoped() {
         assert!(!implemented_server_capabilities().contains(server_capability::UDP_ROAM_V1));
-        assert!(
-            !implemented_udp_server_capabilities(false).contains(server_capability::UDP_ROAM_V1)
-        );
         #[cfg(feature = "experimental-roaming")]
-        assert!(implemented_udp_server_capabilities(true)
+        assert!(implemented_udp_server_capabilities()
             .contains(server_capability::CONTROL_V2 | server_capability::UDP_ROAM_V1));
         #[cfg(not(feature = "experimental-roaming"))]
-        assert!(!implemented_udp_server_capabilities(true).contains(server_capability::UDP_ROAM_V1));
+        assert!(!implemented_udp_server_capabilities().contains(server_capability::UDP_ROAM_V1));
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -582,33 +573,35 @@ mod tests {
     fn udp_roaming_client_opt_in_requires_exact_transport_server_and_platform() {
         let mut config = crate::config::client::ClientConfig::default();
         config.server.protocol = "udp".to_string();
-        config.obfuscation.quic.enabled = true;
-        let server = Some(implemented_udp_server_capabilities(true));
-        let complete = negotiate_client_capabilities(
-            &config,
-            server,
-            crate::transport_core::platform_capability::ROAMING_PATH,
-        )
-        .unwrap()
-        .expect("authenticated capability extension");
-        assert_ne!(complete.core_bits & client_capability::UDP_ROAM_V1, 0);
+        let server = Some(implemented_udp_server_capabilities());
+        for (mode, quic, awg) in [
+            ("fake-tls", false, false),
+            ("fake-tls", true, false),
+            ("obfs", false, false),
+            ("obfs", false, true),
+        ] {
+            config.obfuscation.mode = mode.to_string();
+            config.obfuscation.quic.enabled = quic;
+            config.obfuscation.awg.enabled = awg;
+            let complete = negotiate_client_capabilities(
+                &config,
+                server,
+                crate::transport_core::platform_capability::ROAMING_PATH,
+            )
+            .unwrap()
+            .expect("authenticated capability extension");
+            assert_ne!(
+                complete.core_bits & client_capability::UDP_ROAM_V1,
+                0,
+                "UDP roaming must not depend on camouflage mode={mode}, quic={quic}, awg={awg}",
+            );
+        }
 
         let no_path = negotiate_client_capabilities(&config, server, 0)
             .unwrap()
             .expect("authenticated capability extension");
         assert_eq!(no_path.core_bits & client_capability::UDP_ROAM_V1, 0);
 
-        config.obfuscation.quic.enabled = false;
-        let unmasked = negotiate_client_capabilities(
-            &config,
-            server,
-            crate::transport_core::platform_capability::ROAMING_PATH,
-        )
-        .unwrap()
-        .expect("authenticated capability extension");
-        assert_eq!(unmasked.core_bits & client_capability::UDP_ROAM_V1, 0);
-
-        config.obfuscation.quic.enabled = true;
         config.server.protocol = "tcp".to_string();
         let tcp = negotiate_client_capabilities(
             &config,

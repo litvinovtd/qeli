@@ -70,16 +70,16 @@
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
   использует уже аутентифицированный закреплённый IP сервера без повторного DNS через возможный
   сломанный туннель. Linux объявляет полный `ROAMING_PATH` только в сборке
-  `experimental-roaming`, без явного `server.local_address`: для TCP и для UDP только при QUIC.
-  UDP без QUIC, fixed-source и default-сборка не объявляют path capability и сохраняют reconnect-
+  `experimental-roaming`, без явного `server.local_address`: для TCP и всех UDP-режимов.
+  Fixed-source и default-сборка не объявляют path capability и сохраняют reconnect-
   поведение.
 - Двухмаршрутный Linux netns e2e прошёл 15/15: lower-metric default подготовил candidate на
   втором интерфейсе, сервер принял fresh-KE handover JOIN с нового source IP, COMMIT перенёс
   qeli-owned carrier `/32`, старый интерфейс был выключен, но PID клиента, TUN ifindex и
   NetworkPlan сохранились без top-level reconnect. Непрерывная серия сохранила 150/150 ping.
   Базовый routing/IPv6/kill-switch netns gate после исправлений прошёл 26/26.
-- `UDP_ROAM_V1` активирован только для feature-gated UDP+QUIC при совпадающем server bit и полном
-  platform `ROAMING_PATH`. Изолированный двухмаршрутный UDP netns e2e прошёл 17/17: полный
+- Первичная live-проверка `UDP_ROAM_V1` выполнена на feature-gated UDP+QUIC при совпадающем server
+  bit и полном platform `ROAMING_PATH`. Изолированный двухмаршрутный UDP netns e2e прошёл 17/17: полный
   PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс authenticated session, carrier `/32`, active socket и
   receive pump до выключения старого интерфейса, сохранив PID/TUN и отсутствие top-level reconnect.
   Успешные серверные PATH_CHALLENGE/PATH_COMMIT теперь видны на `info` с peer/epoch.
@@ -175,6 +175,14 @@
   policy. `PathController` оставляет платформе только bounded hook запроса свежего snapshot того же
   физического пути, сохраняя platform ownership update id. Три unit-теста фиксируют request/wait,
   expiry/fallback и повторное разрешение попытки после authenticated commit.
+- UDP roaming больше не раздваивается по внешней маскировке: `UDP_ROAM_V1` согласуется для всех
+  UDP fake-TLS/QUIC/obfs/AWG профилей при полном `ROAMING_PATH` и `DATA_FRAG_V1`, после AuthOK они
+  используют один directional eight-byte CID envelope, один actor, PMTU и NAT recovery policy.
+  Linux и Android больше не ставят QUIC-only platform gate; Android предоставляет те же exact
+  `Network.bindSocket + VpnService.protect` и PREPARE/BIND/COMMIT/ABORT для TCP и всех UDP modes.
+  Добавлен fail-closed JVM policy test; live netns-матрица `quic`, `fake-tls`, `obfs`, `obfs-awg`
+  прошла 4/4 режима и 68/68 проверок без замены PID/TUN или top-level reconnect;
+  legacy peer без согласованных roaming/DATA_FRAG capability по-прежнему делает full reconnect.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32`/`/128` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
@@ -451,9 +459,10 @@
   control, а actor мог оставить platform/socket ресурс. Focused epoch-классификация проверяет
   candidate → active и stale old queue. После feature-only активации полный gate проходит strict
   default/feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3 ignored.
-  `UDP_ROAM_V1` согласуется только для UDP+QUIC при совпадающем server bit и полном platform
-  `ROAMING_PATH`; generic TCP, UDP без QUIC, fixed-source и default-сборки сохраняют прежний
-  reconnect. Linux live e2e 17/17 завершён; rollback/adversarial race и soak остаются release gates.
+  Первичная реализация согласовывала `UDP_ROAM_V1` для UDP+QUIC при совпадающем server bit и полном
+  platform `ROAMING_PATH`; текущая реализация использует тот же roaming-контракт для всех UDP-
+  режимов. Fixed-source, legacy peer и default-сборки сохраняют прежний reconnect. Первый Linux
+  live e2e 17/17 выполнен на QUIC; rollback/adversarial race и soak остаются release gates.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

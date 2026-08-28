@@ -1247,8 +1247,7 @@ impl ClientStatusReporter {
 
 #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
 fn linux_roaming_path_supported(config: &crate::config::client::ClientConfig) -> bool {
-    let transport_supported = config.server.protocol == "tcp"
-        || (config.server.protocol == "udp" && config.obfuscation.quic.enabled);
+    let transport_supported = matches!(config.server.protocol.as_str(), "tcp" | "udp");
     // An explicit source address is an operator pin, not a path the observer may replace.
     transport_supported && config.server.local_address.is_none()
 }
@@ -7506,11 +7505,10 @@ pub(crate) async fn run_udp_tunnel(
         udp_roaming_session_id: _udp_roaming_session_id,
     } = parse_auth_ok(&response_str)?;
     #[cfg(feature = "experimental-roaming")]
-    let udp_roaming_session_id = if quic_enabled
-        && crate::protocol::capabilities::udp_roaming_negotiated(
-            server_capabilities,
-            negotiated_capabilities,
-        ) {
+    let udp_roaming_session_id = if crate::protocol::capabilities::udp_roaming_negotiated(
+        server_capabilities,
+        negotiated_capabilities,
+    ) {
         Some(_udp_roaming_session_id.ok_or_else(|| {
             anyhow::anyhow!("server negotiated UDP_ROAM_V1 but omitted its session id")
         })?)
@@ -9895,13 +9893,11 @@ mod lifecycle_adapter_tests {
         assert!(linux_roaming_path_supported(&config));
 
         config.server.protocol = "udp".to_string();
-        config.obfuscation.quic.enabled = true;
         assert!(linux_roaming_path_supported(&config));
 
         config.obfuscation.quic.enabled = false;
-        assert!(!linux_roaming_path_supported(&config));
+        assert!(linux_roaming_path_supported(&config));
 
-        config.obfuscation.quic.enabled = true;
         config.server.local_address = Some("192.0.2.10".to_string());
         assert!(!linux_roaming_path_supported(&config));
 

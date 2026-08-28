@@ -128,7 +128,7 @@ enum UdpEgressFraming {
     Unmasked,
     LegacyQuic([u8; 4]),
     #[cfg(feature = "experimental-roaming")]
-    RoamingQuic([u8; crate::protocol::roaming::CID_LEN]),
+    RoamingCid([u8; crate::protocol::roaming::CID_LEN]),
 }
 
 impl UdpEgressFraming {
@@ -140,7 +140,7 @@ impl UdpEgressFraming {
         }
     }
 
-    fn is_quic(self) -> bool {
+    fn uses_packet_number(self) -> bool {
         !matches!(self, Self::Unmasked)
     }
 
@@ -149,7 +149,7 @@ impl UdpEgressFraming {
             Self::Unmasked => 0,
             Self::LegacyQuic(_) => crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
             #[cfg(feature = "experimental-roaming")]
-            Self::RoamingQuic(_) => crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
+            Self::RoamingCid(_) => crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
         }
     }
 
@@ -166,7 +166,7 @@ impl UdpEgressFraming {
                 output
             }
             #[cfg(feature = "experimental-roaming")]
-            Self::RoamingQuic(destination_cid) => {
+            Self::RoamingCid(destination_cid) => {
                 crate::protocol::roaming::UdpShortHeader::new(destination_cid, packet_number)
                     .encode_into(record, output);
                 output
@@ -310,7 +310,7 @@ impl UdpActiveEgress {
             Arc::new(std::sync::RwLock::new(UdpEgressSnapshot {
                 socket,
                 peer,
-                framing: UdpEgressFraming::RoamingQuic(destination_cid),
+                framing: UdpEgressFraming::RoamingCid(destination_cid),
                 path_epoch: 0,
             })),
             Arc::new(std::sync::Mutex::new(None)),
@@ -374,7 +374,7 @@ impl UdpActiveEgress {
         if path_epoch == current.path_epoch {
             let committed = (current.peer == peer
                 && Arc::ptr_eq(&current.socket, socket)
-                && matches!(&current.framing, UdpEgressFraming::RoamingQuic(_)))
+                && matches!(&current.framing, UdpEgressFraming::RoamingCid(_)))
             .then_some(UdpRoamingIngressPath::Committed);
             drop(current);
             self.expire_draining_ingress();
@@ -399,7 +399,7 @@ impl UdpActiveEgress {
             (snapshot.path_epoch == path_epoch
                 && snapshot.peer == peer
                 && Arc::ptr_eq(&snapshot.socket, socket)
-                && matches!(&snapshot.framing, UdpEgressFraming::RoamingQuic(_)))
+                && matches!(&snapshot.framing, UdpEgressFraming::RoamingCid(_)))
             .then_some(UdpRoamingIngressPath::Draining)
         })
     }
@@ -507,7 +507,7 @@ impl UdpActiveEgress {
             safe_payload_budget as u32,
             std::sync::atomic::Ordering::Relaxed,
         );
-        let drain = matches!(&current.framing, UdpEgressFraming::RoamingQuic(_)).then(|| {
+        let drain = matches!(&current.framing, UdpEgressFraming::RoamingCid(_)).then(|| {
             UdpDrainingIngress {
                 snapshot: current.clone(),
                 expires_at: std::time::Instant::now()
@@ -521,7 +521,7 @@ impl UdpActiveEgress {
         *current = UdpEgressSnapshot {
             socket: commit.socket,
             peer: commit.peer,
-            framing: UdpEgressFraming::RoamingQuic(commit.destination_cid),
+            framing: UdpEgressFraming::RoamingCid(commit.destination_cid),
             path_epoch: commit.next_epoch,
         };
         Ok(())
@@ -1783,7 +1783,7 @@ pub(crate) async fn run_udp_server(
                             ok
                         };
                         if encrypted {
-                            let pn = if egress.framing.is_quic() {
+                            let pn = if egress.framing.uses_packet_number() {
                                 client.packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                             } else {
                                 0
@@ -1852,7 +1852,7 @@ pub(crate) async fn run_udp_server(
                             ok
                         };
                         if encrypted {
-                            let pn = if egress.framing.is_quic() {
+                            let pn = if egress.framing.uses_packet_number() {
                                 client.packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                             } else {
                                 0
@@ -4164,14 +4164,9 @@ async fn handle_udp_auth(
             profile.pool.lock().await.release(&dkey);
             return;
         };
-        let negotiated = client.quic_enabled
-            && data_frag_enabled
+        let negotiated = data_frag_enabled
             && crate::protocol::capabilities::udp_roaming_negotiated(
-                Some(
-                    crate::protocol::capabilities::implemented_udp_server_capabilities(
-                        client.quic_enabled,
-                    ),
-                ),
+                Some(crate::protocol::capabilities::implemented_udp_server_capabilities()),
                 capabilities,
             );
         let client_to_server_cid_secret = client.client_to_server_cid_secret.take();
@@ -4939,7 +4934,7 @@ async fn handle_udp_auth(
                             let mut sent_wire_len = 0u64;
                             let mut send_error = None;
                             for fragment in fragments {
-                                let packet_number = if egress.framing.is_quic() {
+                                let packet_number = if egress.framing.uses_packet_number() {
                                     writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                 } else {
                                     0
@@ -4994,7 +4989,7 @@ async fn handle_udp_auth(
                         // Build the actual wire datagram before accounting. Only a successful
                         // send is charged; a local EMSGSIZE after a path change downgrades the
                         // session and retries the SAME encrypted record through DATA_FRAG.
-                        let packet_number = if egress.framing.is_quic() {
+                        let packet_number = if egress.framing.uses_packet_number() {
                             writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                         } else {
                             0
@@ -5127,7 +5122,7 @@ async fn handle_new_udp_client(
             &shared.0,
             &transcript_hash,
             hide_identity,
-            crate::protocol::capabilities::implemented_udp_server_capabilities(quic_detected),
+            crate::protocol::capabilities::implemented_udp_server_capabilities(),
         );
         server_tx.encrypt_packet(&auth_msg, &[])?
     };
@@ -5653,7 +5648,7 @@ mod tests {
     #[test]
     #[cfg(feature = "experimental-roaming")]
     fn reverse_probe_ladder_can_certify_a_narrower_downlink_than_reported_uplink() {
-        let framing = UdpEgressFraming::RoamingQuic([9; 8]);
+        let framing = UdpEgressFraming::RoamingCid([9; 8]);
         let budgets = super::downlink_mtu_probe_budgets(1461, false, 0, framing);
         assert_eq!(budgets.first().copied(), Some(1461));
         let highest_fitting = budgets
@@ -5693,7 +5688,7 @@ mod tests {
         }
         #[cfg(feature = "experimental-roaming")]
         {
-            let framing = UdpEgressFraming::RoamingQuic([9; 8]);
+            let framing = UdpEgressFraming::RoamingCid([9; 8]);
             let (packet, payload_size) =
                 build_downlink_mtu_probe(11, 1500, 13, framing, 17).expect("target fits");
             assert_eq!(packet.len() + 13, 1500);

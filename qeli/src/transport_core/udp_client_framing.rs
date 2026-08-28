@@ -16,7 +16,7 @@ pub(crate) enum UdpClientFraming {
     Unmasked,
     LegacyQuic([u8; 4]),
     #[cfg(feature = "experimental-roaming")]
-    RoamingQuic {
+    RoamingCid {
         transmit_cid: [u8; CID_LEN],
         receive_cid: [u8; CID_LEN],
     },
@@ -28,7 +28,7 @@ pub(crate) enum UdpClientFramingError {
     LegacyQuic(#[from] QuicError),
     #[cfg(feature = "experimental-roaming")]
     #[error(transparent)]
-    RoamingQuic(#[from] RoamingWireError),
+    RoamingCid(#[from] RoamingWireError),
     #[cfg(feature = "experimental-roaming")]
     #[error("UDP roaming datagram carries an unexpected destination CID")]
     UnexpectedDestinationCid,
@@ -45,13 +45,13 @@ impl UdpClientFraming {
 
     #[cfg(feature = "experimental-roaming")]
     pub(crate) fn roaming(transmit_cid: [u8; CID_LEN], receive_cid: [u8; CID_LEN]) -> Self {
-        Self::RoamingQuic {
+        Self::RoamingCid {
             transmit_cid,
             receive_cid,
         }
     }
 
-    pub(crate) fn is_quic(self) -> bool {
+    pub(crate) fn uses_packet_number(self) -> bool {
         !matches!(self, Self::Unmasked)
     }
 
@@ -60,7 +60,7 @@ impl UdpClientFraming {
             Self::Unmasked => 0,
             Self::LegacyQuic(_) => crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
             #[cfg(feature = "experimental-roaming")]
-            Self::RoamingQuic { .. } => crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
+            Self::RoamingCid { .. } => crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
         }
     }
 
@@ -77,7 +77,7 @@ impl UdpClientFraming {
                 output
             }
             #[cfg(feature = "experimental-roaming")]
-            Self::RoamingQuic { transmit_cid, .. } => {
+            Self::RoamingCid { transmit_cid, .. } => {
                 UdpShortHeader::new(transmit_cid, packet_number).encode_into(record, output);
                 output
             }
@@ -91,7 +91,7 @@ impl UdpClientFraming {
             // accepted the server's QUIC-shaped payload without pinning the four-byte CID.
             Self::LegacyQuic(_) => Ok(unwrap_quic_payload(datagram)?),
             #[cfg(feature = "experimental-roaming")]
-            Self::RoamingQuic { receive_cid, .. } => {
+            Self::RoamingCid { receive_cid, .. } => {
                 let (header, record) = decode_udp_short(datagram)?;
                 if header.destination_cid() != &receive_cid {
                     return Err(UdpClientFramingError::UnexpectedDestinationCid);
@@ -111,7 +111,7 @@ pub(crate) fn wrap_next_udp_record<'a>(
     output: &'a mut Vec<u8>,
 ) -> &'a [u8] {
     let current = *packet_number;
-    if framing.is_quic() {
+    if framing.uses_packet_number() {
         *packet_number = packet_number.wrapping_add(1);
     }
     framing.wrap_into(record, current, output)

@@ -942,9 +942,9 @@ class VpnServiceImpl : VpnService() {
         var initialCoreEvents: List<TransportCoreEvent> = emptyList()
         transportCore = runCatching {
             val stableDeviceId = deviceId()
-            val roamingCapabilities = if (!config.isUdp && TransportCore.supportsPathTransactions())
-                TransportCore.PLATFORM_ROAMING_PATH
-            else 0L
+            val roamingCapabilities = AndroidRoamingPolicy.platformCapabilities(
+                coreSupportsPathTransactions = TransportCore.supportsPathTransactions(),
+            )
             val core = try {
                 TransportCore.create(
                     config.toTransportCoreIni(),
@@ -999,7 +999,10 @@ class VpnServiceImpl : VpnService() {
             )
         }
         if (transportCore?.pathTransactionsEnabled == true) {
-            broadcastLog("Experimental TCP roaming path adapter active")
+            val transport = if (config.isUdp) "UDP" else "TCP"
+            broadcastLog(
+                "Experimental $transport roaming path adapter active"
+            )
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
@@ -2161,7 +2164,9 @@ class VpnServiceImpl : VpnService() {
         val generation = activePlanGeneration
         val network = currentNetwork ?: return false
         val scope = coroutineScope ?: return false
-        if (config.isUdp || !core.pathTransactionsEnabled || generation <= 0) return false
+        if (!AndroidRoamingPolicy.canSchedulePathUpdate(core.pathTransactionsEnabled, generation)) {
+            return false
+        }
 
         roamingUpdateJob?.cancel()
         roamingUpdateJob = scope.launch(Dispatchers.IO) {

@@ -501,10 +501,11 @@ configuration, the full platform/race/soak matrix, and rollout remain in Stages 
 - Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1`, and
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; and a generation-scoped
   PathUpdate transaction with PREPARE/COMMIT/ABORT.
-- **UDP with QUIC + DATA_FRAG_V1:** a distinct eight-byte-CID short header, a
-  profile-wide registry shared by workers/listeners, a per-session actor, and dynamic
-  egress. PATH_CHALLENGE/PATH_RESPONSE, anti-amplification, and bidirectional PMTU
-  reset/re-probe are mandatory before downstream switches. UDP without QUIC reconnects.
+- **UDP with UDP_ROAM_V1 + DATA_FRAG_V1:** one directional eight-byte-CID envelope for
+  fake-TLS, QUIC masking, obfs, and AWG; a profile-wide registry shared by workers/listeners,
+  a per-session actor, and dynamic egress. PATH_CHALLENGE/PATH_RESPONSE, anti-amplification,
+  and bidirectional PMTU reset/re-probe are mandatory before downstream switches. Legacy peers
+  without the authenticated roaming capabilities reconnect.
 - **TCP:** authenticated JOIN with a new key exchange and fresh AEAD keys, a wide resume
   epoch, bounded orphan grace, stable logical slots, and make-before-break. The token is
   a locator, never proof of possession.

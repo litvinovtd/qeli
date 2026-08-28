@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Linux UDP+QUIC make-before-break integration tests. Everything runs in three isolated network
-# namespaces; no host route or production process is changed. The success case commits path B;
+# Linux UDP make-before-break integration tests. QELI_ROAMING_UDP_WIRE_MODE selects quic,
+# fake-tls, obfs, or obfs-awg; all use the same authenticated CID migration after AuthOK.
+# Everything runs in three isolated network namespaces; no host route or production process is
+# changed. The success case commits path B;
 # rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
 # commit-race changes to C while the platform is still committing B; loss-replay drops the first
 # PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover;
@@ -21,6 +23,7 @@ export LC_ALL=C
 
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
+WIRE_MODE=${QELI_ROAMING_UDP_WIRE_MODE:-quic}
 WORK=/tmp/qeli-roaming-udp-netns
 CLI_NS=qru-cli
 RTR_NS=qru-rtr
@@ -38,6 +41,35 @@ case "$CASE" in
   success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind) ;;
   *)
     echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind]" >&2
+    exit 2
+    ;;
+esac
+
+SERVER_OBF_MODE=fake-tls
+CLIENT_OBF_MODE=fake-tls
+QUIC_ENABLED=false
+SERVER_OBF_EXTRA=
+CLIENT_OBF_EXTRA=
+case "$WIRE_MODE" in
+  quic)
+    QUIC_ENABLED=true
+    ;;
+  fake-tls)
+    ;;
+  obfs)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA='obf.obfs_key = roam-obfs-key-1234'
+    CLIENT_OBF_EXTRA='obfs_key = roam-obfs-key-1234'
+    ;;
+  obfs-awg)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA='obf.obfs_key = roam-obfs-key-1234'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-obfs-key-1234\nawg = true\njc = 4\njmin = 48\njmax = 160'
+    ;;
+  *)
+    echo "QELI_ROAMING_UDP_WIRE_MODE must be quic, fake-tls, obfs, or obfs-awg" >&2
     exit 2
     ;;
 esac
@@ -219,10 +251,11 @@ tun.mtu = 1400
 pool.cidr = 10.89.0.0/24
 pool.exclude = 10.89.0.1
 dns.enabled = false
-obf.mode = fake-tls
-obf.quic.enabled = true
+obf.mode = $SERVER_OBF_MODE
+obf.quic.enabled = $QUIC_ENABLED
 obf.quic.cid_length = 4
 obf.quic.version = 1
+$SERVER_OBF_EXTRA
 obf.heartbeat.enabled = $HEARTBEAT_ENABLED
 obf.heartbeat.interval_ms = 1000
 obf.heartbeat.jitter_ms = 100
@@ -247,8 +280,9 @@ server = $SERVER_HOST:4444
 proto = udp
 user = roam-user
 pass = roam-pass-1234
-mode = fake-tls
-quic = true
+mode = $CLIENT_OBF_MODE
+quic = $QUIC_ENABLED
+$CLIENT_OBF_EXTRA
 dev = qru0
 bind_static = false
 gateway = true

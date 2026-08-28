@@ -293,9 +293,9 @@ internal class TransportCore private constructor(
         const val PLATFORM_IPV6_ROUTES = 1L shl 9
         const val PLATFORM_IPV6_DNS = 1L shl 10
         const val PLATFORM_IPV6_KILL_SWITCH = 1L shl 11
-        const val PLATFORM_PATH_TRANSACTIONS = 1L shl 12
-        const val PLATFORM_PATH_SOCKET_BINDING = 1L shl 13
-        const val PLATFORM_ROAMING_PATH = PLATFORM_PATH_TRANSACTIONS or PLATFORM_PATH_SOCKET_BINDING
+        const val PLATFORM_PATH_TRANSACTIONS = AndroidRoamingPolicy.PLATFORM_PATH_TRANSACTIONS
+        const val PLATFORM_PATH_SOCKET_BINDING = AndroidRoamingPolicy.PLATFORM_PATH_SOCKET_BINDING
+        const val PLATFORM_ROAMING_PATH = AndroidRoamingPolicy.PLATFORM_ROAMING_PATH
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 
