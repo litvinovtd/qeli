@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v13-udp-client-epoch-zero-framing -->
+<!-- normative-sync: roaming-v14-live-udp-client-actor -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -15,9 +15,12 @@
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
 > post-commit UDP DATA/DATA_FRAG ingress вместе с общими клиентскими validation state machine,
 > wire framing и exact-bound candidate-socket dialer готовы по исходникам. Live client actor теперь
-> переводит все post-auth data/control/PMTU пути epoch 0 на directional CID framing с точным overhead;
-> впереди validation candidate socket и атомарная публикация receive/egress, включение UDP capability
-> и live-приёмка. Впереди Windows/macOS/iOS adapters и работы этапов 3–6. Текущие lab gates: 943
+> не только переводит все post-auth data/control/PMTU пути epoch 0 на directional CID framing, но и
+> валидирует отдельный candidate socket, обрабатывает PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT,
+> ждёт точный platform COMMIT ACK и атомарно переключает socket, receive pump, CID framing и
+> консервативный PMTU budget. Ошибка после peer PATH_COMMIT приводит к fail-closed reconnect.
+> `UDP_ROAM_V1` ещё не рекламируется; впереди capability activation и live-приёмка.
+> Впереди Windows/macOS/iOS adapters и работы этапов 3–6. Текущие lab gates: 944
 > feature library tests при трёх ignored, strict feature Clippy, базовый Linux netns 26/26,
 > roaming netns 15/15,
 > Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
@@ -719,9 +722,23 @@ state; egress использует client-to-server CID. DATA_FRAG и PMTU budge
 byte-for-byte совместимым. Три focused-теста фиксируют passthrough, legacy compatibility и отказ
 при CID неверного направления.
 
+Под `experimental-roaming` live UDP actor теперь получает подготовленный `PathUpdate`, выполняет
+точный BIND-before-connect через общий Unix candidate dialer и запускает для candidate отдельный
+bounded receive pump. PATH_INIT и ограниченные повторы используют общий PacketCodec; только
+аутентифицированные PATH_CHALLENGE/PATH_COMMIT/PATH_ABORT с точными CID, message id и epoch могут
+изменить state machine. После peer PATH_COMMIT actor сначала ждёт точный ACK платформенного
+`COMMIT_PATH`, затем одной actor-транзакцией публикует новый socket, receive pump, directional CID
+framing и консервативный family-aware PMTU/record budget. Уже поставленные в очередь пакеты старой
+epoch отклоняются, а candidate DATA не становится active до публикации новой epoch. Истечение,
+ошибка send, peer abort и teardown освобождают socket и выполняют точный platform ABORT. Поскольку
+сервер уже переключился к моменту получения PATH_COMMIT, любая локальная ошибка после него
+fail-closed завершает actor для полного reconnect, а не оставляет ложный старый путь. Focused-тест
+фиксирует переход receive-классификации candidate → active и отказ старой epoch; strict default и
+feature Clippy, default suite 869 passed/1 ignored и feature suite 944 passed/3 ignored проходят.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
-bootstrap и восьмибайтовый CID ещё не могут включиться в production. До capability activation
-остаются validation candidate socket и атомарная публикация receive/egress live UDP actor. Linux/OpenWrt adapter этапа 4 теперь
+bootstrap, восьмибайтовый CID и live actor ещё не могут включиться в production. До capability
+activation остаются Linux live e2e/rollback/race-приёмка и явное включение advertisement. Linux/OpenWrt adapter этапа 4 теперь
 получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -749,8 +766,8 @@ commit, а `replace` разрешён только для маршрута из 
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
 
-- интеграция client live UDP actor/candidate socket и двунаправленный live PMTU reset/probe;
-- capability activation, native adapters и live-приёмка;
+- capability activation и Linux live e2e/rollback/race-приёмка;
+- native adapters, real-device PMTU/NAT rebinding и soak;
 
 Результат: безопасный UDP роуминг на mock/Linux path.
 

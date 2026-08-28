@@ -324,9 +324,7 @@
   `TcpPathController` в общий `PathController`; общий Unix UDP candidate dialer создаёт отдельный
   unbound socket, ждёт точный ACK `BIND_SOCKET` и только затем выполняет connect к первому
   family-compatible адресу из `PathUpdate`. Парный Linux unit-test фиксирует этот порядок для TCP
-  и UDP. Capability намеренно не включён: до активации остаётся подключить dialer/state/wire к
-  live UDP actor, одновременно переключать его egress и receive pump после platform COMMIT и
-  выполнить live-приёмку.
+  и UDP. Capability намеренно не включён; интеграция этого слоя в live actor описана ниже.
 - Post-auth UDP actor теперь действительно использует общий Rust framing epoch 0. После AuthOK он
   создаёт единый roaming state и направленную пару CID; обычные data, DATA_FRAG, recordizer output,
   cover/heartbeat, authenticated reports, startup/live PMTU probes и ACK обоих направлений проходят
@@ -336,8 +334,25 @@
   oversized DF datagrams после согласования. Legacy QUIC и unmasked wire сохранены byte-for-byte.
   Три focused-теста проверяют passthrough, legacy compatibility и directional CID; strict feature
   Clippy чист, полный suite — 943 passed, 3 ignored. `UDP_ROAM_V1` всё ещё не рекламируется, поэтому
-  production-поведение не изменено; до активации остаются validation candidate socket, обработка
-  PATH_* в live actor и атомарная публикация нового receive/egress после platform COMMIT.
+  production-поведение не изменено.
+- Live UDP actor под `experimental-roaming` теперь получает подготовленный `PathUpdate`, выполняет
+  точный BIND-before-connect candidate socket и запускает для него отдельный bounded receive pump.
+  PATH_INIT и ограниченные повторы используют общий PacketCodec; только аутентифицированные
+  PATH_CHALLENGE/PATH_COMMIT/PATH_ABORT с точными CID, message id и epoch проходят в общий state
+  machine. После peer PATH_COMMIT actor ждёт точный platform `COMMIT_PATH` ACK и затем атомарно
+  заменяет active socket, receive pump, directional CID framing, UDP buffer controller и
+  консервативные family-aware PMTU/record/padding budgets. Пакеты старой epoch, уже стоящие в общей
+  очереди, отклоняются; candidate DATA не становится active до публикации новой epoch. Live PMTU
+  probe сбрасывается и планируется заново для нового пути. Expiry, send failure, peer abort и
+  teardown закрывают candidate pump/socket и выполняют exact platform ABORT. Если локальный budget
+  или platform COMMIT ломается после полученного PATH_COMMIT, actor fail-closed завершает сессию для
+  полного reconnect: сервер уже переключил путь, поэтому продолжение по старому socket было бы
+  ложным успехом. Отдельно закрыт race, где state machine удалял истёкший candidate при приёме
+  control, а actor мог оставить platform/socket ресурс. Focused epoch-классификация проверяет
+  candidate → active и stale old queue; strict default/feature Clippy, default suite
+  869 passed/1 ignored и feature suite 944 passed/3 ignored проходят. `UDP_ROAM_V1` по-прежнему
+  отсутствует в implemented advertisements, поэтому production-поведение не изменено; перед
+  активацией остаются Linux live e2e/rollback/race gate и явное включение capability.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

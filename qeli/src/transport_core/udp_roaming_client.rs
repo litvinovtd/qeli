@@ -350,6 +350,10 @@ impl UdpClientRoaming {
             .map(|candidate| candidate.candidate_id)
     }
 
+    pub fn candidate_epoch(&self) -> Option<u64> {
+        self.candidate.as_ref().map(|candidate| candidate.epoch)
+    }
+
     /// Start validation only after PREPARE_PATH and BIND_SOCKET succeeded for this exact platform
     /// candidate. The returned PATH_INIT is encrypted and sent by the surrounding UDP actor.
     pub fn begin_candidate(

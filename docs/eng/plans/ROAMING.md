@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v13-udp-client-epoch-zero-framing -->
+<!-- normative-sync: roaming-v14-live-udp-client-actor -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -14,10 +14,13 @@
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
 > post-commit UDP DATA/DATA_FRAG ingress plus shared client validation, wire framing and the
 > exact-bound candidate-socket dialer are source-complete. The live client actor now switches every
-> epoch-zero post-auth data/control/PMTU path to directional CID framing with exact overhead; candidate
-> socket validation and atomic receive/egress publication, UDP capability activation, and live
-> acceptance remain. Windows/macOS/iOS adapters and remaining Phase 3–6 work remain. Current lab
-> gates pass 943 feature library tests with three ignored, strict feature Clippy, base Linux netns
+> epoch-zero post-auth data/control/PMTU path to directional CID framing, validates a separate
+> candidate socket, handles PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT, waits for the exact platform
+> COMMIT acknowledgement, and atomically replaces the socket, receive pump, CID framing, and
+> conservative PMTU budget. A failure after peer PATH_COMMIT triggers a fail-closed reconnect.
+> `UDP_ROAM_V1` is not advertised yet; capability activation and live acceptance remain.
+> Windows/macOS/iOS adapters and remaining Phase 3–6 work remain. Current lab
+> gates pass 944 feature library tests with three ignored, strict feature Clippy, base Linux netns
 > 26/26, roaming netns 15/15,
 > an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
 > The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
@@ -511,9 +514,24 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and unmasked paths remain byte-for-byte compatible. Three focused framing tests cover passthrough,
   legacy compatibility and directional-CID rejection.
 
+  Behind `experimental-roaming`, the live UDP actor now consumes a prepared `PathUpdate`, performs
+  exact BIND-before-connect through the shared Unix candidate dialer, and starts a separate bounded
+  receive pump for the candidate. PATH_INIT and bounded retries use the shared PacketCodec; only
+  authenticated PATH_CHALLENGE/PATH_COMMIT/PATH_ABORT with exact CID, message id, and epoch can
+  advance the state machine. After peer PATH_COMMIT, the actor first awaits the exact platform
+  `COMMIT_PATH` acknowledgement and then publishes the new socket, receive pump, directional CID
+  framing, and conservative family-aware PMTU/record budget in one actor transaction. Already queued
+  old-epoch packets are rejected, while candidate DATA cannot become active before the new epoch is
+  published. Expiry, send failure, peer abort, and teardown release the socket and issue the exact
+  platform ABORT. Because the server has already switched by the time PATH_COMMIT is received, any
+  local failure after it terminates the actor for a fail-closed full reconnect instead of pretending
+  the old path is usable. A focused test pins candidate-to-active receive classification and stale
+  epoch rejection; strict default and feature Clippy, the default suite at 869 passed/1 ignored, and
+  the feature suite at 944 passed/3 ignored all pass.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Candidate-socket validation and atomic
-  live UDP actor receive/egress publication remain before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
+  eight-byte CID framing plus the live actor still cannot activate in production. Linux live
+  e2e/rollback/race acceptance and explicit advertisement remain before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
   the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
