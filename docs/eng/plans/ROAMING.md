@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v10-join-arbitration -->
+<!-- normative-sync: roaming-v11-udp-client-state -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -9,12 +9,14 @@
 > (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
 > full AUTH ran once, the underlying Network changed atomically, and DNS still resolved after the
 > transitions. A repeated hard-loss/make-before-break race gate admitted exactly one authenticated
-> JOIN per change (76/80 and 80/80 probes). The Phase 3A–3C
+> JOIN per change (76/80 and 80/80 probes). The Phase 3A–3D
 > bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
-> post-commit UDP DATA/DATA_FRAG ingress are source-complete; UDP client adapters, UDP capability
-> activation, and live acceptance remain. Windows/macOS/iOS adapters and remaining Phase 3–6 work remain.
-> Current lab gates pass strict feature Clippy, base Linux netns 26/26, roaming netns 15/15,
+> post-commit UDP DATA/DATA_FRAG ingress plus the shared client validation state machine are
+> source-complete; live UDP actor/candidate-socket integration, UDP capability activation, and live
+> acceptance remain. Windows/macOS/iOS adapters and remaining Phase 3–6 work remain. Current lab
+> gates pass 936 feature library tests with three ignored, strict feature Clippy, base Linux netns
+> 26/26, roaming netns 15/15,
 > an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
 > The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -356,7 +358,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 
   Real devices, same-network NAT rebinding, Windows/macOS/iOS, and the broader
   transport/family/race/soak matrix remain.
-- **Phase 3 — 🟡 registry/migration and writer-egress foundations source-complete:** a default-off,
+- **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
   3× anti-amplification accounting, atomic collision-safe CID rotation, generation-tagged PMTU reset,
@@ -475,9 +477,21 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   worker to the immutable codec owner, commits that exact candidate socket/family and PMTU
   generation, then verifies that post-commit ingress still returns to the original owner.
 
+  The shared client state machine now owns directional CID derivation/rotation, the next epoch,
+  platform-candidate and CONTROL_V2 message correlation, and the complete `PATH_INIT →
+  PATH_CHALLENGE → PATH_RESPONSE → PATH_COMMIT/PATH_ABORT` validation sequence. A zero challenge,
+  wrong CID/epoch/direction, parallel candidate, or stale platform completion fails closed. An exact
+  duplicate challenge idempotently resends the response. Retransmission is capped at four datagrams
+  at 500 ms intervals inside the same fixed ten-second lifetime as the server candidate. A received
+  wire commit is only a proposal: active epoch/CIDs do not change until the platform has acknowledged
+  `COMMIT_PATH`, so a late completion after ABORT cannot publish an old path. Five focused tests pin
+  these invariants; strict feature Clippy and the full feature library suite (936 passed, three
+  ignored) pass.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. The Phase 4 Linux/OpenWrt adapter now
-  consumes the shared ordered family-compatible candidate projection: a physical path must have
+  eight-byte CID framing still cannot activate in production. Live UDP actor/candidate-socket
+  integration remains before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
+  the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
   BIND/COMMIT/ABORT requests, correlated ACK completion and cancellation to one shared Rust

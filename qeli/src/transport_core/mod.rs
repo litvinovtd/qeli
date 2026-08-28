@@ -92,6 +92,9 @@ pub mod tcp_roaming;
 #[cfg(feature = "experimental-roaming")]
 pub mod udp_roaming;
 
+#[cfg(feature = "experimental-roaming")]
+pub mod udp_roaming_client;
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod session;
 

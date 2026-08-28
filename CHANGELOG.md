@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–3C TCP/UDP, default off)
+### Основа роуминга (stages 0–3D TCP/UDP, default off)
 
 - Android TCP feature adapter теперь объявляет полный `ROAMING_PATH`, только если загруженное
   Rust-ядро подтверждает path-transaction ABI. Connectivity callback отправляет ограниченный
@@ -307,7 +307,18 @@
   ingress закрыт до публикации `auth_ok_sent`, поэтому ранний PATH_INIT не может обогнать отправку
   AuthOK и перезаписать epoch-zero state. Focused regression проверяет initial framing, current epoch
   и next-candidate classification; default/non-negotiated wire не изменён. `UDP_ROAM_V1` всё ещё
-  не рекламируется: client path adapters, capability activation и live-приёмка остаются впереди.
+  не рекламируется: live client integration, capability activation и live-приёмка остаются впереди.
+- Добавлен общий клиентский UDP roaming state machine в `transport_core`. Он единожды для всех
+  платформ владеет directional CID derivation/rotation, next epoch, корреляцией platform candidate
+  и CONTROL_V2 message id, а также переходом `PATH_INIT → PATH_CHALLENGE → PATH_RESPONSE →
+  PATH_COMMIT/PATH_ABORT`. Нулевой challenge, неверные CID/epoch/direction, параллельный candidate и
+  stale platform completion отклоняются fail-closed. Повтор точного challenge идемпотентно повторяет
+  response; повторная отправка ограничена четырьмя datagrams с интервалом 500 мс и тем же фиксированным
+  10-секундным TTL, что на сервере. Полученный wire COMMIT остаётся только предложением: active
+  epoch/CID не меняются, пока платформа не подтвердила `COMMIT_PATH`, поэтому поздний ACK после ABORT
+  не может опубликовать старый путь. Пять focused-тестов прошли; strict feature Clippy чист, полный
+  feature library suite — 936 passed, 3 ignored. Capability намеренно не включён до подключения
+  candidate socket и этого автомата к live UDP actor.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v10-join-arbitration -->
+<!-- normative-sync: roaming-v11-udp-client-state -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -9,12 +9,15 @@
 > Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
 > полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
 > продолжил разрешать имена. Повторный hard-loss/make-before-break race-gate принял ровно один
-> authenticated JOIN на каждый переход (76/80 и 80/80 ping). Ограниченные UDP registry/migration
+> authenticated JOIN на каждый переход (76/80 и 80/80 ping). Этапы UDP 3A–3D: ограниченные
+> registry/migration
 > state, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
-> post-commit UDP DATA/DATA_FRAG ingress готовы по исходникам; впереди UDP client adapters,
-> включение UDP capability и live-приёмка. Впереди Windows/macOS/iOS adapters и работы этапов 3–6.
-> Текущие lab gates: strict feature Clippy, базовый Linux netns 26/26, roaming netns 15/15,
+> post-commit UDP DATA/DATA_FRAG ingress вместе с общим клиентским validation state machine готовы
+> по исходникам; впереди интеграция live UDP actor/candidate socket, включение UDP capability и
+> live-приёмка. Впереди Windows/macOS/iOS adapters и работы этапов 3–6. Текущие lab gates: 936
+> feature library tests при трёх ignored, strict feature Clippy, базовый Linux netns 26/26,
+> roaming netns 15/15,
 > Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
 > Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -566,7 +569,7 @@ transport/family/race/soak matrix.
 
 ### Этап 3. UDP migration
 
-Статус 3A–3C: под default-off feature готовы registry/migration и writer-egress основы.
+Статус 3A–3D: под default-off feature готовы registry/migration, server egress и client validation основы.
 Profile-wide bounded-модель владеет
 generation-tagged сессиями, не более чем тремя deterministic CID aliases, directional zeroized
 secrets, одним authenticated candidate, точной привязкой PATH_CHALLENGE/RESPONSE к path/epoch/token,
@@ -683,9 +686,21 @@ Cross-listener IPv4→IPv6 regression теперь направляет future C
 неизменяемому codec owner, коммитит точные candidate socket/family и PMTU generation, а затем
 проверяет возврат post-commit ingress тому же исходному owner.
 
+Общий клиентский state machine теперь владеет directional CID derivation/rotation, next epoch,
+корреляцией platform candidate и CONTROL_V2 message id, а также полной последовательностью
+`PATH_INIT → PATH_CHALLENGE → PATH_RESPONSE → PATH_COMMIT/PATH_ABORT`. Нулевой challenge,
+неверные CID/epoch/direction, параллельный candidate и stale platform completion отклоняются
+fail-closed. Точный повтор challenge идемпотентно повторяет response. Повторная отправка ограничена
+четырьмя datagrams с интервалом 500 мс внутри того же фиксированного десятисекундного lifetime, что
+и server candidate. Полученный wire commit остаётся только предложением: active epoch/CID не
+меняются до подтверждения платформой `COMMIT_PATH`, поэтому поздний completion после ABORT не может
+опубликовать старый путь. Пять focused-тестов фиксируют эти инварианты; strict feature Clippy и
+полный feature library suite (936 passed, три ignored) проходят.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
-bootstrap и восьмибайтовый CID ещё не могут включиться в production. Для Linux/OpenWrt adapter
-этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
+bootstrap и восьмибайтовый CID ещё не могут включиться в production. До capability activation
+остаётся подключить live UDP actor и candidate socket. Linux/OpenWrt adapter этапа 4 теперь
+получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
 делегируют получение prepared candidate, запросы BIND/COMMIT/ABORT, завершение correlated ACK
@@ -712,8 +727,8 @@ commit, а `replace` разрешён только для маршрута из 
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
 
-- двунаправленный live PMTU reset/probe;
-- client path adapters;
+- интеграция client live UDP actor/candidate socket и двунаправленный live PMTU reset/probe;
+- capability activation, native adapters и live-приёмка;
 
 Результат: безопасный UDP роуминг на mock/Linux path.
 
