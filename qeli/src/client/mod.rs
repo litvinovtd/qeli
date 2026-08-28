@@ -91,6 +91,12 @@ const UDP_MTU_REPROBE_CONFIRMATIONS: u8 = 3;
 /// remaining budget; expiry falls back to the ordinary full reconnect and NetworkPlan cycle.
 const TCP_RESUME_GRACE: Duration = Duration::from_secs(30);
 const TCP_RESUME_MAINTENANCE_TICK: Duration = Duration::from_secs(1);
+/// A platform PathUpdate may need a short DNS/debounce step after the last carrier disappears.
+/// Give its exact-path handover priority over the generic hard-resume dialer; otherwise both can
+/// replace slot 0 back-to-back. The ordinary resume remains the bounded fallback when no candidate
+/// materializes promptly.
+#[cfg(feature = "experimental-roaming")]
+const TCP_HANDOVER_PREPARE_GRACE: Duration = Duration::from_secs(1);
 #[cfg(feature = "experimental-roaming")]
 const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
 #[cfg(feature = "experimental-roaming")]
@@ -2468,8 +2474,9 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 #[cfg(all(test, feature = "experimental-roaming"))]
 mod tcp_resume_client_tests {
     use super::{
-        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, TcpActiveSlots,
-        TcpResumeContext, TcpSecondaryAttach,
+        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped,
+        should_defer_tcp_resume_for_handover, TcpActiveSlots, TcpResumeContext, TcpSecondaryAttach,
+        TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::sync::Arc;
@@ -2527,6 +2534,34 @@ mod tcp_resume_client_tests {
         );
         mark_tcp_slot_stopped(&active, 3);
         assert!(!crate::util::lock_or_recover(&active, "test::active_slots").contains_key(&3));
+    }
+
+    #[test]
+    fn exact_path_handover_preempts_generic_hard_resume_only_while_useful() {
+        let just_orphaned = Some(TCP_HANDOVER_PREPARE_GRACE / 2);
+        let grace_expired = Some(TCP_HANDOVER_PREPARE_GRACE);
+
+        assert!(should_defer_tcp_resume_for_handover(
+            true,
+            false,
+            just_orphaned
+        ));
+        assert!(should_defer_tcp_resume_for_handover(true, true, None));
+        assert!(should_defer_tcp_resume_for_handover(
+            true,
+            true,
+            grace_expired
+        ));
+        assert!(!should_defer_tcp_resume_for_handover(
+            true,
+            false,
+            grace_expired
+        ));
+        assert!(!should_defer_tcp_resume_for_handover(
+            false,
+            true,
+            just_orphaned
+        ));
     }
 
     #[test]
@@ -2743,6 +2778,17 @@ fn mark_tcp_slot_stopped(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
     if remove {
         active.remove(&logical_slot_id);
     }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn should_defer_tcp_resume_for_handover(
+    handover_enabled: bool,
+    candidate_prepared: bool,
+    orphaned_for: Option<Duration>,
+) -> bool {
+    handover_enabled
+        && (candidate_prepared
+            || orphaned_for.is_some_and(|elapsed| elapsed < TCP_HANDOVER_PREPARE_GRACE))
 }
 
 fn mark_tcp_stream_stopped(
@@ -4045,6 +4091,10 @@ where
         let resume_m = tcp_resume.clone();
         let active_slots_m = active_slots.clone();
         let last_live_lost_at_m = last_live_lost_at.clone();
+        #[cfg(feature = "experimental-roaming")]
+        let path_controller_m = tcp_path_controller.clone();
+        #[cfg(feature = "experimental-roaming")]
+        let handover_enabled_m = tcp_handover_enabled;
         Some(tokio::spawn(async move {
             let mut tick = tokio::time::interval(TCP_RESUME_MAINTENANCE_TICK);
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -4053,6 +4103,20 @@ where
                 let orphaned_at = last_live_lost_at_m.as_ref().and_then(|lost_at| {
                     *crate::util::lock_or_recover(lost_at, "client::last_live_lost_at")
                 });
+                #[cfg(feature = "experimental-roaming")]
+                {
+                    let candidate_prepared = path_controller_m
+                        .as_ref()
+                        .and_then(|controller| controller.prepared_candidate())
+                        .is_some();
+                    if should_defer_tcp_resume_for_handover(
+                        handover_enabled_m,
+                        candidate_prepared,
+                        orphaned_at.map(|lost_at| lost_at.elapsed()),
+                    ) {
+                        continue;
+                    }
+                }
                 if orphaned_at.is_some_and(|lost_at| lost_at.elapsed() >= TCP_RESUME_GRACE) {
                     log::warn!("TCP resume grace expired; falling back to full reconnect");
                     let _ = dead_m.try_send(());

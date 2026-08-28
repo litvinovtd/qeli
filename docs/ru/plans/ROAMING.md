@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v9-android -->
+<!-- normative-sync: roaming-v10-join-arbitration -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -8,7 +8,8 @@
 > explicit close. Android API 34 emulator прошёл Wi-Fi → cellular (198/200 ping), cellular →
 > Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
 > полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
-> продолжил разрешать имена. Ограниченные UDP registry/migration
+> продолжил разрешать имена. Повторный hard-loss/make-before-break race-gate принял ровно один
+> authenticated JOIN на каждый переход (76/80 и 80/80 ping). Ограниченные UDP registry/migration
 > state, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
 > post-commit UDP DATA/DATA_FRAG ingress готовы по исходникам; впереди UDP client adapters,
@@ -547,8 +548,21 @@ feature e2e также прошёл 15/15: path B завершил authenticated
 доступном cellular Network и сохранил 198/200 ping, обратный make-before-break переход сохранил
 200/200. PID приложения, VPN Network, `tun0` и `NetworkPlan 1` не менялись, `Auth OK` появился
 ровно один раз. Sleep/wake на прежнем Network сохранил 160/160 ping без лишнего handover; после
-обоих переходов и сна системный DNS продолжил разрешать имя. Впереди остаются реальные устройства,
-same-network NAT rebinding, Windows/macOS/iOS и расширенная transport/family/race/soak matrix.
+обоих переходов и сна системный DNS продолжил разрешать имя.
+
+Общий TCP supervisor теперь всегда уступает generic-восстановление слота уже подготовленному
+exact-path candidate, а после исчезновения последнего carrier даёт handover-enabled платформе
+ограниченное окно в одну секунду на подготовку PathUpdate. Если candidate за это время не появился,
+обычный hard-resume продолжает работу; восстановление не откладывается бесконечно. Это устраняет
+наблюдавшуюся Android-последовательность, где generic hard-resume и exact-path handover подряд
+заменяли slot 0. Повторный API 34 race-gate зарегистрировал ровно один authenticated JOIN для
+hard loss Wi-Fi→cellular и один для обратного make-before-break, сохранил соответственно 76/80 и
+80/80 ping, тот же PID/VPN Network/`NetworkPlan 1`, единственную AUTH и работающее разрешение DNS.
+Полный Rust library suite прошёл 931 тест при трёх ignored; strict all-target Clippy и Android
+release-сборка с `-D warnings` прошли.
+
+Впереди остаются реальные устройства, same-network NAT rebinding, Windows/macOS/iOS и расширенная
+transport/family/race/soak matrix.
 
 ### Этап 3. UDP migration
 

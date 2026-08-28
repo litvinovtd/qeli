@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v9-android -->
+<!-- normative-sync: roaming-v10-join-arbitration -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -8,7 +8,8 @@
 > close. An Android API 34 emulator passed Wi-Fi → cellular (198/200 probes), cellular → Wi-Fi
 > (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
 > full AUTH ran once, the underlying Network changed atomically, and DNS still resolved after the
-> transitions. The Phase 3A–3C
+> transitions. A repeated hard-loss/make-before-break race gate admitted exactly one authenticated
+> JOIN per change (76/80 and 80/80 probes). The Phase 3A–3C
 > bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
 > post-commit UDP DATA/DATA_FRAG ingress are source-complete; UDP client adapters, UDP capability
@@ -341,8 +342,20 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   available cellular Network and retains 198/200 probes; cellular-to-Wi-Fi make-before-break retains
   200/200. The same process, VPN Network, `tun0`, and `NetworkPlan 1` survive, with exactly one
   `Auth OK`. Sleep/wake on the unchanged Network retains 160/160 probes without an unnecessary
-  handover, and system DNS still resolves after both transitions and sleep. Real devices,
-  same-network NAT rebinding, Windows/macOS/iOS, and the broader transport/family/race/soak matrix remain.
+  handover, and system DNS still resolves after both transitions and sleep.
+
+  The shared TCP supervisor now always yields generic slot repair to an already-prepared exact-path
+  candidate and, after the last carrier disappears, gives a handover-enabled platform a bounded
+  one-second PathUpdate preparation window. If no candidate materializes by then, ordinary hard-resume
+  proceeds; recovery is never deferred indefinitely. This removes the observed Android sequence in
+  which generic hard-resume and exact-path handover replaced slot 0 back-to-back. A repeated API 34
+  race gate recorded exactly one authenticated JOIN for Wi-Fi-to-cellular hard loss and one for the
+  reverse make-before-break transition, retained 76/80 and 80/80 probes respectively, kept the same
+  PID/VPN Network/`NetworkPlan 1`, ran AUTH once, and still resolved DNS names. The full Rust library
+  suite passed 931 tests with three ignored; strict all-target Clippy and Android release `-D warnings` passed.
+
+  Real devices, same-network NAT rebinding, Windows/macOS/iOS, and the broader
+  transport/family/race/soak matrix remain.
 - **Phase 3 — 🟡 registry/migration and writer-egress foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,

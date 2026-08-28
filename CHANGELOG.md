@@ -47,6 +47,15 @@
   generation-scoped `PathUpdate`; exact `Network` выполняет DNS, `bindSocket` и `protect`, а
   `setUnderlyingNetworks` меняется только после COMMIT. Stale generation и superseded Network
   проверяются до platform mutation. Обычная `.so`, UDP и unsupported peer сохраняют полный reconnect.
+- Общий TCP supervisor теперь отдаёт приоритет exact-path handover перед generic hard-resume:
+  уже подготовленный candidate всегда вытесняет обычное восстановление слота, а после потери
+  последнего carrier ядро оставляет платформе ограниченное окно в одну секунду на PathUpdate.
+  Если candidate не появился, hard-resume продолжает работу как раньше. Это устраняет наблюдавшийся
+  на Android двойной `JOIN` без неограниченной задержки восстановления. Повторный API 34 race-gate
+  подтвердил ровно один authenticated `JOIN` на каждый переход, единственные `Auth OK` и
+  `NetworkPlan 1`, неизменный PID/VPN Network, 76/80 ping при hard loss и 80/80 при обратном
+  make-before-break; DNS продолжил разрешать имя. Полный Rust suite: 931 passed, 3 ignored,
+  strict all-target Clippy и Android release `-D warnings` также прошли.
 - На API 34 emulator feature APK прошёл Wi-Fi → cellular с 198/200 ping и cellular → Wi-Fi с
   200/200. В обоих случаях сохранились PID, VPN Network, `tun0` и `NetworkPlan 1`, а `Auth OK`
   появился ровно один раз. Hard-loss callback выбирает уже доступный физический replacement,
