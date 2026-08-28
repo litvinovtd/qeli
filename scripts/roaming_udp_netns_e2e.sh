@@ -12,6 +12,9 @@
 # family-specific PMTU, and proves that active bypass routes remain exact.
 # frag-loss drops exactly one full-size DATA_FRAG in each direction before handover, then proves
 # that incomplete records expire without blocking later fragmented records on the committed path.
+# nat-rebind uses stateless tc address translation to change only the observed external mapping;
+# interface, local addresses, default route, carrier route, process and TUN all remain unchanged.
+# RX-liveness must request one bounded SameNetworkNatFailure candidate before full reconnect.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -32,9 +35,9 @@ DRAIN_DOWN_PID=
 NETNS_ETC=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind]" >&2
     exit 2
     ;;
 esac
@@ -128,6 +131,24 @@ check "path A reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.41.1.2 -c1 -W2 10.41.3.2"
 check "path B reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.41.2.2 -c1 -W2 10.41.3.2"
+
+if [ "$CASE" = nat-rebind ]; then
+  # Stateless one-to-one translation keeps the client's local socket/interface untouched while
+  # making the server observe a replaceable external address. Return traffic is rewritten before
+  # routing, and UDP ports remain unchanged so a freshly bound candidate socket works as-is.
+  ip netns exec "$RTR_NS" ip addr add 10.41.3.254/24 dev qru-sr
+  ip netns exec "$RTR_NS" tc qdisc add dev qru-sr clsact
+  ip netns exec "$RTR_NS" tc filter add dev qru-sr egress protocol ip pref 10 flower \
+    src_ip 10.41.1.2 dst_ip 10.41.3.2 ip_proto udp dst_port 4444 \
+    action pedit ex munge ip src set 10.41.3.1 pipe action csum ip and udp
+  ip netns exec "$RTR_NS" tc filter add dev qru-sr ingress protocol ip pref 20 flower \
+    src_ip 10.41.3.2 dst_ip 10.41.3.1 ip_proto udp src_port 4444 \
+    action pedit ex munge ip dst set 10.41.1.2 pipe action csum ip and udp
+  check "stateless NAT translation filters are installed on path A" \
+    "test -n \"\$(ip netns exec $RTR_NS tc filter show dev qru-sr egress)\" && test -n \"\$(ip netns exec $RTR_NS tc filter show dev qru-sr ingress)\""
+  check "alternate external mapping is on-link" \
+    "ip netns exec $SRV_NS ping -c1 -W2 10.41.3.254"
+fi
 
 if [ "$CASE" = family-switch ]; then
   ip netns exec "$CLI_NS" ip -6 addr add fd41:2::2/64 dev qru-b
@@ -299,6 +320,11 @@ elif [ "$CASE" = frag-loss ]; then
   # shellcheck source=roaming_udp_netns_frag_loss_case.sh
   . "$SCRIPT_DIR/roaming_udp_netns_frag_loss_case.sh"
   run_frag_loss_case
+elif [ "$CASE" = nat-rebind ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=roaming_udp_netns_nat_rebind_case.sh
+  . "$SCRIPT_DIR/roaming_udp_netns_nat_rebind_case.sh"
+  run_nat_rebind_case
 elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"

@@ -103,6 +103,10 @@ const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
 const TCP_HANDOVER_POLL: Duration = Duration::from_millis(100);
 #[cfg(feature = "experimental-roaming")]
 const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
+/// One same-network NAT recovery attempt gets the protocol's ten-second candidate lifetime plus
+/// observer/dispatch slack. Expiry returns to the ordinary reconnect instead of retrying forever.
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+const UDP_SAME_NETWORK_NAT_REBIND_GRACE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -4641,7 +4645,7 @@ where
 
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_monitor_handle = linux_path_controller.map(|path_controller| {
-        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
+        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation).0
     });
 
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
@@ -7986,12 +7990,17 @@ pub(crate) async fn run_udp_tunnel(
     let mut udp_receive_task =
         spawn_client_udp_receive_pump(socket.clone(), 0, received_tx.clone());
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let path_monitor_handle = if udp_handover_enabled {
-        linux_path_controller.map(|path_controller| {
-            roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
-        })
+    let (path_monitor_handle, same_network_nat_failure_tx) = if udp_handover_enabled {
+        match linux_path_controller {
+            Some(path_controller) => {
+                let (task, trigger) =
+                    roaming_linux::spawn(path_controller, tun_name.clone(), path_generation);
+                (Some(task), Some(trigger))
+            }
+            None => (None, None),
+        }
     } else {
-        None
+        (None, None)
     };
     let (_candidate_connect_tx, mut candidate_connect_rx) =
         mpsc::channel::<(PreparedPathCandidate, anyhow::Result<UdpSocket>)>(1);
@@ -8006,6 +8015,10 @@ pub(crate) async fn run_udp_tunnel(
     let mut live_udp_candidate: Option<UdpClientLiveCandidate> = None;
     #[cfg(all(feature = "experimental-roaming", unix))]
     let mut draining_udp_path: Option<UdpClientDrainingPath> = None;
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let mut same_network_nat_attempted_epoch: Option<u64> = None;
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let mut same_network_nat_grace_until: Option<tokio::time::Instant> = None;
 
     let mut unsupported_inner_drops = 0u64;
     'udp: loop {
@@ -8831,6 +8844,16 @@ pub(crate) async fn run_udp_tunnel(
                                 log::error!("UDP state publication failed after platform COMMIT: {error}");
                                 break 'udp;
                             }
+                            // The accepted PATH_COMMIT is authenticated server ingress on the new
+                            // mapping. It ends same-network dead-mapping recovery and establishes a
+                            // fresh RX-liveness baseline without waiting for an ordinary data record.
+                            last_activity = tokio::time::Instant::now();
+                            last_rx_inst = last_activity;
+                            #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+                            {
+                                same_network_nat_attempted_epoch = None;
+                                same_network_nat_grace_until = None;
+                            }
                             let roaming = udp_roaming
                                 .as_ref()
                                 .expect("committed UDP handover retains roaming state");
@@ -9379,6 +9402,58 @@ pub(crate) async fn run_udp_tunnel(
                 // transport ACK, so it must never be treated as proof that downlink is due.
                 if let Some(deadline) = rx_dead {
                     if last_rx_inst.elapsed() > deadline {
+                        #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+                        if udp_handover_enabled {
+                            let now = tokio::time::Instant::now();
+                            let active_epoch = udp_roaming
+                                .as_ref()
+                                .expect("enabled UDP handover retains roaming state")
+                                .active_epoch();
+                            if same_network_nat_attempted_epoch == Some(active_epoch) {
+                                if same_network_nat_grace_until
+                                    .is_some_and(|grace| now < grace)
+                                {
+                                    continue 'udp;
+                                }
+                            } else {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if candidate_in_flight {
+                                    same_network_nat_attempted_epoch = Some(active_epoch);
+                                    same_network_nat_grace_until =
+                                        Some(now + UDP_SAME_NETWORK_NAT_REBIND_GRACE);
+                                    log::warn!(
+                                        "UDP: authenticated receive silence at epoch {}; waiting for the in-flight path candidate before reconnect",
+                                        active_epoch
+                                    );
+                                    continue 'udp;
+                                }
+                                if let Some(trigger) = same_network_nat_failure_tx.as_ref() {
+                                    match trigger.try_send(()) {
+                                        Ok(())
+                                        | Err(tokio::sync::mpsc::error::TrySendError::Full(())) => {
+                                            same_network_nat_attempted_epoch = Some(active_epoch);
+                                            same_network_nat_grace_until =
+                                                Some(now + UDP_SAME_NETWORK_NAT_REBIND_GRACE);
+                                            log::warn!(
+                                                "UDP: authenticated receive silence on an unchanged Linux path; requesting same-network NAT rebind at epoch {}",
+                                                active_epoch
+                                            );
+                                            continue 'udp;
+                                        }
+                                        Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => {
+                                            log::debug!(
+                                                "Linux roaming monitor is unavailable for same-network NAT recovery"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         log::warn!(
                             "UDP: no authenticated data from server for >{}s — reconnecting",
                             deadline.as_secs()

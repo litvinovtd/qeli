@@ -233,7 +233,7 @@ fn path_update_json(
     let flags = PathUpdateFlags {
         default_route_changed: reason == PathUpdateReason::DefaultRouteChanged,
         wake: reason == PathUpdateReason::Wake,
-        same_network_nat_failure: false,
+        same_network_nat_failure: reason == PathUpdateReason::SameNetworkNatFailure,
     };
     Ok(serde_json::to_string(&PathUpdate {
         generation,
@@ -248,12 +248,17 @@ fn path_update_json(
     })?)
 }
 
+/// Start the Linux physical-path sampler and return a bounded trigger for transport-proven
+/// same-network NAT failure. The sampler remains the single owner of observation and update IDs,
+/// so liveness recovery cannot race route/wake detection or invent platform facts in the actor.
 pub(super) fn spawn(
     controller: Arc<LinuxPathController>,
     tunnel_interface: String,
     generation: u64,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+) -> (tokio::task::JoinHandle<()>, tokio::sync::mpsc::Sender<()>) {
+    let (same_network_nat_failure_tx, mut same_network_nat_failure_rx) =
+        tokio::sync::mpsc::channel(1);
+    let task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_tick = tokio::time::Instant::now();
@@ -262,10 +267,19 @@ pub(super) fn spawn(
         let mut update_id = 0u64;
 
         loop {
-            interval.tick().await;
+            let same_network_nat_failure = tokio::select! {
+                _ = interval.tick() => false,
+                request = same_network_nat_failure_rx.recv(),
+                    if !same_network_nat_failure_rx.is_closed() => request.is_some(),
+            };
             let now = tokio::time::Instant::now();
-            let woke = now.duration_since(last_tick) >= WAKE_GAP;
-            last_tick = now;
+            let woke = if same_network_nat_failure {
+                false
+            } else {
+                let woke = now.duration_since(last_tick) >= WAKE_GAP;
+                last_tick = now;
+                woke
+            };
             let remotes = carrier_candidate_ips();
             if remotes.is_empty() {
                 continue;
@@ -288,17 +302,21 @@ pub(super) fn spawn(
                     continue;
                 }
             };
-            let Some(current) = baseline.as_ref() else {
+            if baseline.is_none() {
                 log::debug!(
                     "Linux roaming baseline: {} (ifindex {})",
                     observed.interface_name,
                     observed.interface_index
                 );
-                baseline = Some(observed);
-                continue;
-            };
-            let changed = current != &observed;
-            if !changed && !woke {
+                baseline = Some(observed.clone());
+                if !same_network_nat_failure {
+                    continue;
+                }
+            }
+            let changed = baseline
+                .as_ref()
+                .is_some_and(|current| current != &observed);
+            if !changed && !woke && !same_network_nat_failure {
                 pending = None;
                 continue;
             }
@@ -318,7 +336,9 @@ pub(super) fn spawn(
             }
             let candidate = pending.take().map(|(path, _)| path).unwrap_or(observed);
             update_id = update_id.saturating_add(1);
-            let reason = if woke && !changed {
+            let reason = if same_network_nat_failure && !changed {
+                PathUpdateReason::SameNetworkNatFailure
+            } else if woke && !changed {
                 PathUpdateReason::Wake
             } else {
                 PathUpdateReason::DefaultRouteChanged
@@ -355,7 +375,8 @@ pub(super) fn spawn(
             // ordinary reconnect fallback; another route/address change or wake creates a new update.
             baseline = Some(candidate);
         }
-    })
+    });
+    (task, same_network_nat_failure_tx)
 }
 
 #[cfg(test)]
@@ -390,6 +411,33 @@ mod tests {
         let (index, addresses) = parse_interface_addresses(json, &families).unwrap();
         assert_eq!(index, 7);
         assert_eq!(addresses, vec!["192.0.2.10"]);
+    }
+
+    #[test]
+    fn same_network_nat_failure_uses_a_fresh_update_on_the_same_path() {
+        let path = PhysicalPath {
+            interface_index: 7,
+            interface_name: "eth0".into(),
+            local_addresses: vec!["192.0.2.10".into()],
+            route_fingerprint: vec!["ipv4:192.0.2.1:100".into()],
+        };
+        let json = path_update_json(
+            &path,
+            9,
+            4,
+            PathUpdateReason::SameNetworkNatFailure,
+            &["198.51.100.20".parse().unwrap()],
+        )
+        .unwrap();
+        let update: PathUpdate = serde_json::from_str(&json).unwrap();
+        update.validate().unwrap();
+        assert_eq!(update.generation, 9);
+        assert_eq!(update.update_id, 4);
+        assert_eq!(update.interface_index, Some(7));
+        assert_eq!(update.reason, PathUpdateReason::SameNetworkNatFailure);
+        assert!(update.flags.same_network_nat_failure);
+        assert!(!update.flags.default_route_changed);
+        assert!(!update.flags.wake);
     }
 
     #[test]

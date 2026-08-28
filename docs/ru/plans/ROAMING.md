@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v24-linux-udp-frag-loss -->
+<!-- normative-sync: roaming-v25-linux-udp-nat-rebind -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -61,11 +61,18 @@
 > reconnect. После пятисекундного reassembly timeout и удаления старого пути A следующие
 > фрагментированные записи завершились в обе стороны. Focused unit-регрессия фиксирует удаление
 > просроченной записи перед выделением и завершением её замены.
-> Текущие lab gates: 956 feature library tests при трёх ignored, 872 default tests при
+> Детерминированный Linux gate same-network NAT dead mapping прошёл 21/21. Stateless translation
+> сменила наблюдаемый сервером peer с `10.41.3.1` на `10.41.3.254`, тогда как интерфейс, локальный
+> адрес, default/carrier routes, endpoint, PID и TUN клиента не изменились. Authenticated RX silence
+> запросил один ограниченный `SameNetworkNatFailure` PathUpdate для active epoch; observer остался
+> единственным владельцем наблюдения пути и update id, а candidate закоммитился ровно один раз без
+> второй AUTH или reconnect. Приёмка NAT rebinding на реальных устройствах остаётся отдельным gate.
+> Текущие lab gates: 957 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
-> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32 и DATA_FRAG-loss 25/25,
+> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25 и
+> same-network NAT dead-mapping 21/21,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -612,7 +619,7 @@ hard loss Wi-Fi→cellular и один для обратного make-before-bre
 Полный Rust library suite прошёл 931 тест при трёх ignored; strict all-target Clippy и Android
 release-сборка с `-D warnings` прошли.
 
-Впереди остаются реальные устройства, same-network NAT rebinding, Windows/macOS/iOS и расширенная
+Впереди остаются реальные устройства, platform-specific same-network NAT rebinding, Windows/macOS/iOS и расширенная
 transport/family/race/soak matrix.
 
 ### Этап 3. UDP migration
@@ -819,8 +826,11 @@ authenticated session IPv4 → IPv6 → IPv4, сохранил codec owner/PID/T
 Deliberate DATA_FRAG-loss срез также завершён: gate 25/25 отбросил по одному полноразмерному фрагменту
 в каждом направлении при сохранённых хвостах записей, закоммитил путь B с обеими незавершёнными
 reassembly и после пятисекундного timeout и удаления пути A завершил новые фрагментированные записи
-в обе стороны. PID/TUN и authenticated session не изменились, reconnect не возник. Остаются
-real-device NAT rebinding и soak.
+в обе стороны. PID/TUN и authenticated session не изменились, reconnect не возник. Детерминированный
+Linux same-network NAT dead-mapping срез также завершён: stateless-translation gate 21/21 изменил
+только наблюдаемый сервером внешний peer, сохранил неизменными путь клиента/PID/TUN/session, после
+authenticated RX silence выпустил один `SameNetworkNatFailure` update и закоммитил один candidate
+без новой AUTH или reconnect. Остаются real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -851,13 +861,15 @@ generation-scoped discovery A/AAAA: альтернативы доступны т
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain, outer-family PMTU round-trip и
-deliberate DATA_FRAG-loss приняты live-gate. Остаются native adapters, real-device NAT rebinding и soak.
+deliberate DATA_FRAG-loss приняты live-gate; детерминированный Linux same-network NAT dead mapping
+принят в netns. Остаются native adapters, real-device NAT rebinding и soak.
 
 - Linux UDP real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
-commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family и deliberate DATA_FRAG-loss приёмку.
+commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family,
+deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 

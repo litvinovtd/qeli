@@ -162,6 +162,14 @@
   пятисекундного reassembly timeout и удаления старого пути следующие фрагментированные записи
   успешно прошли в обе стороны; unit-регрессия отдельно фиксирует удаление просроченной записи до
   выделения бюджета новой.
+- Linux UDP теперь восстанавливает сессию после same-network NAT dead mapping, когда интерфейс,
+  локальный адрес, default/carrier routes и server endpoint не менялись. Authenticated RX-liveness
+  один раз на active epoch просит observer создать свежий `SameNetworkNatFailure` PathUpdate;
+  observer остаётся единственным владельцем observation/update id, а actor даёт candidate
+  ограниченное 15-секундное окно и затем возвращается к обычному fail-closed reconnect.
+  Детерминированный stateless-translation netns gate прошёл 21/21: серверный peer сменился
+  `10.41.3.1 → 10.41.3.254`, candidate закоммитился ровно один раз без второй AUTH, замены PID/TUN
+  или reconnect, при неизменном физическом пути клиента.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32`/`/128` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

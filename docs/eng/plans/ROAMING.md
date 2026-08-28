@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v24-linux-udp-frag-loss -->
+<!-- normative-sync: roaming-v25-linux-udp-nat-rebind -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -61,12 +61,18 @@
 > AUTH, PID/TUN replacement, or reconnect. After the five-second reassembly timeout and removal of
 > old path A, later fragmented records completed in both directions. A focused unit regression pins
 > expiry of the stale record before allocating and completing its replacement.
-> Current lab gates pass 956 feature library tests with three ignored,
+> A deterministic same-network NAT dead-mapping Linux gate passed 21/21. Stateless translation moved
+> the server-observed peer from `10.41.3.1` to `10.41.3.254` while the client interface, local address,
+> default/carrier routes, endpoint, PID, and TUN remained unchanged. Authenticated RX silence requested
+> one bounded `SameNetworkNatFailure` PathUpdate for the active epoch; the observer retained sole
+> ownership of path observation and update IDs, and the candidate committed exactly once without a
+> second AUTH or reconnect. Real-device NAT-rebinding acceptance remains a separate gate.
+> Current lab gates pass 957 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
-> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, and DATA_FRAG-loss 25/25,
-> an Android x86_64 NDK
+> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25, and
+> same-network NAT dead-mapping 21/21, an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -405,7 +411,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   PID/VPN Network/`NetworkPlan 1`, ran AUTH once, and still resolved DNS names. The full Rust library
   suite passed 931 tests with three ignored; strict all-target Clippy and Android release `-D warnings` passed.
 
-  Real devices, same-network NAT rebinding, Windows/macOS/iOS, and the broader
+  Real devices, platform-specific same-network NAT rebinding, Windows/macOS/iOS, and the broader
   transport/family/race/soak matrix remain.
 - **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
@@ -614,8 +620,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   slice is complete too: a 25/25 gate dropped one full-size fragment in each direction while retaining
   each tail, committed path B with both records incomplete, then completed new fragmented records in
   both directions after the five-second reassembly timeout and removal of path A. PID/TUN and the
-  authenticated session remained unchanged and no reconnect occurred. Real-device NAT rebinding and
-  soak gates remain. The Phase 4 Linux/OpenWrt
+  authenticated session remained unchanged and no reconnect occurred. The deterministic Linux
+  same-network NAT dead-mapping slice is complete too: a 21/21 stateless-translation gate changed
+  only the server-observed external peer, kept the client path/PID/TUN/session unchanged, emitted one
+  `SameNetworkNatFailure` update after authenticated RX silence, and committed one candidate without
+  another AUTH or reconnect. Real-device NAT-rebinding and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
@@ -647,8 +656,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
   acceptance are complete. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
   acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate bidirectional DATA_FRAG-loss are
-  complete. Real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
+  complete. Deterministic Linux same-network NAT dead-mapping is accepted in netns; real-device
+  race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
