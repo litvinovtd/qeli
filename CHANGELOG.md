@@ -51,11 +51,11 @@
   только в общем Rust policy; ошибка Android snapshot не запускает второй platform timer.
   Stale generation и superseded Network проверяются до platform mutation. Default `.so`, старое
   ядро без нового capability и unsupported peer сохраняют обычный полный reconnect.
-  На API 34 emulator закрыт live gate same-network NAT rebinding для UDP fake-TLS: старый
-  двусторонний 5-tuple был заблокирован без изменения Android `Network`, ядро запросило
-  `PATH_REFRESH`, а сервер выполнил `PATH_CHALLENGE`/`PATH_COMMIT` на новый source port менее чем
-  за секунду. PID приложения, Network handle и TUN/lease сохранились, после commit ping дал 5/5; повторных AUTH,
-  `NetworkPlan` и reconnect не было.
+  На API 34 emulator с feature APK закрыта полная UDP-матрица same-network NAT rebinding для
+  fake-TLS, QUIC, obfs и obfs-AWG: старый двусторонний 5-tuple блокировался без изменения Android
+  `Network`, ядро запрашивало `PATH_REFRESH`, а сервер выполнял `PATH_CHALLENGE`/`PATH_COMMIT` на
+  новый source port. В каждом режиме PID приложения, Network handle и TUN/lease сохранялись,
+  ping проходил 5/5 до и после миграции; повторных AUTH, `NetworkPlan` и reconnect не было.
 - Общий TCP supervisor теперь отдаёт приоритет exact-path handover перед generic hard-resume:
   уже подготовленный candidate всегда вытесняет обычное восстановление слота, а после потери
   последнего carrier ядро оставляет платформе ограниченное окно в одну секунду на PathUpdate.
@@ -71,9 +71,12 @@
   поэтому потеря Wi-Fi больше не обнуляет путь перед созданием candidate.
 - Sleep/wake на неизменном Wi-Fi сохранил 160/160 ping и не создал лишний handover; после обоих
   переходов и сна системный DNS продолжил разрешать имя. Same-network NAT rebinding, реальные
-  устройства и race/soak matrix остаются отдельными gate.
-- Android x86_64 feature `.so` собрана NDK r26d в release с `panic=unwind` и `-D warnings`;
-  оба path JNI export присутствуют. Kotlin unit tests и `assembleDebug` прошли.
+  устройства и race/soak matrix остаются отдельными gate для TCP; для UDP emulator gate закрыт,
+  а real-device NAT-rebinding и race/soak остаются впереди.
+- Android x86_64 default и feature `.so` собраны NDK r26d в release с `panic=unwind` и
+  `-D warnings`; Unix raw-fd trait импортируется без предупреждений всегда на Linux и только вместе
+  с `experimental-roaming` на остальных Unix-платформах. Оба path JNI export присутствуют в
+  feature-сборке. Kotlin unit tests и `assembleDebug` прошли.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
