@@ -113,6 +113,18 @@
   с новым packet number и не публикует путь второй раз. Live netns прошёл 18/18: оба счётчика DROP
   равны единице, candidate закоммичен ровно один раз, carrier `/32`, PID и TUN сохранены, top-level
   reconnect отсутствует, непрерывный трафик остаётся рабочим.
+- Исправлен PMTU-control после согласования UDP roaming. Bare PMTU probes/ACK используют directional
+  CID wrapper, но не являются PacketCodec AEAD records; сервер раньше безусловно передавал их в
+  decrypt и отбрасывал. Теперь они принимаются до AEAD только после точного разрешения session CID и
+  совпадения committed epoch/socket/peer. Candidate-путь по-прежнему допускает только authenticated
+  PATH-control, поэтому обход return-path validation и anti-amplification невозможен. ACK старой epoch,
+  старого peer или другого socket не может повысить новый budget.
+- IPv4 PMTU ladder дополнен ступенями 1100/1000/900/800/700. На outer MTU 1280 прежний переход
+  1200 → 576 занижал UDP payload budget до 637 байт; теперь первый проходящий rung 1100 даёт 1161 байт.
+  Изолированный Linux netns gate прошёл 19/19: epoch-zero uplink/downlink сертифицировали 1461 байт,
+  после commit пути MTU 1280 оба направления независимо пересертифицировали 1161 байт, внутренний TUN
+  сохранил MTU 1400, а ping payload 1350 прошёл через DATA_FRAG без замены PID/TUN и без reconnect.
+  Асимметричный PMTU, IPv4↔IPv6 и реальные устройства остаются отдельными gate.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

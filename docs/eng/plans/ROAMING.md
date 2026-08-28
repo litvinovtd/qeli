@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v19-linux-udp-loss-replay -->
+<!-- normative-sync: roaming-v20-linux-udp-pmtu -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -36,10 +36,15 @@
 > A deterministic control-loss scenario passed 18/18: firewall counters proved that the first
 > PATH_CHALLENGE and first PATH_COMMIT were dropped, fresh PATH_INIT/PATH_RESPONSE flights recovered
 > both losses, and the server replayed PATH_COMMIT without a second path publication or reconnect.
-> Current lab gates pass 950 feature library tests with three ignored,
-> 870 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
+> The Linux IPv4 roaming PMTU slice passed 19/19. Bare probes and ACKs are now routed after exact
+> committed CID/epoch/socket/peer classification instead of being discarded as failed AEAD records.
+> A move from a 1500-byte carrier to MTU 1280 independently re-certified uplink and downlink budgets
+> from 1461 to 1161 bytes, retained the inner TUN MTU 1400, and carried a 1350-byte payload through
+> DATA_FRAG without replacing PID/TUN or reconnecting.
+> Current lab gates pass 951 feature library tests with three ignored,
+> 871 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
-> and control-loss/replay 18/18,
+> control-loss/replay 18/18, and symmetric IPv4 PMTU 19/19,
 > an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -544,8 +549,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   platform ABORT. Because the server has already switched by the time PATH_COMMIT is received, any
   local failure after it terminates the actor for a fail-closed full reconnect instead of pretending
   the old path is usable. A focused test pins candidate-to-active receive classification and stale
-  epoch rejection; strict default and feature Clippy, the default suite at 870 passed/1 ignored, and
-  the feature suite at 947 passed/3 ignored all pass.
+  epoch rejection; strict default and feature Clippy, the default suite at 871 passed/1 ignored, and
+  the feature suite at 951 passed/3 ignored all pass.
 
   `UDP_ROAM_V1` now activates only in `experimental-roaming` for the exact UDP+QUIC handshake when
   the server advertises the same bit and the platform provides complete `ROAMING_PATH`. Generic TCP,
@@ -565,8 +570,15 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   exact B→C order, two single commits, unchanged PID/TUN, and no reconnect. The first packet-loss
   slice is also complete: a fixed-length firewall gate dropped exactly the first PATH_CHALLENGE and
   PATH_COMMIT, fresh encrypted retries recovered both, and the 18/18 live gate retained PID/TUN and
-  published one commit. Packet-level deliberate delay/duplication/reordering, bidirectional PMTU,
-  real-device NAT-rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
+  published one commit. The symmetric Linux IPv4 PMTU slice is now complete as well. Negotiated bare
+  PMTU control is consumed before PacketCodec decoding only after the directional CID resolves the
+  session and the exact committed epoch, receiving socket, and peer match; candidate paths remain
+  restricted to authenticated PATH control. Epoch-zero probing certified 1461-byte payload budgets
+  in both directions. After committing a bidirectional MTU-1280 carrier, both directions reset to 548
+  and independently re-certified 1161 bytes. The inner TUN stayed at MTU 1400 and a 1350-byte payload
+  crossed through DATA_FRAG. Intermediate IPv4 ladder rungs avoid the previous 1200-to-576 collapse.
+  Packet-level deliberate delay/duplication/reordering, asymmetric C2S/S2C ceilings, outer
+  IPv4↔IPv6 transitions, real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
@@ -592,8 +604,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   connects to the candidate address, and binds before connect. Linux observation, capability activation,
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
-  acceptance are complete. Real-device PMTU/race/soak/NAT-rebinding, the remaining native adapters,
-  and exit-node acceptance remain.
+  acceptance are complete. Deliberate packet delay/duplicate/reorder, asymmetric/family-transition
+  PMTU, real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance
+  remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

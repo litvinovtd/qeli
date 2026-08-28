@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v19-linux-udp-loss-replay -->
+<!-- normative-sync: roaming-v20-linux-udp-pmtu -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -37,10 +37,15 @@
 > Детерминированный control-loss-сценарий прошёл 18/18: firewall counters подтвердили потерю ровно
 > первого PATH_CHALLENGE и первого PATH_COMMIT, свежие PATH_INIT/PATH_RESPONSE восстановили оба
 > обмена, а сервер повторил PATH_COMMIT без второй публикации пути и без reconnect.
-> Текущие lab gates: 950 feature library tests при трёх ignored, 870 default tests при
+> Linux IPv4 roaming PMTU-срез прошёл 19/19. Bare probes и ACK теперь обрабатываются после точной
+> классификации committed CID/epoch/socket/peer, а не отбрасываются как не прошедшие AEAD records.
+> Переход с carrier MTU 1500 на MTU 1280 независимо пересертифицировал uplink и downlink budgets
+> с 1461 до 1161 байта, сохранил внутренний TUN MTU 1400 и передал payload 1350 байт через DATA_FRAG
+> без замены PID/TUN и без reconnect.
+> Текущие lab gates: 951 feature library tests при трёх ignored, 871 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
-> control-loss/replay 18/18,
+> control-loss/replay 18/18, symmetric IPv4 PMTU 19/19,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -752,7 +757,7 @@ epoch отклоняются, а candidate DATA не становится active
 сервер уже переключился к моменту получения PATH_COMMIT, любая локальная ошибка после него
 fail-closed завершает actor для полного reconnect, а не оставляет ложный старый путь. Focused-тест
 фиксирует переход receive-классификации candidate → active и отказ старой epoch; strict default и
-feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3 ignored проходят.
+feature Clippy, default suite 871 passed/1 ignored и feature suite 951 passed/3 ignored проходят.
 
 `UDP_ROAM_V1` теперь включается только в `experimental-roaming` для точного UDP+QUIC handshake,
 когда сервер рекламирует тот же бит, а платформа даёт полный `ROAMING_PATH`. Generic TCP, UDP без
@@ -772,8 +777,15 @@ Linux in-process executor сериализует emit/consume/OS mutation, по�
 однократными commit, неизменными PID/TUN и без reconnect. Первый packet-loss-срез также завершён:
 fixed-length firewall gate отбросил ровно первые PATH_CHALLENGE и PATH_COMMIT, свежие зашифрованные
 повторы восстановили оба обмена, а live gate 18/18 сохранил PID/TUN и опубликовал один commit.
-До rollout остаются packet-level deliberate delay/duplicate/reorder, двунаправленный PMTU,
-real-device NAT rebinding и soak.
+Симметричный Linux IPv4 PMTU-срез также завершён. Negotiated bare PMTU-control обрабатывается до
+PacketCodec decode только после разрешения directional CID в сессию и точного совпадения committed
+epoch, receiving socket и peer; candidate-путь по-прежнему принимает только authenticated PATH-control.
+На epoch 0 оба направления сертифицировали payload budget 1461 байт. После commit двунаправленного
+carrier MTU 1280 оба направления сбросились до 548 и независимо пересертифицировали 1161 байт.
+Внутренний TUN сохранил MTU 1400, payload 1350 байт прошёл через DATA_FRAG. Промежуточные ступени
+IPv4 ladder устраняют прежний провал сразу с 1200 до 576.
+До rollout остаются packet-level deliberate delay/duplicate/reorder, асимметричные C2S/S2C ceilings,
+outer IPv4↔IPv6 transitions, real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -799,9 +811,11 @@ commit, а `replace` разрешён только для маршрута из 
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
-остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
+остаются асимметричный/family-transition live PMTU, deliberate packet delay/duplicate/reorder,
+native adapters и soak.
 
-- Linux UDP adversarial late-response/commit race, real-device PMTU/NAT rebinding и soak;
+- Linux UDP deliberate delay/duplicate/reorder, asymmetric/family-transition PMTU,
+  real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede-приёмку.

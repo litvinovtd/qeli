@@ -2334,7 +2334,7 @@ async fn handle_udp_roaming_ingress(
         );
         return;
     }
-    let encrypted_payload = &envelope.datagram[crate::protocol::roaming::UDP_SHORT_HEADER_LEN..];
+    let roaming_payload = &envelope.datagram[crate::protocol::roaming::UDP_SHORT_HEADER_LEN..];
     let action = {
         let mut guard = sessions.write().await;
         let revoked = guard
@@ -2372,7 +2372,84 @@ async fn handle_udp_roaming_ingress(
             );
             return;
         };
-        match decode_udp_roaming_ingress(client, encrypted_payload, &tun_tx.pool) {
+        // Bare PMTU probes share the negotiated directional CID framing but deliberately are not
+        // PacketCodec records. Handle them only after the CID resolved this session and the exact
+        // current epoch/socket/peer was classified as committed. A candidate path still carries
+        // authenticated PATH_* only, so this exception cannot bypass return-path validation or
+        // its anti-amplification budget.
+        if crate::protocol::udp_frag::is_mtu_probe_ack_v2(roaming_payload) {
+            if ingress_path != UdpRoamingIngressPath::Committed {
+                return;
+            }
+            let certified = crate::protocol::udp_frag::parse_mtu_probe_v2_ack(roaming_payload)
+                .and_then(|(token, payload_size)| {
+                    let mut pending =
+                        lock_or_recover(&client.downlink_mtu_probe, "udp::downlink_probe_ack");
+                    let expected = (*pending)?;
+                    if expected.token != token
+                        || expected.payload_size != payload_size
+                        || expected.path_epoch != lookup.path_epoch()
+                        || expected.peer != received_path.peer()
+                    {
+                        return None;
+                    }
+                    *pending = None;
+                    client
+                        .udp_payload_budget
+                        .as_ref()
+                        .map(|cell| (cell.clone(), expected))
+                });
+            if let Some((cell, expected)) = certified {
+                note_certified_udp_payload_budget(
+                    active_egress,
+                    &cell,
+                    format_args!("at {}", received_path.peer()),
+                    expected,
+                );
+            }
+            return;
+        }
+        // The 16-bit ACK is the response to the client-driven uplink ladder. It is consumed by
+        // the client's receive loop, never by the server; a replay arriving here is carrier
+        // control rather than an encrypted tunnel record.
+        if crate::protocol::udp_frag::is_mtu_probe_ack(roaming_payload) {
+            return;
+        }
+        if crate::protocol::udp_frag::is_mtu_probe(roaming_payload) {
+            if ingress_path != UdpRoamingIngressPath::Committed {
+                return;
+            }
+            if let Some((id, size)) =
+                crate::protocol::udp_frag::parse_mtu_probe_request(roaming_payload)
+            {
+                let egress = active_egress.snapshot();
+                // Classification above pins the exact receiving path. Recheck the immutable
+                // snapshot used to build/send the ACK so a future refactor cannot combine a
+                // current CID with another socket or peer.
+                if egress.path_epoch != lookup.path_epoch()
+                    || egress.peer != received_path.peer()
+                    || !Arc::ptr_eq(&egress.socket, &envelope.socket)
+                {
+                    return;
+                }
+                let packet_number = client
+                    .packet_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let ack = crate::protocol::udp_frag::mtu_probe_ack_datagram(id, size);
+                let mut wrapped = Vec::with_capacity(egress.framing.wrapper_len() + ack.len());
+                let packet = egress.framing.wrap_into(&ack, packet_number, &mut wrapped);
+                if let Err(error) = egress.socket.try_send_to(packet, egress.peer) {
+                    log::trace!(
+                        "UDP roaming PMTU probe ACK send failed on profile '{}' to {}: {}",
+                        profile.name,
+                        egress.peer,
+                        error
+                    );
+                }
+            }
+            return;
+        }
+        match decode_udp_roaming_ingress(client, roaming_payload, &tun_tx.pool) {
             Ok(UdpRoamingIngress::Control(control)) => {
                 // Candidate liveness is authenticated only after PacketCodec accepted the
                 // record and advanced the one session-wide replay window.

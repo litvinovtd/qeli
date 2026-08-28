@@ -5726,7 +5726,8 @@ fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize, peer_is_ipv6: bool) -> 
     // doing, and deliberately not smuggled in here, since it changes the probe's control flow
     // in all four ports. (Audit 2026-08-01, §8.)
     let mut ladder: Vec<i32> = [
-        ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500, 1360, 1320, 1280, 1200, floor,
+        ceiling, 12000, 9000, 6000, 4000, 2500, 2000, 1500, 1360, 1320, 1280, 1200, 1100, 1000,
+        900, 800, 700, floor,
     ]
     .into_iter()
     .filter(|&m| (floor..=ceiling).contains(&m))
@@ -5773,6 +5774,23 @@ mod mtu_ladder_tests {
             ladder.iter().any(|&m| m + overhead as i32 <= 1000),
             "an IPv4 path below 1280 must have a certifiable rung: {ladder:?}"
         );
+    }
+
+    #[test]
+    fn live_ipv4_reprobe_does_not_collapse_from_1200_to_the_floor() {
+        // Roaming CID (13) + UDP/IP (28) + the probe record allowance (48). On a 1280-byte
+        // carrier, candidate 1200 is nine bytes too large, while 1100 is the first rung that
+        // fits. Without the intermediate IPv4 rungs the live state machine fell straight to
+        // 576 and needlessly pinned both directions to a 637-byte UDP payload budget.
+        let overhead = 13 + 8 + 20 + 48;
+        let ladder = mtu_probe_ladder(1400, overhead, false);
+        let highest_fitting = ladder
+            .iter()
+            .copied()
+            .find(|candidate| candidate + overhead as i32 <= 1280)
+            .expect("the IPv4 floor fits");
+        assert_eq!(highest_fitting, 1100);
+        assert!(ladder.windows(2).all(|pair| pair[0] > pair[1]));
     }
 
     #[test]

@@ -3,7 +3,8 @@
 # namespaces; no host route or production process is changed. The success case commits path B;
 # rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
 # commit-race changes to C while the platform is still committing B; loss-replay drops the first
-# PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover.
+# PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover;
+# pmtu moves to a narrower B and verifies independent uplink/downlink re-probes plus DATA_FRAG.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -21,9 +22,9 @@ CLIENT_JOB_PID=
 PING_PID=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu]" >&2
     exit 2
     ;;
 esac
@@ -206,7 +207,73 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-if [ "$CASE" = loss-replay ]; then
+if [ "$CASE" = pmtu ]; then
+  if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
+    ok "epoch-zero roaming framing carried the startup uplink PMTU probe"
+  else
+    bad "startup uplink PMTU probe did not cross epoch-zero roaming framing"
+  fi
+  if wait_for 100 "grep -q 'client at 10.41.1.2:.*reverse-probe certified UDP downlink budget.*(was 548)' $WORK/server.log"; then
+    ok "server certified the initial downlink budget on path A"
+  else
+    bad "initial reverse PMTU probe did not complete on path A"
+  fi
+  INITIAL_UPLINK=$(sed -n \
+    's/.*UDP path probe: inner MTU [0-9][0-9]*, uplink UDP payload budget \([0-9][0-9]*\).*/\1/p' \
+    "$WORK/client.log" | head -n1)
+
+  # The original path remains at MTU 1500; B is deliberately narrower in both directions.
+  # The inner TUN remains 1400 and therefore must rely on DATA_FRAG after handover.
+  ip netns exec "$CLI_NS" ip link set qru-b mtu 1280
+  ip netns exec "$RTR_NS" ip link set qru-br mtu 1280
+  check "candidate path B has a 1280-byte bidirectional outer MTU" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1280 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1280"
+
+  ip netns exec "$CLI_NS" ping -n -i 0.2 -c 180 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
+  PING_PID=$!
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
+  if wait_for 150 "grep -q 'UDP make-before-break committed candidate' $WORK/client.log"; then
+    ok "narrow path B committed without replacing the session"
+  else
+    bad "narrow path B did not commit"
+  fi
+  if wait_for 150 "grep -q 'UDP live PMTU widened uplink payload budget' $WORK/client.log"; then
+    ok "client re-probed uplink immediately after PATH_COMMIT"
+  else
+    bad "client did not complete the post-commit uplink PMTU probe"
+  fi
+  if wait_for 150 "grep -q 'client at 10.41.2.2:.*reverse-probe certified UDP downlink budget.*(was 548)' $WORK/server.log"; then
+    ok "server independently re-probed downlink on committed path B"
+  else
+    bad "server did not complete the post-commit reverse PMTU probe"
+  fi
+  ROAMED_UPLINK=$(sed -n \
+    's/.*UDP live PMTU widened uplink payload budget to \([0-9][0-9]*\) bytes.*/\1/p' \
+    "$WORK/client.log" | tail -n1)
+  ROAMED_DOWNLINK=$(sed -n \
+    's/.*client at 10\.41\.2\.2:[0-9][0-9]* reverse-probe certified UDP downlink budget \([0-9][0-9]*\) bytes.*/\1/p' \
+    "$WORK/server.log" | tail -n1)
+  check "narrow path reduced the certified uplink budget" \
+    "test -n '$INITIAL_UPLINK' && test -n '$ROAMED_UPLINK' && test '$ROAMED_UPLINK' -lt '$INITIAL_UPLINK' && test '$ROAMED_UPLINK' -gt 548"
+  check "both PMTU directions certified the same 1280-byte path ceiling" \
+    "test -n '$ROAMED_DOWNLINK' && test '$ROAMED_DOWNLINK' = '$ROAMED_UPLINK'"
+  check "large inner packet survives through DATA_FRAG on narrow path" \
+    "ip netns exec $CLI_NS ping -M do -s 1350 -c5 -W2 10.89.0.1"
+  check "inner TUN MTU remains 1400 after outer PMTU reset" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/mtu)\" = 1400"
+  check "carrier bypass ends on narrow path B" \
+    "ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q '^10.41.3.2 via 10.41.2.1 dev qru-b'"
+  check "PMTU handover preserves process and TUN" \
+    "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID' && test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
+  check "PMTU handover does not enter the top-level reconnect loop" \
+    "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+
+  wait "$PING_PID" 2>/dev/null || true
+  PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); print value }' \
+    "$WORK/ping.log" | tail -n1)
+  check "continuous probe retained at least 165 of 180 packets during PMTU handover" \
+    "test -n '$PING_RX' && test '$PING_RX' -ge 165"
+elif [ "$CASE" = loss-replay ]; then
   sleep 3
   # In fake-tls mode these authenticated controls have fixed IPv4 lengths (outer datagram
   # sealing is exclusive to obfs mode): CHALLENGE = 20 IP + 8 UDP + 13 roaming + 5 TLS +
