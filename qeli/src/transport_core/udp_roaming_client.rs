@@ -6,7 +6,12 @@
 //! binds the candidate socket, feeds authenticated server control into this state machine, applies
 //! the returned commit to the OS, and then publishes that commit back here.
 
-use crate::protocol::roaming::{derive_udp_cid, PathControl, CID_LEN, PATH_CHALLENGE_LEN};
+use crate::protocol::packet::PacketError;
+use crate::protocol::roaming::{
+    decode_udp_short, derive_udp_cid, PathControl, RoamingWireError, UdpShortHeader, CID_LEN,
+    PATH_CHALLENGE_LEN,
+};
+use crate::protocol::{control_v2, PacketCodec};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
@@ -16,6 +21,126 @@ pub const UDP_CLIENT_PATH_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 pub const UDP_CLIENT_PATH_MAX_TRANSMISSIONS: u8 = 4;
 
 pub type UdpClientCid = [u8; CID_LEN];
+
+#[derive(Debug, thiserror::Error)]
+pub enum UdpClientRoamingWireError {
+    #[error(transparent)]
+    Outer(#[from] RoamingWireError),
+    #[error(transparent)]
+    Record(#[from] PacketError),
+    #[error(transparent)]
+    Control(#[from] control_v2::ControlV2Error),
+    #[error("UDP roaming path control must not carry CONTROL_V2 flags")]
+    InvalidControlFlags,
+    #[error("UDP roaming path control must fit one complete CONTROL_V2 frame")]
+    FragmentedControl,
+}
+
+/// One authenticated roaming datagram after removal of the eight-byte CID header and AEAD
+/// record. The type deliberately omits `Debug`: it retains the complete destination CID and may
+/// contain a path challenge. The socket actor can route ordinary plaintext to the data plane and
+/// ask [`decode_authenticated_path_control`] to classify the infrequent control messages.
+pub struct UdpClientAuthenticatedPacket {
+    destination_cid: UdpClientCid,
+    packet_number: u32,
+    plaintext: Vec<u8>,
+}
+
+impl UdpClientAuthenticatedPacket {
+    pub fn destination_cid(&self) -> &UdpClientCid {
+        &self.destination_cid
+    }
+
+    pub fn packet_number(&self) -> u32 {
+        self.packet_number
+    }
+
+    pub fn plaintext(&self) -> &[u8] {
+        &self.plaintext
+    }
+
+    pub fn into_plaintext(self) -> Vec<u8> {
+        self.plaintext
+    }
+}
+
+/// Owned CONTROL_V2 path message extracted from one authenticated packet. This also omits
+/// `Debug` because the body may contain a full CID or challenge token.
+pub struct UdpClientAuthenticatedControl {
+    message_id: u32,
+    control: PathControl,
+}
+
+impl UdpClientAuthenticatedControl {
+    pub fn message_id(&self) -> u32 {
+        self.message_id
+    }
+
+    pub fn control(&self) -> &PathControl {
+        &self.control
+    }
+}
+
+/// Encode one state-machine transmit intent using the session-wide PacketCodec sequence and the
+/// roaming short header. Keeping this in the Rust core prevents Android, Apple and desktop
+/// adapters from acquiring subtly different CONTROL_V2 or CID framing.
+pub fn encrypt_path_transmit(
+    tx: &mut PacketCodec,
+    packet_number: u32,
+    transmit: &UdpClientPathTransmit,
+) -> Result<Vec<u8>, UdpClientRoamingWireError> {
+    let body = transmit.control.encode_body();
+    let frame = control_v2::Frame {
+        message_type: transmit.control.message_type(),
+        flags: 0,
+        message_id: transmit.message_id,
+        part_index: 0,
+        part_count: 1,
+        payload: &body,
+    }
+    .encode()?;
+    let record = tx.encrypt_packet(&frame, &[])?;
+    Ok(UdpShortHeader::new(transmit.destination_cid, packet_number).encode(&record))
+}
+
+/// Authenticate one roaming datagram with the same receive codec/replay window as ordinary data.
+/// The caller should pre-filter the cleartext CID against the active/candidate generations before
+/// invoking this function; successfully authenticated data and controls intentionally share one
+/// packet sequence and replay window.
+pub fn decrypt_authenticated_packet(
+    rx: &mut PacketCodec,
+    wire: &[u8],
+) -> Result<UdpClientAuthenticatedPacket, UdpClientRoamingWireError> {
+    let (header, record) = decode_udp_short(wire)?;
+    let plaintext = rx.decrypt_packet(record)?;
+    Ok(UdpClientAuthenticatedPacket {
+        destination_cid: *header.destination_cid(),
+        packet_number: header.packet_number(),
+        plaintext,
+    })
+}
+
+/// Classify a decrypted roaming packet. Non-control plaintext is returned as `None`; anything
+/// carrying the CONTROL_V2 marker must be one complete, flag-free PATH_* frame or is rejected.
+pub fn decode_authenticated_path_control(
+    packet: &UdpClientAuthenticatedPacket,
+) -> Result<Option<UdpClientAuthenticatedControl>, UdpClientRoamingWireError> {
+    if !control_v2::is_control_v2(packet.plaintext()) {
+        return Ok(None);
+    }
+    let frame = control_v2::decode(packet.plaintext())?;
+    if frame.flags != 0 {
+        return Err(UdpClientRoamingWireError::InvalidControlFlags);
+    }
+    if frame.part_index != 0 || frame.part_count != 1 {
+        return Err(UdpClientRoamingWireError::FragmentedControl);
+    }
+    let control = PathControl::decode(frame.message_type, frame.payload)?;
+    Ok(Some(UdpClientAuthenticatedControl {
+        message_id: frame.message_id,
+        control,
+    }))
+}
 
 #[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
 pub enum UdpClientRoamingError {
@@ -693,5 +818,75 @@ mod tests {
             Err(UdpClientRoamingError::StaleCandidate)
         );
         assert_eq!(roaming.active_epoch(), 0);
+    }
+
+    #[test]
+    fn shared_wire_codec_round_trips_one_state_machine_transmit() {
+        let now = Instant::now();
+        let mut roaming = roaming();
+        let transmit = begin(&mut roaming, 7, 19, now);
+        let key = [0x44; 32];
+        let mut tx = PacketCodec::new(key);
+        let mut rx = PacketCodec::new(key);
+
+        let wire = encrypt_path_transmit(&mut tx, 23, &transmit).unwrap();
+        let (header, _) = decode_udp_short(&wire).unwrap();
+        assert_eq!(header.destination_cid(), transmit.destination_cid());
+        assert_eq!(header.packet_number(), 23);
+
+        let packet = decrypt_authenticated_packet(&mut rx, &wire).unwrap();
+        assert_eq!(packet.destination_cid(), transmit.destination_cid());
+        assert_eq!(packet.packet_number(), 23);
+        let decoded = decode_authenticated_path_control(&packet)
+            .unwrap()
+            .expect("PATH_INIT is control");
+        assert_eq!(decoded.message_id(), transmit.message_id());
+        assert!(decoded.control() == transmit.control());
+    }
+
+    #[test]
+    fn shared_wire_codec_distinguishes_data_and_rejects_fragmented_path_control() {
+        let key = [0x55; 32];
+        let cid = [0x66; CID_LEN];
+        let mut tx = PacketCodec::new(key);
+        let mut rx = PacketCodec::new(key);
+        let data_record = tx.encrypt_packet(b"ordinary tunnel data", &[]).unwrap();
+        let data_wire = UdpShortHeader::new(cid, 1).encode(&data_record);
+        let packet = decrypt_authenticated_packet(&mut rx, &data_wire).unwrap();
+        assert!(decode_authenticated_path_control(&packet)
+            .unwrap()
+            .is_none());
+        assert_eq!(packet.into_plaintext(), b"ordinary tunnel data");
+
+        let body = PathControl::Abort { epoch: 1, code: 2 }.encode_body();
+        let fragmented = control_v2::Frame {
+            message_type: control_v2::TYPE_PATH_ABORT,
+            flags: 0,
+            message_id: 9,
+            part_index: 0,
+            part_count: 2,
+            payload: &body,
+        }
+        .encode()
+        .unwrap();
+        let record = tx.encrypt_packet(&fragmented, &[]).unwrap();
+        let wire = UdpShortHeader::new(cid, 2).encode(&record);
+        let packet = decrypt_authenticated_packet(&mut rx, &wire).unwrap();
+        assert!(matches!(
+            decode_authenticated_path_control(&packet),
+            Err(UdpClientRoamingWireError::FragmentedControl)
+        ));
+    }
+
+    #[test]
+    fn shared_wire_codec_uses_the_session_replay_window() {
+        let key = [0x77; 32];
+        let cid = [0x88; CID_LEN];
+        let mut tx = PacketCodec::new(key);
+        let mut rx = PacketCodec::new(key);
+        let record = tx.encrypt_packet(b"data", &[]).unwrap();
+        let wire = UdpShortHeader::new(cid, 7).encode(&record);
+        decrypt_authenticated_packet(&mut rx, &wire).unwrap();
+        assert!(decrypt_authenticated_packet(&mut rx, &wire).is_err());
     }
 }

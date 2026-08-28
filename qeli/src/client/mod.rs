@@ -102,7 +102,7 @@ const TCP_CLOSE_NOTIFY_TIMEOUT: Duration = Duration::from_millis(750);
 #[cfg(feature = "experimental-roaming")]
 const TCP_HANDOVER_POLL: Duration = Duration::from_millis(100);
 #[cfg(feature = "experimental-roaming")]
-const TCP_HANDOVER_PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
+const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
@@ -453,7 +453,7 @@ use crate::tun::iface::{DeviceType, TunInterface};
 #[cfg(target_os = "linux")]
 use crate::tun::{is_tap_mode, mac_from_ip};
 use rand::prelude::*;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use std::os::fd::OwnedFd;
@@ -769,7 +769,7 @@ impl LinuxPathController {
 }
 
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-impl TcpPathController for LinuxPathController {
+impl PathController for LinuxPathController {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
         self.shared.prepared_candidate()
     }
@@ -808,10 +808,10 @@ impl TcpPathController for LinuxPathController {
 /// routes and exact-network binding; the transport owns the candidate socket and authenticated
 /// proof. Production adapters expose this only together with the complete ROAMING_PATH bits.
 #[cfg(feature = "experimental-roaming")]
-pub(crate) trait TcpPathController: Send + Sync {
+pub(crate) trait PathController: Send + Sync {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate>;
-    // The native FFI connector consumes BIND_SOCKET while opening the candidate. The default
-    // Linux client connector stays intentionally inert until its platform adapter lands.
+    // Native FFI and Linux connectors consume BIND_SOCKET while opening the candidate; the
+    // default-off capability keeps adapters without this exact binding contract on reconnect.
     #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
     fn bind_candidate_socket(
         &self,
@@ -833,7 +833,7 @@ pub(crate) trait ClientPlatform {
     fn next_generation(&mut self) -> u64;
     fn platform_capabilities(&self) -> u64;
     #[cfg(feature = "experimental-roaming")]
-    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+    fn path_controller(&self) -> Option<Arc<dyn PathController>> {
         None
     }
     #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
@@ -1263,7 +1263,7 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     #[cfg(feature = "experimental-roaming")]
-    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+    fn path_controller(&self) -> Option<Arc<dyn PathController>> {
         let required = crate::transport_core::platform_capability::ROAMING_PATH;
         if self.platform_capabilities() & required == required {
             Some(self.path_controller.clone())
@@ -1726,7 +1726,7 @@ struct LinuxStreamConnectContext {
     #[cfg(feature = "experimental-roaming")]
     request: StreamConnectRequest,
     #[cfg(feature = "experimental-roaming")]
-    path_controller: Option<Arc<dyn TcpPathController>>,
+    path_controller: Option<Arc<dyn PathController>>,
 }
 
 /// A factory that opens one more connection of the SAME concrete stream type, for
@@ -1787,7 +1787,7 @@ async fn connect_tcp_path_candidate(
     total: Duration,
     label: &str,
     candidate: &PreparedPathCandidate,
-    path_controller: &dyn TcpPathController,
+    path_controller: &dyn PathController,
 ) -> anyhow::Result<TcpStream> {
     let deadline = tokio::time::Instant::now() + total;
     // The core accepts one BIND_SOCKET for one prepared candidate. Use the first validated,
@@ -1802,7 +1802,7 @@ async fn connect_tcp_path_candidate(
     let remote = std::net::SocketAddr::new(remote_ip, config.server.port);
     let socket = crate::transport_core::carrier::open_candidate_for(config, remote_ip)?;
     let binding = path_controller.bind_candidate_socket(candidate, socket.as_raw_fd())?;
-    tokio::time::timeout(total.min(TCP_HANDOVER_PATH_ACK_TIMEOUT), binding)
+    tokio::time::timeout(total.min(PATH_ACK_TIMEOUT), binding)
         .await
         .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -1820,6 +1820,51 @@ async fn connect_tcp_path_candidate(
         }
         crate::transport_core::carrier::ConnectedCarrier::Udp(_) => {
             anyhow::bail!("{label} candidate unexpectedly produced a UDP carrier")
+        }
+    }
+}
+
+#[cfg(all(feature = "experimental-roaming", unix))]
+// The live UDP actor is wired in the next gated stage. Keep this reviewed/tested primitive
+// unreachable while UDP_ROAM_V1 remains deliberately absent from capability advertisements.
+#[allow(dead_code)]
+pub(crate) async fn connect_udp_path_candidate(
+    config: &crate::config::client::ClientConfig,
+    total: Duration,
+    candidate: &PreparedPathCandidate,
+    path_controller: &dyn PathController,
+) -> anyhow::Result<UdpSocket> {
+    let deadline = tokio::time::Instant::now() + total;
+    // PREPARE_PATH supplied addresses resolved through this exact physical network. Like TCP,
+    // one candidate owns one BIND_SOCKET transaction, so do not silently try a second address
+    // with an fd the platform already bound to the first network generation.
+    let remote_ip = candidate
+        .update
+        .compatible_resolved_addresses()
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("candidate path has no compatible carrier address"))?;
+    let remote = std::net::SocketAddr::new(remote_ip, config.server.port);
+    let socket = crate::transport_core::carrier::open_candidate_for(config, remote_ip)?;
+    let binding = path_controller.bind_candidate_socket(candidate, socket.as_raw_fd())?;
+    tokio::time::timeout(total.min(PATH_ACK_TIMEOUT), binding)
+        .await
+        .map_err(|_| anyhow::anyhow!("BIND_SOCKET acknowledgement timed out"))??;
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    if remaining.is_zero() {
+        anyhow::bail!("UDP candidate connect deadline expired after BIND_SOCKET");
+    }
+    match crate::transport_core::carrier::connect_to(socket, config, remote, remaining).await? {
+        crate::transport_core::carrier::ConnectedCarrier::Udp(socket) => {
+            log::info!(
+                "UDP connected candidate {} through {}",
+                candidate.candidate_id,
+                remote
+            );
+            Ok(socket)
+        }
+        crate::transport_core::carrier::ConnectedCarrier::Tcp(_) => {
+            anyhow::bail!("UDP candidate unexpectedly produced a TCP carrier")
         }
     }
 }
@@ -1957,7 +2002,7 @@ mod linux_candidate_dialer_tests {
         bound: Arc<AtomicBool>,
     }
 
-    impl TcpPathController for RecordingPathController {
+    impl PathController for RecordingPathController {
         fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
             None
         }
@@ -2034,6 +2079,55 @@ mod linux_candidate_dialer_tests {
             "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
         );
         accept.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn udp_candidate_dial_uses_the_same_bound_path_contract() {
+        let receiver = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = receiver.local_addr().unwrap().port();
+        let config = crate::config::parse_client_config_strict(&format!(
+            "[qeli]\nserver = 198.51.100.99:{port}\nproto = udp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n"
+        ))
+        .unwrap();
+        let candidate = PreparedPathCandidate {
+            candidate_id: 10,
+            update: PathUpdate {
+                generation: 7,
+                update_id: 4,
+                platform_path_id: "test-udp-loopback".into(),
+                reason: PathUpdateReason::ManualProbe,
+                network_token: None,
+                interface_index: Some(1),
+                local_addresses: vec!["127.0.0.1".into()],
+                resolved_addresses: vec![PathResolution {
+                    address: "127.0.0.1".into(),
+                    ttl_secs: 10,
+                }],
+                flags: PathUpdateFlags::default(),
+            },
+        };
+        let bound = Arc::new(AtomicBool::new(false));
+        let controller = RecordingPathController {
+            bound: bound.clone(),
+        };
+
+        let socket =
+            connect_udp_path_candidate(&config, Duration::from_secs(2), &candidate, &controller)
+                .await
+                .unwrap();
+        assert!(bound.load(Ordering::Acquire));
+        assert_eq!(
+            socket.peer_addr().unwrap().ip(),
+            "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+        socket.send(b"candidate").await.unwrap();
+        let mut payload = [0u8; 32];
+        let (length, _) =
+            tokio::time::timeout(Duration::from_secs(1), receiver.recv_from(&mut payload))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(&payload[..length], b"candidate");
     }
 }
 
@@ -2233,7 +2327,7 @@ async fn connect_and_run_tcp(
         crate::util::log_identity(&config.auth.username)
     );
     #[cfg(feature = "experimental-roaming")]
-    let path_controller = core.tcp_path_controller();
+    let path_controller = core.path_controller();
 
     if config.obfuscation.mode == "obfs" {
         if config.obfuscation.obfs_key.trim().is_empty() {
@@ -3503,11 +3597,11 @@ where
         None
     };
     #[cfg(feature = "experimental-roaming")]
-    let tcp_path_controller = core.tcp_path_controller();
+    let path_controller = core.path_controller();
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let linux_path_controller = core.linux_path_controller();
     #[cfg(feature = "experimental-roaming")]
-    let tcp_handover_enabled = tcp_path_controller.is_some()
+    let tcp_handover_enabled = path_controller.is_some()
         && tcp_resume.is_some()
         && server_capabilities.is_some_and(|server| {
             server.contains(crate::protocol::capabilities::server_capability::TCP_HANDOVER_V1)
@@ -3519,7 +3613,7 @@ where
         log::info!(
             "TCP make-before-break negotiated; prepared PathUpdate candidates may replace slot 0"
         );
-    } else if tcp_path_controller.is_some() {
+    } else if path_controller.is_some() {
         log::info!(
             "platform path transactions are available, but this server session requires full reconnect fallback"
         );
@@ -4092,7 +4186,7 @@ where
         let active_slots_m = active_slots.clone();
         let last_live_lost_at_m = last_live_lost_at.clone();
         #[cfg(feature = "experimental-roaming")]
-        let path_controller_m = tcp_path_controller.clone();
+        let path_controller_m = path_controller.clone();
         #[cfg(feature = "experimental-roaming")]
         let handover_enabled_m = tcp_handover_enabled;
         Some(tokio::spawn(async move {
@@ -4248,7 +4342,7 @@ where
     };
 
     #[cfg(feature = "experimental-roaming")]
-    let handover_handle = tcp_path_controller.map(|path_controller| {
+    let handover_handle = path_controller.map(|path_controller| {
         let handover_enabled = tcp_handover_enabled;
         let outs_h = outs.clone();
         let stream_tasks_h = stream_tasks.clone();
@@ -4280,9 +4374,7 @@ where
                         .abort_candidate_path(&candidate, "peer did not negotiate TCP_HANDOVER_V1")
                     {
                         Ok(rollback) => {
-                            match tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, rollback)
-                                .await
-                            {
+                            match tokio::time::timeout(PATH_ACK_TIMEOUT, rollback).await {
                                 Ok(Ok(())) => log::info!(
                                     "rolled back candidate {} before full reconnect fallback",
                                     candidate.candidate_id
@@ -4335,7 +4427,7 @@ where
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP handover JOIN timed out"))??;
                     let commit = path_controller.commit_candidate_path(&candidate)?;
-                    tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, commit)
+                    tokio::time::timeout(PATH_ACK_TIMEOUT, commit)
                         .await
                         .map_err(|_| anyhow::anyhow!("COMMIT_PATH acknowledgement timed out"))??;
                     Ok::<_, anyhow::Error>((stream, rx, tx))
@@ -4376,9 +4468,7 @@ where
                         let reason = format!("TCP handover failed: {error}");
                         match path_controller.abort_candidate_path(&candidate, &reason) {
                             Ok(rollback) => {
-                                match tokio::time::timeout(TCP_HANDOVER_PATH_ACK_TIMEOUT, rollback)
-                                    .await
-                                {
+                                match tokio::time::timeout(PATH_ACK_TIMEOUT, rollback).await {
                                     Ok(Ok(())) => log::debug!(
                                         "candidate {} rollback completed",
                                         candidate.candidate_id

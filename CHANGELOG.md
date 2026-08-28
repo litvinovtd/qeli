@@ -40,7 +40,7 @@
 - Пул приёмных UDP-буферов перенесён в общий `transport_core` и переиспользуется обычным
   transport-клиентом без изменения размера очереди, лимитов датаграмм и wire-поведения.
 
-### Основа роуминга (stages 0–3D TCP/UDP, default off)
+### Основа роуминга (stages 0–3E TCP/UDP, default off)
 
 - Android TCP feature adapter теперь объявляет полный `ROAMING_PATH`, только если загруженное
   Rust-ядро подтверждает path-transaction ABI. Connectivity callback отправляет ограниченный
@@ -316,9 +316,17 @@
   response; повторная отправка ограничена четырьмя datagrams с интервалом 500 мс и тем же фиксированным
   10-секундным TTL, что на сервере. Полученный wire COMMIT остаётся только предложением: active
   epoch/CID не меняются, пока платформа не подтвердила `COMMIT_PATH`, поэтому поздний ACK после ABORT
-  не может опубликовать старый путь. Пять focused-тестов прошли; strict feature Clippy чист, полный
-  feature library suite — 936 passed, 3 ignored. Capability намеренно не включён до подключения
-  candidate socket и этого автомата к live UDP actor.
+  не может опубликовать старый путь. Восемь focused-тестов прошли; strict feature Clippy чист,
+  полный feature library suite — 940 passed, 3 ignored.
+- Общий клиентский wire-слой теперь единожды в Rust-ядре формирует
+  `CONTROL_V2 → PacketCodec → 8-byte CID`, строго отделяет data от полного одночастного `PATH_*`
+  и использует общий session replay window. Транспортный контракт переименован из TCP-specific
+  `TcpPathController` в общий `PathController`; общий Unix UDP candidate dialer создаёт отдельный
+  unbound socket, ждёт точный ACK `BIND_SOCKET` и только затем выполняет connect к первому
+  family-compatible адресу из `PathUpdate`. Парный Linux unit-test фиксирует этот порядок для TCP
+  и UDP. Capability намеренно не включён: до активации остаётся подключить dialer/state/wire к
+  live UDP actor, одновременно переключать его egress и receive pump после platform COMMIT и
+  выполнить live-приёмку.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

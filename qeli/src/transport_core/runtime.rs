@@ -21,7 +21,7 @@ use crate::client::{
     StreamConnector, TunnelSetup,
 };
 #[cfg(feature = "experimental-roaming")]
-use crate::client::{CorePathController, PathAckFuture, TcpPathController};
+use crate::client::{CorePathController, PathAckFuture, PathController};
 use crate::config::client::ClientConfig;
 use crate::protocol::obfs::{AwgParams, ObfsStream};
 use crate::transport_core::network::HandshakeNetwork;
@@ -303,7 +303,7 @@ fn candidate_socket_descriptor(socket: &Socket) -> anyhow::Result<i32> {
 }
 
 #[cfg(feature = "experimental-roaming")]
-impl TcpPathController for NativeCoreAdapter {
+impl PathController for NativeCoreAdapter {
     fn prepared_candidate(&self) -> Option<super::path::PreparedPathCandidate> {
         let required = super::platform_capability::ROAMING_PATH;
         (self.platform_capabilities() & required == required)
@@ -360,7 +360,7 @@ impl ClientPlatform for NativeCoreAdapter {
     }
 
     #[cfg(feature = "experimental-roaming")]
-    fn tcp_path_controller(&self) -> Option<Arc<dyn TcpPathController>> {
+    fn path_controller(&self) -> Option<Arc<dyn PathController>> {
         let required = super::platform_capability::ROAMING_PATH;
         if self.platform_capabilities() & required == required {
             Some(Arc::new(self.clone()))
