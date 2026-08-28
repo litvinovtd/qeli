@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v18-linux-udp-commit-race -->
+<!-- normative-sync: roaming-v19-linux-udp-loss-replay -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -34,9 +34,13 @@
 > локальная route-мутация COMMIT(B) была задержана, detector увидел C, но сериализованный executor
 > не позволил C отменить или обогнать B. Exact ACK и публикация B завершились до PREPARE(C), после
 > чего C также был подтверждён ровно один раз; PID/TUN и трафик сохранились без reconnect.
+> Детерминированный control-loss-сценарий прошёл 18/18: firewall counters подтвердили потерю ровно
+> первого PATH_CHALLENGE и первого PATH_COMMIT, свежие PATH_INIT/PATH_RESPONSE восстановили оба
+> обмена, а сервер повторил PATH_COMMIT без второй публикации пути и без reconnect.
 > Текущие lab gates: 950 feature library tests при трёх ignored, 870 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
-> UDP roaming netns success 17/17, rollback 20/20, supersede 24/24 и commit-race 24/24,
+> UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
+> control-loss/replay 18/18,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -765,8 +769,11 @@ BIND уже означает применённый PREPARE и проходит 
 PathUpdate ждёт linearized ACK, а не отменяет команду, поскольку сервер уже мог переключить путь.
 Linux in-process executor сериализует emit/consume/OS mutation, поэтому concurrent detector не может
 украсть BIND/COMMIT event. Детерминированный live commit-race прошёл 24/24 с exact B→C order, двумя
-однократными commit, неизменными PID/TUN и без reconnect. До rollout остаются packet-level
-delay/duplicate/reorder PATH_* под loss, двунаправленный PMTU, real-device NAT rebinding и soak.
+однократными commit, неизменными PID/TUN и без reconnect. Первый packet-loss-срез также завершён:
+fixed-length firewall gate отбросил ровно первые PATH_CHALLENGE и PATH_COMMIT, свежие зашифрованные
+повторы восстановили оба обмена, а live gate 18/18 сохранил PID/TUN и опубликовал один commit.
+До rollout остаются packet-level deliberate delay/duplicate/reorder, двунаправленный PMTU,
+real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь

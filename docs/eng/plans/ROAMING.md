@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v18-linux-udp-commit-race -->
+<!-- normative-sync: roaming-v19-linux-udp-loss-replay -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -33,9 +33,13 @@
 > PATH_COMMIT(B), local COMMIT(B) route mutation was delayed while the detector observed C, but the
 > serialized executor prevented C from cancelling or overtaking B. B's exact ACK/publication completed
 > before PREPARE(C), after which C committed exactly once; PID/TUN and traffic survived without reconnect.
+> A deterministic control-loss scenario passed 18/18: firewall counters proved that the first
+> PATH_CHALLENGE and first PATH_COMMIT were dropped, fresh PATH_INIT/PATH_RESPONSE flights recovered
+> both losses, and the server replayed PATH_COMMIT without a second path publication or reconnect.
 > Current lab gates pass 950 feature library tests with three ignored,
 > 870 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
-> netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, and commit-race 24/24,
+> netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
+> and control-loss/replay 18/18,
 > an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -558,9 +562,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   COMMIT starts, only the latest new PathUpdate is queued behind its linearized ACK because the server
   may already have switched. The Linux in-process executor serializes emit/consume/OS mutation so a
   concurrent detector cannot steal BIND/COMMIT. Its deterministic live commit-race passed 24/24 with
-  exact B→C order, two single commits, unchanged PID/TUN, and no reconnect. Packet-level delayed,
-  duplicated, reordered, or lost PATH_* traffic, bidirectional PMTU, real-device NAT-rebinding, and soak
-  gates remain. The Phase 4 Linux/OpenWrt
+  exact B→C order, two single commits, unchanged PID/TUN, and no reconnect. The first packet-loss
+  slice is also complete: a fixed-length firewall gate dropped exactly the first PATH_CHALLENGE and
+  PATH_COMMIT, fresh encrypted retries recovered both, and the 18/18 live gate retained PID/TUN and
+  published one commit. Packet-level deliberate delay/duplication/reordering, bidirectional PMTU,
+  real-device NAT-rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,

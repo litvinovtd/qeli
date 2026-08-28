@@ -2,7 +2,8 @@
 # Linux UDP+QUIC make-before-break integration tests. Everything runs in three isolated network
 # namespaces; no host route or production process is changed. The success case commits path B;
 # rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
-# commit-race changes to C while the platform is still committing B.
+# commit-race changes to C while the platform is still committing B; loss-replay drops the first
+# PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -20,9 +21,9 @@ CLIENT_JOB_PID=
 PING_PID=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race) ;;
+  success|rollback|supersede|commit-race|loss-replay) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay]" >&2
     exit 2
     ;;
 esac
@@ -205,7 +206,64 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-if [ "$CASE" = rollback ]; then
+if [ "$CASE" = loss-replay ]; then
+  sleep 3
+  # In fake-tls mode these authenticated controls have fixed IPv4 lengths (outer datagram
+  # sealing is exclusive to obfs mode): CHALLENGE = 20 IP + 8 UDP + 13 roaming + 5 TLS +
+  # 12 nonce + 8 counter + 15 CONTROL_V2 + 24 body + 2 trailer + 16 tag = 123 bytes;
+  # COMMIT has the same framing with a 16-byte body = 115 bytes.
+  # Before validation, B can carry only PATH_* control, so the first matching server packet is
+  # unambiguously the control under test. A huge nth period makes each rule a deterministic
+  # one-shot without probabilistic netem loss.
+  ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-sr -o qru-br \
+    -p udp --sport 4444 -m length --length 123:123 \
+    -m statistic --mode nth --every 100000 --packet 0 -j DROP
+  ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-sr -o qru-br \
+    -p udp --sport 4444 -m length --length 115:115 \
+    -m statistic --mode nth --every 100000 --packet 0 -j DROP
+  check "one-shot PATH_CHALLENGE loss rule is active" \
+    "ip netns exec $RTR_NS iptables -C FORWARD -i qru-sr -o qru-br -p udp --sport 4444 -m length --length 123:123 -m statistic --mode nth --every 100000 --packet 0 -j DROP"
+  check "one-shot PATH_COMMIT loss rule is active" \
+    "ip netns exec $RTR_NS iptables -C FORWARD -i qru-sr -o qru-br -p udp --sport 4444 -m length --length 115:115 -m statistic --mode nth --every 100000 --packet 0 -j DROP"
+
+  ip netns exec "$CLI_NS" ping -n -i 0.2 -c 180 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
+  PING_PID=$!
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
+
+  if wait_for 200 "grep -q 'UDP make-before-break committed candidate' $WORK/client.log"; then
+    ok "candidate committed after losing both server control flights"
+  else
+    bad "candidate did not recover from deterministic control loss"
+  fi
+  CHALLENGE_DROPS=$(ip netns exec "$RTR_NS" iptables-save -c | awk \
+    '$0 ~ /--sport 4444/ && $0 ~ /--length 123/ && $0 ~ /-j DROP/ { gsub(/^\[/, "", $1); split($1, a, ":"); print a[1] }')
+  COMMIT_DROPS=$(ip netns exec "$RTR_NS" iptables-save -c | awk \
+    '$0 ~ /--sport 4444/ && $0 ~ /--length 115/ && $0 ~ /-j DROP/ { gsub(/^\[/, "", $1); split($1, a, ":"); print a[1] }')
+  check "exactly one PATH_CHALLENGE datagram was dropped" \
+    "test '$CHALLENGE_DROPS' = 1"
+  check "exactly one PATH_COMMIT datagram was dropped" \
+    "test '$COMMIT_DROPS' = 1"
+  check "lost challenge caused a fresh PATH_INIT and challenge" \
+    "test \"\$(grep -c 'UDP PATH_CHALLENGE sent' $WORK/server.log)\" -eq 2"
+  check "lost commit caused an exact server commit replay" \
+    "test \"\$(grep -c 'UDP PATH_COMMIT' $WORK/server.log)\" -eq 2 && grep -q 'UDP PATH_COMMIT sent' $WORK/server.log && grep -q 'UDP PATH_COMMIT replayed' $WORK/server.log"
+  check "client published the candidate exactly once" \
+    "test \"\$(grep -c 'UDP make-before-break committed candidate' $WORK/client.log)\" -eq 1"
+  check "carrier bypass moved to path B after the retries" \
+    "ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q '^10.41.3.2 via 10.41.2.1 dev qru-b'"
+  check "client process survives control loss without reconnect" \
+    "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
+  check "the same TUN survives control loss" \
+    "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
+  check "control loss does not enter the top-level reconnect loop" \
+    "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+
+  wait "$PING_PID" 2>/dev/null || true
+  PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); print value }' \
+    "$WORK/ping.log" | tail -n1)
+  check "continuous probe retained at least 165 of 180 packets during both retries" \
+    "test -n '$PING_RX' && test '$PING_RX' -ge 165"
+elif [ "$CASE" = rollback ]; then
   sleep 3
   ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-br -o qru-sr \
     -p udp --dport 4444 -j DROP

@@ -107,6 +107,12 @@
   аутентифицировал B до локального ACK, B был опубликован до PREPARE(C), затем C закоммитился ровно
   один раз; carrier `/32`, PID, TUN и трафик сохранились без reconnect. Предыдущие success 17/17,
   rollback 20/20 и supersede 24/24 повторно прошли; Rust suites — 870/1 и 950/3, оба strict Clippy.
+- Добавлен детерминированный packet-loss gate для UDP path validation. Точные firewall-фильтры
+  отбрасывают первый PATH_CHALLENGE и первый PATH_COMMIT на candidate-пути; клиент повторяет
+  PATH_INIT/PATH_RESPONSE свежими AEAD records, сервер переотправляет тот же логический PATH_COMMIT
+  с новым packet number и не публикует путь второй раз. Live netns прошёл 18/18: оба счётчика DROP
+  равны единице, candidate закоммичен ровно один раз, carrier `/32`, PID и TUN сохранены, top-level
+  reconnect отсутствует, непрерывный трафик остаётся рабочим.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
