@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Linux UDP+QUIC make-before-break integration test. Everything runs in three isolated network
-# namespaces; no host route or production process is changed. The client starts on path A, adds a
-# lower-metric path B, validates it with PATH_INIT/CHALLENGE/RESPONSE/COMMIT, then loses path A.
+# Linux UDP+QUIC make-before-break integration tests. Everything runs in three isolated network
+# namespaces; no host route or production process is changed. The success case commits path B;
+# the rollback case blackholes only B's candidate control and proves exact abort on path A.
 set -u
 set -o pipefail
 export LC_ALL=C
 
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
+CASE=${2:-${CASE:-success}}
 WORK=/tmp/qeli-roaming-udp-netns
 CLI_NS=qru-cli
 RTR_NS=qru-rtr
@@ -16,6 +17,14 @@ FAIL=0
 SERVER_JOB_PID=
 CLIENT_JOB_PID=
 PING_PID=
+
+case "$CASE" in
+  success|rollback) ;;
+  *)
+    echo "usage: $0 [qeli-binary] [success|rollback]" >&2
+    exit 2
+    ;;
+esac
 
 ok() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
@@ -152,6 +161,53 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
+if [ "$CASE" = rollback ]; then
+  sleep 3
+  ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-br -o qru-sr \
+    -p udp --dport 4444 -j DROP
+  check "candidate path B blackhole is active" \
+    "ip netns exec $RTR_NS iptables -C FORWARD -i qru-br -o qru-sr -p udp --dport 4444 -j DROP"
+
+  ip netns exec "$CLI_NS" ping -n -i 0.2 -c 150 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
+  PING_PID=$!
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
+
+  if wait_for 100 "grep -q 'UDP path candidate .* expired' $WORK/client.log"; then
+    ok "candidate validation failed within the bounded retry budget"
+  else
+    bad "candidate validation did not expire"
+  fi
+  check "Linux observer prepared blackholed path B" \
+    "grep -q 'Linux roaming prepared candidate .* on qru-b' $WORK/client.log"
+  check "client sent PATH_INIT only on the candidate" \
+    "grep -q 'UDP PATH_INIT sent for candidate' $WORK/client.log"
+  check "platform acknowledged exact candidate rollback" \
+    "grep -q 'UDP candidate .* rollback completed' $WORK/client.log"
+  check "blackholed candidate received no PATH_CHALLENGE" \
+    "! grep -q 'UDP PATH_CHALLENGE sent' $WORK/server.log"
+  check "server published no PATH_COMMIT" \
+    "! grep -q 'UDP PATH_COMMIT' $WORK/server.log"
+  check "client published no candidate commit" \
+    "! grep -q 'UDP make-before-break committed candidate' $WORK/client.log"
+  check "active carrier bypass remains on path A" \
+    "ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q '^10.41.3.2 via 10.41.1.1 dev qru-a'"
+  check "rollback leaves no carrier bypass on path B" \
+    "! ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q 'dev qru-b'"
+  check "tunnel remains usable after candidate rollback" \
+    "ip netns exec $CLI_NS ping -c5 -W1 10.89.0.1"
+  check "client process survives candidate rollback" \
+    "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
+  check "the same TUN survives candidate rollback" \
+    "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
+  check "rollback does not enter the top-level reconnect loop" \
+    "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+
+  wait "$PING_PID" 2>/dev/null || true
+  PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); print value }' \
+    "$WORK/ping.log" | tail -n1)
+  check "continuous probe retained at least 140 of 150 packets during rollback" \
+    "test -n '$PING_RX' && test '$PING_RX' -ge 140"
+else
 sleep 3
 ip netns exec "$CLI_NS" ping -n -i 0.2 -c 150 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
 PING_PID=$!
@@ -191,6 +247,7 @@ PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); 
   "$WORK/ping.log" | tail -n1)
 check "continuous probe retained at least 140 of 150 packets" \
   "test -n '$PING_RX' && test '$PING_RX' -ge 140"
+fi
 
 echo
 echo "=== RESULT: $PASS passed, $FAIL failed ==="

@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v15-linux-udp-live-acceptance -->
+<!-- normative-sync: roaming-v16-linux-udp-rollback -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -23,11 +23,14 @@
 > platform `ROAMING_PATH`; generic TCP, UDP без QUIC, fixed-source и default-сборки бит не получают.
 > Двухмаршрутный UDP netns live e2e прошёл 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс
 > authenticated session, carrier `/32`, socket и receive pump до выключения старого интерфейса,
-> сохранив PID, TUN и отсутствие top-level reconnect. Впереди Windows/macOS/iOS adapters и работы
+> сохранив PID, TUN и отсутствие top-level reconnect. Отдельный rollback-сценарий прошёл 20/20:
+> путь B был избирательно заблокирован, bounded PATH_INIT retries истекли, exact platform ABORT
+> удалил подготовленный кандидат и оставил действующий carrier `/32` на пути A; туннель сохранил
+> тот же PID/TUN и не вошёл в top-level reconnect. Впереди Windows/macOS/iOS adapters и работы
 > этапов 4–6. Текущие lab gates: 947 feature library tests при трёх ignored, 870 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
-> UDP roaming netns 17/17, Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
-> Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
+> UDP roaming netns success 17/17 и rollback 20/20, Android x86_64 NDK release с `-D warnings` и
+> Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -743,8 +746,10 @@ feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3
 когда сервер рекламирует тот же бит, а платформа даёт полный `ROAMING_PATH`. Generic TCP, UDP без
 QUIC, fixed-source и default-сборки сохраняют прежний reconnect. Изолированный двухмаршрутный Linux
 UDP netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
-до rollout остаются rollback/adversarial race, real-device NAT rebinding и soak. Linux/OpenWrt adapter этапа 4 теперь
-получает из общего core ordered-проекцию только family-compatible кандидатов:
+парный rollback-сценарий прошёл 20/20 с blackhole только candidate-пути B, bounded expiry,
+exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect. До rollout
+остаются adversarial supersede/race, real-device NAT rebinding и soak. Linux/OpenWrt adapter этапа 4
+теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
 делегируют получение prepared candidate, запросы BIND/COMMIT/ABORT, завершение correlated ACK
@@ -771,10 +776,10 @@ commit, а `replace` разрешён только для маршрута из 
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
 
-- Linux UDP rollback/adversarial race, real-device PMTU/NAT rebinding и soak;
+- Linux UDP adversarial supersede/race, real-device PMTU/NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
-Результат: безопасный feature-gated UDP роуминг прошёл начальную Linux live-приёмку.
+Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback-приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 

@@ -6753,7 +6753,7 @@ async fn abort_udp_platform_candidate(
         }
     };
     match tokio::time::timeout(PATH_ACK_TIMEOUT, rollback).await {
-        Ok(Ok(())) => log::debug!(
+        Ok(Ok(())) => log::info!(
             "UDP candidate {} rollback completed",
             candidate.candidate_id
         ),

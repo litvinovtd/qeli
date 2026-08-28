@@ -83,6 +83,11 @@
   PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс authenticated session, carrier `/32`, active socket и
   receive pump до выключения старого интерфейса, сохранив PID/TUN и отсутствие top-level reconnect.
   Успешные серверные PATH_CHALLENGE/PATH_COMMIT теперь видны на `info` с peer/epoch.
+- Отказ candidate-пути теперь принят отдельным Linux UDP netns gate 20/20: blackhole только пути B
+  доводит PATH_INIT до ограниченного expiry, после чего exact platform ABORT удаляет подготовленный
+  candidate/socket, не оставляет маршрут через B и сохраняет действующий carrier `/32` на пути A.
+  Туннель передаёт трафик с теми же PID и TUN без верхнеуровневого reconnect; success повторно прошёл
+  17/17. Завершённый rollback виден на `info`, чтобы live gate проверял фактический ACK платформы.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
