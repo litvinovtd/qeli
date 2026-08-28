@@ -628,7 +628,7 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 
 Аргумент в пользу «сейчас, а не потом»:
 
-- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — этапы 0–1 реализованы под feature gate; data-plane этапы 2–6 не начаты;
+- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — этапы 0–3E и начальная Linux TCP/UDP live-приёмка реализованы под feature gate; native adapters, полная matrix и rollout остаются;
 - **multipath** — реализован только у Rust-клиента.
 
 Если ядро делать после них, обе возможности придётся написать четыре раза. Если до —

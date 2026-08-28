@@ -1,10 +1,10 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v14-live-udp-client-actor -->
+<!-- normative-sync: roaming-v15-linux-udp-live-acceptance -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
-> объявляют полный `ROAMING_PATH` только при наличии реализации в ядре; default-сборки и UDP
-> сохраняют обычный reconnect. Linux прошёл двухмаршрутный live e2e 15/15, hard resume и
+> объявляют полный `ROAMING_PATH` только при наличии реализации в ядре; default-сборки, UDP без
+> QUIC и unsupported platforms сохраняют обычный reconnect. Linux TCP прошёл live e2e 15/15, hard resume и
 > explicit close. Android API 34 emulator прошёл Wi-Fi → cellular (198/200 ping), cellular →
 > Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
 > полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
@@ -19,11 +19,14 @@
 > валидирует отдельный candidate socket, обрабатывает PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT,
 > ждёт точный platform COMMIT ACK и атомарно переключает socket, receive pump, CID framing и
 > консервативный PMTU budget. Ошибка после peer PATH_COMMIT приводит к fail-closed reconnect.
-> `UDP_ROAM_V1` ещё не рекламируется; впереди capability activation и live-приёмка.
-> Впереди Windows/macOS/iOS adapters и работы этапов 3–6. Текущие lab gates: 944
-> feature library tests при трёх ignored, strict feature Clippy, базовый Linux netns 26/26,
-> roaming netns 15/15,
-> Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
+> В feature-сборке Linux UDP+QUIC теперь рекламирует и согласует `UDP_ROAM_V1` только при полном
+> platform `ROAMING_PATH`; generic TCP, UDP без QUIC, fixed-source и default-сборки бит не получают.
+> Двухмаршрутный UDP netns live e2e прошёл 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс
+> authenticated session, carrier `/32`, socket и receive pump до выключения старого интерфейса,
+> сохранив PID, TUN и отсутствие top-level reconnect. Впереди Windows/macOS/iOS adapters и работы
+> этапов 4–6. Текущие lab gates: 947 feature library tests при трёх ignored, 870 default tests при
+> одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
+> UDP roaming netns 17/17, Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
 > Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -734,11 +737,13 @@ epoch отклоняются, а candidate DATA не становится active
 сервер уже переключился к моменту получения PATH_COMMIT, любая локальная ошибка после него
 fail-closed завершает actor для полного reconnect, а не оставляет ложный старый путь. Focused-тест
 фиксирует переход receive-классификации candidate → active и отказ старой epoch; strict default и
-feature Clippy, default suite 869 passed/1 ignored и feature suite 944 passed/3 ignored проходят.
+feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3 ignored проходят.
 
-`UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
-bootstrap, восьмибайтовый CID и live actor ещё не могут включиться в production. До capability
-activation остаются Linux live e2e/rollback/race-приёмка и явное включение advertisement. Linux/OpenWrt adapter этапа 4 теперь
+`UDP_ROAM_V1` теперь включается только в `experimental-roaming` для точного UDP+QUIC handshake,
+когда сервер рекламирует тот же бит, а платформа даёт полный `ROAMING_PATH`. Generic TCP, UDP без
+QUIC, fixed-source и default-сборки сохраняют прежний reconnect. Изолированный двухмаршрутный Linux
+UDP netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
+до rollout остаются rollback/adversarial race, real-device NAT rebinding и soak. Linux/OpenWrt adapter этапа 4 теперь
 получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -766,10 +771,10 @@ commit, а `replace` разрешён только для маршрута из 
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 остаются двунаправленный live PMTU, adversarial races, native adapters и soak.
 
-- capability activation и Linux live e2e/rollback/race-приёмка;
-- native adapters, real-device PMTU/NAT rebinding и soak;
+- Linux UDP rollback/adversarial race, real-device PMTU/NAT rebinding и soak;
+- Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
-Результат: безопасный UDP роуминг на mock/Linux path.
+Результат: безопасный feature-gated UDP роуминг прошёл начальную Linux live-приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 

@@ -392,13 +392,15 @@ mod tests {
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
 
-        // The gated common supervisor implements terminal CONTROL_V2 close, hard resume, and
-        // handover. Capability negotiation separately strips handover unless a platform adapter
-        // advertises the complete ROAMING_PATH contract.
+        // The gated common supervisor implements terminal CONTROL_V2 close, hard resume, TCP
+        // handover, and the shared UDP roaming actor. Transport negotiation separately strips each
+        // handover bit unless the exact transport and a complete ROAMING_PATH adapter support it;
+        // the generic server advertisement above intentionally remains transport-neutral.
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             client_capability::CONTROL_V2
+                | client_capability::UDP_ROAM_V1
                 | client_capability::TCP_RESUME_V1
                 | client_capability::TCP_HANDOVER_V1
         );

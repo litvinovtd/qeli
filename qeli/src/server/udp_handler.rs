@@ -128,8 +128,6 @@ enum UdpEgressFraming {
     Unmasked,
     LegacyQuic([u8; 4]),
     #[cfg(feature = "experimental-roaming")]
-    // Constructed by `commit_roaming`; the server capability remains unadvertised for now.
-    #[allow(dead_code)]
     RoamingQuic([u8; crate::protocol::roaming::CID_LEN]),
 }
 
@@ -2537,10 +2535,12 @@ async fn handle_udp_roaming_ingress(
                 );
                 return;
             }
-            log::trace!(
-                "UDP PATH_CHALLENGE sent by owner worker {} on profile '{}' (message {}, outer packet {})",
+            log::info!(
+                "UDP PATH_CHALLENGE sent by owner worker {} on profile '{}' to {} at epoch {} (message {}, outer packet {})",
                 worker_id,
                 profile.name,
+                received_path.peer(),
+                epoch,
                 control.message_id,
                 outer_packet_number
             );
@@ -2702,11 +2702,13 @@ async fn handle_udp_roaming_ingress(
                 }
                 decision.is_replay()
             };
-            log::trace!(
-                "UDP PATH_COMMIT {} by owner worker {} on profile '{}' (message {}, outer packet {})",
+            log::info!(
+                "UDP PATH_COMMIT {} by owner worker {} on profile '{}' to {} at epoch {} (message {}, outer packet {})",
                 if replayed { "replayed" } else { "sent" },
                 worker_id,
                 profile.name,
+                new_peer,
+                epoch,
                 control.message_id,
                 outer_packet_number
             );
@@ -3918,7 +3920,11 @@ async fn handle_udp_auth(
         let negotiated = client.quic_enabled
             && data_frag_enabled
             && crate::protocol::capabilities::udp_roaming_negotiated(
-                Some(crate::protocol::capabilities::implemented_server_capabilities()),
+                Some(
+                    crate::protocol::capabilities::implemented_udp_server_capabilities(
+                        client.quic_enabled,
+                    ),
+                ),
                 capabilities,
             );
         let client_to_server_cid_secret = client.client_to_server_cid_secret.take();
@@ -4868,12 +4874,13 @@ async fn handle_new_udp_client(
 
     let static_shared = profile.static_keypair.derive_shared(&client_pub);
     let auth_proof_encrypted = {
-        let auth_msg = handler::build_server_auth_msg(
+        let auth_msg = handler::build_server_auth_msg_with_capabilities(
             &profile.static_keypair,
             &client_pub,
             &shared.0,
             &transcript_hash,
             hide_identity,
+            crate::protocol::capabilities::implemented_udp_server_capabilities(quic_detected),
         );
         server_tx.encrypt_packet(&auth_msg, &[])?
     };

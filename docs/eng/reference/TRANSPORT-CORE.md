@@ -631,7 +631,7 @@ and live testing are counted.
 
 The argument for doing this now rather than later:
 
-- **roaming** ([ROAMING.md](../plans/ROAMING.md)) — Stages 0–1 exist behind the feature gate; data-plane Stages 2–6 have not started;
+- **roaming** ([ROAMING.md](../plans/ROAMING.md)) — Stages 0–3E and initial Linux TCP/UDP live acceptance exist behind the feature gate; native adapters, the full matrix, and rollout remain;
 - **multipath** — implemented only in the Rust client.
 
 Build the core after those and both features get written four times. Build it before and

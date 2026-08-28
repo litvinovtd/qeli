@@ -3005,6 +3005,24 @@ pub fn build_server_auth_msg(
     transcript_hash: &[u8; 32],
     hide_identity: bool,
 ) -> Vec<u8> {
+    build_server_auth_msg_with_capabilities(
+        static_kp,
+        client_pub,
+        ephemeral_shared,
+        transcript_hash,
+        hide_identity,
+        crate::protocol::capabilities::implemented_server_capabilities(),
+    )
+}
+
+pub fn build_server_auth_msg_with_capabilities(
+    static_kp: &crate::crypto::StaticKeypair,
+    client_pub: &crate::crypto::PublicKey,
+    ephemeral_shared: &[u8; 32],
+    transcript_hash: &[u8; 32],
+    hide_identity: bool,
+    capabilities: crate::protocol::capabilities::ServerCapabilities,
+) -> Vec<u8> {
     let mut message = if hide_identity {
         crate::crypto::build_server_proof_only(
             static_kp,
@@ -3016,10 +3034,7 @@ pub fn build_server_auth_msg(
     } else {
         build_server_auth_message(static_kp, client_pub, ephemeral_shared, transcript_hash)
     };
-    crate::protocol::capabilities::append_server_capabilities(
-        &mut message,
-        crate::protocol::capabilities::implemented_server_capabilities(),
-    );
+    crate::protocol::capabilities::append_server_capabilities(&mut message, capabilities);
     message
 }
 

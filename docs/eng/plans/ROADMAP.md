@@ -488,14 +488,15 @@ Intermediate stages are development-only. The feature cannot ship or be called c
 until the entire IPv6-only/dual-stack release matrix passes. User configuration remains
 flat INI; internal wire/FFI messages are not JSON configuration.
 
-### Roaming — seamless network change (after IPv6; target 0.8.x, Stages 0–1 source-complete)
+### Roaming — seamless network change (after IPv6; target 0.8.x, initial Linux live slice complete)
 
-**Normative plan: [ROAMING.md](ROAMING.md).** Today a Wi-Fi↔LTE/IP change is a fast
-reconnect with a new handshake and Argon2, not roaming. Full roaming preserves session id,
+**Normative plan: [ROAMING.md](ROAMING.md).** Default builds and unsupported platforms still use
+a fast reconnect with a new handshake and Argon2 on Wi-Fi↔LTE/IP changes. Feature-enabled Linux
+now preserves session id,
 inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP, routes, and quota state.
-Stages 0–1 now provide gated wire contracts and the ABI 1.12 candidate-path transaction
-behind `experimental-roaming`; they do not modify the live data plane. TCP/UDP migration,
-platform capabilities, configuration, lab/e2e, and rollout remain in Stages 2–6.
+Stages 0–3E, Linux TCP/UDP+QUIC migration, and Android TCP passed initial live acceptance behind
+`experimental-roaming`; the default data plane remains unchanged. Remaining native adapters,
+configuration, the full platform/race/soak matrix, and rollout remain in Stages 4–6.
 
 - Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1`, and
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; and a generation-scoped

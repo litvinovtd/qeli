@@ -1,10 +1,10 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v14-live-udp-client-actor -->
+<!-- normative-sync: roaming-v15-linux-udp-live-acceptance -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
-> advertise complete `ROAMING_PATH` only when the core implements it; default builds and UDP retain
-> normal reconnect behavior. Linux passed isolated two-path live e2e 15/15, hard resume, and explicit
+> advertise complete `ROAMING_PATH` only when the core implements it; default builds, non-QUIC UDP,
+> and unsupported platforms retain normal reconnect. Linux TCP passed live e2e 15/15, hard resume, and explicit
 > close. An Android API 34 emulator passed Wi-Fi → cellular (198/200 probes), cellular → Wi-Fi
 > (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
 > full AUTH ran once, the underlying Network changed atomically, and DNS still resolved after the
@@ -18,11 +18,14 @@
 > candidate socket, handles PATH_INIT/CHALLENGE/RESPONSE/COMMIT/ABORT, waits for the exact platform
 > COMMIT acknowledgement, and atomically replaces the socket, receive pump, CID framing, and
 > conservative PMTU budget. A failure after peer PATH_COMMIT triggers a fail-closed reconnect.
-> `UDP_ROAM_V1` is not advertised yet; capability activation and live acceptance remain.
-> Windows/macOS/iOS adapters and remaining Phase 3–6 work remain. Current lab
-> gates pass 944 feature library tests with three ignored, strict feature Clippy, base Linux netns
-> 26/26, roaming netns 15/15,
-> an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
+> A feature-enabled Linux UDP+QUIC session now advertises and negotiates `UDP_ROAM_V1` only with a
+> complete platform `ROAMING_PATH`; generic TCP, non-QUIC UDP, fixed-source, and default builds do not.
+> An isolated two-path UDP netns live e2e passed 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT moved the
+> authenticated session, carrier `/32`, socket, and receive pump before the old interface was disabled,
+> preserving PID, TUN, and the absence of top-level reconnect. Windows/macOS/iOS adapters and Phases
+> 4–6 remain. Current lab gates pass 947 feature library tests with three ignored, 870 default tests
+> with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming netns 15/15,
+> UDP roaming netns 17/17, an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
 > The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -526,12 +529,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   platform ABORT. Because the server has already switched by the time PATH_COMMIT is received, any
   local failure after it terminates the actor for a fail-closed full reconnect instead of pretending
   the old path is usable. A focused test pins candidate-to-active receive classification and stale
-  epoch rejection; strict default and feature Clippy, the default suite at 869 passed/1 ignored, and
-  the feature suite at 944 passed/3 ignored all pass.
+  epoch rejection; strict default and feature Clippy, the default suite at 870 passed/1 ignored, and
+  the feature suite at 947 passed/3 ignored all pass.
 
-  `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing plus the live actor still cannot activate in production. Linux live
-  e2e/rollback/race acceptance and explicit advertisement remain before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
+  `UDP_ROAM_V1` now activates only in `experimental-roaming` for the exact UDP+QUIC handshake when
+  the server advertises the same bit and the platform provides complete `ROAMING_PATH`. Generic TCP,
+  non-QUIC UDP, fixed-source, and default builds retain reconnect behavior. An isolated two-path Linux
+  UDP netns e2e passed 17/17 with old-path removal and no PID/TUN replacement or top-level reconnect;
+  rollback/adversarial-race, real-device NAT-rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt adapter now consumes
   the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,

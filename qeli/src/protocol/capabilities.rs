@@ -94,6 +94,28 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
     ServerCapabilities { bits }
 }
 
+/// Capabilities safe for this exact UDP handshake. UDP roaming requires the QUIC-shaped
+/// eight-byte CID envelope, so a legacy/unmasked UDP peer must never see the activation bit even
+/// in an experimental build. TCP continues to use `implemented_server_capabilities()` directly.
+pub const fn implemented_udp_server_capabilities(quic_enabled: bool) -> ServerCapabilities {
+    let capabilities = implemented_server_capabilities();
+    #[cfg(feature = "experimental-roaming")]
+    {
+        if quic_enabled {
+            ServerCapabilities {
+                bits: capabilities.bits | server_capability::UDP_ROAM_V1,
+            }
+        } else {
+            capabilities
+        }
+    }
+    #[cfg(not(feature = "experimental-roaming"))]
+    {
+        let _ = quic_enabled;
+        capabilities
+    }
+}
+
 /// CONTROL_V2 becomes live only after authenticated client opt-in. Individual roaming
 /// operations still require their own capability bits; CONTROL_V2 alone is just framing.
 pub fn control_v2_supported(client: Option<ClientCapabilities>) -> bool {
@@ -154,11 +176,12 @@ pub const fn implemented_client_core_capabilities() -> u64 {
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
         | client_capability::PACKET_MUX_V1;
-    // The shared supervisor owns terminal close, hard resume and PathUpdate-driven TCP
-    // handover. Negotiation still strips handover unless the adapter advertises ROAMING_PATH.
+    // The shared supervisor owns terminal close, TCP resume/handover, and the UDP path actor.
+    // Negotiation below strips each migration bit unless this exact transport and platform can use it.
     #[cfg(feature = "experimental-roaming")]
     let bits = bits
         | client_capability::CONTROL_V2
+        | client_capability::UDP_ROAM_V1
         | client_capability::TCP_RESUME_V1
         | client_capability::TCP_HANDOVER_V1;
     bits
@@ -245,6 +268,17 @@ pub fn negotiate_client_capabilities(
         // A handover proof permits replacing a still-live carrier. Never advertise that wire
         // authority unless the adapter can transactionally prepare and bind the exact path.
         core_bits &= !client_capability::TCP_HANDOVER_V1;
+    }
+    let udp_roaming_eligible = config.server.protocol == "udp"
+        && config.obfuscation.quic.enabled
+        && server.contains(server_capability::UDP_ROAM_V1)
+        && platform_bits & crate::transport_core::platform_capability::ROAMING_PATH
+            == crate::transport_core::platform_capability::ROAMING_PATH;
+    if !udp_roaming_eligible {
+        // UDP roaming changes the post-auth wire envelope and starts a candidate path actor.
+        // Advertise it only for this exact QUIC-shaped UDP connection and a platform that can
+        // transactionally bind/commit the replacement socket.
+        core_bits &= !client_capability::UDP_ROAM_V1;
     }
     if config.routing.ipv6 == ClientIpv6Policy::Required {
         let required_server = server_capability::INNER_IPV6
@@ -531,6 +565,72 @@ mod tests {
     }
 
     #[test]
+    fn udp_roaming_server_advertisement_is_feature_and_quic_scoped() {
+        assert!(!implemented_server_capabilities().contains(server_capability::UDP_ROAM_V1));
+        assert!(
+            !implemented_udp_server_capabilities(false).contains(server_capability::UDP_ROAM_V1)
+        );
+        #[cfg(feature = "experimental-roaming")]
+        assert!(implemented_udp_server_capabilities(true)
+            .contains(server_capability::CONTROL_V2 | server_capability::UDP_ROAM_V1));
+        #[cfg(not(feature = "experimental-roaming"))]
+        assert!(!implemented_udp_server_capabilities(true).contains(server_capability::UDP_ROAM_V1));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn udp_roaming_client_opt_in_requires_exact_transport_server_and_platform() {
+        let mut config = crate::config::client::ClientConfig::default();
+        config.server.protocol = "udp".to_string();
+        config.obfuscation.quic.enabled = true;
+        let server = Some(implemented_udp_server_capabilities(true));
+        let complete = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::ROAMING_PATH,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_ne!(complete.core_bits & client_capability::UDP_ROAM_V1, 0);
+
+        let no_path = negotiate_client_capabilities(&config, server, 0)
+            .unwrap()
+            .expect("authenticated capability extension");
+        assert_eq!(no_path.core_bits & client_capability::UDP_ROAM_V1, 0);
+
+        config.obfuscation.quic.enabled = false;
+        let unmasked = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::ROAMING_PATH,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_eq!(unmasked.core_bits & client_capability::UDP_ROAM_V1, 0);
+
+        config.obfuscation.quic.enabled = true;
+        config.server.protocol = "tcp".to_string();
+        let tcp = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::ROAMING_PATH,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_eq!(tcp.core_bits & client_capability::UDP_ROAM_V1, 0);
+
+        config.server.protocol = "udp".to_string();
+        let generic_server = negotiate_client_capabilities(
+            &config,
+            Some(implemented_server_capabilities()),
+            crate::transport_core::platform_capability::ROAMING_PATH,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_eq!(generic_server.core_bits & client_capability::UDP_ROAM_V1, 0);
+    }
+
+    #[test]
     fn legacy_credentials_are_unchanged() {
         let credentials = b"alice:secret";
         let (capabilities, parsed) = split_client_capabilities(credentials).unwrap();
@@ -725,6 +825,7 @@ mod tests {
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             client_capability::CONTROL_V2
+                | client_capability::UDP_ROAM_V1
                 | client_capability::TCP_RESUME_V1
                 | client_capability::TCP_HANDOVER_V1
         );

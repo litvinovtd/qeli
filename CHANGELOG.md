@@ -70,13 +70,19 @@
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
   использует уже аутентифицированный закреплённый IP сервера без повторного DNS через возможный
   сломанный туннель. Linux объявляет полный `ROAMING_PATH` только в сборке
-  `experimental-roaming`, только для TCP и только без явного `server.local_address`; default-
-  сборка не меняет поведение.
+  `experimental-roaming`, без явного `server.local_address`: для TCP и для UDP только при QUIC.
+  UDP без QUIC, fixed-source и default-сборка не объявляют path capability и сохраняют reconnect-
+  поведение.
 - Двухмаршрутный Linux netns e2e прошёл 15/15: lower-metric default подготовил candidate на
   втором интерфейсе, сервер принял fresh-KE handover JOIN с нового source IP, COMMIT перенёс
   qeli-owned carrier `/32`, старый интерфейс был выключен, но PID клиента, TUN ifindex и
   NetworkPlan сохранились без top-level reconnect. Непрерывная серия сохранила 150/150 ping.
   Базовый routing/IPv6/kill-switch netns gate после исправлений прошёл 26/26.
+- `UDP_ROAM_V1` активирован только для feature-gated UDP+QUIC при совпадающем server bit и полном
+  platform `ROAMING_PATH`. Изолированный двухмаршрутный UDP netns e2e прошёл 17/17: полный
+  PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс authenticated session, carrier `/32`, active socket и
+  receive pump до выключения старого интерфейса, сохранив PID/TUN и отсутствие top-level reconnect.
+  Успешные серверные PATH_CHALLENGE/PATH_COMMIT теперь видны на `info` с peer/epoch.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
@@ -333,8 +339,8 @@
   принимают фактическую длину wrapper и для roaming вычитают 13 байт вместо legacy 9, исключая
   oversized DF datagrams после согласования. Legacy QUIC и unmasked wire сохранены byte-for-byte.
   Три focused-теста проверяют passthrough, legacy compatibility и directional CID; strict feature
-  Clippy чист, полный suite — 943 passed, 3 ignored. `UDP_ROAM_V1` всё ещё не рекламируется, поэтому
-  production-поведение не изменено.
+  Clippy чист, полный suite — 943 passed, 3 ignored. На этом промежуточном срезе `UDP_ROAM_V1`
+  ещё не рекламировался; feature-only активация и live-приёмка описаны ниже.
 - Live UDP actor под `experimental-roaming` теперь получает подготовленный `PathUpdate`, выполняет
   точный BIND-before-connect candidate socket и запускает для него отдельный bounded receive pump.
   PATH_INIT и ограниченные повторы используют общий PacketCodec; только аутентифицированные
@@ -349,10 +355,11 @@
   полного reconnect: сервер уже переключил путь, поэтому продолжение по старому socket было бы
   ложным успехом. Отдельно закрыт race, где state machine удалял истёкший candidate при приёме
   control, а actor мог оставить platform/socket ресурс. Focused epoch-классификация проверяет
-  candidate → active и stale old queue; strict default/feature Clippy, default suite
-  869 passed/1 ignored и feature suite 944 passed/3 ignored проходят. `UDP_ROAM_V1` по-прежнему
-  отсутствует в implemented advertisements, поэтому production-поведение не изменено; перед
-  активацией остаются Linux live e2e/rollback/race gate и явное включение capability.
+  candidate → active и stale old queue. После feature-only активации полный gate проходит strict
+  default/feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3 ignored.
+  `UDP_ROAM_V1` согласуется только для UDP+QUIC при совпадающем server bit и полном platform
+  `ROAMING_PATH`; generic TCP, UDP без QUIC, fixed-source и default-сборки сохраняют прежний
+  reconnect. Linux live e2e 17/17 завершён; rollback/adversarial race и soak остаются release gates.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

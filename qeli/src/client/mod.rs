@@ -1072,6 +1072,14 @@ impl ClientStatusReporter {
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
+fn linux_roaming_path_supported(config: &crate::config::client::ClientConfig) -> bool {
+    let transport_supported = config.server.protocol == "tcp"
+        || (config.server.protocol == "udp" && config.obfuscation.quic.enabled);
+    // An explicit source address is an operator pin, not a path the observer may replace.
+    transport_supported && config.server.local_address.is_none()
+}
+
 #[cfg(target_os = "linux")]
 impl LinuxCoreAdapter {
     fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
@@ -1086,7 +1094,7 @@ impl LinuxCoreAdapter {
             | platform_capability::IPV6_ROUTES
             | platform_capability::IPV6_DNS;
         #[cfg(feature = "experimental-roaming")]
-        if preview.server.protocol == "tcp" && preview.server.local_address.is_none() {
+        if linux_roaming_path_supported(&preview) {
             platform_capabilities |= platform_capability::ROAMING_PATH;
         }
         if killswitch::ipv6_available() {
@@ -1819,9 +1827,6 @@ async fn connect_tcp_path_candidate(
 }
 
 #[cfg(all(feature = "experimental-roaming", unix))]
-// The live UDP actor is wired in the next gated stage. Keep this reviewed/tested primitive
-// unreachable while UDP_ROAM_V1 remains deliberately absent from capability advertisements.
-#[allow(dead_code)]
 pub(crate) async fn connect_udp_path_candidate(
     config: &crate::config::client::ClientConfig,
     total: Duration,
@@ -9536,6 +9541,29 @@ mod lifecycle_adapter_tests {
             data_plane: Default::default(),
             connection_log: Vec::new(),
         }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn linux_roaming_path_capability_is_transport_and_source_scoped() {
+        let mut config = crate::config::client::ClientConfig::default();
+        config.server.protocol = "tcp".to_string();
+        assert!(linux_roaming_path_supported(&config));
+
+        config.server.protocol = "udp".to_string();
+        config.obfuscation.quic.enabled = true;
+        assert!(linux_roaming_path_supported(&config));
+
+        config.obfuscation.quic.enabled = false;
+        assert!(!linux_roaming_path_supported(&config));
+
+        config.obfuscation.quic.enabled = true;
+        config.server.local_address = Some("192.0.2.10".to_string());
+        assert!(!linux_roaming_path_supported(&config));
+
+        config.server.local_address = None;
+        config.server.protocol = "other".to_string();
+        assert!(!linux_roaming_path_supported(&config));
     }
 
     #[test]
