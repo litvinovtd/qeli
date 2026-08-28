@@ -1,16 +1,20 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v8-safe -->
+<!-- normative-sync: roaming-v9-android -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
-> под `experimental-roaming`. Linux in-process TCP adapter теперь наблюдает стабильные смены
-> физического default route/адресов, объявляет полный `ROAMING_PATH` только под этой feature
-> и без фиксированного `server.local_address` и прошёл двухмаршрутный live e2e 15/15.
-> Hard resume и explicit close также прошли Linux live e2e. Ограниченные UDP registry/migration
+> под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
+> объявляют полный `ROAMING_PATH` только при наличии реализации в ядре; default-сборки и UDP
+> сохраняют обычный reconnect. Linux прошёл двухмаршрутный live e2e 15/15, hard resume и
+> explicit close. Android API 34 emulator прошёл Wi-Fi → cellular (198/200 ping), cellular →
+> Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
+> полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
+> продолжил разрешать имена. Ограниченные UDP registry/migration
 > state, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
 > post-commit UDP DATA/DATA_FRAG ingress готовы по исходникам; впереди UDP client adapters,
-> включение UDP capability и live-приёмка. Native app adapters и работы этапов 3–6 ещё впереди.
-> Текущие lab gates: strict feature Clippy, базовый Linux netns 26/26 и roaming netns 15/15.
+> включение UDP capability и live-приёмка. Впереди Windows/macOS/iOS adapters и работы этапов 3–6.
+> Текущие lab gates: strict feature Clippy, базовый Linux netns 26/26, roaming netns 15/15,
+> Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
 > Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -328,12 +332,17 @@ bind/protect socket → protocol validation/JOIN → commit → drain → cleanu
 
 ### Android
 
-- сохранять точный Network/path id, а не только факт доступности сети;
-- получать A/AAAA через Network.getAllByName;
-- для initial и candidate socket выполнять Network.bindSocket(fd), затем protect(fd);
-- Connectivity callback преобразовать в PathUpdate, а не безусловный reconnect;
+Текущий feature-gated TCP adapter уже:
+
+- сохраняет точный `Network.networkHandle`, отбрасывает stale generation и superseded Network;
+- получает A/AAAA через точный `Network.getAllByName`, ограничивает набор адресов и удаляет
+  локальные IPv6 zone id из ABI-представления;
+- выполняет `Network.bindSocket(fd)`, затем `VpnService.protect(fd)` для candidate socket;
+- преобразует Connectivity callback и смену пути во время сна в ограниченный `PathUpdate`;
+- применяет новый `setUnderlyingNetworks` только после COMMIT и сохраняет прежний TUN/NetworkPlan;
+- при hard loss выбирает уже доступный физический replacement вместо обнуления current Network;
 - Trusted Wi-Fi остаётся policy stop;
-- детектировать same-network NAT rebinding/dead mapping без смены Network.
+- **остаётся:** детектировать same-network NAT rebinding/dead mapping без смены Network.
 
 ### Windows
 
@@ -462,8 +471,9 @@ anti-amplification и PMTU reset.
 Результат: ядро умеет безопасно запросить и откатить candidate path без изменения
 текущего data plane.
 ABI 1.12 и stats V3 сохраняют старые префиксы; mock fault injection покрывает отказы
-PREPARE/BIND/COMMIT/ABORT. Linux in-process TCP feature adapter уже рекламирует path capability
-и прошёл live e2e; default data plane не изменён, e2e native-адаптеров остаётся впереди.
+PREPARE/BIND/COMMIT/ABORT. Linux in-process TCP и Android TCP feature adapters уже рекламируют
+path capability и прошли live e2e; default data plane не изменён, e2e остальных native-адаптеров
+остаётся впереди.
 
 ### Этап 2A. TCP lifecycle — ✅ исходники
 
@@ -475,13 +485,14 @@ PREPARE/BIND/COMMIT/ABORT. Linux in-process TCP feature adapter уже рекл�
 drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
 production-сборка без feature gate сохраняют прежний data plane.
 
-### Этап 2B. TCP resume и handover — 🟡 Linux feature live принят, native-устройства впереди
+### Этап 2B. TCP resume и handover — 🟡 Linux и Android feature live приняты
 
 Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
 secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
 до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys.
 Feature-клиент умеет объявить `CONTROL_V2`, `TCP_RESUME_V1` и `TCP_HANDOVER_V1`, но negotiation
-требует полный platform `ROAMING_PATH`. Linux объявляет его только для feature TCP без fixed source.
+требует полный platform `ROAMING_PATH`. Linux объявляет его только для feature TCP без fixed source;
+Android — только для TCP и только когда загруженное feature-ядро подтверждает path transaction ABI.
 Потеря последнего carrier до 30 секунд сохраняет прежние TUN
 и NetworkPlan; supervisor раз в секунду восстанавливает тот же stable logical slot, а sibling
 reader/writer завершаются общим сохраняющим состояние stop-сигналом.
@@ -518,7 +529,8 @@ supersede/stop.
 full-reconnect fallback. Ошибки candidate connect/JOIN также откатывают platform-состояние.
 Отказ COMMIT остаётся fail-closed: сервер к этому моменту уже аутентифицировал и переключил
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
-неподтверждённый path. Native application platform bits выключены до их device/race-приёмки.
+неподтверждённый path. Android включает application platform bits только для feature TCP после
+эмуляторной приёмки; Windows/macOS/iOS сохраняют их выключенными до своей device/race-приёмки.
 
 На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -530,8 +542,13 @@ carrier и клиентского TUN после остановки и отсу�
 
 Эти результаты `.10/.11` относятся к hard resume и explicit close. Новый двухмаршрутный Linux
 feature e2e также прошёл 15/15: path B завершил authenticated JOIN/COMMIT, path A был выключен,
-те же PID/TUN сохранились, а 150/150 ping прошли без top-level reconnect. Впереди остаются
-приёмка native-устройств и расширенная transport/family/race matrix.
+те же PID/TUN сохранились, а 150/150 ping прошли без top-level reconnect. Android API 34 emulator
+с feature `.so` прошёл оба направления Wi-Fi/cellular: hard loss Wi-Fi подготовил candidate на уже
+доступном cellular Network и сохранил 198/200 ping, обратный make-before-break переход сохранил
+200/200. PID приложения, VPN Network, `tun0` и `NetworkPlan 1` не менялись, `Auth OK` появился
+ровно один раз. Sleep/wake на прежнем Network сохранил 160/160 ping без лишнего handover; после
+обоих переходов и сна системный DNS продолжил разрешать имя. Впереди остаются реальные устройства,
+same-network NAT rebinding, Windows/macOS/iOS и расширенная transport/family/race/soak matrix.
 
 ### Этап 3. UDP migration
 
@@ -686,10 +703,11 @@ commit, а `replace` разрешён только для маршрута из 
 
 Результат: безопасный UDP роуминг на mock/Linux path.
 
-### Этап 4. Платформы — 🟡 Linux TCP feature adapter готов
+### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
-- Android;
+- Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
+  Wi-Fi↔cellular и sleep/wake emulator live готовы; real-device/race/soak/NAT rebinding впереди;
 - Windows;
 - macOS;
 - iOS.

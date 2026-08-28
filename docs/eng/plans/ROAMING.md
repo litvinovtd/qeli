@@ -1,16 +1,20 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v8-safe -->
+<!-- normative-sync: roaming-v9-android -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
-> implemented behind `experimental-roaming`. The Linux in-process TCP adapter now observes
-> stable physical default-route/address changes, advertises the complete `ROAMING_PATH` only
-> under that feature and without a fixed `server.local_address`, and passed isolated two-path
-> live e2e 15/15. Hard resume and explicit close also passed Linux live e2e. The Phase 3A–3C
+> implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
+> advertise complete `ROAMING_PATH` only when the core implements it; default builds and UDP retain
+> normal reconnect behavior. Linux passed isolated two-path live e2e 15/15, hard resume, and explicit
+> close. An Android API 34 emulator passed Wi-Fi → cellular (198/200 probes), cellular → Wi-Fi
+> (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
+> full AUTH ran once, the underlying Network changed atomically, and DNS still resolved after the
+> transitions. The Phase 3A–3C
 > bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
 > post-commit UDP DATA/DATA_FRAG ingress are source-complete; UDP client adapters, UDP capability
-> activation, and live acceptance remain. Native app adapters and remaining Phase 3–6 work remain.
-> Current lab gates pass strict feature Clippy, base Linux netns 26/26, and roaming netns 15/15.
+> activation, and live acceptance remain. Windows/macOS/iOS adapters and remaining Phase 3–6 work remain.
+> Current lab gates pass strict feature Clippy, base Linux netns 26/26, roaming netns 15/15,
+> an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
 > The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -36,12 +40,13 @@ re-encrypting un-flown downstream packets (not worth the complexity).
 
 ## 1. Current pre-roaming behavior
 
-A network change today = **fast reconnect, not roaming**: the client detects the
-change (Android — `registerDefaultNetworkCallback` → `forceReconnect`), does a **full
-new handshake** (ephemeral X25519+ML-KEM + a fresh Argon2 login); the server
-supersedes its own previous session by **device-id** and hands back the same tun-IP
-(the pool is sticky by `device_key`) and routes. Result — a ~(RTT + Argon2 time) dip
-and packet loss in the window. Roaming removes that hiccup.
+Without `experimental-roaming`, a network change still means **fast reconnect, not roaming**:
+the client detects the change, performs a **full new handshake** (ephemeral X25519+ML-KEM plus a
+fresh Argon2 login); the server supersedes its previous session by **device-id** and hands back the
+same tun-IP (the pool is sticky by `device_key`) and routes. The Android feature TCP adapter instead
+turns the physical callback into a bounded PathUpdate and uses full reconnect only as fallback.
+The default result remains a ~(RTT + Argon2 time) dip and packet loss in the window.
+Roaming removes that hiccup.
 
 ## 2. Protocol / wire design
 
@@ -209,10 +214,15 @@ Rust (Linux/OpenWrt), Android (Kotlin), Windows and macOS (shared C# layer), and
 
 ### 4.1 Network-change detection
 - **Rust** (Linux/router): netlink `RTM_NEWADDR`/route monitor, or poll the default route.
-- **Android**: `registerDefaultNetworkCallback` (already used for `forceReconnect`) —
+- **Android**: best-matching non-VPN Network callback (full reconnect fallback) —
   repurpose for the soft-rebind.
 - **Windows**: `NetworkChange.NetworkAddressChanged` / `NotifyAddrChange`.
 - **macOS**: `nw_path_monitor` / `SCNetworkReachability`.
+
+The Android feature TCP adapter now submits bounded, generation-scoped PathUpdates, resolves through
+the exact `Network`, binds and protects the candidate socket, and publishes `setUnderlyingNetworks`
+only after COMMIT. Stale generations and superseded Networks cannot mutate platform state. Same-network
+NAT rebinding/dead-mapping detection remains.
 
 ### 4.2 UDP soft-rebind (the seamless path)
 On a network change: create a **new** UDP socket on the new interface, **keeping** the
@@ -265,19 +275,21 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 - **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
   lifecycle cleanup, and mock fault injection. The Linux in-process TCP feature adapter now
-  advertises the path contract and passed live e2e; default data plane and native adapters remain unchanged.
+  advertises the path contract and passed live e2e; the Android feature TCP adapter now does the same.
+  The default data plane and remaining native adapters remain unchanged.
 - **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
   Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
   generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
   proof/transcript/epoch/locator rejection, JOIN-vs-reaper, revoke-vs-JOIN, exact-once
   release, cap exhaustion, abort, and late drain acknowledgements.
-- **Phase 2B — 🟡 shared TCP resume/handover complete; Linux feature live accepted, native devices pending:** the Linux handler
+- **Phase 2B — 🟡 shared TCP resume/handover complete; Linux and Android feature live accepted:** the Linux handler
   and shared client supervisor derive and zeroize the original-session resume secret, strictly
   parse authenticated resume JOIN, reserve before JOINOK, and use a fresh KE plus fresh
   per-carrier data keys on every attach. The feature client core can advertise `CONTROL_V2`,
   `TCP_RESUME_V1`, and `TCP_HANDOVER_V1`, but negotiation requires the complete platform contract.
-  Linux advertises it only for feature TCP without a fixed source; native app adapters do not yet.
+  Linux advertises it only for feature TCP without a fixed source; Android advertises it only for
+  TCP when the loaded feature core reports the path-transaction ABI.
   Loss of the last carrier preserves the same TUN and NetworkPlan for a 30-second grace and
   retries the same stable logical slot once per second; sibling reader/writer tasks share a
   persistent stop signal. The server permits one bounded authenticated candidate above the
@@ -312,7 +324,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   fallback. Candidate connect/JOIN failures also abort temporary platform state. A COMMIT rejection
   is fail-closed: because the server has already authenticated and switched the carrier, the client
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
-  local path. Native application platform bits remain disabled until their Phase 4 device/race acceptance.
+  local path. Android enables application platform bits only for feature TCP after emulator acceptance;
+  Windows/macOS/iOS keep them disabled until their Phase 4 device/race acceptance.
 
   Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -324,7 +337,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   grace. Those `.10/.11` results cover hard resume and explicit close. The two-path Linux
   feature e2e now also passes 15/15: path B completes authenticated JOIN/COMMIT, path A can be
   removed, the same PID/TUN survive, and 150/150 probes pass without a top-level reconnect.
-  Native device/race acceptance and the broader transport/family matrix remain.
+  Android API 34 emulator acceptance covers both directions: Wi-Fi hard loss selects an already
+  available cellular Network and retains 198/200 probes; cellular-to-Wi-Fi make-before-break retains
+  200/200. The same process, VPN Network, `tun0`, and `NetworkPlan 1` survive, with exactly one
+  `Auth OK`. Sleep/wake on the unchanged Network retains 160/160 probes without an unnecessary
+  handover, and system DNS still resolves after both transitions and sleep. Real devices,
+  same-network NAT rebinding, Windows/macOS/iOS, and the broader transport/family/race/soak matrix remain.
 - **Phase 3 — 🟡 registry/migration and writer-egress foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
@@ -469,8 +487,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   routes first and only then publishes the new pinned carrier-address set for later bonded streams. An
   unprivileged regression proves that the dialer ignores an intentionally unreachable configured address,
   connects to the candidate address, and binds before connect. Linux observation, capability activation,
-  and initial live acceptance are complete; PMTU/race/soak and native app adapters remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt in-process TCP is feature-complete; Android, Windows, macOS, iOS, and exit-node acceptance remain.
+  and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
+  PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
+  acceptance are complete. Real-device PMTU/race/soak/NAT-rebinding, the remaining native adapters,
+  and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 

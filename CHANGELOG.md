@@ -42,13 +42,27 @@
 
 ### Основа роуминга (stages 0–3C TCP/UDP, default off)
 
+- Android TCP feature adapter теперь объявляет полный `ROAMING_PATH`, только если загруженное
+  Rust-ядро подтверждает path-transaction ABI. Connectivity callback отправляет ограниченный
+  generation-scoped `PathUpdate`; exact `Network` выполняет DNS, `bindSocket` и `protect`, а
+  `setUnderlyingNetworks` меняется только после COMMIT. Stale generation и superseded Network
+  проверяются до platform mutation. Обычная `.so`, UDP и unsupported peer сохраняют полный reconnect.
+- На API 34 emulator feature APK прошёл Wi-Fi → cellular с 198/200 ping и cellular → Wi-Fi с
+  200/200. В обоих случаях сохранились PID, VPN Network, `tun0` и `NetworkPlan 1`, а `Auth OK`
+  появился ровно один раз. Hard-loss callback выбирает уже доступный физический replacement,
+  поэтому потеря Wi-Fi больше не обнуляет путь перед созданием candidate.
+- Sleep/wake на неизменном Wi-Fi сохранил 160/160 ping и не создал лишний handover; после обоих
+  переходов и сна системный DNS продолжил разрешать имя. Same-network NAT rebinding, реальные
+  устройства и race/soak matrix остаются отдельными gate.
+- Android x86_64 feature `.so` собрана NDK r26d в release с `panic=unwind` и `-D warnings`;
+  оба path JNI export присутствуют. Kotlin unit tests и `assembleDebug` прошли.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`
   использует уже аутентифицированный закреплённый IP сервера без повторного DNS через возможный
-  сломанный туннель. Полный `ROAMING_PATH` объявляется только в сборке
+  сломанный туннель. Linux объявляет полный `ROAMING_PATH` только в сборке
   `experimental-roaming`, только для TCP и только без явного `server.local_address`; default-
-  сборка и остальные платформы не меняют поведение.
+  сборка не меняет поведение.
 - Двухмаршрутный Linux netns e2e прошёл 15/15: lower-metric default подготовил candidate на
   втором интерфейсе, сервер принял fresh-KE handover JOIN с нового source IP, COMMIT перенёс
   qeli-owned carrier `/32`, старый интерфейс был выключен, но PID клиента, TUN ifindex и
@@ -100,8 +114,8 @@
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
-  Из платформенных адаптеров полный контракт теперь объявляет только Linux in-process TCP
-  при условиях feature gate, описанных выше; Android/Windows/macOS/iOS его ещё не включают.
+  Полный контракт объявляют Linux in-process TCP и Android TCP при условиях feature gate,
+  описанных выше; Windows/macOS/iOS его ещё не включают.
   Feature-сервер предлагает CONTROL_V2 и TCP resume/handover, а обычные сборки не меняют поведение.
   Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
@@ -121,11 +135,12 @@
   reconnect fallbacks без смешивания с обычным `reconnects`; совместимые V1/V2-префиксы
   размером 64/96 байт сохранены. `stop/start` и terminal failure удаляют невыданные команды.
 - Добавлены C ABI roundtrip и mock adapter fault-injection тесты отказов
-  PREPARE/BIND/COMMIT/ABORT. Production-клиенты не рекламируют новые platform capability
-  до реализации адаптеров и lab/e2e этапа 4.
+  PREPARE/BIND/COMMIT/ABORT. Android рекламирует новые platform capability только в feature TCP
+  после emulator live e2e; остальные native-клиенты ждут своего lab/e2e этапа 4.
 - Release export gates синхронизированы с ABI 1.12: Windows/macOS/Android ожидают 22
   `qeli_client_*` вместо 20, Android — 21 `TransportCore` JNI symbol вместо 19. Новая
-  воспроизводимая матрица на лабе остаётся обязательным pre-release gate и ещё не запускалась.
+  Android x86_64 feature-матрица и emulator live пройдены; остальные платформы и полный
+  pre-release matrix остаются обязательными gate.
   Platform FFI `clippy -D warnings` также больше не компилирует Linux-only reconnect jitter
   helper и не считает test-only константу stats V2 частью production-кода.
 
