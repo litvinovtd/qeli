@@ -8,7 +8,10 @@ import com.qeli.model.VpnConfig
  * Kotlin services platform-only requests (VpnService.protect, trust and NetworkPlan/TUN).
  * The blocking [runTransport] entry point owns every handshake and payload byte in Rust.
  */
-internal class TransportCore private constructor(private var handle: Long) : AutoCloseable {
+internal class TransportCore private constructor(
+    private var handle: Long,
+    val pathTransactionsEnabled: Boolean,
+) : AutoCloseable {
     @Synchronized
     fun start() = requireSuccess(nativeStart(requireHandle()), "start")
 
@@ -202,6 +205,56 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         }
     }
 
+    /** Submit one fully-resolved physical path to the common Rust roaming controller. */
+    @Synchronized
+    fun pathUpdate(updateJson: String): Long {
+        check(pathTransactionsEnabled) { "path transactions are not enabled for this core" }
+        val bytes = updateJson.toByteArray(Charsets.UTF_8)
+        return try {
+            val candidateId = nativePathUpdate(requireHandle(), bytes)
+            check(candidateId > 0) { "transport core pathUpdate failed (rc=$candidateId)" }
+            candidateId
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    /** Acknowledge the exact generation/candidate/event triple emitted by Rust. */
+    @Synchronized
+    fun pathCommandResult(
+        generation: Long,
+        candidateId: Long,
+        requestSequence: Long,
+        accepted: Boolean,
+        reason: String? = null,
+    ) {
+        require(generation > 0 && candidateId > 0 && requestSequence > 0) {
+            "path command correlation values must be positive"
+        }
+        val bytes = if (accepted) {
+            ByteArray(0)
+        } else {
+            (reason ?: "platform rejected the path command")
+                .take(512)
+                .toByteArray(Charsets.UTF_8)
+        }
+        try {
+            acceptResult(
+                nativePathCommandResult(
+                    requireHandle(),
+                    generation,
+                    candidateId,
+                    requestSequence,
+                    if (accepted) 0 else 1,
+                    bytes,
+                ),
+                "pathCommandResult",
+            )
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
     @Synchronized
     override fun close() {
         val current = handle
@@ -240,6 +293,9 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val PLATFORM_IPV6_ROUTES = 1L shl 9
         const val PLATFORM_IPV6_DNS = 1L shl 10
         const val PLATFORM_IPV6_KILL_SWITCH = 1L shl 11
+        const val PLATFORM_PATH_TRANSACTIONS = 1L shl 12
+        const val PLATFORM_PATH_SOCKET_BINDING = 1L shl 13
+        const val PLATFORM_ROAMING_PATH = PLATFORM_PATH_TRANSACTIONS or PLATFORM_PATH_SOCKET_BINDING
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 
@@ -256,6 +312,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         private const val CORE_SERVER_IDENTITY_ACK = 1L shl 6
         private const val CORE_HANDSHAKE_NETWORK_INPUT = 1L shl 7
         private const val CORE_NATIVE_DATA_PLANE = 1L shl 8
+        private const val CORE_PATH_TRANSACTIONS = 1L shl 13
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
                 CORE_TUN_FD_OWNERSHIP or CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or
@@ -293,7 +350,10 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
             check(nativeHandle != 0L) { "transport core rejected the configuration" }
             try {
                 requireSuccess(nativeSetDeviceId(nativeHandle, deviceId), "setDeviceId")
-                return TransportCore(nativeHandle)
+                val pathTransactionsEnabled =
+                    capabilities and CORE_PATH_TRANSACTIONS != 0L &&
+                        platformCapabilities and PLATFORM_ROAMING_PATH == PLATFORM_ROAMING_PATH
+                return TransportCore(nativeHandle, pathTransactionsEnabled)
             } catch (error: Throwable) {
                 nativeFree(nativeHandle)
                 throw error
@@ -302,6 +362,8 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
 
         fun abiVersion(): Int = nativeAbiVersion()
 
+        fun supportsPathTransactions(): Boolean =
+            nativeCoreCapabilities() and CORE_PATH_TRANSACTIONS != 0L
 
         /**
          * Send the shared Rust UDP ClientHello first flight and return milliseconds to any
@@ -406,6 +468,15 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativeNetworkPlanResult(
             handle: Long,
             generation: Long,
+            resultCode: Int,
+            reason: ByteArray,
+        ): Int
+        @JvmStatic private external fun nativePathUpdate(handle: Long, input: ByteArray): Long
+        @JvmStatic private external fun nativePathCommandResult(
+            handle: Long,
+            generation: Long,
+            candidateId: Long,
+            requestSequence: Long,
             resultCode: Int,
             reason: ByteArray,
         ): Int

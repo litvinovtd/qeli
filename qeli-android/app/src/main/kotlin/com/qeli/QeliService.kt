@@ -42,11 +42,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.NetworkInterface
 import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicLong
 
 class VpnServiceImpl : VpnService() {
 
@@ -63,15 +66,18 @@ class VpnServiceImpl : VpnService() {
     // join this Job before Android/UI can be told that routes and DNS are restored.
     @Volatile private var transportJob: Job? = null
     @Volatile private var activeConfig: VpnConfig? = null
+    @Volatile private var activePlanGeneration = 0L
+    private val pathUpdateSequence = AtomicLong(0)
     @Volatile private var nativeFatalError: Throwable? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakeLockRenewalJob: Job? = null
-    // Watches the default network (Wi-Fi <-> LTE switch). On a change we cancel the
-    // live native generation to reconnect on the new network without waiting for its
-    // dead-connection timeout.
+    // Watches the physical network (Wi-Fi <-> LTE switch). A feature TCP core receives a
+    // generation-scoped candidate path; unsupported/default builds retain the immediate full
+    // reconnect fallback instead of waiting for their dead-connection timeout.
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var wakeReconnectJob: Job? = null
+    @Volatile private var roamingUpdateJob: Job? = null
     @Volatile private var screenOffAt = 0L
     @Volatile
     private var currentNetwork: Network? = null
@@ -928,10 +934,17 @@ class VpnServiceImpl : VpnService() {
         liveTrustedSsid = ""
         userRequestedDisconnect = false
         activeConfig = config
+        roamingUpdateJob?.cancel()
+        roamingUpdateJob = null
+        activePlanGeneration = 0L
+        pathUpdateSequence.set(0)
         nativeFatalError = null
         var initialCoreEvents: List<TransportCoreEvent> = emptyList()
         transportCore = runCatching {
             val stableDeviceId = deviceId()
+            val roamingCapabilities = if (!config.isUdp && TransportCore.supportsPathTransactions())
+                TransportCore.PLATFORM_ROAMING_PATH
+            else 0L
             val core = try {
                 TransportCore.create(
                     config.toTransportCoreIni(),
@@ -946,7 +959,8 @@ class VpnServiceImpl : VpnService() {
                         TransportCore.PLATFORM_IPV6_DNS or
                         (if (killSwitchReadiness == AndroidKillSwitchReadiness.READY)
                             TransportCore.PLATFORM_KILL_SWITCH or
-                                TransportCore.PLATFORM_IPV6_KILL_SWITCH else 0L),
+                                TransportCore.PLATFORM_IPV6_KILL_SWITCH else 0L) or
+                        roamingCapabilities,
                 )
             } finally {
                 stableDeviceId.fill(0)
@@ -983,6 +997,9 @@ class VpnServiceImpl : VpnService() {
                     TransportCore.abiVersion().toUInt().toString(16) +
                     ", state=${core.state()}, lifecycle events drained"
             )
+        }
+        if (transportCore?.pathTransactionsEnabled == true) {
+            broadcastLog("Experimental TCP roaming path adapter active")
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
@@ -1118,8 +1135,66 @@ class VpnServiceImpl : VpnService() {
                 }
                 broadcastLog("Native transport error ${event.errorCode}: $message")
             }
+            TransportCoreEventCodec.KIND_PATH_COMMAND ->
+                dispatchTransportCorePathCommand(core, event)
             TransportCoreEventCodec.KIND_NETWORK_PLAN -> applyNativeNetworkPlan(core, event)
             else -> throw IllegalStateException("unknown transport core event ${event.kind}")
+        }
+    }
+
+    private fun dispatchTransportCorePathCommand(
+        core: TransportCore,
+        event: TransportCoreEvent,
+    ) {
+        val command = TransportCoreEventCodec.decodePathCommand(event)
+        val failure = runCatching {
+            if (command.action == "abort_path") return@runCatching
+            check(transportCore === core && activePlanGeneration == command.generation) {
+                "stale Android path command generation"
+            }
+            val handle = command.path.networkToken.toLongOrNull()
+                ?.takeIf { it > 0 }
+                ?: throw IllegalArgumentException("invalid Android network handle")
+            val network = Network.fromNetworkHandle(handle)
+            val cm = getSystemService(ConnectivityManager::class.java)
+                ?: throw IllegalStateException("ConnectivityManager is unavailable")
+            check(currentNetwork == network) {
+                "candidate Android network was superseded"
+            }
+            check(usableCarrierNetwork(cm, network)) {
+                "candidate Android network is no longer usable"
+            }
+            when (command.action) {
+                "prepare_path" -> Unit
+                "bind_socket" -> check(
+                    bindProtectedCandidateSocket(network, command.socketFd!!)
+                ) { "could not bind/protect the candidate socket" }
+                "commit_path" -> {
+                    check(vpnInterface != null) { "Android TUN is no longer active" }
+                    check(setUnderlyingNetworks(arrayOf(network))) {
+                        "Android rejected the committed underlying network"
+                    }
+                    currentNetwork = network
+                    networkSignatures[network] = physicalNetworkSignature(cm, network)
+                }
+                else -> error("unsupported path command ${command.action}")
+            }
+        }.exceptionOrNull()
+        val reason = failure?.message ?: failure?.javaClass?.simpleName
+        core.pathCommandResult(
+            generation = command.generation,
+            candidateId = command.candidateId,
+            requestSequence = command.sequence,
+            accepted = failure == null,
+            reason = reason,
+        )
+        if (failure != null) {
+            broadcastLog(
+                "WARN: Android ${command.action} rejected for ${command.path.platformPathId}: " +
+                    (reason ?: "unknown platform error")
+            )
+        } else if (command.action == "commit_path") {
+            broadcastLog("Roaming path committed: ${command.path.platformPathId}")
         }
     }
 
@@ -1171,6 +1246,8 @@ class VpnServiceImpl : VpnService() {
             }
             core.setTunFd(plan.generation, tun.fd)
             core.networkPlanResult(plan.generation, applied = true)
+            activePlanGeneration = plan.generation
+            pathUpdateSequence.set(0)
             acknowledged = true
             liveDns = plan.dnsServers.firstOrNull()?.address.orEmpty()
             liveMtu = plan.mtu
@@ -1373,6 +1450,11 @@ class VpnServiceImpl : VpnService() {
                 core.runTransport(fallbackDns, carrierAddresses)
             } finally {
                 statsJob.cancel()
+                if (transportCore === core) {
+                    roamingUpdateJob?.cancel()
+                    roamingUpdateJob = null
+                    activePlanGeneration = 0L
+                }
             }
             nativeFatalError?.let { fatal ->
                 nativeFatalError = null
@@ -1398,10 +1480,12 @@ class VpnServiceImpl : VpnService() {
     private suspend fun resolvePhysicalCarrierAddresses(
         config: VpnConfig,
         generation: Int,
+        selectedNetwork: Network? = null,
     ): List<String> = withContext(Dispatchers.IO) {
         val cm = getSystemService(ConnectivityManager::class.java)
             ?: throw IllegalStateException("ConnectivityManager is unavailable")
-        val selected = selectPhysicalCarrierNetwork(cm)
+        val selected = selectedNetwork?.takeIf { usableCarrierNetwork(cm, it) }
+            ?: selectPhysicalCarrierNetwork(cm)
             ?: throw IllegalStateException("No physical network is available for carrier DNS")
         val timeoutMs = config.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
         val key = "${selected.networkHandle}:${config.serverAddress}"
@@ -1592,6 +1676,10 @@ class VpnServiceImpl : VpnService() {
         if (!keepNetworkObserver) unregisterNetworkCallback()
         unregisterScreenReceiver()
 
+        roamingUpdateJob?.cancel()
+        roamingUpdateJob = null
+        activePlanGeneration = 0L
+        pathUpdateSequence.set(0)
         val core = transportCore
         val runner = transportJob
         runCatching { core?.stop() }
@@ -1628,11 +1716,12 @@ class VpnServiceImpl : VpnService() {
         nativeFatalError = null
     }
 
-    // ── network-change fast reconnect ────────────────────────────────────────
+    // ── physical-network change: soft roam or reconnect fallback ────────────
     /** Register an UNDERLYING-network watcher. When the underlying network changes
-     *  (Wi-Fi <-> mobile) AFTER we are connected, stop the native generation so the
-     *  retry loop reconnects on the new network at once instead of waiting for its
-     *  dead-connection timeout.
+     *  (Wi-Fi <-> mobile) AFTER we are connected, submit a candidate to a feature TCP core.
+     *  If the loaded core/transport does not support path transactions, stop the native
+     *  generation so the retry loop reconnects on the new network at once instead of waiting
+     *  for its dead-connection timeout.
      *
      *  Must NOT watch the default network / must exclude VPN: when we establish, our
      *  own tun becomes the default network, and watching it makes the tunnel's own
@@ -1717,9 +1806,11 @@ class VpnServiceImpl : VpnService() {
             if (network != currentNetwork) return
             // Pre-31 we may already know a replacement (LTE that was up all along) —
             // adopt it so the retry loop lands there immediately instead of waiting
-            // out rxDead. On 31+ the framework sends a fresh onAvailable for the new
-            // best match, so leave it unset.
-            currentNetwork = if (bestMatching) null
+            // out rxDead. On 31+ a replacement may already be present in allNetworks before
+            // its best-matching onAvailable callback is delivered. Adopt it synchronously so
+            // the roaming core can make a candidate instead of forcing a full reconnect in
+            // that callback gap.
+            currentNetwork = if (bestMatching) firstUsableCarrierNetwork(cm, excluding = network)
                 else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
             switchedNetwork("Network lost")
             currentNetwork?.let { replacement ->
@@ -1829,10 +1920,13 @@ class VpnServiceImpl : VpnService() {
     /** Last-resort lookup when the tracked network is gone: prefer a validated link, but take
      *  an unvalidated one over failing the attempt outright — captive portals and networks
      *  that have not finished probing still carry our UDP fine. */
-    private fun firstUsableCarrierNetwork(cm: ConnectivityManager): Network? {
+    private fun firstUsableCarrierNetwork(
+        cm: ConnectivityManager,
+        excluding: Network? = null,
+    ): Network? {
         val candidates = try {
             @Suppress("DEPRECATION")
-            cm.allNetworks.filter { usableCarrierNetwork(cm, it) }
+            cm.allNetworks.filter { it != excluding && usableCarrierNetwork(cm, it) }
         } catch (_: Exception) {
             return null
         }
@@ -1869,14 +1963,28 @@ class VpnServiceImpl : VpnService() {
      * Rust's original fd. When a fail-closed TUN is retained during reconnect, update its live
      * declaration only after the replacement socket has actually been bound.
      */
-    private fun protectAndBindCarrierSocket(fd: Int): Boolean {
-        if (!protect(fd)) return false
-        val cm = getSystemService(ConnectivityManager::class.java) ?: return false
-        val network = selectPhysicalCarrierNetwork(cm) ?: return false
+    private fun bindProtectedCandidateSocket(network: Network, fd: Int): Boolean {
         return try {
             ParcelFileDescriptor.fromFd(fd).use { duplicate ->
                 network.bindSocket(duplicate.fileDescriptor)
             }
+            check(protect(fd)) { "VpnService.protect rejected the candidate socket" }
+            true
+        } catch (error: Exception) {
+            Log.w(
+                "VpnSvc",
+                "Could not bind/protect candidate socket on network ${network.networkHandle}: " +
+                    error.message,
+            )
+            false
+        }
+    }
+
+    private fun protectAndBindCarrierSocket(fd: Int): Boolean {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = selectPhysicalCarrierNetwork(cm) ?: return false
+        if (!bindProtectedCandidateSocket(network, fd)) return false
+        return try {
             if (vpnInterface != null && !setUnderlyingNetworks(arrayOf(network))) {
                 throw IllegalStateException("Android rejected the live underlying network")
             }
@@ -1884,7 +1992,7 @@ class VpnServiceImpl : VpnService() {
         } catch (error: Exception) {
             Log.w(
                 "VpnSvc",
-                "Could not bind protected carrier socket to network ${network.networkHandle}: " +
+                "Could not publish underlying network ${network.networkHandle}: " +
                     error.message,
             )
             false
@@ -2002,7 +2110,7 @@ class VpnServiceImpl : VpnService() {
                 // Adopt the signature we are about to reconnect onto, so the capability events
                 // that follow the reconnect do not read as yet another change.
                 if (net != null && signature != null) networkSignatures[net] = signature
-                switchedNetwork("Device woke after ${screenOffMs / 1000}s screen-off")
+                switchedNetwork("Device woke after ${screenOffMs / 1000}s screen-off", wake = true)
             }
         }
     }
@@ -2040,10 +2148,95 @@ class VpnServiceImpl : VpnService() {
         return kotlin.random.Random.nextLong(minimum, scheduledMs + 1L)
     }
 
-    private fun switchedNetwork(why: String) {
+    private fun switchedNetwork(why: String, wake: Boolean = false) {
         if (liveStatus != STATUS_CONNECTED) return
+        if (scheduleRoamingUpdate(why, wake)) return
         broadcastLog("$why — reconnecting on the current network")
         forceReconnect()
+    }
+
+    private fun scheduleRoamingUpdate(why: String, wake: Boolean): Boolean {
+        val core = transportCore ?: return false
+        val config = activeConfig ?: return false
+        val generation = activePlanGeneration
+        val network = currentNetwork ?: return false
+        val scope = coroutineScope ?: return false
+        if (config.isUdp || !core.pathTransactionsEnabled || generation <= 0) return false
+
+        roamingUpdateJob?.cancel()
+        roamingUpdateJob = scope.launch(Dispatchers.IO) {
+            try {
+                delay(350)
+                submitRoamingPath(core, config, network, generation, wake)
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                return@launch
+            } catch (error: Throwable) {
+                if (transportCore === core && activePlanGeneration == generation &&
+                    liveStatus == STATUS_CONNECTED
+                ) {
+                    broadcastLog(
+                        "$why — soft roaming failed (${error.message}); using full reconnect"
+                    )
+                    forceReconnect()
+                }
+            }
+        }
+        broadcastLog("$why — preparing a soft roaming path")
+        return true
+    }
+
+    private suspend fun submitRoamingPath(
+        core: TransportCore,
+        config: VpnConfig,
+        network: Network,
+        generation: Long,
+        wake: Boolean,
+    ) {
+        val cm = getSystemService(ConnectivityManager::class.java)
+            ?: throw IllegalStateException("ConnectivityManager is unavailable")
+        check(currentNetwork == network && usableCarrierNetwork(cm, network)) {
+            "physical network changed while preparing the candidate"
+        }
+        val links = cm.getLinkProperties(network)
+            ?: throw IllegalStateException("candidate link properties are unavailable")
+        val localAddresses = links.linkAddresses
+            .map { it.address }
+            .filter { address ->
+                !address.isAnyLocalAddress && !address.isLoopbackAddress &&
+                    !address.isMulticastAddress && !address.isLinkLocalAddress &&
+                    (address is Inet4Address || address is Inet6Address)
+            }
+            .mapNotNull { InetAddress.getByAddress(it.address).hostAddress }
+            .distinct()
+            .take(16)
+        check(localAddresses.isNotEmpty()) { "candidate network has no usable local address" }
+        val resolvedAddresses = resolvePhysicalCarrierAddresses(
+            config,
+            generation = 0,
+            selectedNetwork = network,
+        )
+        check(currentNetwork == network && activePlanGeneration == generation) {
+            "candidate path was superseded during DNS resolution"
+        }
+        val interfaceIndex = links.interfaceName?.let { name ->
+            runCatching { NetworkInterface.getByName(name)?.index }.getOrNull()
+        }?.takeIf { it > 0 }
+        val updateId = pathUpdateSequence.incrementAndGet()
+        check(updateId > 0) { "path update id overflow" }
+        val update = TransportCoreEventCodec.encodePathUpdate(
+            generation = generation,
+            updateId = updateId,
+            platformPathId = "android:${network.networkHandle}",
+            reason = if (wake) "wake" else "network_changed",
+            networkToken = network.networkHandle.toString(),
+            interfaceIndex = interfaceIndex,
+            localAddresses = localAddresses,
+            resolvedAddresses = resolvedAddresses.take(16),
+        )
+        val candidateId = core.pathUpdate(update)
+        debugLog(
+            "Submitted Android roaming candidate $candidateId on network ${network.networkHandle}"
+        )
     }
 
     private fun unregisterNetworkCallback() {
@@ -2079,6 +2272,7 @@ class VpnServiceImpl : VpnService() {
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
         val core = transportCore ?: return
+        activePlanGeneration = 0L
         declareNoUnderlyingNetwork()
         forcedReconnectInFlight = true
         runCatching { core.stop() }

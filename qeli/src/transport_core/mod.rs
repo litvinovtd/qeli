@@ -2199,7 +2199,7 @@ impl ClientCore {
 
     /// Remove the oldest PathCommand without disturbing lifecycle or diagnostic events which
     /// the platform adapter still has to observe. Native FFI pollers continue to use `poll_event`.
-    #[cfg(feature = "experimental-roaming")]
+    #[cfg(any(test, all(feature = "experimental-roaming", target_os = "linux")))]
     pub(crate) fn poll_path_event(&mut self) -> Option<ClientEvent> {
         let position = self
             .events

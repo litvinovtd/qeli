@@ -130,12 +130,6 @@ fn guard<T>(fallback: T, operation: impl FnOnce() -> T) -> T {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)).unwrap_or(fallback)
 }
 
-fn to_array(env: &JNIEnv, bytes: &[u8]) -> jbyteArray {
-    env.byte_array_from_slice(bytes)
-        .map(|array| array.into_raw())
-        .unwrap_or(std::ptr::null_mut())
-}
-
 fn udp_reachability_jni<'local>(
     env: &JNIEnv<'local>,
     config: &JByteArray<'local>,
@@ -590,7 +584,8 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeNetworkPlanResult<'loca
 }
 
 /// Submit a PathUpdate JSON frame and return its positive candidate id or a stable negative
-/// ABI error code. Android does not advertise the capability until its stage-4 adapter lands.
+/// ABI error code. Feature-enabled Android builds advertise it only after the exact-network
+/// bind/protect/commit adapter has been supplied through the platform capability mask.
 #[no_mangle]
 pub extern "system" fn Java_com_qeli_TransportCore_nativePathUpdate<'local>(
     env: JNIEnv<'local>,

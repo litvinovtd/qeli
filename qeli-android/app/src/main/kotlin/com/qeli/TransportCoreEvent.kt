@@ -6,6 +6,7 @@ import java.nio.ByteOrder
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Stable Android view of one shared-core control-plane event. */
@@ -29,6 +30,21 @@ internal data class TransportCoreServerIdentityRequest(
     val sequence: Long,
     val serverId: String,
     val publicKey: String,
+)
+
+internal data class TransportCorePathRef(
+    val platformPathId: String,
+    val networkToken: String,
+    val interfaceIndex: Int?,
+)
+
+internal data class TransportCorePathCommand(
+    val sequence: Long,
+    val generation: Long,
+    val candidateId: Long,
+    val action: String,
+    val socketFd: Int?,
+    val path: TransportCorePathRef,
 )
 
 internal data class TransportCoreNetworkRoute(
@@ -89,6 +105,7 @@ internal object TransportCoreEventCodec {
     const val KIND_ERROR = 3
     const val KIND_SOCKET_PROTECT = 4
     const val KIND_SERVER_IDENTITY = 5
+    const val KIND_PATH_COMMAND = 6
     const val PAYLOAD_JSON = 1
     const val PAYLOAD_UTF8 = 2
 
@@ -148,6 +165,103 @@ internal object TransportCoreEventCodec {
         require(serverId.isNotBlank() && serverId.length <= 320) { "invalid server identity id" }
         require(publicKey.matches(Regex("[0-9a-f]{64}"))) { "invalid server identity public key" }
         return TransportCoreServerIdentityRequest(event.sequence, serverId, publicKey)
+    }
+
+    fun decodePathCommand(event: TransportCoreEvent): TransportCorePathCommand {
+        require(event.kind == KIND_PATH_COMMAND) { "event is not a path command" }
+        require(event.payloadFormat == PAYLOAD_JSON) { "path command payload is not JSON" }
+        require(event.sequence > 0 && event.planGeneration > 0) {
+            "path command correlation values must be positive"
+        }
+        require(event.errorCode == 0) { "path command has an error code" }
+        val payload = JSONObject(event.payload.toString(Charsets.UTF_8))
+        val generation = payload.getLong("generation")
+        val candidateId = payload.getLong("candidate_id")
+        require(generation == event.planGeneration && candidateId > 0) {
+            "path command correlation mismatch"
+        }
+        val action = payload.getString("action")
+        require(action in setOf("prepare_path", "bind_socket", "commit_path", "abort_path")) {
+            "invalid path command action"
+        }
+        val socketFd = if (payload.isNull("socket_fd")) null else {
+            payload.getLong("socket_fd").also { fd ->
+                require(fd in 0..Int.MAX_VALUE.toLong()) { "path command fd is outside Int range" }
+            }.toInt()
+        }
+        require((action == "bind_socket") == (socketFd != null)) {
+            "only BIND_SOCKET may carry a socket fd"
+        }
+        val path = payload.getJSONObject("path")
+        require(path.getLong("generation") == generation) {
+            "path command embeds a different generation"
+        }
+        val platformPathId = path.getString("platform_path_id")
+        require(!path.isNull("network_token")) { "Android path has no network token" }
+        val networkToken = path.getString("network_token")
+        require(platformPathId.isNotBlank() && platformPathId.length <= 256 &&
+            platformPathId.none(Char::isISOControl)) { "invalid platform path id" }
+        require(networkToken.isNotBlank() && networkToken.length <= 256 &&
+            networkToken.none(Char::isISOControl)) { "Android path has no network token" }
+        val interfaceIndex = if (path.isNull("interface_index")) null else {
+            path.getLong("interface_index").also { index ->
+                require(index in 1..Int.MAX_VALUE.toLong()) { "invalid path interface index" }
+            }.toInt()
+        }
+        return TransportCorePathCommand(
+            sequence = event.sequence,
+            generation = generation,
+            candidateId = candidateId,
+            action = action,
+            socketFd = socketFd,
+            path = TransportCorePathRef(platformPathId, networkToken, interfaceIndex),
+        )
+    }
+
+    fun encodePathUpdate(
+        generation: Long,
+        updateId: Long,
+        platformPathId: String,
+        reason: String,
+        networkToken: String,
+        interfaceIndex: Int?,
+        localAddresses: List<String>,
+        resolvedAddresses: List<String>,
+    ): String {
+        require(generation > 0 && updateId > 0) { "path update ids must be positive" }
+        require(reason in setOf("network_changed", "wake")) { "unsupported path reason" }
+        require(platformPathId.isNotBlank() && platformPathId.length <= 256 &&
+            platformPathId.none(Char::isISOControl)) { "invalid platform path id" }
+        require(networkToken.isNotBlank() && networkToken.length <= 256 &&
+            networkToken.none(Char::isISOControl)) { "invalid Android network token" }
+        require(interfaceIndex == null || interfaceIndex > 0) { "invalid interface index" }
+        require(localAddresses.isNotEmpty() && localAddresses.size <= 16) {
+            "path update requires 1..16 local addresses"
+        }
+        require(resolvedAddresses.isNotEmpty() && resolvedAddresses.size <= 16) {
+            "path update requires 1..16 resolved addresses"
+        }
+        localAddresses.forEach(::parseIpLiteral)
+        resolvedAddresses.forEach(::parseIpLiteral)
+        val flags = JSONObject()
+            .put("default_route_changed", reason == "network_changed")
+            .put("wake", reason == "wake")
+            .put("same_network_nat_failure", false)
+        val payload = JSONObject()
+            .put("generation", generation)
+            .put("update_id", updateId)
+            .put("platform_path_id", platformPathId)
+            .put("reason", reason)
+            .put("network_token", networkToken)
+            .put("local_addresses", JSONArray(localAddresses))
+            .put("resolved_addresses", JSONArray().apply {
+                resolvedAddresses.forEach { address ->
+                    put(JSONObject().put("address", address).put("ttl_secs", 0))
+                }
+            })
+            .put("flags", flags)
+        if (interfaceIndex != null) payload.put("interface_index", interfaceIndex)
+        return payload.toString()
     }
 
     fun decodeNetworkPlan(event: TransportCoreEvent): TransportCoreNetworkPlan {
