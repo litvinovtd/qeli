@@ -434,25 +434,30 @@ mod tests {
 
     #[test]
     fn incomplete_record_expires_and_releases_budget() {
-        let fragments = fragment_record(&vec![3u8; 1000], &KEY, 12, 500).unwrap();
+        let incomplete = fragment_record(&vec![3u8; 1000], &KEY, 12, 500).unwrap();
+        let replacement_record = vec![4u8; 1000];
+        let replacement = fragment_record(&replacement_record, &KEY, 13, 500).unwrap();
         let start = Instant::now();
+        let after_timeout = start + REASSEMBLY_TIMEOUT + Duration::from_millis(1);
         let mut reassembler = DataReassembler::new();
         assert_eq!(
-            reassembler.push_at(&fragments[0], &KEY, start).unwrap(),
+            reassembler.push_at(&incomplete[0], &KEY, start).unwrap(),
             None
         );
         assert_ne!(reassembler.pending(), (0, 0));
         assert_eq!(
             reassembler
-                .push_at(
-                    &fragments[1],
-                    &KEY,
-                    start + REASSEMBLY_TIMEOUT + Duration::from_millis(1)
-                )
+                .push_at(&replacement[0], &KEY, after_timeout)
                 .unwrap(),
             None
         );
-        assert_eq!(reassembler.pending().0, 1);
+        assert_eq!(
+            reassembler
+                .push_at(&replacement[1], &KEY, after_timeout)
+                .unwrap(),
+            Some(replacement_record)
+        );
+        assert_eq!(reassembler.pending(), (0, 0));
     }
 
     #[test]

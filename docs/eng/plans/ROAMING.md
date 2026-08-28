@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v23-linux-udp-outer-family -->
+<!-- normative-sync: roaming-v24-linux-udp-frag-loss -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -55,11 +55,17 @@
 > one active qeli-owned `/32` or `/128`. Generation-scoped A/AAAA discovery now survives exact
 > active-peer pinning only for a future authenticated PathUpdate; the bypass and bonded carriers
 > remain restricted to the committed peer.
+> A deliberate bidirectional DATA_FRAG-loss Linux gate passed 25/25. With both paths at outer MTU
+> 1280, the firewall dropped exactly the first full-size fragment of each 1350-byte record while
+> admitting its tail; neither incomplete record reached the TUN. Path B committed without another
+> AUTH, PID/TUN replacement, or reconnect. After the five-second reassembly timeout and removal of
+> old path A, later fragmented records completed in both directions. A focused unit regression pins
+> expiry of the stale record before allocating and completing its replacement.
 > Current lab gates pass 956 feature library tests with three ignored,
 > 872 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
-> receive-drain/reorder/duplicate 26/26 plus outer-family round-trip 32/32,
+> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, and DATA_FRAG-loss 25/25,
 > an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
@@ -604,8 +610,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   a deterministic dual-listener 32/32 gate moved one authenticated session IPv4 → IPv6 → IPv4,
   retained the codec owner/PID/TUN, re-certified both directions at 1461 → 1341 → 1461, carried a
   DATA_FRAG-sized packet, and removed the stale qeli-owned route after each commit. Continuous traffic
-  retained at least 245 of 260 probes without top-level reconnect. Deliberate DATA_FRAG-loss live
-  coverage, real-device NAT rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
+  retained at least 245 of 260 probes without top-level reconnect. The deliberate DATA_FRAG-loss
+  slice is complete too: a 25/25 gate dropped one full-size fragment in each direction while retaining
+  each tail, committed path B with both records incomplete, then completed new fragmented records in
+  both directions after the five-second reassembly timeout and removal of path A. PID/TUN and the
+  authenticated session remained unchanged and no reconnect occurred. Real-device NAT rebinding and
+  soak gates remain. The Phase 4 Linux/OpenWrt
   adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
@@ -636,8 +646,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and initial live acceptance are complete. Android TCP exact-Network DNS/bind/protect,
   PREPARE/BIND/COMMIT/ABORT, stale/supersede guards, and Wi-Fi↔cellular plus sleep/wake emulator
   acceptance are complete. Linux IPv4 packet delay/reorder/duplicate and in-flight receive-drain
-  acceptance plus the Linux IPv4↔IPv6 PMTU round-trip are complete. Deliberate DATA_FRAG-loss live
-  coverage, real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
+  acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate bidirectional DATA_FRAG-loss are
+  complete. Real-device race/soak/NAT-rebinding, the remaining native adapters, and exit-node acceptance remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Windows, macOS, iOS, real-device soak, NAT rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.

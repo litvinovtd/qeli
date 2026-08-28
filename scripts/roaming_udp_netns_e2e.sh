@@ -10,6 +10,8 @@
 # deterministic reordering, bounded bidirectional receive drain, and duplicate DATA_FRAG on B.
 # family-switch moves one session IPv4 -> IPv6 -> IPv4 across distinct listeners, re-probes the
 # family-specific PMTU, and proves that active bypass routes remain exact.
+# frag-loss drops exactly one full-size DATA_FRAG in each direction before handover, then proves
+# that incomplete records expire without blocking later fragmented records on the committed path.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -30,9 +32,9 @@ DRAIN_DOWN_PID=
 NETNS_ETC=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss]" >&2
     exit 2
     ;;
 esac
@@ -149,7 +151,7 @@ if [ "$CASE" = family-switch ]; then
     "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru-b/mtu)\" = 1400 && test \"\$(ip netns exec $RTR_NS cat /sys/class/net/qru-br/mtu)\" = 1400"
 fi
 
-if [ "$CASE" = drain-reorder ]; then
+if [ "$CASE" = drain-reorder ] || [ "$CASE" = frag-loss ]; then
   ip netns exec "$CLI_NS" ip link set qru-a mtu 1280
   ip netns exec "$RTR_NS" ip link set qru-ar mtu 1280
   ip netns exec "$CLI_NS" ip link set qru-b mtu 1280
@@ -159,7 +161,7 @@ if [ "$CASE" = drain-reorder ]; then
 fi
 
 HEARTBEAT_ENABLED=true
-if [ "$CASE" = drain-reorder ]; then HEARTBEAT_ENABLED=false; fi
+if [ "$CASE" = drain-reorder ] || [ "$CASE" = frag-loss ]; then HEARTBEAT_ENABLED=false; fi
 
 SERVER_HOST=10.41.3.2
 EXTRA_LISTENER=
@@ -292,6 +294,11 @@ elif [ "$CASE" = family-switch ]; then
   # shellcheck source=roaming_udp_netns_family_case.sh
   . "$SCRIPT_DIR/roaming_udp_netns_family_case.sh"
   run_family_switch_case
+elif [ "$CASE" = frag-loss ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=roaming_udp_netns_frag_loss_case.sh
+  . "$SCRIPT_DIR/roaming_udp_netns_frag_loss_case.sh"
+  run_frag_loss_case
 elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"

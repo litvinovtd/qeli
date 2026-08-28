@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v23-linux-udp-outer-family -->
+<!-- normative-sync: roaming-v24-linux-udp-frag-loss -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -55,11 +55,17 @@
 > прошёл DATA_FRAG-sized пакет, а каждый commit оставил ровно один активный qeli-owned `/32` или
 > `/128`. Generation-scoped discovery A/AAAA теперь переживает точный pin активного peer только для
 > будущей authenticated PathUpdate; bypass и bonded carriers остаются ограничены committed peer.
+> Двунаправленный Linux gate deliberate DATA_FRAG-loss прошёл 25/25. При outer MTU 1280 firewall
+> отбросил ровно первый полноразмерный фрагмент каждой 1350-байтной записи, но пропустил её хвост;
+> ни одна неполная запись не попала в TUN. Путь B закоммитился без новой AUTH, замены PID/TUN или
+> reconnect. После пятисекундного reassembly timeout и удаления старого пути A следующие
+> фрагментированные записи завершились в обе стороны. Focused unit-регрессия фиксирует удаление
+> просроченной записи перед выделением и завершением её замены.
 > Текущие lab gates: 956 feature library tests при трёх ignored, 872 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
-> receive-drain/reorder/duplicate 26/26 плюс outer-family round-trip 32/32,
+> receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32 и DATA_FRAG-loss 25/25,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
@@ -810,7 +816,11 @@ reconnect не возник. Linux outer-family срез также заверш
 authenticated session IPv4 → IPv6 → IPv4, сохранил codec owner/PID/TUN, пересертифицировал оба
 направления 1461 → 1341 → 1461, передал DATA_FRAG-sized пакет и удалил stale qeli-owned route после
 каждого commit. Непрерывный трафик сохранил не менее 245 из 260 ping без top-level reconnect.
-Остаются live-проверка deliberate DATA_FRAG loss, real-device NAT rebinding и soak.
+Deliberate DATA_FRAG-loss срез также завершён: gate 25/25 отбросил по одному полноразмерному фрагменту
+в каждом направлении при сохранённых хвостах записей, закоммитил путь B с обеими незавершёнными
+reassembly и после пятисекундного timeout и удаления пути A завершил новые фрагментированные записи
+в обе стороны. PID/TUN и authenticated session не изменились, reconnect не возник. Остаются
+real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь
@@ -840,14 +850,14 @@ generation-scoped discovery A/AAAA: альтернативы доступны т
 набор carrier-адресов для последующих bonded-streams. Непривилегированный тест доказывает,
 что dialer игнорирует недоступный адрес конфига в пользу candidate-адреса и связывает сокет
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
-Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain и outer-family PMTU round-trip
-приняты live-gate. Остаются deliberate DATA_FRAG-loss под live-нагрузкой, native adapters и soak.
+Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain, outer-family PMTU round-trip и
+deliberate DATA_FRAG-loss приняты live-gate. Остаются native adapters, real-device NAT rebinding и soak.
 
-- Linux UDP deliberate DATA_FRAG-loss live gate, real-device NAT rebinding и soak;
+- Linux UDP real-device NAT rebinding и soak;
 - Windows/macOS/iOS adapters, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
-commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate и outer-family-приёмку.
+commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family и deliberate DATA_FRAG-loss приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux и Android TCP feature adapters готовы
 
