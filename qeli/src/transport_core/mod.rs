@@ -1845,6 +1845,18 @@ impl ClientCore {
         })
     }
 
+    /// Return whether transport work still belongs to the platform's current candidate.
+    /// A superseded candidate enters Aborting before its replacement is prepared, so an
+    /// in-flight socket actor can stop accepting late proof immediately.
+    #[allow(dead_code)]
+    pub(crate) fn path_candidate_is_current(&self, generation: u64, candidate_id: u64) -> bool {
+        self.path_candidate.as_ref().is_some_and(|candidate| {
+            candidate.update.generation == generation
+                && candidate.candidate_id == candidate_id
+                && candidate.phase != PathCandidatePhase::Aborting
+        })
+    }
+
     /// Accept one bounded, generation-scoped path observation from a platform adapter.
     ///
     /// Repeating the same `update_id` is idempotent. A newer observation cancels an older
@@ -3353,6 +3365,7 @@ mod tests {
             .expect("prepared transport snapshot");
         assert_eq!(prepared.candidate_id, first);
         assert_eq!(prepared.update.platform_path_id, "wifi-a");
+        assert!(core.path_candidate_is_current(13, first));
         let (_, mut bind_result) = core
             .request_candidate_socket_binding(13, first, 17)
             .unwrap();
@@ -3362,6 +3375,7 @@ mod tests {
             .submit_path_update(&path_update(13, 2, "wifi-b"))
             .unwrap();
         assert_ne!(first, second);
+        assert!(!core.path_candidate_is_current(13, first));
         assert_eq!(
             bind_result.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Closed)

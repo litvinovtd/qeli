@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v16-linux-udp-rollback -->
+<!-- normative-sync: roaming-v17-linux-udp-supersede -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -25,11 +25,14 @@
 > preserving PID, TUN, and the absence of top-level reconnect. A separate rollback scenario passed
 > 20/20: path B alone was blackholed, bounded PATH_INIT retries expired, and the exact platform ABORT
 > removed the prepared candidate while retaining the active carrier `/32` on path A; the tunnel kept
-> the same PID/TUN without entering top-level reconnect. Windows/macOS/iOS adapters and Phases 4–6
-> remain. Current lab gates pass 947 feature library tests with three ignored, 870 default tests with
-> one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming netns 15/15, UDP
-> roaming netns success 17/17 and rollback 20/20, an Android x86_64 NDK release with `-D warnings`,
-> and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
+> the same PID/TUN without entering top-level reconnect. A three-path supersede scenario passed 24/24:
+> blackholed B emitted PATH_INIT, then the platform executed `ABORT(B) → PREPARE(C)`, the actor
+> discarded the old socket before retry expiry, and the server saw challenge/commit only on C with
+> exactly one published commit. PID/TUN and traffic survived without reconnect. Windows/macOS/iOS
+> adapters and Phases 4–6 remain. Current lab gates pass 947 feature library tests with three ignored,
+> 870 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
+> netns 15/15, UDP roaming success 17/17, rollback 20/20, and supersede 24/24, an Android x86_64 NDK
+> release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -540,9 +543,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   non-QUIC UDP, fixed-source, and default builds retain reconnect behavior. An isolated two-path Linux
   UDP netns e2e passed 17/17 with old-path removal and no PID/TUN replacement or top-level reconnect;
   its paired rollback case passed 20/20 with a path-B-only blackhole, bounded expiry, exact platform
-  ABORT, and the carrier `/32`, PID/TUN, and traffic retained on path A without reconnect. Adversarial
-  supersede/race, real-device NAT-rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt adapter
-  now consumes the shared ordered family-compatible candidate projection: a physical path must have
+  ABORT, and the carrier `/32`, PID/TUN, and traffic retained on path A without reconnect. A three-path
+  supersede gate passed 24/24: B crossed BIND/PATH_INIT, exact ABORT of that old candidate preceded
+  PREPARE C, the actor rejected late B proof, and exactly one C commit was published. Adversarial late-
+  response/commit races, real-device NAT-rebinding, and soak gates remain. The Phase 4 Linux/OpenWrt
+  adapter now consumes the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,
   BIND/COMMIT/ABORT requests, correlated ACK completion and cancellation to one shared Rust

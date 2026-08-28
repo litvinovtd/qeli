@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Linux UDP+QUIC make-before-break integration tests. Everything runs in three isolated network
 # namespaces; no host route or production process is changed. The success case commits path B;
-# the rollback case blackholes only B's candidate control and proves exact abort on path A.
+# rollback blackholes B; supersede replaces that in-flight candidate with reachable path C.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -19,9 +19,9 @@ CLIENT_JOB_PID=
 PING_PID=
 
 case "$CASE" in
-  success|rollback) ;;
+  success|rollback|supersede) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede]" >&2
     exit 2
     ;;
 esac
@@ -61,31 +61,39 @@ rm -f "$WORK"/*.log "$WORK"/*.conf
 for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns add "$ns"; done
 ip link add qru-a type veth peer name qru-ar
 ip link add qru-b type veth peer name qru-br
+ip link add qru-c type veth peer name qru-cr
 ip link add qru-s type veth peer name qru-sr
 ip link set qru-a netns "$CLI_NS"
 ip link set qru-b netns "$CLI_NS"
+ip link set qru-c netns "$CLI_NS"
 ip link set qru-ar netns "$RTR_NS"
 ip link set qru-br netns "$RTR_NS"
+ip link set qru-cr netns "$RTR_NS"
 ip link set qru-s netns "$SRV_NS"
 ip link set qru-sr netns "$RTR_NS"
 
 ip netns exec "$CLI_NS" ip addr add 10.41.1.2/24 dev qru-a
 ip netns exec "$CLI_NS" ip addr add 10.41.2.2/24 dev qru-b
+ip netns exec "$CLI_NS" ip addr add 10.41.4.2/24 dev qru-c
 ip netns exec "$RTR_NS" ip addr add 10.41.1.1/24 dev qru-ar
 ip netns exec "$RTR_NS" ip addr add 10.41.2.1/24 dev qru-br
+ip netns exec "$RTR_NS" ip addr add 10.41.4.1/24 dev qru-cr
 ip netns exec "$RTR_NS" ip addr add 10.41.3.1/24 dev qru-sr
 ip netns exec "$SRV_NS" ip addr add 10.41.3.2/24 dev qru-s
 for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns exec "$ns" ip link set lo up; done
 ip netns exec "$CLI_NS" ip link set qru-a up
 ip netns exec "$CLI_NS" ip link set qru-b up
+ip netns exec "$CLI_NS" ip link set qru-c up
 ip netns exec "$RTR_NS" ip link set qru-ar up
 ip netns exec "$RTR_NS" ip link set qru-br up
+ip netns exec "$RTR_NS" ip link set qru-cr up
 ip netns exec "$RTR_NS" ip link set qru-sr up
 ip netns exec "$SRV_NS" ip link set qru-s up
 ip netns exec "$RTR_NS" sysctl -qw net.ipv4.ip_forward=1
 
 ip netns exec "$CLI_NS" ip route add default via 10.41.1.1 dev qru-a metric 100
 ip netns exec "$CLI_NS" ip route add default via 10.41.2.1 dev qru-b metric 200
+ip netns exec "$CLI_NS" ip route add default via 10.41.4.1 dev qru-c metric 300
 ip netns exec "$SRV_NS" ip route add default via 10.41.3.1 dev qru-s
 
 check "path A reaches the server" \
@@ -207,6 +215,77 @@ if [ "$CASE" = rollback ]; then
     "$WORK/ping.log" | tail -n1)
   check "continuous probe retained at least 140 of 150 packets during rollback" \
     "test -n '$PING_RX' && test '$PING_RX' -ge 140"
+elif [ "$CASE" = supersede ]; then
+  sleep 3
+  check "path C reaches the server" \
+    "ip netns exec $CLI_NS ping -I 10.41.4.2 -c1 -W2 10.41.3.2"
+  ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-br -o qru-sr \
+    -p udp --dport 4444 -j DROP
+  check "candidate path B blackhole is active" \
+    "ip netns exec $RTR_NS iptables -C FORWARD -i qru-br -o qru-sr -p udp --dport 4444 -j DROP"
+
+  ip netns exec "$CLI_NS" ping -n -i 0.2 -c 180 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
+  PING_PID=$!
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
+  if wait_for 100 "grep -q 'Linux roaming prepared candidate .* on qru-b' $WORK/client.log"; then
+    ok "Linux observer prepared blackholed path B"
+  else
+    bad "Linux observer did not prepare path B"
+  fi
+
+  # Start observing C as soon as B crosses PREPARE; the UDP actor still binds and emits B's
+  # PATH_INIT independently through SO_BINDTODEVICE, so this deterministically overlaps both.
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.4.1 dev qru-c metric 25
+  if wait_for 25 "grep -q 'UDP PATH_INIT sent for candidate' $WORK/client.log"; then
+    ok "client started validation on superseded path B"
+  else
+    bad "client did not start validation on path B"
+  fi
+  if wait_for 100 "grep -q 'Linux roaming prepared candidate .* on qru-c' $WORK/client.log"; then
+    ok "Linux observer prepared replacement path C"
+  else
+    bad "Linux observer did not prepare path C"
+  fi
+  if wait_for 150 "grep -q 'UDP make-before-break committed candidate' $WORK/client.log"; then
+    ok "replacement path C committed after superseding B"
+  else
+    bad "replacement path C did not commit"
+  fi
+
+  check "platform rolled back B before preparing C" \
+    "grep -q 'Linux roaming rolled back superseded candidate' $WORK/client.log"
+  check "UDP actor discarded the superseded live candidate" \
+    "grep -q 'UDP candidate .* superseded before validation completed' $WORK/client.log"
+  check "supersede completed before B exhausted its retry budget" \
+    "! grep -q 'UDP path candidate .* expired' $WORK/client.log"
+  check "server challenged only reachable path C" \
+    "grep -q 'UDP PATH_CHALLENGE sent.*to 10.41.4.2:' $WORK/server.log && ! grep -q 'UDP PATH_CHALLENGE sent.*to 10.41.2.2:' $WORK/server.log"
+  check "server committed only reachable path C" \
+    "grep -q 'UDP PATH_COMMIT.*to 10.41.4.2:' $WORK/server.log && ! grep -q 'UDP PATH_COMMIT.*to 10.41.2.2:' $WORK/server.log"
+  check "client published exactly one candidate commit" \
+    "test \"\$(grep -c 'UDP make-before-break committed candidate' $WORK/client.log)\" -eq 1"
+  check "carrier bypass moved directly from A to C" \
+    "ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q '^10.41.3.2 via 10.41.4.1 dev qru-c'"
+  check "no stale carrier bypass remains on A or B" \
+    "! ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -Eq 'dev qru-(a|b)'"
+
+  ip netns exec "$CLI_NS" ip link set qru-a down
+  ip netns exec "$CLI_NS" ip link set qru-b down
+  sleep 2
+  check "tunnel survives removal of superseded paths A and B" \
+    "ip netns exec $CLI_NS ping -c5 -W1 10.89.0.1"
+  check "client process survives supersede without reconnect" \
+    "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
+  check "the same TUN survives supersede" \
+    "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
+  check "supersede does not enter the top-level reconnect loop" \
+    "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+
+  wait "$PING_PID" 2>/dev/null || true
+  PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); print value }' \
+    "$WORK/ping.log" | tail -n1)
+  check "continuous probe retained at least 170 of 180 packets during supersede" \
+    "test -n '$PING_RX' && test '$PING_RX' -ge 170"
 else
 sleep 3
 ip netns exec "$CLI_NS" ping -n -i 0.2 -c 150 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &

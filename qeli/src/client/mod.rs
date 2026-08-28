@@ -60,6 +60,8 @@ use crate::transport_core::udp_buffer::{
 use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
 #[cfg(any(target_os = "linux", feature = "experimental-roaming"))]
 use crate::transport_core::ClientCore;
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+use crate::transport_core::ClientEvent;
 #[cfg(target_os = "linux")]
 use crate::transport_core::{platform_capability, ClientState, CoreOptions, EventKind};
 #[cfg(all(test, target_os = "linux"))]
@@ -549,6 +551,12 @@ impl CorePathController {
         self.with_core(|core| core.prepared_path_candidate())
     }
 
+    pub(crate) fn candidate_is_current(&self, candidate: &PreparedPathCandidate) -> bool {
+        self.with_core(|core| {
+            core.path_candidate_is_current(candidate.update.generation, candidate.candidate_id)
+        })
+    }
+
     pub(crate) fn bind_candidate_socket(
         &self,
         candidate: &PreparedPathCandidate,
@@ -707,14 +715,12 @@ impl LinuxPathController {
 
     /// Consume and ACK one exact command. A rejection makes `ClientCore` enqueue ABORT; execute
     /// that rollback before returning so no temporary Linux state can outlive the failed call.
-    fn dispatch_pending(
+    fn dispatch_event(
         &self,
+        event: ClientEvent,
         expected_action: PathCommandAction,
         expected_candidate: u64,
     ) -> anyhow::Result<Option<String>> {
-        let event = self
-            .with_core(|core| core.poll_path_event())
-            .ok_or_else(|| anyhow::anyhow!("Linux path command queue is empty"))?;
         if event.kind != EventKind::PathCommand {
             anyhow::bail!(
                 "Linux path dispatcher received unrelated {:?} event {}",
@@ -753,9 +759,45 @@ impl LinuxPathController {
         Ok(rejection)
     }
 
+    fn dispatch_pending(
+        &self,
+        expected_action: PathCommandAction,
+        expected_candidate: u64,
+    ) -> anyhow::Result<Option<String>> {
+        let event = self
+            .with_core(|core| core.poll_path_event())
+            .ok_or_else(|| anyhow::anyhow!("Linux path command queue is empty"))?;
+        self.dispatch_event(event, expected_action, expected_candidate)
+    }
+
     fn submit_path_update(&self, update_json: &str) -> anyhow::Result<u64> {
         let candidate_id = self.with_core(|core| core.submit_path_update(update_json))?;
-        if let Some(reason) = self.dispatch_pending(PathCommandAction::PreparePath, candidate_id)? {
+        let event = self
+            .with_core(|core| core.poll_path_event())
+            .ok_or_else(|| anyhow::anyhow!("Linux path command queue is empty"))?;
+        let command = event
+            .path_command
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("PathCommand event has no command payload"))?;
+        let action = command.action;
+        let queued_candidate = command.candidate_id;
+        if action == PathCommandAction::AbortPath && queued_candidate != candidate_id {
+            self.dispatch_event(event, PathCommandAction::AbortPath, queued_candidate)?;
+            log::info!(
+                "Linux roaming rolled back superseded candidate {} before preparing {}",
+                queued_candidate,
+                candidate_id
+            );
+            if let Some(reason) =
+                self.dispatch_pending(PathCommandAction::PreparePath, candidate_id)?
+            {
+                anyhow::bail!("PREPARE_PATH rejected: {reason}");
+            }
+            return Ok(candidate_id);
+        }
+        if let Some(reason) =
+            self.dispatch_event(event, PathCommandAction::PreparePath, candidate_id)?
+        {
             anyhow::bail!("PREPARE_PATH rejected: {reason}");
         }
         Ok(candidate_id)
@@ -766,6 +808,10 @@ impl LinuxPathController {
 impl PathController for LinuxPathController {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
         self.shared.prepared_candidate()
+    }
+
+    fn candidate_is_current(&self, candidate: &PreparedPathCandidate) -> bool {
+        self.shared.candidate_is_current(candidate)
     }
 
     fn bind_candidate_socket(
@@ -804,6 +850,7 @@ impl PathController for LinuxPathController {
 #[cfg(feature = "experimental-roaming")]
 pub(crate) trait PathController: Send + Sync {
     fn prepared_candidate(&self) -> Option<PreparedPathCandidate>;
+    fn candidate_is_current(&self, candidate: &PreparedPathCandidate) -> bool;
     // Native FFI and Linux connectors consume BIND_SOCKET while opening the candidate; the
     // default-off capability keeps adapters without this exact binding contract on reconnect.
     #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
@@ -2004,6 +2051,10 @@ mod linux_candidate_dialer_tests {
     impl PathController for RecordingPathController {
         fn prepared_candidate(&self) -> Option<PreparedPathCandidate> {
             None
+        }
+
+        fn candidate_is_current(&self, _candidate: &PreparedPathCandidate) -> bool {
+            true
         }
 
         fn bind_candidate_socket(
@@ -7873,6 +7924,27 @@ pub(crate) async fn run_udp_tunnel(
             _ = candidate_tick.tick(), if udp_handover_enabled => {
                 #[cfg(all(feature = "experimental-roaming", unix))]
                 {
+                let superseded = live_udp_candidate.as_ref().and_then(|candidate| {
+                    (!path_controller
+                        .as_deref()
+                        .expect("enabled UDP handover retains path controller")
+                        .candidate_is_current(candidate.prepared()))
+                    .then_some(candidate.prepared().candidate_id)
+                });
+                if let Some(candidate_id) = superseded {
+                    let candidate = live_udp_candidate
+                        .take()
+                        .expect("superseded candidate was present");
+                    udp_roaming
+                        .as_mut()
+                        .expect("negotiated UDP handover retains roaming state")
+                        .abort_candidate(candidate_id);
+                    drop(candidate);
+                    log::info!(
+                        "UDP candidate {} superseded before validation completed",
+                        candidate_id
+                    );
+                }
                 if live_udp_candidate.is_some() {
                     let retry = udp_roaming
                         .as_mut()
@@ -7997,6 +8069,18 @@ pub(crate) async fn run_udp_tunnel(
                         continue;
                     }
                 };
+                if !path_controller
+                    .as_deref()
+                    .expect("enabled UDP handover retains path controller")
+                    .candidate_is_current(&prepared)
+                {
+                    log::info!(
+                        "UDP candidate {} superseded while its socket was connecting",
+                        prepared.candidate_id
+                    );
+                    drop(raw_candidate);
+                    continue;
+                }
                 // Apply the same socket policy before PATH_INIT. The temporary controller may
                 // drop after setsockopt; a fresh controller owns periodic tuning after COMMIT.
                 let _ = UdpBufferController::configure(
@@ -8429,6 +8513,10 @@ pub(crate) async fn run_udp_tunnel(
                 if receive_path == ClientUdpReceivePath::Candidate {
                     let candidate_matches = live_udp_candidate.as_ref().is_some_and(|candidate| {
                         candidate.epoch == recv_buf.path_epoch
+                            && path_controller
+                                .as_deref()
+                                .expect("candidate receive retains path controller")
+                                .candidate_is_current(candidate.prepared())
                             && udp_roaming.as_ref().is_some_and(|roaming| {
                                 roaming.candidate_epoch() == Some(candidate.epoch)
                                     && roaming.candidate_id()
@@ -8541,11 +8629,31 @@ pub(crate) async fn run_udp_tunnel(
                             let candidate = live_udp_candidate
                                 .as_ref()
                                 .expect("commit action retains live socket");
+                            let prepared = candidate.prepared().clone();
                             if commit.candidate_id() != candidate.prepared().candidate_id
                                 || commit.epoch() != candidate.epoch
                             {
                                 log::error!("UDP candidate commit identity mismatch — reconnecting");
                                 break 'udp;
+                            }
+                            if !path_controller
+                                .as_deref()
+                                .expect("candidate commit retains path controller")
+                                .candidate_is_current(&prepared)
+                            {
+                                let candidate = live_udp_candidate
+                                    .take()
+                                    .expect("superseded commit candidate was present");
+                                udp_roaming
+                                    .as_mut()
+                                    .expect("superseded commit retains roaming state")
+                                    .abort_candidate(prepared.candidate_id);
+                                drop(candidate);
+                                log::info!(
+                                    "UDP candidate {} superseded before platform commit",
+                                    prepared.candidate_id
+                                );
+                                continue 'udp;
                             }
                             let next_payload_budget =
                                 crate::protocol::data_frag::conservative_udp_payload_budget(
@@ -8571,7 +8679,6 @@ pub(crate) async fn run_udp_tunnel(
                                     break 'udp;
                                 }
                             };
-                            let prepared = candidate.prepared().clone();
                             let platform_commit = match path_controller
                                 .as_deref()
                                 .expect("enabled UDP handover retains path controller")

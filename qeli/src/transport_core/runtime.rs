@@ -311,6 +311,10 @@ impl PathController for NativeCoreAdapter {
             .flatten()
     }
 
+    fn candidate_is_current(&self, candidate: &super::path::PreparedPathCandidate) -> bool {
+        self.path_controller.candidate_is_current(candidate)
+    }
+
     fn bind_candidate_socket(
         &self,
         candidate: &super::path::PreparedPathCandidate,

@@ -88,6 +88,13 @@
   candidate/socket, не оставляет маршрут через B и сохраняет действующий carrier `/32` на пути A.
   Туннель передаёт трафик с теми же PID и TUN без верхнеуровневого reconnect; success повторно прошёл
   17/17. Завершённый rollback виден на `info`, чтобы live gate проверял фактический ACK платформы.
+- Закрыта Linux UDP supersede-гонка: когда новый PathUpdate приходит после BIND старого candidate,
+  executor теперь исполняет стоящий первым `ABORT(old)` и только затем `PREPARE(new)`, а не ожидает
+  ошибочно новый PREPARE и не оставляет core в `Aborting`. Общий candidate-current guard заставляет
+  UDP actor удалить superseded socket, не принимать его поздние control и повторно свериться прямо
+  перед platform COMMIT; тот же контракт использует native runtime. Трёхмаршрутный A → blackholed B
+  → C netns gate прошёл 24/24: B отправил PATH_INIT, сервер challenge/commit видел только C, carrier
+  `/32` сменился A → C ровно одним commit без reconnect, замены PID/TUN или заметной потери трафика.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;
