@@ -327,6 +327,17 @@
   и UDP. Capability намеренно не включён: до активации остаётся подключить dialer/state/wire к
   live UDP actor, одновременно переключать его egress и receive pump после platform COMMIT и
   выполнить live-приёмку.
+- Post-auth UDP actor теперь действительно использует общий Rust framing epoch 0. После AuthOK он
+  создаёт единый roaming state и направленную пару CID; обычные data, DATA_FRAG, recordizer output,
+  cover/heartbeat, authenticated reports, startup/live PMTU probes и ACK обоих направлений проходят
+  через один immutable framing snapshot. Ingress с неверным server-to-client CID отбрасывается до
+  PacketCodec/replay window, egress использует client-to-server CID. Расчёты DATA_FRAG и PMTU теперь
+  принимают фактическую длину wrapper и для roaming вычитают 13 байт вместо legacy 9, исключая
+  oversized DF datagrams после согласования. Legacy QUIC и unmasked wire сохранены byte-for-byte.
+  Три focused-теста проверяют passthrough, legacy compatibility и directional CID; strict feature
+  Clippy чист, полный suite — 943 passed, 3 ignored. `UDP_ROAM_V1` всё ещё не рекламируется, поэтому
+  production-поведение не изменено; до активации остаются validation candidate socket, обработка
+  PATH_* в live actor и атомарная публикация нового receive/egress после platform COMMIT.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в
   секунду. Повтор того же authenticated PATH_INIT увеличивает только 3× anti-amplification budget,

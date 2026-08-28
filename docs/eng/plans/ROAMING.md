@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v12-udp-client-wire-dialer -->
+<!-- normative-sync: roaming-v13-udp-client-epoch-zero-framing -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature TCP adapters
@@ -13,10 +13,11 @@
 > bounded UDP registry, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction, and
 > post-commit UDP DATA/DATA_FRAG ingress plus shared client validation, wire framing and the
-> exact-bound candidate-socket dialer are source-complete; live UDP actor socket publication,
-> UDP capability activation, and live
+> exact-bound candidate-socket dialer are source-complete. The live client actor now switches every
+> epoch-zero post-auth data/control/PMTU path to directional CID framing with exact overhead; candidate
+> socket validation and atomic receive/egress publication, UDP capability activation, and live
 > acceptance remain. Windows/macOS/iOS adapters and remaining Phase 3–6 work remain. Current lab
-> gates pass 940 feature library tests with three ignored, strict feature Clippy, base Linux netns
+> gates pass 943 feature library tests with three ignored, strict feature Clippy, base Linux netns
 > 26/26, roaming netns 15/15,
 > an Android x86_64 NDK release with `-D warnings`, and Gradle unit/assemble.
 > The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
@@ -486,7 +487,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   at 500 ms intervals inside the same fixed ten-second lifetime as the server candidate. A received
   wire commit is only a proposal: active epoch/CIDs do not change until the platform has acknowledged
   `COMMIT_PATH`, so a late completion after ABORT cannot publish an old path. Eight focused tests pin
-  these invariants; strict feature Clippy and the full feature library suite (940 passed, three
+  these invariants; strict feature Clippy and the full feature library suite (943 passed, three
   ignored) pass.
 
   The shared client wire layer now produces the complete `CONTROL_V2 → PacketCodec → eight-byte
@@ -501,9 +502,18 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and only then connects to the first family-compatible address resolved by that PathUpdate. The
   Linux test exercises the same bind-before-connect contract for both TCP and UDP.
 
+  The common client actor now constructs epoch-zero roaming state immediately after AuthOK and
+  atomically selects one post-auth framing snapshot. Ordinary data, DATA_FRAG, recordizer output,
+  heartbeat/cover, authenticated reports, startup/live PMTU probes and both PMTU ACK directions all
+  use that same snapshot. Roaming ingress requires the exact server-to-client CID before consuming
+  PacketCodec/replay state; egress uses the client-to-server CID. The data-fragment and PMTU budgets
+  subtract the actual 13-byte roaming header instead of the legacy nine-byte header. Legacy masked
+  and unmasked paths remain byte-for-byte compatible. Three focused framing tests cover passthrough,
+  legacy compatibility and directional-CID rejection.
+
   `UDP_ROAM_V1` remains absent from implemented server and client advertisements, so bootstrap and
-  eight-byte CID framing still cannot activate in production. Live UDP actor/candidate-socket
-  receive/egress publication remains before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
+  eight-byte CID framing still cannot activate in production. Candidate-socket validation and atomic
+  live UDP actor receive/egress publication remain before capability activation. The Phase 4 Linux/OpenWrt adapter now consumes
   the shared ordered family-compatible candidate projection: a physical path must have
   at least one local/resolved family match, and an unusable leading AAAA/A answer cannot hide a later
   usable address. Native Android/Windows/macOS/iOS runtimes now delegate prepared-candidate lookup,

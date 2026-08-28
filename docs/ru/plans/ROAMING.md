@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v12-udp-client-wire-dialer -->
+<!-- normative-sync: roaming-v13-udp-client-epoch-zero-framing -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -14,9 +14,10 @@
 > state, cross-worker dispatch, atomic data/auxiliary egress, negotiated bootstrap,
 > authenticated ingress/control boundary, guarded PATH_RESPONSE/PATH_COMMIT transaction и
 > post-commit UDP DATA/DATA_FRAG ingress вместе с общими клиентскими validation state machine,
-> wire framing и exact-bound candidate-socket dialer готовы по исходникам; впереди публикация
-> сокета в live UDP actor, включение UDP capability и live-приёмка. Впереди Windows/macOS/iOS
-> adapters и работы этапов 3–6. Текущие lab gates: 940
+> wire framing и exact-bound candidate-socket dialer готовы по исходникам. Live client actor теперь
+> переводит все post-auth data/control/PMTU пути epoch 0 на directional CID framing с точным overhead;
+> впереди validation candidate socket и атомарная публикация receive/egress, включение UDP capability
+> и live-приёмка. Впереди Windows/macOS/iOS adapters и работы этапов 3–6. Текущие lab gates: 943
 > feature library tests при трёх ignored, strict feature Clippy, базовый Linux netns 26/26,
 > roaming netns 15/15,
 > Android x86_64 NDK release с `-D warnings` и Gradle unit/assemble.
@@ -696,7 +697,7 @@ fail-closed. Точный повтор challenge идемпотентно пов
 и server candidate. Полученный wire commit остаётся только предложением: active epoch/CID не
 меняются до подтверждения платформой `COMMIT_PATH`, поэтому поздний completion после ABORT не может
 опубликовать старый путь. Восемь focused-тестов фиксируют эти инварианты; strict feature Clippy и
-полный feature library suite (940 passed, три ignored) проходят.
+полный feature library suite (943 passed, три ignored) проходят.
 
 Общий клиентский wire-слой теперь формирует полный конверт `CONTROL_V2 → PacketCodec →
 eight-byte CID` и разбирает authenticated packets через единое session replay window. Обычные data
@@ -709,9 +710,18 @@ candidate dialer создаёт отдельный unbound socket, ждёт ACK 
 только затем подключает первый family-compatible адрес, разрешённый через данный PathUpdate.
 Linux-тест фиксирует одинаковый bind-before-connect порядок для TCP и UDP.
 
+Общий client actor теперь создаёт roaming state epoch 0 сразу после AuthOK и атомарно выбирает один
+post-auth framing snapshot. Обычные data, DATA_FRAG, recordizer output, heartbeat/cover,
+authenticated reports, startup/live PMTU probes и ACK обоих направлений PMTU используют этот
+snapshot. Roaming ingress требует точный server-to-client CID до расходования PacketCodec/replay
+state; egress использует client-to-server CID. DATA_FRAG и PMTU budgets вычитают фактический
+13-байтный roaming header вместо девятибайтного legacy header. Legacy masked/unmasked wire остаётся
+byte-for-byte совместимым. Три focused-теста фиксируют passthrough, legacy compatibility и отказ
+при CID неверного направления.
+
 `UDP_ROAM_V1` по-прежнему отсутствует в implemented server/client advertisements, поэтому
 bootstrap и восьмибайтовый CID ещё не могут включиться в production. До capability activation
-остаётся атомарно подключить новый socket к egress и receive pump live UDP actor. Linux/OpenWrt adapter этапа 4 теперь
+остаются validation candidate socket и атомарная публикация receive/egress live UDP actor. Linux/OpenWrt adapter этапа 4 теперь
 получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь

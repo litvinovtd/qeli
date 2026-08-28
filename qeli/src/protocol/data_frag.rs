@@ -109,15 +109,27 @@ pub fn unfragmented_record_budget(
     obfs_overhead: usize,
     quic_enabled: bool,
 ) -> Result<usize, DataFragError> {
+    unfragmented_record_budget_with_wrapper(
+        udp_payload_budget,
+        obfs_overhead,
+        if quic_enabled {
+            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+        } else {
+            0
+        },
+    )
+}
+
+/// Variant used by roaming-aware actors, where the QUIC-shaped wrapper can carry either a
+/// legacy four-byte connection id or an eight-byte directional CID.
+pub fn unfragmented_record_budget_with_wrapper(
+    udp_payload_budget: usize,
+    obfs_overhead: usize,
+    wrapper_len: usize,
+) -> Result<usize, DataFragError> {
     udp_payload_budget
         .checked_sub(obfs_overhead)
-        .and_then(|value| {
-            value.checked_sub(if quic_enabled {
-                crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-            } else {
-                0
-            })
-        })
+        .and_then(|value| value.checked_sub(wrapper_len))
         .filter(|value| *value > HEADER_LEN)
         .ok_or(DataFragError::BudgetTooSmall)
 }

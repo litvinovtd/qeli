@@ -17,8 +17,7 @@ use crate::crypto::{
 use crate::crypto::{derive_session_material_hybrid, derive_session_material_hybrid_bound};
 use crate::protocol::{
     generate_connection_id, read_record, read_record_into, read_tls_record, unwrap_quic,
-    unwrap_quic_payload, wrap_quic_long, wrap_quic_short, wrap_quic_short_into, FakeTlsHandshake,
-    Framing, Obfuscator, PacketCodec,
+    wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 #[cfg(target_os = "linux")]
 use crate::trace;
@@ -192,15 +191,11 @@ impl LiveUdpMtuProbe {
     }
 }
 
-fn udp_payload_budget_for_probe(probe_mtu: i32, seal_overhead: usize, quic_enabled: bool) -> usize {
+fn udp_payload_budget_for_probe(probe_mtu: i32, seal_overhead: usize, wrapper_len: usize) -> usize {
     (probe_mtu.max(0) as usize)
         .saturating_add(UDP_RECORD_PROBE_OVERHEAD)
         .saturating_add(seal_overhead)
-        .saturating_add(if quic_enabled {
-            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-        } else {
-            0
-        })
+        .saturating_add(wrapper_len)
 }
 
 /// Accept only packets belonging to the address families negotiated atomically in the
@@ -5411,8 +5406,7 @@ fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
 ))]
 async fn probe_udp_mtu(
     socket: &crate::protocol::obfs::ObfsUdp,
-    quic_enabled: bool,
-    connection_id: &[u8; 4],
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
     ceiling: i32,
     keep_df_after_success: bool,
@@ -5434,11 +5428,7 @@ async fn probe_udp_mtu(
     // that silently means something else. (Audit 2026-07-29, #12.)
     let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
         + socket.seal_overhead()
-        + if quic_enabled {
-            crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-        } else {
-            0
-        }
+        + framing.wrapper_len()
         + 8 // UDP header
         + if socket.peer_is_ipv6() { 40 } else { 20 };
     let ladder = mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6());
@@ -5459,13 +5449,13 @@ async fn probe_udp_mtu(
             match mtu_probe_datagram(probe_id, m as usize + UDP_RECORD_PROBE_OVERHEAD) {
                 None => false,
                 Some(probe) => {
-                    let pkt = if quic_enabled {
-                        let w = wrap_quic_short(&probe, connection_id, *quic_pn);
-                        *quic_pn = quic_pn.wrapping_add(1);
-                        w
-                    } else {
-                        probe
-                    };
+                    let mut wrapped = Vec::new();
+                    let pkt = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                        framing,
+                        &probe,
+                        quic_pn,
+                        &mut wrapped,
+                    );
                     let mut ok = false;
                     for _ in 0..2u8 {
                         // EMSGSIZE = the local link is smaller than this probe → size fails.
@@ -5480,14 +5470,8 @@ async fn probe_udp_mtu(
                         loop {
                             match tokio::time::timeout_at(deadline, socket.recv(&mut buf)).await {
                                 Ok(Ok(n)) if n > 0 => {
-                                    let payload = if quic_enabled {
-                                        unwrap_quic(&buf[..n])
-                                            .map(|p| p.payload)
-                                            .unwrap_or_default()
-                                    } else {
-                                        buf[..n].to_vec()
-                                    };
-                                    if parse_mtu_probe_ack(&payload) == Some((probe_id, probe_size))
+                                    let payload = framing.unwrap(&buf[..n]).unwrap_or_default();
+                                    if parse_mtu_probe_ack(payload) == Some((probe_id, probe_size))
                                     {
                                         ok = true;
                                         break;
@@ -5911,9 +5895,9 @@ mod mtu_ladder_tests {
     fn probe_budget_accounts_for_all_udp_payload_wrappers() {
         use super::udp_payload_budget_for_probe;
 
-        assert_eq!(udp_payload_budget_for_probe(1400, 13, false), 1461);
+        assert_eq!(udp_payload_budget_for_probe(1400, 13, 0), 1461);
         assert_eq!(
-            udp_payload_budget_for_probe(1400, 13, true),
+            udp_payload_budget_for_probe(1400, 13, crate::protocol::quic::QUIC_SHORT_HEADER_MIN),
             1461 + crate::protocol::quic::QUIC_SHORT_HEADER_MIN
         );
     }
@@ -5928,8 +5912,7 @@ mod mtu_ladder_tests {
 )))]
 async fn probe_udp_mtu(
     _socket: &crate::protocol::obfs::ObfsUdp,
-    _quic_enabled: bool,
-    _connection_id: &[u8; 4],
+    _framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     _quic_pn: &mut u32,
     _ceiling: i32,
     _keep_df_after_success: bool,
@@ -6442,8 +6425,7 @@ async fn send_client_udp_payload(
     tx_record_id: &mut u64,
     shaper: &mut crate::protocol::Shaper,
     socket: &crate::protocol::obfs::ObfsUdp,
-    quic_enabled: bool,
-    connection_id: &[u8; 4],
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
     max_empty_record_padding: usize,
     wire_record: &mut Vec<u8>,
@@ -6503,19 +6485,12 @@ async fn send_client_udp_payload(
                     .encrypt_packet_into(&[], padding, cover_record)
                     .is_ok()
                 {
-                    let send_data: &[u8] = if quic_enabled {
-                        let packet_number = *quic_pn;
-                        *quic_pn = quic_pn.wrapping_add(1);
-                        wrap_quic_short_into(
-                            cover_record,
-                            connection_id,
-                            packet_number,
-                            quic_record,
-                        );
-                        quic_record
-                    } else {
-                        cover_record
-                    };
+                    let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                        framing,
+                        cover_record,
+                        quic_pn,
+                        quic_record,
+                    );
                     let _ = socket.send(send_data).await;
                 }
             }
@@ -6544,28 +6519,24 @@ async fn send_client_udp_payload(
             }
         };
         for fragment in fragments {
-            let send_data: &[u8] = if quic_enabled {
-                let packet_number = *quic_pn;
-                *quic_pn = quic_pn.wrapping_add(1);
-                wrap_quic_short_into(&fragment, connection_id, packet_number, quic_record);
-                quic_record
-            } else {
-                &fragment
-            };
+            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                framing,
+                &fragment,
+                quic_pn,
+                quic_record,
+            );
             if let Err(error) = socket.send(send_data).await {
                 log::warn!("UDP carrier fragment send failed: {error}");
                 return false;
             }
         }
     } else {
-        let send_data: &[u8] = if quic_enabled {
-            let packet_number = *quic_pn;
-            *quic_pn = quic_pn.wrapping_add(1);
-            wrap_quic_short_into(wire_record, connection_id, packet_number, quic_record);
-            quic_record
-        } else {
-            wire_record
-        };
+        let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+            framing,
+            wire_record,
+            quic_pn,
+            quic_record,
+        );
         if let Err(error) = socket.send(send_data).await {
             log::warn!("UDP carrier send failed: {error}");
             return false;
@@ -7120,7 +7091,7 @@ pub(crate) async fn run_udp_tunnel(
         udp_roaming_session_id: _udp_roaming_session_id,
     } = parse_auth_ok(&response_str)?;
     #[cfg(feature = "experimental-roaming")]
-    let _udp_roaming_session_id = if quic_enabled
+    let udp_roaming_session_id = if quic_enabled
         && crate::protocol::capabilities::udp_roaming_negotiated(
             server_capabilities,
             negotiated_capabilities,
@@ -7132,21 +7103,39 @@ pub(crate) async fn run_udp_tunnel(
         None
     };
     #[cfg(feature = "experimental-roaming")]
-    let _udp_roaming_initial_cids = _udp_roaming_session_id.map(|session_id| {
-        // Direction is from the client's point of view: outgoing packets use C2S, while
-        // incoming server packets carry S2C. Both values remain secret-on-wire identifiers.
-        let transmit = crate::protocol::roaming::derive_udp_cid(
-            udp_session_material.client_to_server_cid_secret(),
-            session_id,
-            0,
-        );
-        let receive = crate::protocol::roaming::derive_udp_cid(
-            udp_session_material.server_to_client_cid_secret(),
-            session_id,
-            0,
-        );
-        (transmit, receive)
-    });
+    let udp_roaming = udp_roaming_session_id
+        .map(|session_id| {
+            crate::transport_core::udp_roaming_client::UdpClientRoaming::new(
+                session_id,
+                *udp_session_material.client_to_server_cid_secret(),
+                *udp_session_material.server_to_client_cid_secret(),
+            )
+        })
+        .transpose()?;
+    let udp_framing = {
+        #[cfg(feature = "experimental-roaming")]
+        {
+            match udp_roaming.as_ref() {
+                Some(roaming) => {
+                    crate::transport_core::udp_client_framing::UdpClientFraming::roaming(
+                        *roaming.active_transmit_cid(),
+                        *roaming.active_receive_cid(),
+                    )
+                }
+                None => crate::transport_core::udp_client_framing::UdpClientFraming::legacy(
+                    quic_enabled,
+                    connection_id,
+                ),
+            }
+        }
+        #[cfg(not(feature = "experimental-roaming"))]
+        {
+            crate::transport_core::udp_client_framing::UdpClientFraming::legacy(
+                quic_enabled,
+                connection_id,
+            )
+        }
+    };
 
     let mut eff_obf = config.obfuscation.clone();
     if let Some(po) = pushed_obf.as_ref() {
@@ -7173,8 +7162,7 @@ pub(crate) async fn run_udp_tunnel(
     let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
         match probe_udp_mtu(
             &socket,
-            quic_enabled,
-            &connection_id,
+            udp_framing,
             &mut quic_pn,
             base_mtu,
             data_frag_enabled,
@@ -7185,8 +7173,11 @@ pub(crate) async fn run_udp_tunnel(
                 keep_df_after_live_probe = data_frag_enabled;
                 // The probe sent `m + record-overhead`, then QUIC/obfs wrapped it. Record
                 // the UDP payload size it actually certified separately from inner MTU.
-                uplink_udp_payload_budget =
-                    udp_payload_budget_for_probe(m, socket.seal_overhead(), quic_enabled);
+                uplink_udp_payload_budget = udp_payload_budget_for_probe(
+                    m,
+                    socket.seal_overhead(),
+                    udp_framing.wrapper_len(),
+                );
                 // Inner and outer MTU stay independent when DATA_FRAG_V1 was negotiated.
                 // A legacy server cannot reassemble record fragments, so use the certified
                 // inner size for IPv4. IPv6 keeps its mandatory 1280 floor; the probe restored
@@ -7431,15 +7422,15 @@ pub(crate) async fn run_udp_tunnel(
         crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
     let mut wire_record = Vec::with_capacity(wire_capacity);
     let mut cover_record = Vec::with_capacity(wire_capacity);
-    let mut quic_record =
-        Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
+    let mut quic_record = Vec::with_capacity(wire_capacity + udp_framing.wrapper_len());
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut oversize_tun_drops: u64 = 0;
-    let mut data_record_budget = crate::protocol::data_frag::unfragmented_record_budget(
-        uplink_udp_payload_budget,
-        socket.seal_overhead(),
-        quic_enabled,
-    )?;
+    let mut data_record_budget =
+        crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
+            uplink_udp_payload_budget,
+            socket.seal_overhead(),
+            udp_framing.wrapper_len(),
+        )?;
     let mut mux_payload_budget = client_tx
         .max_data_for_record_budget(data_record_budget)
         .map_err(|error| anyhow::anyhow!("UDP recordizer budget is invalid: {error}"))?;
@@ -7517,13 +7508,12 @@ pub(crate) async fn run_udp_tunnel(
             .encrypt_packet_into(&frame, &[], &mut cover_record)
             .is_ok()
         {
-            let send_data: &[u8] = if quic_enabled {
-                quic_pn += 1;
-                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
-                &quic_record
-            } else {
-                &cover_record
-            };
+            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                udp_framing,
+                &cover_record,
+                &mut quic_pn,
+                &mut quic_record,
+            );
             match socket.send(send_data).await {
                 Ok(_) => {
                     log::debug!("reported UDP payload budget {budget} to the server");
@@ -7542,13 +7532,12 @@ pub(crate) async fn run_udp_tunnel(
             .encrypt_packet_into(&frame, &[], &mut cover_record)
             .is_ok()
         {
-            let send_data: &[u8] = if quic_enabled {
-                quic_pn += 1;
-                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
-                &quic_record
-            } else {
-                &cover_record
-            };
+            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                udp_framing,
+                &cover_record,
+                &mut quic_pn,
+                &mut quic_record,
+            );
             match socket.send(send_data).await {
                 Ok(_) => {
                     log::debug!("reported tunnel MTU {mtu} to the server");
@@ -7567,13 +7556,12 @@ pub(crate) async fn run_udp_tunnel(
             .encrypt_packet_into(&frame, &[], &mut cover_record)
             .is_ok()
         {
-            let send_data: &[u8] = if quic_enabled {
-                quic_pn += 1;
-                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
-                &quic_record
-            } else {
-                &cover_record
-            };
+            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                udp_framing,
+                &cover_record,
+                &mut quic_pn,
+                &mut quic_record,
+            );
             if let Err(e) = socket.send(send_data).await {
                 log::debug!("could not report client version: {e}");
             }
@@ -7668,8 +7656,7 @@ pub(crate) async fn run_udp_tunnel(
                         &mut tx_record_id,
                         &mut shaper,
                         &socket,
-                        quic_enabled,
-                        &connection_id,
+                        udp_framing,
                         &mut quic_pn,
                         max_empty_record_padding,
                         &mut wire_record,
@@ -7694,11 +7681,7 @@ pub(crate) async fn run_udp_tunnel(
             _ = live_mtu_due.tick(), if live_mtu_reprobe_enabled && !live_mtu_probe.is_active() => {
                 let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
                     + socket.seal_overhead()
-                    + if quic_enabled {
-                        crate::protocol::quic::QUIC_SHORT_HEADER_MIN
-                    } else {
-                        0
-                    }
+                    + udp_framing.wrapper_len()
                     + 8
                     + if socket.peer_is_ipv6() { 40 } else { 20 };
                 let candidates: Vec<i32> = mtu_probe_ladder(
@@ -7711,7 +7694,7 @@ pub(crate) async fn run_udp_tunnel(
                     udp_payload_budget_for_probe(
                         *candidate,
                         socket.seal_overhead(),
-                        quic_enabled,
+                        udp_framing.wrapper_len(),
                     ) > uplink_udp_payload_budget
                 })
                 .collect();
@@ -7737,18 +7720,13 @@ pub(crate) async fn run_udp_tunnel(
                         probe_id,
                         candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
                     ) {
-                        let send_data: &[u8] = if quic_enabled {
-                            quic_pn = quic_pn.wrapping_add(1);
-                            wrap_quic_short_into(
+                        let send_data =
+                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                udp_framing,
                                 &probe,
-                                &connection_id,
-                                quic_pn - 1,
+                                &mut quic_pn,
                                 &mut quic_record,
                             );
-                            &quic_record
-                        } else {
-                            &probe
-                        };
                         if let Err(error) = socket.send(send_data).await {
                             log::trace!("UDP live PMTU probe send failed: {error}");
                         }
@@ -7829,8 +7807,7 @@ pub(crate) async fn run_udp_tunnel(
                             &mut tx_record_id,
                             &mut shaper,
                             &socket,
-                            quic_enabled,
-                            &connection_id,
+                            udp_framing,
                             &mut quic_pn,
                             max_empty_record_padding,
                             &mut wire_record,
@@ -7919,16 +7896,13 @@ pub(crate) async fn run_udp_tunnel(
                                         .is_ok()
                                 };
                                 if cover_ready {
-                                    let send_data: &[u8] = if quic_enabled {
-                                        quic_pn += 1;
-                                        wrap_quic_short_into(
+                                    let send_data =
+                                        crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                            udp_framing,
                                             &cover_record,
-                                            &connection_id,
-                                            quic_pn - 1,
+                                            &mut quic_pn,
                                             &mut quic_record,
                                         );
-                                        &quic_record
-                                    } else { &cover_record };
                                     let _ = socket.send(send_data).await;
                                 }
                             }
@@ -7957,18 +7931,13 @@ pub(crate) async fn run_udp_tunnel(
                         };
                         let mut send_failed = None;
                         for fragment in fragments {
-                            let send_data: &[u8] = if quic_enabled {
-                                quic_pn = quic_pn.wrapping_add(1);
-                                wrap_quic_short_into(
+                            let send_data =
+                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                    udp_framing,
                                     &fragment,
-                                    &connection_id,
-                                    quic_pn - 1,
+                                    &mut quic_pn,
                                     &mut quic_record,
                                 );
-                                &quic_record
-                            } else {
-                                &fragment
-                            };
                             if let Err(error) = socket.send(send_data).await {
                                 send_failed = Some(error);
                                 break;
@@ -7979,18 +7948,13 @@ pub(crate) async fn run_udp_tunnel(
                             break;
                         }
                     } else {
-                        let send_data: &[u8] = if quic_enabled {
-                            quic_pn = quic_pn.wrapping_add(1);
-                            wrap_quic_short_into(
+                        let send_data =
+                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                udp_framing,
                                 &wire_record,
-                                &connection_id,
-                                quic_pn - 1,
+                                &mut quic_pn,
                                 &mut quic_record,
                             );
-                            &quic_record
-                        } else {
-                            &wire_record
-                        };
                         if let Err(error) = socket.send(send_data).await {
                             log::warn!("UDP carrier send failed: {error}");
                             break;
@@ -8005,13 +7969,9 @@ pub(crate) async fn run_udp_tunnel(
                 };
                 let n = recv_buf.len();
                 udp_buffer.note_receive(n);
-                let payload = if quic_enabled {
-                    match unwrap_quic_payload(&recv_buf[..n]) {
-                        Ok(payload) => payload,
-                        Err(_) => continue,
-                    }
-                } else {
-                    &recv_buf[..n]
+                let payload = match udp_framing.unwrap(&recv_buf[..n]) {
+                    Ok(payload) => payload,
+                    Err(_) => continue,
                 };
                 // The periodic uplink PMTU state machine shares this receive loop. Consume
                 // only an exact echo of its current challenge; stale/foreign ACKs continue
@@ -8032,13 +7992,13 @@ pub(crate) async fn run_udp_tunnel(
                             let new_payload_budget = udp_payload_budget_for_probe(
                                 candidate,
                                 socket.seal_overhead(),
-                                quic_enabled,
+                                udp_framing.wrapper_len(),
                             );
                             let new_record_budget =
-                                crate::protocol::data_frag::unfragmented_record_budget(
+                                crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
                                     new_payload_budget,
                                     socket.seal_overhead(),
-                                    quic_enabled,
+                                    udp_framing.wrapper_len(),
                                 );
                             let new_padding_budget = new_record_budget.as_ref().ok().and_then(
                                 |budget| {
@@ -8126,18 +8086,13 @@ pub(crate) async fn run_udp_tunnel(
                             probe_token,
                             probe_size,
                         );
-                        let send_data: &[u8] = if quic_enabled {
-                            quic_pn = quic_pn.wrapping_add(1);
-                            wrap_quic_short_into(
+                        let send_data =
+                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                udp_framing,
                                 &ack,
-                                &connection_id,
-                                quic_pn - 1,
+                                &mut quic_pn,
                                 &mut quic_record,
                             );
-                            &quic_record
-                        } else {
-                            &ack
-                        };
                         if let Err(error) = socket.send(send_data).await {
                             log::debug!("could not acknowledge server UDP path probe V2: {error}");
                         }
@@ -8151,18 +8106,13 @@ pub(crate) async fn run_udp_tunnel(
                             probe_id,
                             probe_size,
                         );
-                        let send_data: &[u8] = if quic_enabled {
-                            quic_pn = quic_pn.wrapping_add(1);
-                            wrap_quic_short_into(
+                        let send_data =
+                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                udp_framing,
                                 &ack,
-                                &connection_id,
-                                quic_pn - 1,
+                                &mut quic_pn,
                                 &mut quic_record,
                             );
-                            &quic_record
-                        } else {
-                            &ack
-                        };
                         if let Err(error) = socket.send(send_data).await {
                             log::debug!("could not acknowledge server UDP path probe: {error}");
                         }
@@ -8348,18 +8298,13 @@ pub(crate) async fn run_udp_tunnel(
                         .is_ok()
                 };
                 if heartbeat_ready {
-                    let send_data: &[u8] = if quic_enabled {
-                        quic_pn += 1;
-                        wrap_quic_short_into(
+                    let send_data =
+                        crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                            udp_framing,
                             &cover_record,
-                            &connection_id,
-                            quic_pn - 1,
+                            &mut quic_pn,
                             &mut quic_record,
                         );
-                        &quic_record
-                    } else {
-                        &cover_record
-                    };
                     let _ = socket.send(send_data).await;
                 }
                 last_activity = tokio::time::Instant::now();
@@ -8392,18 +8337,13 @@ pub(crate) async fn run_udp_tunnel(
                                 .is_ok()
                         };
                         if cover_ready {
-                            let send_data: &[u8] = if quic_enabled {
-                                quic_pn += 1;
-                                wrap_quic_short_into(
+                            let send_data =
+                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                    udp_framing,
                                     &cover_record,
-                                    &connection_id,
-                                    quic_pn - 1,
+                                    &mut quic_pn,
                                     &mut quic_record,
                                 );
-                                &quic_record
-                            } else {
-                                &cover_record
-                            };
                             let _ = socket.send(send_data).await;
                             last_tx_inst = tokio::time::Instant::now();
                         }
@@ -8430,18 +8370,13 @@ pub(crate) async fn run_udp_tunnel(
                             .encrypt_packet_into(&frame, &[], &mut cover_record)
                             .is_ok()
                         {
-                            let send_data: &[u8] = if quic_enabled {
-                                quic_pn += 1;
-                                wrap_quic_short_into(
+                            let send_data =
+                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                    udp_framing,
                                     &cover_record,
-                                    &connection_id,
-                                    quic_pn - 1,
+                                    &mut quic_pn,
                                     &mut quic_record,
                                 );
-                                &quic_record
-                            } else {
-                                &cover_record
-                            };
                             let _ = socket.send(send_data).await;
                         }
                     }
@@ -8455,18 +8390,13 @@ pub(crate) async fn run_udp_tunnel(
                             .encrypt_packet_into(&frame, &[], &mut cover_record)
                             .is_ok()
                         {
-                            let send_data: &[u8] = if quic_enabled {
-                                quic_pn += 1;
-                                wrap_quic_short_into(
+                            let send_data =
+                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                    udp_framing,
                                     &cover_record,
-                                    &connection_id,
-                                    quic_pn - 1,
+                                    &mut quic_pn,
                                     &mut quic_record,
                                 );
-                                &quic_record
-                            } else {
-                                &cover_record
-                            };
                             let _ = socket.send(send_data).await;
                         }
                     }

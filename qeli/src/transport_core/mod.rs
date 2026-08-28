@@ -79,6 +79,7 @@ pub(crate) mod wintun;
 ))]
 pub(crate) mod runtime;
 pub(crate) mod udp_buffer;
+pub(crate) mod udp_client_framing;
 pub(crate) mod udp_receive;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -2203,6 +2204,7 @@ impl ClientCore {
     /// Remove the oldest PathCommand without disturbing lifecycle or diagnostic events which
     /// the platform adapter still has to observe. Native FFI pollers continue to use `poll_event`.
     #[cfg(any(test, all(feature = "experimental-roaming", target_os = "linux")))]
+    #[cfg_attr(not(feature = "experimental-roaming"), allow(dead_code))]
     pub(crate) fn poll_path_event(&mut self) -> Option<ClientEvent> {
         let position = self
             .events
