@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Linux UDP+QUIC make-before-break integration tests. Everything runs in three isolated network
 # namespaces; no host route or production process is changed. The success case commits path B;
-# rollback blackholes B; supersede replaces that in-flight candidate with reachable path C.
+# rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
+# commit-race changes to C while the platform is still committing B.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -19,9 +20,9 @@ CLIENT_JOB_PID=
 PING_PID=
 
 case "$CASE" in
-  success|rollback|supersede) ;;
+  success|rollback|supersede|commit-race) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race]" >&2
     exit 2
     ;;
 esac
@@ -57,6 +58,7 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$WORK"
 rm -f "$WORK"/*.log "$WORK"/*.conf
+rm -rf "$WORK/bin" "$WORK"/commit-race-*
 
 for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns add "$ns"; done
 ip link add qru-a type veth peer name qru-ar
@@ -156,7 +158,41 @@ timeout = 5
 [logging]
 level = info
 EOF
-ip netns exec "$CLI_NS" "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
+CLIENT_ENV=()
+if [ "$CASE" = commit-race ]; then
+  REAL_IP=$(command -v ip)
+  mkdir -p "$WORK/bin"
+  cat >"$WORK/bin/ip" <<'EOF'
+#!/bin/sh
+REAL_IP=${QELI_TEST_REAL_IP:-/usr/sbin/ip}
+if [ "${QELI_TEST_COMMIT_DELAY_INTERFACE:-}" != "" ] \
+    && [ "$1" = route ] \
+    && { [ "$2" = add ] || [ "$2" = replace ]; } \
+    && [ "$3" = "${QELI_TEST_COMMIT_DELAY_REMOTE:-}" ]; then
+  case " $* " in
+    *" dev ${QELI_TEST_COMMIT_DELAY_INTERFACE} "*)
+      if [ ! -e "${QELI_TEST_COMMIT_DELAY_DONE}" ]; then
+        : >"${QELI_TEST_COMMIT_DELAY_WAITING}"
+        wait_step=0
+        while [ ! -e "${QELI_TEST_COMMIT_DELAY_RELEASE}" ] && [ "$wait_step" -lt 500 ]; do
+          wait_step=$((wait_step + 1))
+          sleep 0.02
+        done
+        : >"${QELI_TEST_COMMIT_DELAY_DONE}"
+      fi
+      ;;
+  esac
+fi
+exec "$REAL_IP" "$@"
+EOF
+  chmod 755 "$WORK/bin/ip"
+  CLIENT_ENV=(env "PATH=$WORK/bin:$PATH" "QELI_TEST_REAL_IP=$REAL_IP" \
+    "QELI_TEST_COMMIT_DELAY_INTERFACE=qru-b" "QELI_TEST_COMMIT_DELAY_REMOTE=10.41.3.2" \
+    "QELI_TEST_COMMIT_DELAY_WAITING=$WORK/commit-race-waiting" \
+    "QELI_TEST_COMMIT_DELAY_RELEASE=$WORK/commit-race-release" \
+    "QELI_TEST_COMMIT_DELAY_DONE=$WORK/commit-race-done")
+fi
+ip netns exec "$CLI_NS" "${CLIENT_ENV[@]}" "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
 CLIENT_JOB_PID=$!
 wait_for 100 "ip netns exec $CLI_NS ip link show qru0" || bad "client TUN did not come up"
 
@@ -286,6 +322,83 @@ elif [ "$CASE" = supersede ]; then
     "$WORK/ping.log" | tail -n1)
   check "continuous probe retained at least 170 of 180 packets during supersede" \
     "test -n '$PING_RX' && test '$PING_RX' -ge 170"
+elif [ "$CASE" = commit-race ]; then
+  sleep 3
+  check "path C reaches the server" \
+    "ip netns exec $CLI_NS ping -I 10.41.4.2 -c1 -W2 10.41.3.2"
+  ip netns exec "$CLI_NS" ping -n -i 0.2 -c 240 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
+  PING_PID=$!
+
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.2.1 dev qru-b metric 50
+  if wait_for 150 "test -e $WORK/commit-race-waiting"; then
+    ok "platform COMMIT for path B entered the deterministic delay"
+  else
+    bad "platform COMMIT for path B did not reach the deterministic delay"
+  fi
+  check "server authenticated path B before local platform COMMIT" \
+    "grep -q 'UDP PATH_COMMIT.*to 10.41.2.2:' $WORK/server.log"
+  check "client has not published B before platform ACK" \
+    "! grep -q 'UDP make-before-break committed candidate' $WORK/client.log"
+
+  # The route detector observes C while Linux COMMIT(B) owns the serialized platform executor.
+  # It must not steal/cancel COMMIT(B); after B linearizes it may prepare and commit only C.
+  ip netns exec "$CLI_NS" ip route replace default via 10.41.4.1 dev qru-c metric 25
+  sleep 2
+  check "replacement C cannot overtake the in-flight platform COMMIT" \
+    "! grep -q 'Linux roaming prepared candidate .* on qru-c' $WORK/client.log"
+  : >"$WORK/commit-race-release"
+
+  if wait_for 100 "grep -q 'Linux roaming prepared candidate .* on qru-c' $WORK/client.log"; then
+    ok "Linux observer prepared C after COMMIT(B) completed"
+  else
+    bad "Linux observer did not prepare C after COMMIT(B)"
+  fi
+  if wait_for 200 "test \"\$(grep -c 'UDP make-before-break committed candidate' $WORK/client.log)\" -ge 2"; then
+    ok "client committed B and then C"
+  else
+    bad "client did not complete both ordered commits"
+  fi
+
+  B_ID=$(sed -n 's/.*Linux roaming prepared candidate \([0-9][0-9]*\) on qru-b.*/\1/p' \
+    "$WORK/client.log" | head -n1)
+  C_ID=$(sed -n 's/.*Linux roaming prepared candidate \([0-9][0-9]*\) on qru-c.*/\1/p' \
+    "$WORK/client.log" | head -n1)
+  check "candidate ids for B and C are distinct" \
+    "test -n '$B_ID' && test -n '$C_ID' && test '$B_ID' != '$C_ID'"
+  check "client published both exact candidates once" \
+    "test \"\$(grep -c \"UDP make-before-break committed candidate $B_ID\" $WORK/client.log)\" -eq 1 && test \"\$(grep -c \"UDP make-before-break committed candidate $C_ID\" $WORK/client.log)\" -eq 1"
+  B_COMMIT_LINE=$(grep -n "UDP make-before-break committed candidate $B_ID" "$WORK/client.log" \
+    | head -n1 | cut -d: -f1)
+  C_PREPARE_LINE=$(grep -n "Linux roaming prepared candidate $C_ID on qru-c" "$WORK/client.log" \
+    | head -n1 | cut -d: -f1)
+  check "B commit is published before C prepare" \
+    "test -n '$B_COMMIT_LINE' && test -n '$C_PREPARE_LINE' && test '$B_COMMIT_LINE' -lt '$C_PREPARE_LINE'"
+  check "server committed exactly B then C" \
+    "test \"\$(grep -c 'UDP PATH_COMMIT' $WORK/server.log)\" -eq 2 && grep -q 'UDP PATH_COMMIT.*to 10.41.2.2:' $WORK/server.log && grep -q 'UDP PATH_COMMIT.*to 10.41.4.2:' $WORK/server.log"
+  check "no candidate rollback occurred during commit linearization" \
+    "! grep -Eq 'rollback completed|rolled back superseded candidate|superseded before platform commit' $WORK/client.log"
+  check "carrier bypass ends on path C" \
+    "ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -q '^10.41.3.2 via 10.41.4.1 dev qru-c'"
+  check "no stale carrier bypass remains on A or B" \
+    "! ip netns exec $CLI_NS ip route show 10.41.3.2 | grep -Eq 'dev qru-(a|b)'"
+
+  ip netns exec "$CLI_NS" ip link set qru-a down
+  ip netns exec "$CLI_NS" ip link set qru-b down
+  sleep 2
+  check "tunnel survives removal of both older paths" \
+    "ip netns exec $CLI_NS ping -c5 -W1 10.89.0.1"
+  check "client process survives ordered commits without reconnect" \
+    "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
+  check "the same TUN survives the commit race" \
+    "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
+  check "commit race does not enter the top-level reconnect loop" \
+    "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+
+  wait "$PING_PID" 2>/dev/null || true
+  PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); print value }' \
+    "$WORK/ping.log" | tail -n1)
+  check "continuous probe retained at least 220 of 240 packets during the commit race" \
+    "test -n '$PING_RX' && test '$PING_RX' -ge 220"
 else
 sleep 3
 ip netns exec "$CLI_NS" ping -n -i 0.2 -c 150 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &

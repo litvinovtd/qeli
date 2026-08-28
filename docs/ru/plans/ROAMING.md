@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v17-linux-udp-supersede -->
+<!-- normative-sync: roaming-v18-linux-udp-commit-race -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process TCP adapter и Android TCP feature adapter
@@ -30,9 +30,14 @@
 > blackholed B успел отправить PATH_INIT, затем platform выполнила `ABORT(B) → PREPARE(C)`, actor
 > удалил старый socket до retry-expiry, а сервер challenge/commit увидел только путь C и ровно один
 > commit. PID/TUN и трафик сохранились без reconnect. Впереди Windows/macOS/iOS adapters и работы
-> этапов 4–6. Текущие lab gates: 947 feature library tests при трёх ignored, 870 default tests при
+> этапов 4–6. Детерминированный commit-race-сценарий прошёл 24/24: после server PATH_COMMIT(B)
+> локальная route-мутация COMMIT(B) была задержана, detector увидел C, но сериализованный executor
+> не позволил C отменить или обогнать B. Exact ACK и публикация B завершились до PREPARE(C), после
+> чего C также был подтверждён ровно один раз; PID/TUN и трафик сохранились без reconnect.
+> Текущие lab gates: 950 feature library tests при трёх ignored, 870 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
-> UDP roaming netns success 17/17, rollback 20/20 и supersede 24/24, Android x86_64 NDK release с
+> UDP roaming netns success 17/17, rollback 20/20, supersede 24/24 и commit-race 24/24,
+> Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
@@ -753,7 +758,15 @@ UDP netns e2e прошёл 17/17 с выключением старого пут
 exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect. До rollout
 Трёхмаршрутный supersede-gate прошёл 24/24: B пересёк BIND/PATH_INIT, затем exact ABORT старого
 candidate предшествовал PREPARE C, а actor не принял поздний proof B и опубликовал ровно один C.
-До rollout остаются adversarial late-response/commit races, real-device NAT rebinding и soak.
+Первый adversarial race-срез завершён. Общий client state machine отвергает поздние challenge/commit
+старого message id после ABORT и не позволяет stale platform completion изменить replacement.
+Path transaction теперь заменяет без ABORT только действительно незабранный PREPARE: незабранный
+BIND уже означает применённый PREPARE и проходит exact ABORT. После начала COMMIT последний новый
+PathUpdate ждёт linearized ACK, а не отменяет команду, поскольку сервер уже мог переключить путь.
+Linux in-process executor сериализует emit/consume/OS mutation, поэтому concurrent detector не может
+украсть BIND/COMMIT event. Детерминированный live commit-race прошёл 24/24 с exact B→C order, двумя
+однократными commit, неизменными PID/TUN и без reconnect. До rollout остаются packet-level
+delay/duplicate/reorder PATH_* под loss, двунаправленный PMTU, real-device NAT rebinding и soak.
 Linux/OpenWrt adapter этапа 4 теперь получает из общего core ordered-проекцию только family-compatible кандидатов:
 должна существовать хотя бы одна пара local/resolved одного семейства, а первый неподходящий
 AAAA/A не скрывает следующий пригодный адрес. Native runtime Android/Windows/macOS/iOS теперь

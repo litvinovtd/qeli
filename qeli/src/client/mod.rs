@@ -602,6 +602,7 @@ pub(crate) struct LinuxPathController {
     shared: CorePathController,
     tunnel_interface: String,
     prepared_routes: std::sync::Mutex<Option<route::LinuxPreparedPathRoutes>>,
+    dispatch_lock: std::sync::Mutex<()>,
 }
 
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
@@ -612,6 +613,7 @@ impl LinuxPathController {
             core,
             tunnel_interface,
             prepared_routes: std::sync::Mutex::new(None),
+            dispatch_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -771,10 +773,17 @@ impl LinuxPathController {
     }
 
     fn submit_path_update(&self, update_json: &str) -> anyhow::Result<u64> {
+        // Emitting and consuming a command is one ordered in-process platform transaction.
+        // Without this lock a concurrent detector could steal a BIND/COMMIT event between the
+        // core mutation and dispatch, or execute ABORT against an OS command still in flight.
+        let _dispatch =
+            crate::util::lock_or_recover(&self.dispatch_lock, "client::linux_path_dispatch");
         let candidate_id = self.with_core(|core| core.submit_path_update(update_json))?;
-        let event = self
-            .with_core(|core| core.poll_path_event())
-            .ok_or_else(|| anyhow::anyhow!("Linux path command queue is empty"))?;
+        let Some(event) = self.with_core(|core| core.poll_path_event()) else {
+            // Idempotent observations and updates queued behind COMMIT/ABORT have no immediate
+            // platform work. The terminal ACK will publish the queued PREPARE event.
+            return Ok(candidate_id);
+        };
         let command = event
             .path_command
             .as_ref()
@@ -819,6 +828,8 @@ impl PathController for LinuxPathController {
         candidate: &PreparedPathCandidate,
         socket_fd: i32,
     ) -> anyhow::Result<PathAckFuture> {
+        let _dispatch =
+            crate::util::lock_or_recover(&self.dispatch_lock, "client::linux_path_dispatch");
         let result = self.shared.bind_candidate_socket(candidate, socket_fd)?;
         self.dispatch_pending(PathCommandAction::BindSocket, candidate.candidate_id)?;
         Ok(result)
@@ -828,6 +839,8 @@ impl PathController for LinuxPathController {
         &self,
         candidate: &PreparedPathCandidate,
     ) -> anyhow::Result<PathAckFuture> {
+        let _dispatch =
+            crate::util::lock_or_recover(&self.dispatch_lock, "client::linux_path_dispatch");
         let result = self.shared.commit_candidate_path(candidate)?;
         self.dispatch_pending(PathCommandAction::CommitPath, candidate.candidate_id)?;
         Ok(result)
@@ -838,6 +851,8 @@ impl PathController for LinuxPathController {
         candidate: &PreparedPathCandidate,
         reason: &str,
     ) -> anyhow::Result<PathAckFuture> {
+        let _dispatch =
+            crate::util::lock_or_recover(&self.dispatch_lock, "client::linux_path_dispatch");
         let result = self.shared.abort_candidate_path(candidate, reason)?;
         self.dispatch_pending(PathCommandAction::AbortPath, candidate.candidate_id)?;
         Ok(result)

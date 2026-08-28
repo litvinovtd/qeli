@@ -95,6 +95,18 @@
   перед platform COMMIT; тот же контракт использует native runtime. Трёхмаршрутный A → blackholed B
   → C netns gate прошёл 24/24: B отправил PATH_INIT, сервер challenge/commit видел только C, carrier
   `/32` сменился A → C ровно одним commit без reconnect, замены PID/TUN или заметной потери трафика.
+- Транзакция пути теперь различает действительно незабранный PREPARE и более поздние команды.
+  Только PREPARE можно заменить без rollback; незабранный BIND уже следует за применённым PREPARE
+  и обязательно превращается в `ABORT(old) → PREPARE(new)`, включая заполненную bounded event queue.
+  После начала COMMIT новый PathUpdate больше не отменяет linearized candidate: сохраняется только
+  последний replacement, который стартует после точного ACK текущего COMMIT. Поздний ACK старой
+  команды и late wire challenge/commit старого message id не могут изменить новый candidate.
+- Linux in-process path executor сериализует выдачу команды, OS mutation и ACK, поэтому concurrent
+  detector не может забрать BIND/COMMIT event или запустить ABORT параллельно ещё выполняющейся
+  platform-команде. Детерминированный A → delayed COMMIT(B) → C netns gate прошёл 24/24: сервер
+  аутентифицировал B до локального ACK, B был опубликован до PREPARE(C), затем C закоммитился ровно
+  один раз; carrier `/32`, PID, TUN и трафик сохранились без reconnect. Предыдущие success 17/17,
+  rollback 20/20 и supersede 24/24 повторно прошли; Rust suites — 870/1 и 950/3, оба strict Clippy.
 - Full-tunnel bypass и post-COMMIT pinned-набор теперь содержат только адрес фактически
   подключённого или аутентифицированного candidate socket. Остальные DNS-ответы не получают
   `/32` заранее и не могут быть выбраны bonded-stream до отдельной PathUpdate-транзакции;

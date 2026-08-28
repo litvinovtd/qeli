@@ -1790,12 +1790,17 @@ impl ClientCore {
     }
 
     fn begin_path_abort(&mut self, reason: String) {
-        if let Some(sequence) = self
+        let pending_sequence = self
             .path_candidate
             .as_ref()
-            .and_then(|candidate| candidate.pending_sequence)
-        {
-            self.pending_path_command.remove(&sequence);
+            .and_then(|candidate| candidate.pending_sequence);
+        if let Some(sequence) = pending_sequence {
+            // PREPARE may already have crossed the ABI even when a later BIND command is still
+            // queued. Remove an unobserved command before scheduling ABORT, but never infer that
+            // the platform owns no temporary state merely because that later command was unseen.
+            if !self.remove_queued_path_event(sequence) {
+                self.pending_path_command.remove(&sequence);
+            }
         }
         self.record_path_failure();
         let command = self
@@ -1894,8 +1899,10 @@ impl ClientCore {
             .map(|candidate| candidate.phase);
         let required_events = match active_phase {
             None => 1,
-            Some(PathCandidatePhase::Aborting) => 0,
-            Some(_) if pending_event_is_queued => 0,
+            Some(PathCandidatePhase::Aborting | PathCandidatePhase::Committing) => 0,
+            Some(PathCandidatePhase::Preparing | PathCandidatePhase::Binding) => {
+                usize::from(!pending_event_is_queued)
+            }
             Some(_) => 1,
         };
         self.require_event_slots(required_events)?;
@@ -1910,25 +1917,30 @@ impl ClientCore {
 
         match active_phase {
             None => self.start_path_candidate(queued),
-            Some(PathCandidatePhase::Aborting) => {
+            Some(PathCandidatePhase::Aborting | PathCandidatePhase::Committing) => {
+                // COMMIT is the transaction's linearization point. Once transport proof has
+                // requested it, the peer may already have switched paths; finish that exact
+                // platform command and prepare only the newest observation afterwards.
                 self.queued_path_candidate = Some(queued);
             }
-            Some(_) => {
+            Some(PathCandidatePhase::Preparing) if pending_event_is_queued => {
                 let pending_sequence = self
                     .path_candidate
                     .as_ref()
                     .and_then(|candidate| candidate.pending_sequence);
-                if pending_sequence.is_some_and(|sequence| self.remove_queued_path_event(sequence))
-                {
+                if let Some(sequence) = pending_sequence {
+                    let removed = self.remove_queued_path_event(sequence);
+                    debug_assert!(removed, "queued PREPARE_PATH event must still be removable");
                     // The platform never observed the pending command, so no temporary rule can
                     // exist and an ABORT round trip would be both noisy and misleading.
                     self.record_path_failure();
                     self.path_candidate = None;
                     self.start_path_candidate(queued);
-                } else {
-                    self.queued_path_candidate = Some(queued);
-                    self.begin_path_abort("superseded by a newer path update".into());
                 }
+            }
+            Some(_) => {
+                self.queued_path_candidate = Some(queued);
+                self.begin_path_abort("superseded by a newer path update".into());
             }
         }
         Ok(candidate_id)
@@ -3380,6 +3392,15 @@ mod tests {
             bind_result.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Closed)
         );
+        let rollback = path_command(&mut core, PathCommandAction::AbortPath);
+        assert_eq!(
+            rollback
+                .path_command
+                .as_ref()
+                .map(|command| command.candidate_id),
+            Some(first)
+        );
+        acknowledge_path_event(&mut core, &rollback, true, None).unwrap();
         let replacement = path_command(&mut core, PathCommandAction::PreparePath);
         assert_eq!(
             replacement
@@ -3388,6 +3409,105 @@ mod tests {
                 .map(|command| command.candidate_id),
             Some(second)
         );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn supersede_of_unobserved_bind_still_requires_platform_abort() {
+        let mut core = running_path_core(14);
+        let first = core
+            .submit_path_update(&path_update(14, 1, "wifi-a"))
+            .unwrap();
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, true, None).unwrap();
+
+        let (_, mut bind_result) = core
+            .request_candidate_socket_binding(14, first, 18)
+            .unwrap();
+        while core.events.len() < core.event_capacity {
+            core.push_event(EventKind::StateChanged, None, None, None, None);
+        }
+        assert_eq!(core.events.len(), core.event_capacity);
+
+        let second = core
+            .submit_path_update(&path_update(14, 2, "wifi-b"))
+            .unwrap();
+
+        assert_eq!(
+            bind_result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+        assert_eq!(core.events.len(), core.event_capacity);
+        let abort = core
+            .poll_path_event()
+            .expect("replacement ABORT_PATH event");
+        assert_eq!(
+            abort.path_command.as_ref().map(|command| command.action),
+            Some(PathCommandAction::AbortPath)
+        );
+        assert_eq!(abort.path_command.as_ref().unwrap().candidate_id, first);
+        assert_eq!(
+            abort.path_command.as_ref().unwrap().reason.as_deref(),
+            Some("superseded by a newer path update")
+        );
+        acknowledge_path_event(&mut core, &abort, true, None).unwrap();
+        let replacement = core
+            .poll_path_event()
+            .expect("queued replacement PREPARE_PATH event");
+        assert_eq!(replacement.kind, EventKind::PathCommand);
+        assert_eq!(
+            replacement.path_command.as_ref().unwrap().candidate_id,
+            second
+        );
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn path_update_during_commit_waits_for_the_linearized_candidate() {
+        let mut core = running_path_core(15);
+        let first = core
+            .submit_path_update(&path_update(15, 1, "wifi-a"))
+            .unwrap();
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, true, None).unwrap();
+        let _binding = core
+            .request_candidate_socket_binding(15, first, 19)
+            .unwrap();
+        let bind = path_command(&mut core, PathCommandAction::BindSocket);
+        acknowledge_path_event(&mut core, &bind, true, None).unwrap();
+
+        let (_, mut commit_result) = core.candidate_path_validated(15, first).unwrap();
+        let second = core
+            .submit_path_update(&path_update(15, 2, "wifi-b"))
+            .unwrap();
+        let third = core
+            .submit_path_update(&path_update(15, 3, "wifi-c"))
+            .unwrap();
+        assert_ne!(second, third);
+        assert!(core.path_candidate_is_current(15, first));
+
+        let commit = path_command(&mut core, PathCommandAction::CommitPath);
+        assert_eq!(commit.path_command.as_ref().unwrap().candidate_id, first);
+        acknowledge_path_event(&mut core, &commit, true, None).unwrap();
+        assert_eq!(commit_result.try_recv(), Ok(Ok(())));
+
+        let replacement = path_command(&mut core, PathCommandAction::PreparePath);
+        assert_eq!(
+            replacement.path_command.as_ref().unwrap().candidate_id,
+            third,
+            "only the newest observation may follow a linearized commit"
+        );
+        assert!(core.path_candidate_is_current(15, third));
+        assert!(matches!(
+            acknowledge_path_event(&mut core, &commit, true, None),
+            Err(CoreError::StaleRequest { .. })
+        ));
+        assert!(core.path_candidate_is_current(15, third));
+        let stats = core.stats();
+        assert_eq!(stats.roam_attempts, 2);
+        assert_eq!(stats.roam_successes, 1);
+        assert_eq!(stats.roam_failures, 0);
+        assert_eq!(stats.roam_candidates, 1);
     }
 
     #[cfg(feature = "experimental-roaming")]

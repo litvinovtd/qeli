@@ -825,6 +825,67 @@ mod tests {
     }
 
     #[test]
+    fn late_wire_control_cannot_advance_a_replacement_candidate() {
+        let now = Instant::now();
+        let mut roaming = roaming();
+        begin(&mut roaming, 7, 19, now);
+        let next_transmit = derive_udp_cid(&C2S, SESSION_ID, 1);
+        let next_receive = derive_udp_cid(&S2C, SESSION_ID, 1);
+        let challenge = PathControl::Challenge {
+            epoch: 1,
+            token: TOKEN,
+        };
+        assert!(matches!(
+            roaming
+                .accept_authenticated_control(
+                    &next_receive,
+                    19,
+                    &challenge,
+                    now + Duration::from_millis(1),
+                )
+                .unwrap(),
+            UdpClientPathAction::Transmit(_)
+        ));
+        assert!(roaming.abort_candidate(7));
+
+        begin(&mut roaming, 8, 20, now + Duration::from_millis(2));
+        assert!(matches!(
+            roaming.accept_authenticated_control(
+                &next_receive,
+                19,
+                &challenge,
+                now + Duration::from_millis(3),
+            ),
+            Err(UdpClientRoamingError::StaleControl)
+        ));
+        assert!(matches!(
+            roaming
+                .accept_authenticated_control(
+                    &next_receive,
+                    20,
+                    &challenge,
+                    now + Duration::from_millis(4),
+                )
+                .unwrap(),
+            UdpClientPathAction::Transmit(_)
+        ));
+        assert!(matches!(
+            roaming.accept_authenticated_control(
+                &next_receive,
+                19,
+                &PathControl::Commit {
+                    cid: next_transmit,
+                    epoch: 1,
+                },
+                now + Duration::from_millis(5),
+            ),
+            Err(UdpClientRoamingError::StaleControl)
+        ));
+        assert_eq!(roaming.candidate_id(), Some(8));
+        assert_eq!(roaming.active_epoch(), 0);
+    }
+
+    #[test]
     fn shared_wire_codec_round_trips_one_state_machine_transmit() {
         let now = Instant::now();
         let mut roaming = roaming();
