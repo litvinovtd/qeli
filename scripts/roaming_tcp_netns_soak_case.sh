@@ -11,6 +11,19 @@ run_tcp_soak_case() {
       return 2
       ;;
   esac
+  local stats_helper="$SCRIPT_DIR/roaming_control_stats.py"
+  if ! command -v python3 >/dev/null 2>&1 || [ ! -r "$stats_helper" ]; then
+    echo "TCP roaming soak requires python3 and $stats_helper" >&2
+    return 2
+  fi
+  tcp_roaming_stats() {
+    local line
+    line=$(python3 "$stats_helper" "$WORK/control.sock" roam tcp \
+      attempts_total commits_total failures_total grace_expired_total active_sessions \
+      orphaned_sessions orphaned_bytes) || return
+    IFS=$'\t' read -r TCP_ATTEMPTS TCP_COMMITS TCP_FAILURES TCP_GRACE TCP_SESSIONS \
+      TCP_ORPHANS TCP_ORPHAN_BYTES <<<"$line"
+  }
 
   local server_pid client_fd_before server_fd_before client_rss_before server_rss_before
   local client_fd_max server_fd_max client_rss_max server_rss_max
@@ -30,6 +43,12 @@ run_tcp_soak_case() {
 
   # Let the platform observer retain a stable path-A baseline before the first flip.
   sleep 3
+  if ! tcp_roaming_stats \
+      || [ "$TCP_ATTEMPTS:$TCP_COMMITS:$TCP_FAILURES:$TCP_GRACE:$TCP_SESSIONS:$TCP_ORPHANS:$TCP_ORPHAN_BYTES" != "0:0:0:0:1:0:0" ]; then
+    bad "TCP soak did not start with one healthy session and empty transaction/orphan counters"
+    return
+  fi
+
   local iteration target gateway route_pattern commit_count
   iteration=1
   while [ "$iteration" -le "$iterations" ]; do
@@ -64,6 +83,14 @@ run_tcp_soak_case() {
         bad "TCP soak traffic probe failed after iteration $iteration"
         return
       fi
+      if ! tcp_roaming_stats; then
+        bad "TCP soak could not read control counters after iteration $iteration"
+        return
+      fi
+      if [ "$TCP_ATTEMPTS:$TCP_COMMITS:$TCP_FAILURES:$TCP_GRACE:$TCP_SESSIONS:$TCP_ORPHANS:$TCP_ORPHAN_BYTES" != "$iteration:$iteration:0:0:1:0:0" ]; then
+        bad "TCP soak counters diverged or retained orphan state after iteration $iteration"
+        return
+      fi
       local value
       value=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
       if [ "$value" -gt "$client_fd_max" ]; then client_fd_max=$value; fi
@@ -73,7 +100,7 @@ run_tcp_soak_case() {
       if [ "$value" -gt "$client_rss_max" ]; then client_rss_max=$value; fi
       value=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
       if [ "$value" -gt "$server_rss_max" ]; then server_rss_max=$value; fi
-      echo "  TCP soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max"
+      echo "  TCP soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max orphans=$TCP_ORPHANS orphan_bytes=$TCP_ORPHAN_BYTES"
     fi
     iteration=$((iteration + 1))
   done
@@ -91,6 +118,7 @@ run_tcp_soak_case() {
 
   check "TCP soak committed every requested client/server path transaction exactly once" "test '$commit_count' -eq '$iterations' && test '$server_commits' -eq '$iterations' && test '$server_joins' -eq '$iterations'"
   check "TCP soak retained one authenticated session without reconnect or grace" "test '$auth_count' -eq 1 && ! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log && ! grep -Eq 'retaining session|grace expired' $WORK/server.log"
+  check "TCP soak control counters retained one session without failures or orphan state" "test '$TCP_ATTEMPTS' -eq '$iterations' && test '$TCP_COMMITS' -eq '$iterations' && test '$TCP_FAILURES' -eq 0 && test '$TCP_GRACE' -eq 0 && test '$TCP_SESSIONS' -eq 1 && test '$TCP_ORPHANS' -eq 0 && test '$TCP_ORPHAN_BYTES' -eq 0"
   check "TCP soak preserved the original process and TUN" "ip netns pids $CLI_NS | grep -qx '$CLIENT_PID' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/ifindex)\" = '$TUN_IFINDEX'"
   check "TCP soak left one exact carrier bypass and a usable tunnel" "test \"\$(ip netns exec $CLI_NS ip route show 10.40.3.2 | wc -l)\" -eq 1 && ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
   check "TCP soak closed superseded sockets instead of leaking file descriptors" "test '$client_fd_after' -le $((client_fd_before + 4)) && test '$server_fd_after' -le $((server_fd_before + 4)) && test '$client_fd_max' -le $((client_fd_before + 16)) && test '$server_fd_max' -le $((server_fd_before + 16))"

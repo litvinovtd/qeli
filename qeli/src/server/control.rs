@@ -299,6 +299,7 @@ async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
             udp_failures,
             udp_sessions,
             udp_candidates,
+            udp_cid_aliases,
         ) = {
             let tcp_sessions = profile
                 .sessions
@@ -325,6 +326,7 @@ async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
                 udp.failures_total,
                 udp.active_sessions,
                 udp.active_candidates,
+                udp.cid_aliases,
             )
         };
         #[cfg(not(feature = "experimental-roaming"))]
@@ -337,7 +339,10 @@ async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
             udp_failures,
             udp_sessions,
             udp_candidates,
-        ) = (0usize, 0usize, 0usize, 0u64, 0u64, 0u64, 0usize, 0usize);
+            udp_cid_aliases,
+        ) = (
+            0usize, 0usize, 0usize, 0u64, 0u64, 0u64, 0usize, 0usize, 0usize,
+        );
 
         out.push(serde_json::json!({
             "name": name,
@@ -360,6 +365,7 @@ async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
                 "failures_total": udp_failures,
                 "active_sessions": udp_sessions,
                 "active_candidates": udp_candidates,
+                "cid_aliases": udp_cid_aliases,
             },
         }));
     }

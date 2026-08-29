@@ -303,6 +303,8 @@ pub struct UdpRoamingStats {
     pub failures_total: u64,
     pub active_sessions: usize,
     pub active_candidates: usize,
+    /// Aggregate number of currently routable CID aliases across all active sessions.
+    pub cid_aliases: usize,
 }
 
 /// One instance is owned by a profile actor (or protected by one profile-wide mutex).
@@ -380,6 +382,7 @@ impl UdpRoamingTable {
             failures_total: self.failures_total,
             active_sessions: self.session_count(),
             active_candidates: self.candidate_count(),
+            cid_aliases: self.cid_count(),
         }
     }
 
@@ -2025,6 +2028,7 @@ mod tests {
                 failures_total: 2,
                 active_sessions: 0,
                 active_candidates: 0,
+                cid_aliases: 0,
             }
         );
     }
@@ -2066,6 +2070,7 @@ mod tests {
                 .unwrap();
             assert_eq!(table.active_epoch(7), Some(epoch));
             assert_eq!(table.cid_count(), MAX_CID_ALIASES_PER_SESSION);
+            assert_eq!(table.stats().cid_aliases, MAX_CID_ALIASES_PER_SESSION);
             assert_eq!(table.lookup(&future_cid).unwrap().path_epoch(), epoch);
             if epoch >= 2 {
                 assert!(table.lookup(&retired).is_none());

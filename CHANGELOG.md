@@ -80,9 +80,10 @@
   и отдельную карточку dashboard: попытки, подтверждённые миграции, финальные ошибки, истечения
   TCP grace и текущие ожидающие TCP/UDP пути. UDP-счётчики принадлежат общему профильному registry,
   поэтому fake-TLS, QUIC, obfs и obfs-AWG используют одинаковую дедупликацию retransmit и один
-  контракт результата; TCP и UDP показаны одной transport-aware моделью. В метрики и логи не
-  попадают CID, session locator, proof или секреты, а UI явно сообщает, что значения сбрасываются
-  при перезапуске data-plane worker.
+  контракт результата; TCP и UDP показаны одной transport-aware моделью. Control API дополнительно
+  публикует только агрегированное число активных UDP CID aliases, чтобы resource soak мог обнаружить
+  их накопление. Сами CID, session locator, proof и секреты в метрики и логи не попадают, а UI явно
+  сообщает, что значения сбрасываются при перезапуске data-plane worker.
 - Все поставляемые серверные профили теперь явно фиксируют безопасный rollout роуминга
   `false / 30 s / 256 sessions / 64 MiB`, включая источник installer-профилей и release Reality.
   Все клиентские шаблоны, в том числе Keenetic/OpkgTun, явно задают `roaming = auto`: единое ядро
@@ -107,7 +108,9 @@
   Тестовые серверы используют отдельные control sockets и не пересекаются с сервисом лабы.
 - Добавлен конфигурируемый same-session UDP soak case: release-default выполняет 10 000
   последовательных A↔B PATH_COMMIT и на всём цикле контролирует PID/TUN, одну AUTH, отсутствие
-  reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS.
+  reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS. Каждая
+  выборка read-only control-счётчиков требует точные attempts/commits, одну active session, ноль
+  failures/candidates и ровно три CID aliases после первого commit (две на epoch zero).
   Harness использует общий UDP actor, а all-modes wrapper передаёт один выбранный case, включая
   `soak`, через QUIC, fake-TLS, obfs и obfs+AWG без отдельных транспортных реализаций. Lab smoke
   прошёл по 100 последовательных миграций в каждом из четырёх режимов: каждый сохранил одну AUTH,
@@ -119,8 +122,10 @@
 - Добавлен симметричный same-session TCP soak case: release-default выполняет 10 000 A↔B
   make-before-break commit и сверяет точное число независимых client commit, server commit и JOIN,
   единственную первичную AUTH, отсутствие reconnect/grace, PID/TUN, exact carrier route, fd и sampled
-  RSS. Lab smoke прошёл 100 последовательных миграций за 223 секунды: client/server fd остались
-  13/10, server RSS был стабилен, а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
+  RSS. На каждой выборке control API также обязан показывать точные attempts/commits, одну active
+  session и нулевые failures, grace expiry, orphaned sessions/bytes. Lab smoke прошёл 100
+  последовательных миграций за 223 секунды: client/server fd остались 13/10, server RSS был стабилен,
+  а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
   Полный TCP 10k и остальные transport/platform soak gates остаются открытыми.
 - Добавлен воспроизводимый TCP performance gate для роуминга. Новый `perf` case переиспользует
   тот же netns runner и один бинарник, а wrapper последовательно измеряет медианы upload/download

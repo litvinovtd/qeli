@@ -777,13 +777,19 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   with a hidden source pin. The server panel/API exposes the profile-scoped default-off rollout
   switch, grace period, and bounded orphan session/memory budgets. Read-only control/status and
   the transport-aware dashboard expose worker-lifetime attempts, commits, final failures, TCP grace
-  expiry, and pending paths without identifiers or secrets. Every shipped server profile explicitly
-  retains the safe default-off budgets, and every client template explicitly selects `auto`, including
-  the multiprofile installer source, Reality release files, Keenetic, and OpkgTun.
+  expiry, and pending paths without identifiers or secrets. Control status also exposes only the
+  aggregate active UDP CID-alias count for leak detection, never CID values, locators, or proofs.
+  Every shipped server profile explicitly retains the safe default-off budgets, and every client
+  template explicitly selects `auto`, including the multiprofile installer source, Reality release
+  files, Keenetic, and OpkgTun.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
   configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
   every UDP camouflage mode. It checks PID/TUN, AUTH/reconnect, exact routes, independent client/server
-  commit counts, fd, and sampled RSS. The 100-migration TCP and all four UDP wire-mode harness
+  commit counts, fd, and sampled RSS. Every sample also reads the isolated control socket: TCP
+  requires exact attempts/commits, one active session, and zero failures, grace expiry, orphaned
+  sessions, and orphaned bytes; UDP requires exact attempts/commits, one active session, zero
+  failures/candidates, and exactly three CID aliases after the first commit (two at epoch zero).
+  The 100-migration TCP and all four UDP wire-mode harness
   smokes pass while retaining one authenticated session. The representative Linux TAP gate passes
   TCP fake-TLS 17/17 and UDP QUIC 19/19 while preserving the same TAP, process, and authenticated
   session across the handover; the default TUN regression passes the same 17/17 and 19/19. Both

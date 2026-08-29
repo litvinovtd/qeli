@@ -11,6 +11,19 @@ run_udp_soak_case() {
       return 2
       ;;
   esac
+  local stats_helper="$SCRIPT_DIR/roaming_control_stats.py"
+  if ! command -v python3 >/dev/null 2>&1 || [ ! -r "$stats_helper" ]; then
+    echo "UDP roaming soak requires python3 and $stats_helper" >&2
+    return 2
+  fi
+  udp_roaming_stats() {
+    local line
+    line=$(python3 "$stats_helper" "$WORK/control.sock" roam udp \
+      attempts_total commits_total failures_total active_sessions active_candidates cid_aliases) \
+      || return
+    IFS=$'\t' read -r UDP_ATTEMPTS UDP_COMMITS UDP_FAILURES UDP_SESSIONS UDP_CANDIDATES \
+      UDP_CID_ALIASES <<<"$line"
+  }
 
   local server_pid client_fd_before server_fd_before client_rss_before server_rss_before
   local client_fd_max server_fd_max client_rss_max server_rss_max
@@ -27,6 +40,12 @@ run_udp_soak_case() {
   server_fd_max=$server_fd_before
   client_rss_max=$client_rss_before
   server_rss_max=$server_rss_before
+
+  if ! udp_roaming_stats \
+      || [ "$UDP_ATTEMPTS:$UDP_COMMITS:$UDP_FAILURES:$UDP_SESSIONS:$UDP_CANDIDATES:$UDP_CID_ALIASES" != "0:0:0:1:0:2" ]; then
+    bad "UDP soak did not start with one healthy session and the exact epoch-zero CID set"
+    return
+  fi
 
   local iteration target gateway route_pattern commit_count
   iteration=1
@@ -62,6 +81,14 @@ run_udp_soak_case() {
         bad "soak traffic probe failed after iteration $iteration"
         return
       fi
+      if ! udp_roaming_stats; then
+        bad "UDP soak could not read control counters after iteration $iteration"
+        return
+      fi
+      if [ "$UDP_ATTEMPTS:$UDP_COMMITS:$UDP_FAILURES:$UDP_SESSIONS:$UDP_CANDIDATES:$UDP_CID_ALIASES" != "$iteration:$iteration:0:1:0:3" ]; then
+        bad "UDP soak counters diverged or CID/candidate state accumulated after iteration $iteration"
+        return
+      fi
       local value
       value=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
       if [ "$value" -gt "$client_fd_max" ]; then client_fd_max=$value; fi
@@ -71,7 +98,7 @@ run_udp_soak_case() {
       if [ "$value" -gt "$client_rss_max" ]; then client_rss_max=$value; fi
       value=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
       if [ "$value" -gt "$server_rss_max" ]; then server_rss_max=$value; fi
-      echo "  soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max"
+      echo "  soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max candidates=$UDP_CANDIDATES cid_aliases=$UDP_CID_ALIASES"
     fi
     iteration=$((iteration + 1))
   done
@@ -89,6 +116,7 @@ run_udp_soak_case() {
     "test '$commit_count' -eq '$iterations' && test '$server_commits' -eq '$iterations'"
   check "soak retained one authenticated session without reconnect" \
     "test '$auth_count' -eq 1 && ! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
+  check "UDP soak control counters retained one session, three CID aliases and no pending candidate" "test '$UDP_ATTEMPTS' -eq '$iterations' && test '$UDP_COMMITS' -eq '$iterations' && test '$UDP_FAILURES' -eq 0 && test '$UDP_SESSIONS' -eq 1 && test '$UDP_CANDIDATES' -eq 0 && test '$UDP_CID_ALIASES' -eq 3"
   check "soak preserved the original process and TUN" \
     "ip netns pids $CLI_NS | grep -qx '$CLIENT_PID' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
   check "soak left one exact carrier bypass and a usable tunnel" \

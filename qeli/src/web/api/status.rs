@@ -135,6 +135,7 @@ fn unavailable_roaming_profile(
             "failures_total": 0,
             "active_sessions": 0,
             "active_candidates": 0,
+            "cid_aliases": 0,
         },
     })
 }
@@ -279,13 +280,14 @@ mod tests {
                     "name": "mobile",
                     "enabled": true,
                     "transport": "udp",
-                    "udp": { "commits_total": 3 }
+                    "udp": { "commits_total": 3, "cid_aliases": 3 }
                 }]
             }).to_string()
         }));
         let profiles = roaming_profiles(&reply);
         let mobile = profiles.get("mobile").expect("profile telemetry");
         assert_eq!(mobile["udp"]["commits_total"], 3);
+        assert_eq!(mobile["udp"]["cid_aliases"], 3);
         assert_eq!(mobile["runtime_available"], true);
         assert!(roaming_profiles(&Some(serde_json::json!({
             "ok": true,
