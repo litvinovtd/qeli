@@ -1058,9 +1058,11 @@ CID aliases и orphaned sessions. Допустимая регрессия throug
 роуминге — не более 3–5% относительно того же транспорта без него.
 Конфигурируемый same-session harness теперь по умолчанию выполняет 10 000 последовательных A↔B
 commit как для TCP, так и для любого UDP camouflage mode. Он контролирует PID/TUN, AUTH/reconnect,
-exact route, независимые client/server commit, fd и sampled RSS. Smoke на 100 TCP- и 100
-QUIC-миграций прошли с сохранением одной аутентифицированной сессии; полный 10k, остальные UDP
-camouflage и platform gates остаются открытыми.
+exact route, независимые client/server commit, fd и sampled RSS. UDP all-modes wrapper передаёт один
+выбранный case, включая `soak`, через QUIC, fake-TLS, obfs и obfs+AWG. Smoke на 100 TCP-миграций и
+по 100 миграций во всех четырёх UDP wire modes прошли с сохранением одной аутентифицированной
+сессии, исходных PID/TUN, точных client/server commit и fd 14/10; полный 10k и platform gates
+остаются открытыми.
 
 Release запрещён, если хотя бы одна поддерживаемая платформа:
 

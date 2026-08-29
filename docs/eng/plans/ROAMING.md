@@ -749,11 +749,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
   configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
   every UDP camouflage mode. It checks PID/TUN, AUTH/reconnect, exact routes, independent client/server
-  commit counts, fd, and sampled RSS. The 100-migration TCP and QUIC harness smokes pass while retaining
-  one authenticated session. A live 0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current
-  server with legacy client and legacy server with current `auto` carry traffic after one full AUTH
-  without entering roaming, while current `required` remains pre-TUN and pre-full-AUTH across retries.
-  The full 10k, remaining UDP camouflage, and platform gates remain open.
+  commit counts, fd, and sampled RSS. The 100-migration TCP and all four UDP wire-mode harness
+  smokes pass while retaining one authenticated session. The UDP all-modes wrapper forwards the
+  same selected case, including `soak`, through QUIC, fake-TLS, obfs, and obfs+AWG. A live
+  0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current server with legacy client and
+  legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
+  while current `required` remains pre-TUN and pre-full-AUTH across retries. The full 10k and
+  platform gates remain open.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.

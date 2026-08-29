@@ -108,10 +108,13 @@
 - Добавлен конфигурируемый same-session UDP soak case: release-default выполняет 10 000
   последовательных A↔B PATH_COMMIT и на всём цикле контролирует PID/TUN, одну AUTH, отсутствие
   reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS.
-  Harness использует общий UDP actor и запускается с любым camouflage mode. Lab smoke на QUIC
-  прошёл 100 последовательных миграций: client/server fd остались 14/10, server RSS стабилен,
-  client RSS уложился в 32 MiB budget. Это проверка harness; полный 10k и остальные
-  transport/platform soak gates пока не объявляются закрытыми.
+  Harness использует общий UDP actor, а all-modes wrapper передаёт один выбранный case, включая
+  `soak`, через QUIC, fake-TLS, obfs и obfs+AWG без отдельных транспортных реализаций. Lab smoke
+  прошёл по 100 последовательных миграций в каждом из четырёх режимов: каждый сохранил одну AUTH,
+  исходные PID/TUN, единственный exact carrier route и точные 100 client/server commit без reconnect.
+  Client/server fd остались 14/10, server RSS был стабилен, client RSS во всех режимах уложился
+  в 32 MiB budget. Это проверка harness; полный 10k и platform soak gates пока не объявляются
+  закрытыми.
 
 - Добавлен симметричный same-session TCP soak case: release-default выполняет 10 000 A↔B
   make-before-break commit и сверяет точное число независимых client commit, server commit и JOIN,
