@@ -1093,7 +1093,10 @@ suite прошёл 973 теста при трёх ignored, strict feature/defaul
   ✅ live 0.8.0↔0.7.14 netns-матрица прошла 24/24 проверки: совместимые TCP/UDP пары выполняют
   одну полную AUTH и передают трафик без roaming, а `required` с legacy server остаётся до TUN/
   полной AUTH при повторных попытках;
-- отрицательный тест multi-process/multi-node.
+- отрицательный тест multi-process/multi-node — source harness направляет path A в исходный процесс,
+  а path B в независимый процесс с теми же identity/users, но отдельным registry; foreign JOIN
+  обязан получить unknown locator без commit, после чего потеря A должна привести `auto` к full
+  reconnect, второй AUTH и рабочему трафику через B. Live gate поставлен в очередь.
 
 Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
 CID aliases и orphaned sessions. Допустимая регрессия throughput/CPU на включённом

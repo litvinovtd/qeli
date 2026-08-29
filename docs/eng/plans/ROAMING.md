@@ -807,6 +807,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   5% by default. Policy overrides are accepted only by the `perf` case, so success/soak cannot be
   accidentally downgraded. Its live lab measurement waits for the current 10k resource soak to
   finish so the two gates do not contaminate each other.
+  A negative TCP multi-node case now maps path A to the original process and path B to an
+  independent process that shares identity/users but not the in-memory session registry. A
+  foreign authenticated JOIN must fail with an unknown locator and must never commit; after path A
+  is physically removed, `auto` must use the ordinary reconnect path, perform a second full AUTH,
+  replace the assigned tunnel address, and restore traffic through path B. The live gate is queued
+  after the current resource and performance runs.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.

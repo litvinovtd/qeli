@@ -27,8 +27,12 @@ CASE=${2:-${CASE:-success}}
 WIRE_MODE=${3:-${QELI_ROAMING_TCP_WIRE_MODE:-fake-tls}}
 DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
 MULTIPATH_MODE=${QELI_ROAMING_MULTIPATH_MODE:-single}
+DEFAULT_CLIENT_ROAMING_POLICY=required
+if [ "$CASE" = multinode ]; then
+  DEFAULT_CLIENT_ROAMING_POLICY=auto
+fi
 SERVER_ROAMING_ENABLED=${QELI_ROAMING_SERVER_ENABLED:-true}
-CLIENT_ROAMING_POLICY=${QELI_ROAMING_CLIENT_POLICY:-required}
+CLIENT_ROAMING_POLICY=${QELI_ROAMING_CLIENT_POLICY:-$DEFAULT_CLIENT_ROAMING_POLICY}
 WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}-${MULTIPATH_MODE}
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
@@ -36,12 +40,13 @@ SRV_NS=qrm-srv
 PASS=0
 FAIL=0
 SERVER_JOB_PID=
+SECONDARY_SERVER_JOB_PID=
 CLIENT_JOB_PID=
 TARGET_JOB_PID=
 LOAD_JOB_PID=
 
 usage() {
-  echo "usage: $0 [qeli-binary] [success|soak|perf] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+  echo "usage: $0 [qeli-binary] [success|soak|perf|multinode] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
 }
 
 if [ "$#" -gt 3 ]; then
@@ -49,7 +54,7 @@ if [ "$#" -gt 3 ]; then
   exit 2
 fi
 case "$CASE" in
-  success|soak|perf) ;;
+  success|soak|perf|multinode) ;;
   *)
     usage
     exit 2
@@ -102,10 +107,21 @@ case "$CLIENT_ROAMING_POLICY" in
     exit 2
     ;;
 esac
-if [ "$CASE" != perf ] && { [ "$SERVER_ROAMING_ENABLED" != true ] || [ "$CLIENT_ROAMING_POLICY" != required ]; }; then
-  echo "roaming policy overrides are restricted to the perf case" >&2
-  exit 2
-fi
+case "$CASE" in
+  perf) ;;
+  multinode)
+    if [ "$SERVER_ROAMING_ENABLED" != true ] || [ "$CLIENT_ROAMING_POLICY" != auto ] || [ "$WIRE_MODE" != fake-tls ]; then
+      echo "multinode requires fake-tls, server roaming=true, and client roaming=auto" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    if [ "$SERVER_ROAMING_ENABLED" != true ] || [ "$CLIENT_ROAMING_POLICY" != required ]; then
+      echo "roaming policy overrides are restricted to the perf case" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 SERVER_OBF_MODE=fake-tls
 CLIENT_OBF_MODE=fake-tls
@@ -190,7 +206,7 @@ run_case_helper() {
 }
 
 cleanup() {
-  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$TARGET_JOB_PID" "$LOAD_JOB_PID"; do
+  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$SECONDARY_SERVER_JOB_PID" "$TARGET_JOB_PID" "$LOAD_JOB_PID"; do
     if [ -n "$pid" ]; then
       kill -9 "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -316,6 +332,30 @@ wait_for 50 "ip netns exec $SRV_NS ip link show qrms0" || bad "server tunnel dev
 check "server $DEVICE_TYPE device has the requested kernel kind" \
   "flags=\$(ip netns exec $SRV_NS cat /sys/class/net/qrms0/tun_flags); \
    test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
+if [ "$CASE" = multinode ]; then
+  sed \
+    -e 's/^level = info$/level = debug/' \
+    -e 's/^bind.port = 4443$/bind.port = 4444/' \
+    -e 's/^tun.name = qrms0$/tun.name = qrms1/' \
+    -e 's/^tun.address = 10\.88\.0\.1$/tun.address = 10.89.0.1/' \
+    -e 's#^pool.cidr = 10\.88\.0\.0/24$#pool.cidr = 10.89.0.0/24#' \
+    -e 's/^pool.exclude = 10\.88\.0\.1$/pool.exclude = 10.89.0.1/' \
+    "$WORK/server.conf" >"$WORK/server-secondary.conf"
+  ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control-secondary.sock" \
+    "$BIN" server -c "$WORK/server-secondary.conf" >"$WORK/server-secondary.log" 2>&1 &
+  SECONDARY_SERVER_JOB_PID=$!
+  if wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4444'"; then
+    ok "secondary process listens with the shared identity on port 4444"
+  else
+    bad "secondary process did not listen on port 4444"
+    exit 1
+  fi
+  wait_for 50 "ip netns exec $SRV_NS ip link show qrms1" || bad "secondary tunnel device did not come up"
+  ip netns exec "$RTR_NS" iptables -t nat -A PREROUTING -i qrm-br -p tcp \
+    -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.3.2:4444
+  check "path B is mapped to the independent secondary process" \
+    "ip netns exec $RTR_NS iptables -t nat -C PREROUTING -i qrm-br -p tcp -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.3.2:4444"
+fi
 if [ "$REALITY_TARGET" = true ]; then
   check "REALITY server borrowed the target TLS shape and certificate" \
     "grep -q 'borrowed TLS shape.*real cert chain: captured' $WORK/server.log"
@@ -401,6 +441,9 @@ if [ "$CASE" = soak ]; then
 elif [ "$CASE" = perf ]; then
   # shellcheck source=roaming_tcp_netns_perf_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_perf_case.sh" run_tcp_perf_case || exit $?
+elif [ "$CASE" = multinode ]; then
+  # shellcheck source=roaming_tcp_multinode_netns_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_multinode_netns_case.sh" run_tcp_multinode_case || exit $?
 else
 # Give the observer enough time to establish its A baseline, then make B the physical default.
 sleep 3

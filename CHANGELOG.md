@@ -128,6 +128,13 @@
   `roaming=required`. Gate по умолчанию отклоняет регрессию любого направления throughput или CPU
   больше 5%; число раундов, длительность и бюджет настраиваются. Policy overrides разрешены только
   для `perf`, поэтому обычные success/soak сценарии по-прежнему fail-closed требуют роуминг.
+- Добавлен отрицательный TCP multi-node gate без отдельной транспортной реализации. Path A ведёт
+  к исходному серверному процессу, а path B через scoped DNAT — к независимому процессу с теми же
+  identity key и users, но отдельным session registry. Foreign authenticated JOIN обязан получить
+  `unknown locator` и не может создать roaming commit; после физической потери path A политика
+  `auto` должна пройти штатный full reconnect и вторую полную AUTH, заменить выданный tunnel address
+  и продолжить трафик. `multinode` принудительно ограничен fake-TLS/server-enabled/client-auto;
+  live gate поставлен в очередь после текущих resource/performance тестов.
 - Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и
