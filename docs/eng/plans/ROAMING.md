@@ -127,15 +127,17 @@
 > exercise the same exit-node COMMIT path.
 > Current lab gates pass 972 feature library tests with three ignored,
 > 881 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26,
-> exit-node TCP 35/35 and four UDP modes at 35/35 each, a five-mode self-contained TCP matrix at
-> 15/15 per mode,
+> exit-node TCP 35/35 and four UDP modes at 35/35 each, and a six-mode TCP matrix with
+> `reality-tls` at 19/19 and the other five modes at 15/15 each,
 > UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25, and
 > same-network NAT dead-mapping 21/21, an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
-> The TCP matrix covers `fake-tls`, `plain`, `obfs-ws`, `obfs-none`, and `obfs-awg` through one
-> runner; live `reality-tls` acceptance with a TLS/HTTP2 target and pinned identity remains open.
+> The TCP matrix covers `fake-tls`, `reality-tls`, `plain`, `obfs-ws`, `obfs-none`, and `obfs-awg`
+> through one runner. The REALITY slice uses a genuine local TLS target and verifies the borrowed
+> TLS shape/certificate chain, transparent decoy bridge, exact pinned identity, and genuine HTTP/2
+> carrier before exercising the same make-before-break handover.
 > Every live Linux TCP/UDP netns profile explicitly enables the server rollout and uses client
 > `required`, so reconnect fallback cannot produce a green migration gate. Split UDP case helpers
 > are loaded fail-closed; a missing helper is a verified `rc=2`, never a false `0 failed` result.

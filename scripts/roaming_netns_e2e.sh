@@ -29,9 +29,10 @@ PASS=0
 FAIL=0
 SERVER_JOB_PID=
 CLIENT_JOB_PID=
+TARGET_JOB_PID=
 
 usage() {
-  echo "usage: $0 [qeli-binary] [success|soak] [fake-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+  echo "usage: $0 [qeli-binary] [success|soak] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
 }
 
 if [ "$#" -gt 3 ]; then
@@ -50,8 +51,22 @@ SERVER_OBF_MODE=fake-tls
 CLIENT_OBF_MODE=fake-tls
 SERVER_OBF_EXTRA=
 CLIENT_OBF_EXTRA=
+AUTH_REQUIRE_KEY_PROOF=false
+AUTH_BIND_STATIC=false
+CLIENT_BIND_STATIC=false
+REALITY_TARGET=false
 case "$WIRE_MODE" in
   fake-tls) ;;
+  reality-tls)
+    SERVER_OBF_MODE=reality-tls
+    CLIENT_OBF_MODE=reality-tls
+    AUTH_REQUIRE_KEY_PROOF=true
+    AUTH_BIND_STATIC=true
+    CLIENT_BIND_STATIC=true
+    REALITY_TARGET=true
+    SERVER_OBF_EXTRA=$'obf.tls.server_name = www.microsoft.com\nobf.tls.reality_proxy.enabled = true\nobf.tls.reality_proxy.target = 10.40.3.1\nobf.tls.reality_proxy.target_port = 9443\nobf.tls.reality_proxy.short_ids = 0123456789abcdef\nobf.tls.reality_proxy.real_tls = true\nobf.tls.reality_proxy.handrolled = true'
+    CLIENT_OBF_EXTRA=$'reality_sid = 0123456789abcdef\nsni = www.microsoft.com'
+    ;;
   plain)
     SERVER_OBF_MODE=plain
     CLIENT_OBF_MODE=plain
@@ -115,7 +130,7 @@ run_case_helper() {
 }
 
 cleanup() {
-  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID"; do
+  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$TARGET_JOB_PID"; do
     if [ -n "$pid" ]; then
       kill -9 "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -131,7 +146,8 @@ cleanup() {
 trap cleanup EXIT
 cleanup
 mkdir -p "$WORK"
-rm -f "$WORK"/*.log "$WORK"/*.conf
+rm -f "$WORK"/*.log "$WORK"/*.conf "$WORK"/*.key "$WORK"/*.crt \
+  "$WORK"/*-known-hosts "$WORK"/*-device-id
 
 for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns add "$ns"; done
 ip link add qrm-a type veth peer name qrm-ar
@@ -168,17 +184,37 @@ check "path A reaches the server" \
 check "path B reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.40.2.2 -c1 -W2 10.40.3.2"
 
+if [ "$REALITY_TARGET" = true ]; then
+  if ! openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+      -subj '/CN=www.microsoft.com' -keyout "$WORK/target.key" \
+      -out "$WORK/target.crt" >/dev/null 2>&1; then
+    bad "REALITY target certificate generation"
+    exit 1
+  fi
+  ip netns exec "$RTR_NS" openssl s_server -4 -accept 10.40.3.1:9443 \
+    -cert "$WORK/target.crt" -key "$WORK/target.key" -www -quiet \
+    >"$WORK/target.log" 2>&1 &
+  TARGET_JOB_PID=$!
+  if wait_for 50 "ip netns exec $RTR_NS ss -lnt | grep -q ':9443'"; then
+    ok "REALITY TLS target listens in the router namespace"
+  else
+    bad "REALITY TLS target listens in the router namespace"
+    exit 1
+  fi
+fi
+
 cat >"$WORK/server.conf" <<EOF
 [auth]
 users_file = $WORK/users.conf
-require_client_key_proof = false
-bind_static_to_session = false
+require_client_key_proof = $AUTH_REQUIRE_KEY_PROOF
+bind_static_to_session = $AUTH_BIND_STATIC
 [web]
 enabled = false
 [logging]
 level = info
 [profile:roam]
 enabled = true
+identity_key = $WORK/identity.key
 bind.address = 0.0.0.0
 bind.port = 4443
 bind.transport = tcp
@@ -196,10 +232,30 @@ perf.connection.new_session_rate_max = 100
 perf.connection.new_session_rate_window_secs = 60
 EOF
 : >"$WORK/users.conf"
+SERVER_PIN=
+if [ "$REALITY_TARGET" = true ]; then
+  SERVER_PIN=$("$BIN" show-identity --config "$WORK/server.conf" 2>&1 \
+    | grep -Eo '[0-9a-f]{64}' | head -n1)
+  if [ "${#SERVER_PIN}" -eq 64 ]; then
+    ok "REALITY client obtained the exact pinned Qeli identity"
+    CLIENT_OBF_EXTRA="${CLIENT_OBF_EXTRA}"$'\n'"key = $SERVER_PIN"
+  else
+    bad "REALITY client obtained the exact pinned Qeli identity"
+    exit 1
+  fi
+fi
 "$BIN" add-client roam-user -p roam-pass-1234 -c "$WORK/server.conf" >/dev/null 2>&1
 ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4443'" || bad "server did not listen"
+if [ "$REALITY_TARGET" = true ]; then
+  check "REALITY server borrowed the target TLS shape and certificate" \
+    "grep -q 'borrowed TLS shape.*real cert chain: captured' $WORK/server.log"
+  ip netns exec "$CLI_NS" timeout 10 openssl s_client -connect 10.40.3.2:4443 \
+    -servername www.microsoft.com -showcerts </dev/null >"$WORK/decoy.log" 2>&1 || true
+  check "non-Qeli TLS probe was bridged to the REALITY target" \
+    "grep -Eq 'CN ?= ?www\.microsoft\.com' $WORK/decoy.log"
+fi
 
 cat >"$WORK/client.conf" <<EOF
 [qeli]
@@ -211,7 +267,7 @@ pass = roam-pass-1234
 mode = $CLIENT_OBF_MODE
 $CLIENT_OBF_EXTRA
 dev = qrm0
-bind_static = false
+bind_static = $CLIENT_BIND_STATIC
 gateway = true
 dns = off
 allow_ipv6_leak = true
@@ -219,7 +275,9 @@ timeout = 5
 [logging]
 level = info
 EOF
-ip netns exec "$CLI_NS" "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
+ip netns exec "$CLI_NS" env QELI_KNOWN_HOSTS="$WORK/client-known-hosts" \
+  QELI_DEVICE_ID_FILE="$WORK/client-device-id" \
+  "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
 CLIENT_JOB_PID=$!
 wait_for 100 "ip netns exec $CLI_NS ip link show qrm0" || bad "client TUN did not come up"
 

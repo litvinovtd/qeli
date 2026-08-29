@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prove that the shared TCP roaming actor is independent of the isolated wire camouflage.
-# REALITY-TLS needs its own external-target gate; this matrix covers every self-contained mode.
+# Prove that the shared TCP roaming actor is independent of wire camouflage. REALITY-TLS gets a
+# genuine local TLS target plus pinned identity; the other modes stay fully self-contained.
 set -u
 set -o pipefail
 export LC_ALL=C
@@ -17,7 +17,7 @@ if [ "$#" -gt 2 ] || { [ "$CASE" != success ] && [ "$CASE" != soak ]; }; then
   exit 2
 fi
 
-for mode in fake-tls plain obfs-ws obfs-none obfs-awg; do
+for mode in fake-tls reality-tls plain obfs-ws obfs-none obfs-awg; do
   echo "=== TCP roaming wire mode: $mode; case: $CASE ==="
   if "$RUNNER" "$BIN" "$CASE" "$mode"; then
     PASS=$((PASS + 1))
@@ -27,7 +27,7 @@ for mode in fake-tls plain obfs-ws obfs-none obfs-awg; do
 done
 
 echo
-echo "TCP roaming self-contained transport-mode matrix ($CASE): $PASS passed, $FAIL failed"
+echo "TCP roaming transport-mode matrix ($CASE): $PASS passed, $FAIL failed"
 if [ "$FAIL" -ne 0 ]; then
   exit 1
 fi
