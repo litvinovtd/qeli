@@ -3,6 +3,9 @@ use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct ClientConfig {
+    /// Session migration policy (`off|auto|required`).
+    #[serde(default)]
+    pub roaming: ClientRoamingPolicy,
     #[serde(default)]
     pub server: ServerConnConfig,
     #[serde(default)]
@@ -179,6 +182,45 @@ impl std::str::FromStr for ClientIpv6Policy {
             "off" => Ok(Self::Off),
             _ => Err(format!(
                 "expected one of auto, required, off; got '{value}'"
+            )),
+        }
+    }
+}
+
+/// Client policy for preserving a logical VPN session across carrier changes.
+///
+/// `auto` uses negotiated roaming when the server, core and platform expose the complete
+/// contract and otherwise falls back to a normal reconnect. `required` fails closed instead of
+/// reconnecting when safe migration is unavailable. `off` never advertises roaming capability.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientRoamingPolicy {
+    Off,
+    #[default]
+    Auto,
+    Required,
+}
+
+impl std::fmt::Display for ClientRoamingPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Off => "off",
+            Self::Auto => "auto",
+            Self::Required => "required",
+        })
+    }
+}
+
+impl std::str::FromStr for ClientRoamingPolicy {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" => Ok(Self::Off),
+            "auto" => Ok(Self::Auto),
+            "required" => Ok(Self::Required),
+            _ => Err(format!(
+                "expected one of off, auto, required; got '{value}'"
             )),
         }
     }
@@ -532,6 +574,7 @@ impl ClientConfig {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         cfg.server.local_port = q.parse_or("lport", 0);
+        cfg.roaming = q.parse_or("roaming", cfg.roaming);
         // Connection tuning — honored by the client but previously not parsed from the
         // file (ghost keys): TCP keepalive probe interval and Nagle's-algorithm toggle.
         cfg.server.tcp_keepalive_secs = q.parse_or("keepalive", cfg.server.tcp_keepalive_secs);
@@ -1043,6 +1086,14 @@ impl ClientConfig {
             })?;
         }
 
+        if self.roaming == ClientRoamingPolicy::Required
+            && (self.server.local_address.is_some() || self.server.local_port != 0)
+        {
+            anyhow::bail!(
+                "'roaming = required' cannot be combined with an explicit 'local' address or non-zero 'lport': those values pin the carrier socket and make cross-interface migration impossible"
+            );
+        }
+
         // Only the INLINE password can be judged here. `password_file` / `password_command`
         // are resolved at connect time, so the client re-runs this on what they produced —
         // see `check_credential_size`, which exists precisely so the two callers cannot drift.
@@ -1398,6 +1449,9 @@ impl ClientConfig {
         )
         .set("proto", &self.server.protocol)
         .set("user", &self.auth.username);
+        if self.roaming != ClientRoamingPolicy::Auto {
+            q.set("roaming", self.roaming.to_string());
+        }
         if let Some(p) = &self.auth.password {
             q.set("pass", p);
         }
@@ -2385,6 +2439,41 @@ sni    = www.cloudflare.com
                 .unwrap_err()
                 .to_string();
         assert!(error.contains("ipv6"), "{error}");
+    }
+
+    #[test]
+    fn roaming_policy_defaults_parses_validates_and_round_trips() {
+        let default =
+            ClientConfig::from_ini(&IniDoc::parse("[qeli]\nserver = h:443\n").unwrap()).unwrap();
+        assert_eq!(default.roaming, ClientRoamingPolicy::Auto);
+        assert!(!default.to_ini_string().contains("\nroaming ="));
+
+        for (raw, expected) in [
+            ("off", ClientRoamingPolicy::Off),
+            ("auto", ClientRoamingPolicy::Auto),
+            ("required", ClientRoamingPolicy::Required),
+        ] {
+            let text = format!("[qeli]\nserver = h:443\nroaming = {raw}\n");
+            let parsed = ClientConfig::from_ini(&IniDoc::parse(&text).unwrap()).unwrap();
+            assert_eq!(parsed.roaming, expected);
+            let back =
+                ClientConfig::from_ini(&IniDoc::parse(&parsed.to_ini_string()).unwrap()).unwrap();
+            assert_eq!(back.roaming, expected);
+        }
+
+        let invalid = crate::config::parse_client_config_strict(
+            "[qeli]\nserver = h:443\nroaming = sometimes\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(invalid.contains("roaming"), "{invalid}");
+
+        for pin in ["local = 192.0.2.10", "lport = 41000"] {
+            let text = format!("[qeli]\nserver = h:443\nroaming = required\n{pin}\n");
+            let parsed = crate::config::parse_client_config_strict(&text).unwrap();
+            let error = parsed.validate().unwrap_err().to_string();
+            assert!(error.contains("pin the carrier socket"), "{error}");
+        }
     }
 
     #[test]

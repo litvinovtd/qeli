@@ -1249,9 +1249,14 @@ impl ClientStatusReporter {
 
 #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
 fn linux_roaming_path_supported(config: &crate::config::client::ClientConfig) -> bool {
+    use crate::config::client::ClientRoamingPolicy;
+
     let transport_supported = matches!(config.server.protocol.as_str(), "tcp" | "udp");
-    // An explicit source address is an operator pin, not a path the observer may replace.
-    transport_supported && config.server.local_address.is_none()
+    // Explicit source settings are operator pins, not a path the observer may replace.
+    config.roaming != ClientRoamingPolicy::Off
+        && transport_supported
+        && config.server.local_address.is_none()
+        && config.server.local_port == 0
 }
 
 #[cfg(target_os = "linux")]
@@ -3729,14 +3734,13 @@ where
     };
     let server_capabilities = handshake.server_capabilities;
     #[cfg(feature = "experimental-roaming")]
-    let client_control_v2 = crate::protocol::capabilities::implemented_client_core_capabilities()
-        & crate::protocol::capabilities::client_capability::CONTROL_V2
-        != 0;
+    let client_capabilities = handshake.client_capabilities;
     #[cfg(feature = "experimental-roaming")]
-    let tcp_control_v2 = client_control_v2
-        && server_capabilities.is_some_and(|server| {
-            server.contains(crate::protocol::capabilities::server_capability::CONTROL_V2)
-        });
+    let tcp_control_v2 = client_capabilities.is_some_and(|client| {
+        client.core_bits & crate::protocol::capabilities::client_capability::CONTROL_V2 != 0
+    }) && server_capabilities.is_some_and(|server| {
+        server.contains(crate::protocol::capabilities::server_capability::CONTROL_V2)
+    });
     #[cfg(feature = "experimental-roaming")]
     let resume_secret = handshake.resume_secret;
     let client_rx = handshake.client_rx;
@@ -3760,9 +3764,11 @@ where
         udp_roaming_session_id: _,
     } = ok;
     #[cfg(feature = "experimental-roaming")]
-    let tcp_resume: Option<Arc<TcpResumeContext>> = if server_capabilities.is_some_and(|server| {
-        server.contains(crate::protocol::capabilities::server_capability::TCP_RESUME_V1)
-    }) {
+    let tcp_resume: Option<Arc<TcpResumeContext>> = if client_capabilities.is_some_and(|client| {
+        client.core_bits & crate::protocol::capabilities::client_capability::TCP_RESUME_V1 != 0
+    }) && server_capabilities.is_some_and(
+        |server| server.contains(crate::protocol::capabilities::server_capability::TCP_RESUME_V1),
+    ) {
         let session_locator =
             decode_hex_array::<{ crate::protocol::roaming::SESSION_LOCATOR_LEN }>(&session_token)
                 .ok_or_else(|| {
@@ -3790,6 +3796,10 @@ where
     let linux_path_controller = core.linux_path_controller();
     #[cfg(feature = "experimental-roaming")]
     let tcp_handover_enabled = path_controller.is_some()
+        && client_capabilities.is_some_and(|client| {
+            client.core_bits & crate::protocol::capabilities::client_capability::TCP_HANDOVER_V1
+                != 0
+        })
         && tcp_resume.is_some()
         && server_capabilities.is_some_and(|server| {
             server.contains(crate::protocol::capabilities::server_capability::TCP_HANDOVER_V1)
@@ -9909,7 +9919,7 @@ mod lifecycle_adapter_tests {
 
     #[cfg(feature = "experimental-roaming")]
     #[test]
-    fn linux_roaming_path_capability_is_transport_and_source_scoped() {
+    fn linux_roaming_path_capability_is_policy_transport_and_source_scoped() {
         let mut config = crate::config::client::ClientConfig::default();
         config.server.protocol = "tcp".to_string();
         assert!(linux_roaming_path_supported(&config));
@@ -9920,10 +9930,18 @@ mod lifecycle_adapter_tests {
         config.obfuscation.quic.enabled = false;
         assert!(linux_roaming_path_supported(&config));
 
+        config.roaming = crate::config::client::ClientRoamingPolicy::Off;
+        assert!(!linux_roaming_path_supported(&config));
+        config.roaming = crate::config::client::ClientRoamingPolicy::Auto;
+
         config.server.local_address = Some("192.0.2.10".to_string());
         assert!(!linux_roaming_path_supported(&config));
 
         config.server.local_address = None;
+        config.server.local_port = 41000;
+        assert!(!linux_roaming_path_supported(&config));
+
+        config.server.local_port = 0;
         config.server.protocol = "other".to_string();
         assert!(!linux_roaming_path_supported(&config));
     }

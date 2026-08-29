@@ -6,7 +6,7 @@
 //! client sends its extension only after seeing `AUTH_EXT_V1`; an old server therefore receives
 //! the byte-for-byte legacy auth layout.
 
-use crate::config::client::ClientIpv6Policy;
+use crate::config::client::{ClientIpv6Policy, ClientRoamingPolicy};
 
 const SERVER_MAGIC: &[u8; 4] = b"QSCP";
 const CLIENT_MAGIC: &[u8; 4] = b"QCCP";
@@ -231,6 +231,11 @@ pub fn negotiate_client_capabilities(
     platform_bits: u64,
 ) -> anyhow::Result<Option<ClientCapabilities>> {
     let Some(server) = server else {
+        if config.roaming == ClientRoamingPolicy::Required {
+            anyhow::bail!(
+                "roaming is required but the server does not advertise capability negotiation"
+            );
+        }
         if config.routing.ipv6 == ClientIpv6Policy::Required {
             anyhow::bail!(
                 "inner IPv6 is required but the server does not advertise capability negotiation"
@@ -239,6 +244,11 @@ pub fn negotiate_client_capabilities(
         return Ok(None);
     };
     if !server.contains(server_capability::AUTH_EXT_V1) {
+        if config.roaming == ClientRoamingPolicy::Required {
+            anyhow::bail!(
+                "roaming is required but the server does not support the authenticated capability extension"
+            );
+        }
         if config.routing.ipv6 == ClientIpv6Policy::Required {
             anyhow::bail!(
                 "inner IPv6 is required but the server does not support the authenticated capability extension"
@@ -247,6 +257,7 @@ pub fn negotiate_client_capabilities(
         return Ok(None);
     }
 
+    let roaming_path = crate::transport_core::platform_capability::ROAMING_PATH;
     let mut core_bits = implemented_client_core_capabilities();
     let explicit_mtu_blocks_ipv6 = config.tun.mtu > 0 && config.tun.mtu < 1280;
     if explicit_mtu_blocks_ipv6 {
@@ -275,23 +286,76 @@ pub fn negotiate_client_capabilities(
         // `auto` must downgrade instead of claiming a plan that its adapter cannot apply.
         core_bits &= !client_capability::INNER_IPV6;
     }
-    if platform_bits & crate::transport_core::platform_capability::ROAMING_PATH
-        != crate::transport_core::platform_capability::ROAMING_PATH
-    {
+    if platform_bits & roaming_path != roaming_path {
         // A handover proof permits replacing a still-live carrier. Never advertise that wire
         // authority unless the adapter can transactionally prepare and bind the exact path.
         core_bits &= !client_capability::TCP_HANDOVER_V1;
     }
+    match config.server.protocol.as_str() {
+        "tcp" => core_bits &= !client_capability::UDP_ROAM_V1,
+        "udp" => {
+            core_bits &= !(client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
+        }
+        _ => core_bits &= !client_capability::ROAMING_RESERVED,
+    }
     let udp_roaming_eligible = config.server.protocol == "udp"
         && server.contains(server_capability::UDP_ROAM_V1)
-        && platform_bits & crate::transport_core::platform_capability::ROAMING_PATH
-            == crate::transport_core::platform_capability::ROAMING_PATH;
+        && platform_bits & roaming_path == roaming_path;
     if !udp_roaming_eligible {
         // UDP roaming changes the post-auth wire envelope and starts a candidate path actor.
         // Advertise it only for a UDP connection whose platform can transactionally bind and
         // commit the replacement socket. Wire masking remains independent of migration.
         core_bits &= !client_capability::UDP_ROAM_V1;
     }
+    if config.roaming == ClientRoamingPolicy::Off {
+        core_bits &= !client_capability::ROAMING_RESERVED;
+    } else if config.roaming == ClientRoamingPolicy::Required {
+        if config.server.local_address.is_some() || config.server.local_port != 0 {
+            anyhow::bail!(
+                "roaming is required but explicit local/lport settings pin the carrier socket"
+            );
+        }
+        let missing_platform = roaming_path & !platform_bits;
+        if missing_platform != 0 {
+            anyhow::bail!(
+                "roaming is required but the platform adapter is missing capabilities 0x{missing_platform:x}"
+            );
+        }
+        let (required_server, required_core) = match config.server.protocol.as_str() {
+            "tcp" => (
+                server_capability::CONTROL_V2
+                    | server_capability::TCP_RESUME_V1
+                    | server_capability::TCP_HANDOVER_V1,
+                client_capability::CONTROL_V2
+                    | client_capability::TCP_RESUME_V1
+                    | client_capability::TCP_HANDOVER_V1,
+            ),
+            "udp" => (
+                server_capability::CONTROL_V2
+                    | server_capability::UDP_ROAM_V1
+                    | server_capability::UDP_DATA_FRAG_V1,
+                client_capability::CONTROL_V2
+                    | client_capability::UDP_ROAM_V1
+                    | client_capability::UDP_DATA_FRAG_V1,
+            ),
+            protocol => anyhow::bail!(
+                "roaming is required but protocol '{protocol}' does not support migration"
+            ),
+        };
+        let missing_server = required_server & !server.bits;
+        if missing_server != 0 {
+            anyhow::bail!(
+                "roaming is required but the server is missing capabilities 0x{missing_server:x}"
+            );
+        }
+        let missing_core = required_core & !core_bits;
+        if missing_core != 0 {
+            anyhow::bail!(
+                "roaming is required but this client core is missing capabilities 0x{missing_core:x}"
+            );
+        }
+    }
+
     if config.routing.ipv6 == ClientIpv6Policy::Required {
         let required_server = server_capability::INNER_IPV6
             | server_capability::NETWORK_PLAN_V2
@@ -774,6 +838,77 @@ mod tests {
         let error = negotiate_client_capabilities(&config, Some(server), platform).unwrap_err();
         assert!(error.to_string().contains("platform adapter is missing"));
     }
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn client_roaming_policy_masks_or_requires_the_complete_transport_contract() {
+        let platform = crate::transport_core::platform_capability::ROAMING_PATH;
+        let mut config = crate::config::client::ClientConfig::default();
+        config.server.protocol = "tcp".to_string();
+        config.roaming = ClientRoamingPolicy::Off;
+        let off = negotiate_client_capabilities(
+            &config,
+            Some(implemented_server_capabilities()),
+            platform,
+        )
+        .unwrap()
+        .expect("capability extension");
+        assert_eq!(off.core_bits & client_capability::ROAMING_RESERVED, 0);
+
+        config.roaming = ClientRoamingPolicy::Auto;
+        let tcp = negotiate_client_capabilities(
+            &config,
+            Some(implemented_server_capabilities()),
+            platform,
+        )
+        .unwrap()
+        .expect("capability extension");
+        assert_eq!(tcp.core_bits & client_capability::UDP_ROAM_V1, 0);
+        assert_eq!(
+            tcp.core_bits
+                & (client_capability::CONTROL_V2
+                    | client_capability::TCP_RESUME_V1
+                    | client_capability::TCP_HANDOVER_V1),
+            client_capability::CONTROL_V2
+                | client_capability::TCP_RESUME_V1
+                | client_capability::TCP_HANDOVER_V1
+        );
+
+        config.server.protocol = "udp".to_string();
+        let udp = negotiate_client_capabilities(
+            &config,
+            Some(implemented_udp_server_capabilities()),
+            platform,
+        )
+        .unwrap()
+        .expect("capability extension");
+        assert_eq!(
+            udp.core_bits & (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1),
+            0
+        );
+        assert_ne!(udp.core_bits & client_capability::UDP_ROAM_V1, 0);
+
+        config.roaming = ClientRoamingPolicy::Required;
+        let required = negotiate_client_capabilities(
+            &config,
+            Some(implemented_udp_server_capabilities()),
+            platform,
+        )
+        .unwrap()
+        .expect("capability extension");
+        assert_ne!(required.core_bits & client_capability::UDP_ROAM_V1, 0);
+        let error =
+            negotiate_client_capabilities(&config, Some(implemented_udp_server_capabilities()), 0)
+                .unwrap_err();
+        assert!(error.to_string().contains("platform adapter is missing"));
+
+        config.server.protocol = "tcp".to_string();
+        let server_without_handover = ServerCapabilities {
+            bits: implemented_server_capabilities().bits & !server_capability::TCP_HANDOVER_V1,
+        };
+        let error = negotiate_client_capabilities(&config, Some(server_without_handover), platform)
+            .unwrap_err();
+        assert!(error.to_string().contains("server is missing"));
+    }
 
     #[test]
     fn packet_mux_is_advertised_and_server_policy_negotiates_safely() {
@@ -805,7 +940,8 @@ mod tests {
     #[cfg(feature = "experimental-roaming")]
     #[test]
     fn client_handover_requires_the_complete_platform_path_contract() {
-        let config = crate::config::client::ClientConfig::default();
+        let mut config = crate::config::client::ClientConfig::default();
+        config.server.protocol = "tcp".to_string();
         let server = Some(implemented_server_capabilities());
         let without_path = negotiate_client_capabilities(&config, server, 0)
             .unwrap()

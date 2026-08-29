@@ -49,6 +49,8 @@ pub(crate) struct TcpAuthentication {
     pub auth: AuthOk,
     pub server_capabilities: Option<crate::protocol::capabilities::ServerCapabilities>,
     #[cfg(feature = "experimental-roaming")]
+    pub client_capabilities: Option<crate::protocol::capabilities::ClientCapabilities>,
+    #[cfg(feature = "experimental-roaming")]
     pub resume_secret: zeroize::Zeroizing<[u8; 32]>,
 }
 
@@ -390,6 +392,12 @@ where
         let auth_proof = client_rx.decrypt_packet(&auth_proof_record)?;
         let (_, server_capabilities) =
             crate::protocol::capabilities::split_server_capabilities(&auth_proof)?;
+        #[cfg(feature = "experimental-roaming")]
+        let client_capabilities = crate::protocol::capabilities::negotiate_client_capabilities(
+            config,
+            server_capabilities,
+            platform_capabilities,
+        )?;
         let server_static = verify_server_identity(
             &auth_proof,
             &client_kp,
@@ -424,6 +432,8 @@ where
             client_tx,
             auth,
             server_capabilities,
+            #[cfg(feature = "experimental-roaming")]
+            client_capabilities,
             #[cfg(feature = "experimental-roaming")]
             resume_secret,
         });
@@ -521,6 +531,12 @@ where
     let auth_proof = client_rx.decrypt_packet(&auth_proof_record)?;
     let (_, server_capabilities) =
         crate::protocol::capabilities::split_server_capabilities(&auth_proof)?;
+    #[cfg(feature = "experimental-roaming")]
+    let client_capabilities = crate::protocol::capabilities::negotiate_client_capabilities(
+        config,
+        server_capabilities,
+        platform_capabilities,
+    )?;
     let server_static = verify_server_identity(
         &auth_proof,
         &client_kp,
@@ -563,6 +579,8 @@ where
         client_tx,
         auth,
         server_capabilities,
+        #[cfg(feature = "experimental-roaming")]
+        client_capabilities,
         #[cfg(feature = "experimental-roaming")]
         resume_secret,
     })
