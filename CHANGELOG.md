@@ -97,6 +97,10 @@
   `0 failed`. Feature release gate: TCP 15/15; QUIC/fake-TLS/obfs/obfs-AWG по 17/17; rollback
   20/20, supersede 24/24, commit race 24/24, loss/replay 18/18, PMTU 19/19+19/19, drain 26/26,
   outer-family 32/32, fragment loss 25/25 и same-network NAT rebinding 21/21.
+- Capability regression теперь для TCP и UDP фиксирует оба legacy-варианта: peer без capability
+  trailer и pre-`AUTH_EXT_V1` peer. Политика `auto` в обоих случаях оставляет byte-for-byte legacy
+  AUTH и обычный reconnect fallback, а `required` отказывает fail-closed до credentials/полной
+  аутентификации. Live mixed-version бинарная матрица остаётся отдельным этапом 6 gate.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

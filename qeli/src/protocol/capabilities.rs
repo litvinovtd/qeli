@@ -770,12 +770,40 @@ mod tests {
     }
 
     #[test]
-    fn auto_policy_keeps_legacy_auth_byte_compatible() {
-        let config = crate::config::client::ClientConfig::default();
-        assert_eq!(
-            negotiate_client_capabilities(&config, None, 0).unwrap(),
-            None
-        );
+    fn roaming_policy_is_legacy_compatible_and_required_is_fail_closed_for_both_transports() {
+        let platform = crate::transport_core::platform_capability::ROAMING_PATH;
+        for protocol in ["tcp", "udp"] {
+            let mut config = crate::config::client::ClientConfig::default();
+            config.server.protocol = protocol.to_string();
+            config.roaming = ClientRoamingPolicy::Auto;
+
+            assert_eq!(
+                negotiate_client_capabilities(&config, None, platform).unwrap(),
+                None,
+                "{protocol} auto must keep the byte-for-byte legacy AUTH layout"
+            );
+            assert_eq!(
+                negotiate_client_capabilities(
+                    &config,
+                    Some(ServerCapabilities::default()),
+                    platform,
+                )
+                .unwrap(),
+                None,
+                "{protocol} auto must also accept a pre-AUTH_EXT_V1 peer"
+            );
+
+            config.roaming = ClientRoamingPolicy::Required;
+            let no_trailer = negotiate_client_capabilities(&config, None, platform).unwrap_err();
+            assert!(no_trailer.to_string().contains("does not advertise"));
+            let pre_extension = negotiate_client_capabilities(
+                &config,
+                Some(ServerCapabilities::default()),
+                platform,
+            )
+            .unwrap_err();
+            assert!(pre_extension.to_string().contains("does not support"));
+        }
     }
 
     #[test]

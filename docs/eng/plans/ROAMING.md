@@ -753,6 +753,9 @@ Each roaming feature is negotiated through the existing authenticated capability
 A feature-enabled server advertises only implemented server bits, and a session enters the TCP
 roaming lifecycle only after the authenticated client extension opts in. Legacy peers keep the
 normal full-reconnect path, so rollout does not require a lockstep server/client upgrade.
+A source regression now pins this for both TCP and UDP against both an absent capability trailer
+and a pre-`AUTH_EXT_V1` peer: `auto` keeps legacy AUTH, while `required` fails before credentials/
+full AUTH. The live mixed-version binary matrix remains an open Phase 6 gate.
 The initial server default is off and client policy is auto. Any failed or unsupported
 transaction rolls back candidate resources and falls back to a full reconnect.
 

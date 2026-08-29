@@ -1041,7 +1041,8 @@ control/status и transport-aware dashboard показывают worker-lifetime
 - NAT rebinding без смены интерфейса;
 - sleep меньше и больше grace;
 - A/AAAA reorder и DNS64/NAT64;
-- legacy peer fallback;
+- legacy peer fallback — ✅ source regression для TCP/UDP, absent trailer и pre-`AUTH_EXT_V1`;
+  live mixed-version бинарная матрица остаётся впереди;
 - отрицательный тест multi-process/multi-node.
 
 Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
