@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v35-ios-path-executor -->
+<!-- normative-sync: roaming-v36-resource-release-gate -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -819,6 +819,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   5% by default. Policy overrides are accepted only by the `perf` case, so success/soak cannot be
   accidentally downgraded. Its live lab measurement waits for the current 10k resource soak to
   finish so the two gates do not contaminate each other.
+  A single `roaming_resource_release_gate.sh` now pins the fail-closed resource acceptance order to
+  one immutable binary: TCP/UDP all-mode smoke, TCP 10k, UDP 4×10k, TCP performance, and the
+  negative multi-node fallback. SHA-256 is checked before and after every phase, and a phase PASS
+  marker is emitted only after a zero exit code. Any failure or binary replacement prevents every
+  later phase from starting; contract tests pin the order, hash check, and absence of a false final
+  PASS.
   A negative TCP multi-node case now maps path A to the original process and path B to an
   independent process that shares identity/users but not the in-memory session registry. A
   foreign authenticated JOIN must fail with an unknown locator and must never commit; after path A

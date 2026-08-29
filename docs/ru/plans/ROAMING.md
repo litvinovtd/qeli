@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v35-ios-path-executor -->
+<!-- normative-sync: roaming-v36-resource-release-gate -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1124,6 +1124,11 @@ release+jemalloc бинарника остаётся обязательным ga
 регрессию больше 5%. Policy overrides принимаются только case `perf`, поэтому success/soak нельзя
 случайно понизить до reconnect. Live-замер на лабе будет выполнен после текущего 10k resource soak,
 чтобы два gate не искажали результаты друг друга.
+Единый `roaming_resource_release_gate.sh` закрепляет fail-closed порядок resource-приёмки на одном
+неизменном бинарнике: TCP/UDP all-mode smoke, TCP 10k, UDP 4×10k, TCP performance и отрицательный
+multi-node fallback. SHA-256 проверяется до и после каждого этапа, а его PASS-маркер печатается
+только после нулевого exit code. Любая ошибка или замена бинарника запрещает запуск последующих
+этапов; contract-тесты фиксируют порядок, hash pin и отсутствие ложного финального PASS.
 
 Release запрещён, если хотя бы одна поддерживаемая платформа:
 
