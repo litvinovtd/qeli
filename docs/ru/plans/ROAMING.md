@@ -114,18 +114,21 @@
 > сохраняют reconnect. Cross-platform Release build и macOS route/socket/capability self-tests
 > проходят без предупреждений. До rollout остаётся live macOS-приёмка route-команд, PF, per-app,
 > device/race и sleep/soak; этот source-only gate не выдаётся за проверку на реальном macOS.
-> Отдельный Linux TCP exit-node roaming gate прошёл 34/34. Реальный full-tunnel consumer передал
-> трафик через server → exit → WAN A, после чего authenticated carrier и физический default выхода
-> переместились на WAN B без второй полной AUTH, замены PID/TUN или top-level reconnect. Точные
+> Общий Linux exit-node roaming gate прошёл TCP 35/35 и UDP-матрицу 4/4: `quic`, `fake-tls`,
+> `obfs`, `obfs-awg` дали по 35/35 каждый. Реальный full-tunnel consumer передал трафик через
+> server → exit → WAN A, после чего authenticated carrier и физический default выхода переместились
+> на WAN B без повторной полной AUTH, замены PID/TUN или top-level reconnect. Ровно две исходные
+> полные AUTH соответствуют exit и consumer; после handover их число не изменилось. Точные
 > MARK/MASQUERADE/FORWARD rules и NAT counters проверены на обоих WAN; прежнее поколение осталось
 > доступным для fail-safe drain. После полного завершения SIGTERM-cleanup exit-процесса rules обоих
 > поколений отсутствовали, а исходные `ip_forward`/`rp_filter` были восстановлены. Владение exit WAN
 > теперь привязано к TUN, поэтому обычный соседний профиль в том же daemon не может получить exit
 > rules. IPv4 и IPv6 независимо обновляют свои фактические default uplink, не предполагая совпадения
 > с интерфейсом qeli carrier. Identity, TOFU, device-id и control socket теста изолированы в его
-> рабочем каталоге.
+> рабочем каталоге; TCP и все UDP-маскировки проходят один общий exit-node COMMIT path.
 > Текущие lab gates: 972 feature library tests при трёх ignored, 881 default tests при
-> одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
+> одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, exit-node TCP 35/35,
+> exit-node UDP 4/4 режима по 35/35, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25 и

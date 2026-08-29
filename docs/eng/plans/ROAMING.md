@@ -111,19 +111,24 @@
 > The cross-platform Release build and macOS route/socket/capability self-tests pass without
 > warnings. Live macOS route-command, PF, per-app, device/race and sleep/soak acceptance is still
 > required before rollout; no live macOS result is claimed by this source-only gate.
-> A dedicated Linux TCP exit-node roaming gate passed 34/34. A real full-tunnel consumer sent
+> The shared Linux exit-node roaming gate passed TCP 35/35 and a 4/4 UDP matrix: `quic`, `fake-tls`,
+> `obfs`, and `obfs-awg` each passed 35/35. A real full-tunnel consumer sent
 > traffic through server → exit → WAN A, then the exit's authenticated carrier and physical default
-> moved to WAN B without another full AUTH, PID/TUN replacement, or top-level reconnect. Exact
+> moved to WAN B without a repeated full AUTH, PID/TUN replacement, or top-level reconnect. The
+> exactly two initial full AUTHs belong to the exit and consumer; that count did not change after
+> handover. Exact
 > MARK/MASQUERADE/FORWARD rules and NAT counters were verified on both WANs; the previous generation
 > remained available for fail-safe drain. After the exit process completed SIGTERM cleanup, rules
 > for both generations were absent and the original `ip_forward`/`rp_filter` values were restored.
 > Exit WAN ownership is now keyed by TUN, so an ordinary sibling profile in the same daemon cannot
 > acquire exit rules. IPv4 and IPv6 refresh their actual default uplinks independently instead of
 > assuming that either matches the qeli carrier interface. The gate isolates its identity, TOFU,
-> device-id, and control socket state inside its work directory.
+> device-id, and control socket state inside its work directory; TCP and all UDP camouflage modes
+> exercise the same exit-node COMMIT path.
 > Current lab gates pass 972 feature library tests with three ignored,
-> 881 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
-> netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
+> 881 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26,
+> exit-node TCP 35/35 and four UDP modes at 35/35 each, TCP roaming netns 15/15,
+> UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25, and
 > same-network NAT dead-mapping 21/21, an Android x86_64 NDK

@@ -1,13 +1,71 @@
 #!/usr/bin/env bash
-# Isolated TCP roaming gate for a Linux exit node. A consumer sends real traffic through
-# server -> exit -> WAN A, the exit moves its carrier/default to WAN B in the same session,
-# and clean stop must remove rules for both WAN generations and restore leased sysctls.
+# Isolated TCP/UDP roaming gate for a Linux exit node. A consumer sends real traffic
+# through server -> exit -> WAN A, the exit moves its carrier/default to WAN B in the
+# same session, and clean stop must remove both WAN generations and restore leased sysctls.
 set -u
 set -o pipefail
 export LC_ALL=C
 
 BIN=${1:-/var/tmp/qeli-exit-node-target/release/qeli}
-WORK=/var/tmp/qeli-roaming-exit-node-netns
+TRANSPORT=${2:-tcp}
+WIRE_MODE=${3:-fake-tls}
+
+usage() {
+  echo "usage: $0 [qeli-binary] [tcp|udp] [fake-tls|quic|obfs|obfs-awg]" >&2
+}
+
+if [ "$#" -gt 3 ]; then
+  usage
+  exit 2
+fi
+
+SERVER_OBF_MODE=fake-tls
+CLIENT_OBF_MODE=fake-tls
+QUIC_ENABLED=false
+SERVER_OBF_EXTRA=
+CLIENT_OBF_EXTRA=
+case "$TRANSPORT:$WIRE_MODE" in
+  tcp:fake-tls)
+    SOCKET_ARGS=-lnt
+    ROAM_PREFIX=TCP
+    FULL_AUTH_MARKER="connected on profile 'roam'"
+    ;;
+  udp:quic)
+    SOCKET_ARGS=-lnu
+    ROAM_PREFIX=UDP
+    FULL_AUTH_MARKER="authenticated on profile 'roam'"
+    QUIC_ENABLED=true
+    ;;
+  udp:fake-tls)
+    SOCKET_ARGS=-lnu
+    ROAM_PREFIX=UDP
+    FULL_AUTH_MARKER="authenticated on profile 'roam'"
+    ;;
+  udp:obfs)
+    SOCKET_ARGS=-lnu
+    ROAM_PREFIX=UDP
+    FULL_AUTH_MARKER="authenticated on profile 'roam'"
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA='obf.obfs_key = roam-obfs-key-1234'
+    CLIENT_OBF_EXTRA='obfs_key = roam-obfs-key-1234'
+    ;;
+  udp:obfs-awg)
+    SOCKET_ARGS=-lnu
+    ROAM_PREFIX=UDP
+    FULL_AUTH_MARKER="authenticated on profile 'roam'"
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA='obf.obfs_key = roam-obfs-key-1234'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-obfs-key-1234\nawg = true\njc = 4\njmin = 48\njmax = 160'
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+WORK=/var/tmp/qeli-roaming-exit-node-${TRANSPORT}-${WIRE_MODE}-netns
 EXIT_NS=qre-exit
 CONS_NS=qre-cons
 RTR_NS=qre-rtr
@@ -33,6 +91,9 @@ wait_for() {
   return 1
 }
 
+full_auth_count() {
+  grep -F -c -- "$FULL_AUTH_MARKER" "$WORK/server.log" 2>/dev/null || true
+}
 cleanup() {
   for pid in "$EXIT_JOB_PID" "$CONS_JOB_PID" "$SERVER_JOB_PID"; do
     if [ -n "$pid" ]; then kill -9 "$pid" 2>/dev/null || true; fi
@@ -117,7 +178,7 @@ enabled = true
 identity_key = $WORK/identity.key
 bind.address = 0.0.0.0
 bind.port = 4553
-bind.transport = tcp
+bind.transport = $TRANSPORT
 roaming.enabled = true
 tun.name = qres0
 tun.address = 10.88.0.1
@@ -126,7 +187,14 @@ pool.cidr = 10.88.0.0/24
 pool.exclude = 10.88.0.1
 routing.client_to_client = true
 dns.enabled = false
-obf.mode = fake-tls
+obf.mode = $SERVER_OBF_MODE
+obf.quic.enabled = $QUIC_ENABLED
+obf.quic.cid_length = 4
+obf.quic.version = 1
+$SERVER_OBF_EXTRA
+obf.heartbeat.enabled = true
+obf.heartbeat.interval_ms = 1000
+obf.heartbeat.jitter_ms = 100
 perf.connection.max_clients = 8
 perf.connection.handshake_timeout_secs = 10
 perf.connection.new_session_rate_max = 100
@@ -151,7 +219,7 @@ sed -i '/^\[user:consumer-user\]$/a route = 0.0.0.0/0' "$WORK/users.conf"
 ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" \
   "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
-if wait_for 75 "ip netns exec $SRV_NS ss -lnt | grep -q ':4553'"; then
+if wait_for 75 "ip netns exec $SRV_NS ss $SOCKET_ARGS | grep -q ':4553'"; then
   ok "server listens in its namespace"
 else
   bad "server listens in its namespace"
@@ -162,11 +230,13 @@ fi
 cat >"$WORK/exit.conf" <<EOF
 [qeli]
 server = 10.43.3.2:4553
-proto = tcp
+proto = $TRANSPORT
 roaming = required
 user = exit-user
 pass = exit-pass-1234
-mode = fake-tls
+mode = $CLIENT_OBF_MODE
+quic = $QUIC_ENABLED
+$CLIENT_OBF_EXTRA
 dev = qrex0
 bind_static = false
 gateway = false
@@ -188,6 +258,12 @@ else
   bad "exit client established its TUN"
   tail -n 120 "$WORK/exit.log"
   exit 1
+fi
+
+if wait_for 100 "grep -q '$ROAM_PREFIX make-before-break negotiated' $WORK/exit.log"; then
+  ok "$TRANSPORT handover capability was negotiated"
+else
+  bad "$TRANSPORT handover capability was negotiated"
 fi
 
 EXIT_PID=$(ip netns pids "$EXIT_NS" 2>/dev/null | head -n1)
@@ -215,11 +291,13 @@ check "exit-node relaxed RPF on WAN A" \
 cat >"$WORK/consumer.conf" <<EOF
 [qeli]
 server = 10.43.3.2:4553
-proto = tcp
+proto = $TRANSPORT
 roaming = off
 user = consumer-user
 pass = consumer-pass-1234
-mode = fake-tls
+mode = $CLIENT_OBF_MODE
+quic = $QUIC_ENABLED
+$CLIENT_OBF_EXTRA
 dev = qrec0
 bind_static = false
 gateway = true
@@ -252,12 +330,12 @@ check "consumer traffic exits through WAN A" \
 check "WAN A MASQUERADE counter observed forwarded traffic" \
   "ip netns exec $EXIT_NS iptables -t nat -L POSTROUTING -v -n -x | awk '/qre-a/ && /qeli-exit-node/ { if (\$1 + 0 > 0) found=1 } END { exit !found }'"
 check "exactly two clients completed full AUTH before roaming" \
-  "test \"\$(grep -c \"connected on profile 'roam'\" $WORK/server.log || true)\" -eq 2"
+  "test \"\$(full_auth_count)\" -eq 2"
 
 sleep 3
 ip netns exec "$EXIT_NS" ip route replace default via 10.43.2.1 dev qre-b metric 50
 ip netns exec "$EXIT_NS" ip route replace default via 10.43.1.1 dev qre-a metric 200
-if wait_for 150 "grep -q 'TCP make-before-break committed candidate' $WORK/exit.log"; then
+if wait_for 150 "grep -q '$ROAM_PREFIX make-before-break committed candidate' $WORK/exit.log"; then
   ok "exit node committed the make-before-break candidate"
 else
   bad "exit node committed the make-before-break candidate"
@@ -280,7 +358,7 @@ check "exit process survived without reconnect" \
 check "the same exit TUN survived handover" \
   "test \"\$(ip netns exec $EXIT_NS cat /sys/class/net/qrex0/ifindex)\" = '$EXIT_TUN_IFINDEX'"
 check "handover performed no second full AUTH" \
-  "test \"\$(grep -c \"connected on profile 'roam'\" $WORK/server.log || true)\" -eq 2"
+  "test \"\$(full_auth_count)\" -eq 2"
 check "handover did not enter the top-level reconnect loop" \
   "! grep -Eq 'Connection error|Reconnecting in' $WORK/exit.log"
 
@@ -307,7 +385,7 @@ check "clean stop restored WAN B rp_filter" \
   "test \"\$(ip netns exec $EXIT_NS cat /proc/sys/net/ipv4/conf/qre-b/rp_filter)\" = '$BEFORE_RP_B'"
 
 echo
-echo "=== RESULT: $PASS passed, $FAIL failed ==="
+echo "=== RESULT ($TRANSPORT/$WIRE_MODE): $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -ne 0 ]; then
   echo "--- exit.log (tail) ---"
   tail -n 160 "$WORK/exit.log"

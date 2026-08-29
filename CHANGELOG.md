@@ -132,12 +132,14 @@
   IPv4 и IPv6 независимо перечитывают свои фактические default uplink и не приравниваются к
   интерфейсу qeli carrier. Правила прежнего WAN остаются на bounded drain/rollback и все поколения
   удаляются при чистой остановке.
-  Новый `roaming_exit_node_netns_e2e.sh` поднимает отдельные server, exit, consumer и router
-  namespaces и передаёт реальный consumer-трафик через server → exit → WAN A/B. Feature release
-  прошёл 34/34: выросли NAT-счётчики обоих WAN, сохранились одна полная AUTH, PID и TUN, top-level
-  reconnect не запускался, а после SIGTERM были удалены правила обоих поколений и восстановлены
-  `ip_forward`/`rp_filter`. Identity, TOFU, device-id и control socket теста изолированы в его
-  рабочем каталоге.
+  Общий `roaming_exit_node_netns_e2e.sh` поднимает отдельные server, exit, consumer и router
+  namespaces и передаёт реальный consumer-трафик через server → exit → WAN A/B для TCP и UDP.
+  Feature release прошёл TCP 35/35 и каждый из UDP `quic`, `fake-tls`, `obfs`, `obfs-awg` 35/35
+  (`roaming_exit_node_udp_all_modes_netns_e2e.sh`: 4/4): выросли NAT-счётчики обоих WAN,
+  сохранились ровно две исходные полные AUTH, PID и TUN, top-level reconnect не запускался, а
+  после SIGTERM были удалены правила обоих поколений и восстановлены `ip_forward`/`rp_filter`.
+  Identity, TOFU, device-id и control socket теста изолированы в его рабочем каталоге; все
+  транспортные маскировки проверяют один и тот же exit-node COMMIT path.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
