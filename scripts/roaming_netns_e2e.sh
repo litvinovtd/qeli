@@ -103,6 +103,7 @@ enabled = true
 bind.address = 0.0.0.0
 bind.port = 4443
 bind.transport = tcp
+roaming.enabled = true
 tun.name = qrms0
 tun.address = 10.88.0.1
 tun.mtu = 1400
@@ -123,6 +124,7 @@ cat >"$WORK/client.conf" <<EOF
 [qeli]
 server = 10.40.3.2:4443
 proto = tcp
+roaming = required
 user = roam-user
 pass = roam-pass-1234
 mode = fake-tls

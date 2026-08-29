@@ -98,6 +98,23 @@ rule_packets() { # $1=namespace, $2=port matcher, $3=length range
       exit
     }'
 }
+run_case_helper() {
+  local helper=$1 entry=$2
+  if [ ! -r "$helper" ]; then
+    echo "required UDP roaming case helper is missing: $helper" >&2
+    return 2
+  fi
+  if ! . "$helper"; then
+    echo "failed to load UDP roaming case helper: $helper" >&2
+    return 2
+  fi
+  if ! type "$entry" >/dev/null 2>&1; then
+    echo "UDP roaming case helper does not define $entry: $helper" >&2
+    return 2
+  fi
+  "$entry"
+}
+
 
 cleanup() {
   ip netns pids "$CLI_NS" 2>/dev/null | xargs -r kill 2>/dev/null
@@ -244,6 +261,7 @@ enabled = true
 bind.address = 0.0.0.0
 bind.port = 4444
 bind.transport = udp
+roaming.enabled = true
 $EXTRA_LISTENER
 tun.name = qrus0
 tun.address = 10.89.0.1
@@ -278,6 +296,7 @@ cat >"$WORK/client.conf" <<EOF
 [qeli]
 server = $SERVER_HOST:4444
 proto = udp
+roaming = required
 user = roam-user
 pass = roam-pass-1234
 mode = $CLIENT_OBF_MODE
@@ -339,26 +358,19 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "$CASE" = drain-reorder ]; then
-  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_udp_netns_drain_case.sh
-  . "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh"
-  run_drain_reorder_case
+  run_case_helper "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh" run_drain_reorder_case || exit $?
 elif [ "$CASE" = family-switch ]; then
-  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_udp_netns_family_case.sh
-  . "$SCRIPT_DIR/roaming_udp_netns_family_case.sh"
-  run_family_switch_case
+  run_case_helper "$SCRIPT_DIR/roaming_udp_netns_family_case.sh" run_family_switch_case || exit $?
 elif [ "$CASE" = frag-loss ]; then
-  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_udp_netns_frag_loss_case.sh
-  . "$SCRIPT_DIR/roaming_udp_netns_frag_loss_case.sh"
-  run_frag_loss_case
+  run_case_helper "$SCRIPT_DIR/roaming_udp_netns_frag_loss_case.sh" run_frag_loss_case || exit $?
 elif [ "$CASE" = nat-rebind ]; then
-  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_udp_netns_nat_rebind_case.sh
-  . "$SCRIPT_DIR/roaming_udp_netns_nat_rebind_case.sh"
-  run_nat_rebind_case
+  run_case_helper "$SCRIPT_DIR/roaming_udp_netns_nat_rebind_case.sh" run_nat_rebind_case || exit $?
 elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"

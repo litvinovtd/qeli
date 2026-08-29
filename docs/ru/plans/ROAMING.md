@@ -110,7 +110,7 @@
 > сохраняют reconnect. Cross-platform Release build и macOS route/socket/capability self-tests
 > проходят без предупреждений. До rollout остаётся live macOS-приёмка route-команд, PF, per-app,
 > device/race и sleep/soak; этот source-only gate не выдаётся за проверку на реальном macOS.
-> Текущие lab gates: 966 feature library tests при трёх ignored, 875 default tests при
+> Текущие lab gates: 970 feature library tests при трёх ignored, 879 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
@@ -118,6 +118,9 @@
 > same-network NAT dead-mapping 21/21,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
+> Каждый live Linux TCP/UDP netns-профиль явно включает server rollout и использует client
+> `required`, поэтому reconnect fallback не может дать зелёную миграцию. Вынесенные UDP case
+> helpers загружаются fail-closed; отсутствие helper проверено как `rc=2`, а не ложный `0 failed`.
 > Клиентская политика `off|auto|required`, transport-specific capability negotiation и
 > flat-INI/`qeli://` round-trip теперь source-complete в Rust, Kotlin, C# и Swift. `off` не
 > допускает TCP resume/handover, а все UDP camouflage modes используют тот же policy gate;

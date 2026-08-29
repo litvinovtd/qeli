@@ -111,13 +111,16 @@
 > The cross-platform Release build and macOS route/socket/capability self-tests pass without
 > warnings. Live macOS route-command, PF, per-app, device/race and sleep/soak acceptance is still
 > required before rollout; no live macOS result is claimed by this source-only gate.
-> Current lab gates pass 966 feature library tests with three ignored,
-> 875 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
+> Current lab gates pass 970 feature library tests with three ignored,
+> 879 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25, and
 > same-network NAT dead-mapping 21/21, an Android x86_64 NDK
 > release with `-D warnings`, and Gradle unit/assemble. The full platform/race/soak matrix is still a release gate. Target: 0.8.x.**
+> Every live Linux TCP/UDP netns profile explicitly enables the server rollout and uses client
+> `required`, so reconnect fallback cannot produce a green migration gate. Split UDP case helpers
+> are loaded fail-closed; a missing helper is a verified `rc=2`, never a false `0 failed` result.
 > Client `off|auto|required` policy, transport-specific capability negotiation, and flat-INI/
 > `qeli://` round-trip are now source-complete in Rust, Kotlin, C#, and Swift. `off` cannot enter
 > TCP resume/handover, every UDP camouflage mode uses the same policy gate, and `required` fails

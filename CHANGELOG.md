@@ -90,6 +90,13 @@
   Regression test проверяет наличие и точные значения ключей в каждом поставляемом профиле.
   Lab source sync теперь загружает те же четыре внешних release-шаблона, которые подключает
   `config_examples.rs`, поэтому gate больше не проверяет оставшиеся на лабе stale-копии.
+- Live Linux netns-приёмка теперь явно включает серверный rollout и задаёт клиенту
+  `roaming = required`, поэтому TCP и любой UDP camouflage не могут получить зелёный результат
+  через reconnect/fallback. Загрузка вынесенных drain/family/fragment/NAT case helpers стала
+  fail-closed: отсутствующий или некорректный helper завершает тест с `rc=2`, а не печатает ложный
+  `0 failed`. Feature release gate: TCP 15/15; QUIC/fake-TLS/obfs/obfs-AWG по 17/17; rollback
+  20/20, supersede 24/24, commit race 24/24, loss/replay 18/18, PMTU 19/19+19/19, drain 26/26,
+  outer-family 32/32, fragment loss 25/25 и same-network NAT rebinding 21/21.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
