@@ -141,6 +141,10 @@
   `Network`, ядро запрашивало `PATH_REFRESH`, а сервер выполнял `PATH_CHALLENGE`/`PATH_COMMIT` на
   новый source port. В каждом режиме PID приложения, Network handle и TUN/lease сохранялись,
   ping проходил 5/5 до и после миграции; повторных AUTH, `NetworkPlan` и reconnect не было.
+  Повторный gate выполнен после чистой сборки текущего feature core и APK `0.8.0` (`versionCode=720`,
+  SHA-256 `710185c288ac0d19e1adfd843d409d8f450270239a5bd241dd91764d996d9ead`): все четыре режима
+  снова прошли 44/44 инварианта, включая смену исходного UDP-порта, единственные AUTH/NetworkPlan,
+  неизменные PID/TUN и tunnel ping 5/5 до и после commit.
 - Общий TCP supervisor теперь отдаёт приоритет exact-path handover перед generic hard-resume:
   уже подготовленный candidate всегда вытесняет обычное восстановление слота, а после потери
   последнего carrier ядро оставляет платформе ограниченное окно в одну секунду на PathUpdate.

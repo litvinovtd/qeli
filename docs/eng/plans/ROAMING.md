@@ -721,6 +721,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   The complete UDP API 34 feature-APK gate covers fake-TLS, QUIC, obfs and obfs-AWG with a
   same-Network, same-session NAT rebind and no AUTH/reconnect; real-device UDP/NAT-rebinding remains
   pending.
+  A repeat gate after a clean build of the current feature core and APK `0.8.0` (`versionCode=720`,
+  SHA-256 `710185c288ac0d19e1adfd843d409d8f450270239a5bd241dd91764d996d9ead`) again passed all
+  44/44 invariants across the four modes: a new UDP source port, exactly one AUTH and NetworkPlan,
+  unchanged application PID/TUN, and 5/5 tunnel ping both before and after commit.
   The native candidate contract now preserves a borrowed signed 64-bit Unix descriptor or Windows
   `SOCKET`, and the same UDP migration actor compiles on Windows. Strict Windows-host and Linux
   all-target feature checks pass; the Windows/macOS C# and iOS Swift path executors are

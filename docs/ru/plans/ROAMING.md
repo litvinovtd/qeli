@@ -81,6 +81,10 @@
 > NetworkPlan, замены процесса/TUN или reconnect. Android `Network` handle остался прежним,
 > tunnel ping прошёл 5/5 до и после миграции в каждом режиме. NAT-rebinding на реальных
 > устройствах остаётся отдельным gate.
+> Повторный gate после чистой сборки текущего feature core и APK `0.8.0` (`versionCode=720`,
+> SHA-256 `710185c288ac0d19e1adfd843d409d8f450270239a5bd241dd91764d996d9ead`) снова закрыл
+> 44/44 инварианта по четырём режимам: новый исходный UDP-порт, единственные AUTH/NetworkPlan,
+> неизменные PID/TUN и tunnel ping 5/5 до и после commit.
 > Общий feature core готов к Windows socket handle: `PATH_COMMAND` передаёт заимствованный signed
 > 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP migration
 > actor компилируются на Windows. Общий C#-адаптер реализует optional ABI 1.12/1.13 bindings для
