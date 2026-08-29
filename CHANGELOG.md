@@ -83,6 +83,13 @@
   контракт результата; TCP и UDP показаны одной transport-aware моделью. В метрики и логи не
   попадают CID, session locator, proof или секреты, а UI явно сообщает, что значения сбрасываются
   при перезапуске data-plane worker.
+- Все поставляемые серверные профили теперь явно фиксируют безопасный rollout роуминга
+  `false / 30 s / 256 sessions / 64 MiB`, включая источник installer-профилей и release Reality.
+  Все клиентские шаблоны, в том числе Keenetic/OpkgTun, явно задают `roaming = auto`: единое ядро
+  использует согласованную миграцию для TCP и любого UDP camouflage, сохраняя reconnect fallback.
+  Regression test проверяет наличие и точные значения ключей в каждом поставляемом профиле.
+  Lab source sync теперь загружает те же четыре внешних release-шаблона, которые подключает
+  `config_examples.rs`, поэтому gate больше не проверяет оставшиеся на лабе stale-копии.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

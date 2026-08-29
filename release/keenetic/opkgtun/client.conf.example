@@ -5,6 +5,9 @@
 [qeli]
 server = vpn.example.com:443
 proto = tcp
+# Роуминг сессии: auto включает миграцию с безопасным fallback на переподключение.
+roaming = auto
+
 user = router1
 pass = СМЕНИ_МЕНЯ
 # Реальный публичный ключ сервера ОБЯЗАТЕЛЕН (reality-tls и bind_static его требуют).

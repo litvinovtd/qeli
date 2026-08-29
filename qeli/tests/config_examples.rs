@@ -31,6 +31,22 @@ fn materialize_client_template(text: &str) -> String {
         .join("\n")
 }
 
+fn assert_explicit_auto_roaming(name: &str, doc: &IniDoc) {
+    let qeli = doc
+        .section("qeli")
+        .unwrap_or_else(|| panic!("{name}: missing [qeli] section"));
+    let values: Vec<_> = qeli
+        .entries
+        .iter()
+        .filter_map(|(key, value)| (key == "roaming").then_some(value.as_str()))
+        .collect();
+    assert_eq!(
+        values.as_slice(),
+        &["auto"],
+        "{name}: shipped clients must spell out exactly one roaming = auto"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn shipped_server_examples_have_no_unread_keys() {
@@ -78,6 +94,54 @@ fn shipped_server_examples_have_no_unread_keys() {
             unread.len(),
             unread
         );
+    }
+}
+
+#[test]
+fn every_shipped_server_profile_spells_out_safe_roaming_rollout_defaults() {
+    for (name, text) in [
+        ("server.conf", include_str!("../config/server.conf")),
+        (
+            "server-multiprofile.conf",
+            include_str!("../config/server-multiprofile.conf"),
+        ),
+        (
+            "server-ipv6.conf",
+            include_str!("../config/server-ipv6.conf"),
+        ),
+        (
+            "server-maxobf.conf",
+            include_str!("../config/server-maxobf.conf"),
+        ),
+        (
+            "release/reality-tls/server-reality.conf",
+            include_str!("../../release/reality-tls/server-reality.conf"),
+        ),
+    ] {
+        let doc = IniDoc::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut count = 0usize;
+        for profile in doc.sections_of("profile") {
+            count += 1;
+            let entries: std::collections::HashMap<_, _> = profile
+                .entries
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect();
+            for (key, expected) in [
+                ("roaming.enabled", "false"),
+                ("roaming.grace_secs", "30"),
+                ("roaming.max_orphaned", "256"),
+                ("roaming.max_orphan_bytes", "67108864"),
+            ] {
+                assert_eq!(
+                    entries.get(key).copied(),
+                    Some(expected),
+                    "{name} {} must spell out safe {key}",
+                    profile.header()
+                );
+            }
+        }
+        assert!(count > 0, "{name} contains no server profile");
     }
 }
 
@@ -253,6 +317,7 @@ fn shipped_client_examples_have_no_unexpected_unread_keys() {
         ),
     ] {
         let doc = IniDoc::parse(text).unwrap_or_else(|e| panic!("{name}: parse error: {e}"));
+        assert_explicit_auto_roaming(name, &doc);
         let cfg =
             ClientConfig::from_ini(&doc).unwrap_or_else(|e| panic!("{name}: from_ini failed: {e}"));
         // The ordinary example must be runnable as-is. REALITY examples deliberately cannot
@@ -322,6 +387,7 @@ fn release_client_templates_validate_after_documented_materialization() {
             .replace("YOUR_SHORT_ID_HEX", "0123456789abcdef");
         let doc = IniDoc::parse(&materialized)
             .unwrap_or_else(|e| panic!("{name}: materialized parse error: {e}"));
+        assert_explicit_auto_roaming(name, &doc);
         let cfg = ClientConfig::from_ini(&doc)
             .unwrap_or_else(|e| panic!("{name}: materialized from_ini failed: {e}"));
         cfg.validate()

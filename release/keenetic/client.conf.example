@@ -9,6 +9,9 @@
 server = vpn.example.com:443
 # tcp | udp — должно совпадать с профилем сервера
 proto = tcp
+# Роуминг сессии: auto включает миграцию с безопасным fallback на переподключение.
+roaming = auto
+
 user = router1
 pass = СМЕНИ_МЕНЯ
 # Пиннинг публичного ключа сервера (анти-MITM). Возьми на сервере: qeli show-identity

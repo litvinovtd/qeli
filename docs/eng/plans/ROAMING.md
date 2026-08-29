@@ -122,8 +122,8 @@
 > `qeli://` round-trip are now source-complete in Rust, Kotlin, C#, and Swift. `off` cannot enter
 > TCP resume/handover, every UDP camouflage mode uses the same policy gate, and `required` fails
 > closed before credentials/full AUTH. All four client GUIs and the profile-scoped server panel/API
-> controls are complete. Worker-lifetime server metrics/logging are complete; Phase 5 still needs
-> packaged examples, while Phase 6 device/soak gates remain open.
+> controls, worker-lifetime server metrics/logging, and explicit safe packaged examples are complete.
+> Phase 5 is source-complete, while Phase 6 device/soak gates remain open.
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
 > mandatory implementation invariants and intentionally avoids fragile source-line anchors.
@@ -734,13 +734,15 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   accepted in netns; real-device race/soak/NAT-rebinding, Windows/macOS/iOS acceptance,
   and exit-node acceptance remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core plus Windows/macOS/iOS path executors are source-complete; desktop/iOS device and race acceptance, iOS Xcode compilation, real-device soak/NAT-rebinding, and exit-node acceptance remain.
-- **Phase 5 — 🟡 models/round-trip/docs + GUI controls:** flat-INI, non-default `qeli://` sharing,
+- **Phase 5 — 🟢 source-complete:** flat-INI, non-default `qeli://` sharing,
   and all four client models/editors are complete. Windows/macOS/Android/iOS expose
   `Auto / Required / Off`, persist it through their shared platform model, and reject `required`
   with a hidden source pin. The server panel/API exposes the profile-scoped default-off rollout
   switch, grace period, and bounded orphan session/memory budgets. Read-only control/status and
   the transport-aware dashboard expose worker-lifetime attempts, commits, final failures, TCP grace
-  expiry, and pending paths without identifiers or secrets; packaged examples remain.
+  expiry, and pending paths without identifiers or secrets. Every shipped server profile explicitly
+  retains the safe default-off budgets, and every client template explicitly selects `auto`, including
+  the multiprofile installer source, Reality release files, Keenetic, and OpkgTun.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
 ## 8. Compatibility / rollout

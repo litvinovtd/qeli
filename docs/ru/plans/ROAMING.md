@@ -122,8 +122,8 @@
 > flat-INI/`qeli://` round-trip теперь source-complete в Rust, Kotlin, C# и Swift. `off` не
 > допускает TCP resume/handover, а все UDP camouflage modes используют тот же policy gate;
 > `required` fail-closed до credentials/полной AUTH. Все четыре клиентских GUI и профильные
-> настройки серверной панели/API готовы. Серверные worker-lifetime метрики/logging готовы;
-> до завершения этапа 5 остаются packaged examples, а device/soak gates этапа 6 не закрыты.
+> настройки серверной панели/API, worker-lifetime метрики/logging и явные безопасные packaged
+> examples готовы. Этап 5 source-complete, а device/soak gates этапа 6 не закрыты.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -964,7 +964,7 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
 
-### Этап 5. Конфиги, приложения и панель — 🟡 модели/round-trip/docs + GUI controls
+### Этап 5. Конфиги, приложения и панель — 🟢 source-complete
 
 - flat-INI parsing/defaults/validation/round-trip;
 - GUI editors и встроенные quick-start режимы;
@@ -979,7 +979,9 @@ Flat-INI defaults/validation, все Rust/Kotlin/C#/Swift модели, non-defa
 отклоняют `required` при скрытом source pin. Серверная панель/API показывает профильный
 default-off rollout switch, grace period и ограниченные бюджеты ожидающих сессий/памяти. Read-only
 control/status и transport-aware dashboard показывают worker-lifetime попытки, commit, финальные
-ошибки, TCP grace expiry и ожидающие пути без идентификаторов/секретов; впереди packaged examples.
+ошибки, TCP grace expiry и ожидающие пути без идентификаторов/секретов. Каждый поставляемый
+серверный профиль явно сохраняет безопасные default-off бюджеты, а каждый клиентский шаблон
+явно выбирает `auto`, включая installer multiprofile, Reality release, Keenetic и OpkgTun.
 
 ### Этап 6. Лаба, soak и rollout
 

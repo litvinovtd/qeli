@@ -52,6 +52,11 @@ def tracked_build_inputs():
         "config",
         "conformance",
         "include",
+        # config_examples.rs includes these files outside the crate root.
+        "../release/reality-tls/client-reality.conf",
+        "../release/reality-tls/server-reality.conf",
+        "../release/keenetic/client.conf.example",
+        "../release/keenetic/opkgtun/client.conf.example",
     ]
     proc = subprocess.run(
         ["git", "-C", str(LOCAL_ROOT), "ls-files", "--", *selectors],
