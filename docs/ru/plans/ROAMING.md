@@ -1103,10 +1103,10 @@ CID aliases и orphaned sessions. Допустимая регрессия throug
 роуминге — не более 3–5% относительно того же транспорта без него.
 Конфигурируемый same-session harness теперь по умолчанию выполняет 10 000 последовательных A↔B
 commit как для TCP, так и для любого UDP camouflage mode. Он контролирует PID/TUN, AUTH/reconnect,
-exact route, независимые client/server commit, fd и sampled RSS. Каждая выборка дополнительно читает
-агрегаты из отдельного control socket: TCP требует точные attempts/commits, одну active session и
-нулевые failures/grace/orphaned sessions/bytes; UDP требует точные attempts/commits, одну active
-session, нулевые failures/candidates и ровно три CID aliases после первого commit (две на epoch zero).
+exact route, независимые client/server commit, все fd, отдельное число socket-дескрипторов и sampled
+RSS. Sockets ограничены baseline + 2 финально и baseline + 8 на выборках. Агрегаты control socket:
+TCP требует точные attempts/commits, одну session и ноль failures/grace/orphaned state; UDP — точные
+attempts/commits, одну session, ноль failures/candidates и три CID aliases после первого commit.
 Ни сами CID, ни locator/proof через этот интерфейс не раскрываются. UDP all-modes wrapper передаёт
 один выбранный case, включая `soak`, через QUIC, fake-TLS, obfs и obfs+AWG. Smoke на 100 TCP-миграций и
 по 100 миграций во всех четырёх UDP wire modes прошли с сохранением одной аутентифицированной

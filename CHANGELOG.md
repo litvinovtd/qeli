@@ -108,9 +108,9 @@
   Тестовые серверы используют отдельные control sockets и не пересекаются с сервисом лабы.
 - Добавлен конфигурируемый same-session UDP soak case: release-default выполняет 10 000
   последовательных A↔B PATH_COMMIT и на всём цикле контролирует PID/TUN, одну AUTH, отсутствие
-  reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS. Каждая
-  выборка read-only control-счётчиков требует точные attempts/commits, одну active session, ноль
-  failures/candidates и ровно три CID aliases после первого commit (две на epoch zero).
+  reconnect, exact carrier route, client/server commit, все fd, отдельное число socket-дескрипторов
+  и sampled RSS. Sockets ограничены baseline + 2 финально и baseline + 8 на выборках; control требует
+  точные attempts/commits, одну session, ноль failures/candidates и три CID aliases после commit.
   Harness использует общий UDP actor, а all-modes wrapper передаёт один выбранный case, включая
   `soak`, через QUIC, fake-TLS, obfs и obfs+AWG без отдельных транспортных реализаций. Lab smoke
   прошёл по 100 последовательных миграций в каждом из четырёх режимов: каждый сохранил одну AUTH,
@@ -121,9 +121,9 @@
 
 - Добавлен симметричный same-session TCP soak case: release-default выполняет 10 000 A↔B
   make-before-break commit и сверяет точное число независимых client commit, server commit и JOIN,
-  единственную первичную AUTH, отсутствие reconnect/grace, PID/TUN, exact carrier route, fd и sampled
-  RSS. На каждой выборке control API также обязан показывать точные attempts/commits, одну active
-  session и нулевые failures, grace expiry, orphaned sessions/bytes. Lab smoke прошёл 100
+  одну AUTH, отсутствие reconnect/grace, PID/TUN, exact route, все fd, отдельное число socket-
+  дескрипторов и RSS. Sockets ограничены baseline + 2 финально и baseline + 8 на выборках; control
+  требует точные attempts/commits, одну session и ноль failures/grace/orphaned state. Lab smoke прошёл 100
   последовательных миграций за 223 секунды: client/server fd остались 13/10, server RSS был стабилен,
   а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
   Полный TCP 10k и остальные transport/platform soak gates остаются открытыми.

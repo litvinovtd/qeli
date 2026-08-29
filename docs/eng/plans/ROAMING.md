@@ -784,11 +784,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   files, Keenetic, and OpkgTun.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
   configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
-  every UDP camouflage mode. It checks PID/TUN, AUTH/reconnect, exact routes, independent client/server
-  commit counts, fd, and sampled RSS. Every sample also reads the isolated control socket: TCP
-  requires exact attempts/commits, one active session, and zero failures, grace expiry, orphaned
-  sessions, and orphaned bytes; UDP requires exact attempts/commits, one active session, zero
-  failures/candidates, and exactly three CID aliases after the first commit (two at epoch zero).
+  every UDP mode. It checks PID/TUN, AUTH/reconnect, exact routes, client/server commits, all fd,
+  a separate socket-descriptor count, and sampled RSS. Sockets are bounded at baseline + 2 finally
+  and baseline + 8 in samples. Control aggregates require exact attempts/commits and one session;
+  TCP requires zero failures/grace/orphan state; UDP requires zero failures/candidates and exactly
+  three CID aliases after the first commit (two at epoch zero).
   The 100-migration TCP and all four UDP wire-mode harness
   smokes pass while retaining one authenticated session. The representative Linux TAP gate passes
   TCP fake-TLS 17/17 and UDP QUIC 19/19 while preserving the same TAP, process, and authenticated

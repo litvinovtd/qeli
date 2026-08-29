@@ -26,6 +26,7 @@ run_tcp_soak_case() {
   }
 
   local server_pid client_fd_before server_fd_before client_rss_before server_rss_before
+  local client_socket_before server_socket_before client_socket_max server_socket_max
   local client_fd_max server_fd_max client_rss_max server_rss_max
   server_pid=$(ip netns pids "$SRV_NS" 2>/dev/null | head -n1)
   if [ -z "$CLIENT_PID" ] || [ -z "$server_pid" ]; then
@@ -34,10 +35,14 @@ run_tcp_soak_case() {
   fi
   client_fd_before=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
   server_fd_before=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
+  client_socket_before=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
+  server_socket_before=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
   client_rss_before=$(awk '/^VmRSS:/ { print $2 }' "/proc/$CLIENT_PID/status")
   server_rss_before=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
   client_fd_max=$client_fd_before
   server_fd_max=$server_fd_before
+  client_socket_max=$client_socket_before
+  server_socket_max=$server_socket_before
   client_rss_max=$client_rss_before
   server_rss_max=$server_rss_before
 
@@ -96,11 +101,15 @@ run_tcp_soak_case() {
       if [ "$value" -gt "$client_fd_max" ]; then client_fd_max=$value; fi
       value=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
       if [ "$value" -gt "$server_fd_max" ]; then server_fd_max=$value; fi
+      value=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
+      if [ "$value" -gt "$client_socket_max" ]; then client_socket_max=$value; fi
+      value=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
+      if [ "$value" -gt "$server_socket_max" ]; then server_socket_max=$value; fi
       value=$(awk '/^VmRSS:/ { print $2 }' "/proc/$CLIENT_PID/status")
       if [ "$value" -gt "$client_rss_max" ]; then client_rss_max=$value; fi
       value=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
       if [ "$value" -gt "$server_rss_max" ]; then server_rss_max=$value; fi
-      echo "  TCP soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max orphans=$TCP_ORPHANS orphan_bytes=$TCP_ORPHAN_BYTES"
+      echo "  TCP soak progress $iteration/$iterations target=$target client_fd=$client_fd_max server_fd=$server_fd_max client_sockets_max=$client_socket_max server_sockets_max=$server_socket_max client_rss_kib=$client_rss_max server_rss_kib=$server_rss_max orphans=$TCP_ORPHANS orphan_bytes=$TCP_ORPHAN_BYTES"
     fi
     iteration=$((iteration + 1))
   done
@@ -108,11 +117,14 @@ run_tcp_soak_case() {
   sleep 1
   commit_count=$(grep -c 'TCP make-before-break committed candidate' "$WORK/client.log" || true)
   local server_commits server_joins auth_count client_fd_after server_fd_after client_rss_after server_rss_after
+  local client_socket_after server_socket_after
   server_commits=$(grep -c 'ROAMING transport=tcp event=commit' "$WORK/server.log" || true)
   server_joins=$(grep -c 'Stream #0 JOINed session' "$WORK/server.log" || true)
   auth_count=$(grep -c "connected on profile 'roam'" "$WORK/server.log" || true)
   client_fd_after=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
   server_fd_after=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
+  client_socket_after=$(find "/proc/$CLIENT_PID/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
+  server_socket_after=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
   client_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$CLIENT_PID/status")
   server_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
 
@@ -122,5 +134,6 @@ run_tcp_soak_case() {
   check "TCP soak preserved the original process and TUN" "ip netns pids $CLI_NS | grep -qx '$CLIENT_PID' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/ifindex)\" = '$TUN_IFINDEX'"
   check "TCP soak left one exact carrier bypass and a usable tunnel" "test \"\$(ip netns exec $CLI_NS ip route show 10.40.3.2 | wc -l)\" -eq 1 && ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
   check "TCP soak closed superseded sockets instead of leaking file descriptors" "test '$client_fd_after' -le $((client_fd_before + 4)) && test '$server_fd_after' -le $((server_fd_before + 4)) && test '$client_fd_max' -le $((client_fd_before + 16)) && test '$server_fd_max' -le $((server_fd_before + 16))"
+  check "TCP soak did not accumulate socket descriptors" "test '$client_socket_after' -le $((client_socket_before + 2)) && test '$server_socket_after' -le $((server_socket_before + 2)) && test '$client_socket_max' -le $((client_socket_before + 8)) && test '$server_socket_max' -le $((server_socket_before + 8))"
   check "TCP soak kept sampled RSS growth within the 32 MiB acceptance budget" "test $((client_rss_max - client_rss_before)) -le 32768 && test $((server_rss_max - server_rss_before)) -le 32768 && test $((client_rss_after - client_rss_before)) -le 32768 && test $((server_rss_after - server_rss_before)) -le 32768"
 }
