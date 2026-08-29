@@ -12,6 +12,7 @@ class AndroidRoamingPolicyTest {
             AndroidRoamingPolicy.PLATFORM_ROAMING_PATH or
                 AndroidRoamingPolicy.PLATFORM_PATH_REFRESH,
             AndroidRoamingPolicy.platformCapabilities(
+                pathAllowedByConfig = true,
                 coreSupportsPathTransactions = true,
                 coreSupportsPathRefreshRequests = true,
             ),
@@ -23,6 +24,7 @@ class AndroidRoamingPolicyTest {
         assertEquals(
             AndroidRoamingPolicy.PLATFORM_ROAMING_PATH,
             AndroidRoamingPolicy.platformCapabilities(
+                pathAllowedByConfig = true,
                 coreSupportsPathTransactions = true,
                 coreSupportsPathRefreshRequests = false,
             ),
@@ -34,7 +36,20 @@ class AndroidRoamingPolicyTest {
         assertEquals(
             0L,
             AndroidRoamingPolicy.platformCapabilities(
+                pathAllowedByConfig = true,
                 coreSupportsPathTransactions = false,
+                coreSupportsPathRefreshRequests = true,
+            ),
+        )
+    }
+
+    @Test
+    fun configCanDisableTheNativeExecutor() {
+        assertEquals(
+            0L,
+            AndroidRoamingPolicy.platformCapabilities(
+                pathAllowedByConfig = false,
+                coreSupportsPathTransactions = true,
                 coreSupportsPathRefreshRequests = true,
             ),
         )

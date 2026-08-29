@@ -33,6 +33,26 @@ final class RoamingPolicyTests: XCTestCase {
         XCTAssertTrue(automatic.allowsNativePathRoaming)
     }
 
+    func testPolicyRoundTripAndRequiredSourcePins() throws {
+        var disabled = VPNConfig(serverAddress: "198.51.100.10", port: 443)
+        disabled.roamingPolicy = "off"
+        XCTAssertFalse(disabled.allowsNativePathRoaming)
+        let disabledBack = try VPNConfig(parsing: disabled.toINI())
+        XCTAssertEqual(disabledBack.roamingPolicy, "off")
+        XCTAssertFalse(disabledBack.allowsNativePathRoaming)
+
+        var required = VPNConfig(serverAddress: "198.51.100.10", port: 443)
+        required.roamingPolicy = "required"
+        XCTAssertNoThrow(try required.toINI())
+        XCTAssertEqual(try VPNConfig(parsing: required.toINI()).roamingPolicy, "required")
+
+        required.carriedKeys["local"] = "192.0.2.10"
+        XCTAssertThrowsError(try required.toINI())
+        required.carriedKeys.removeValue(forKey: "local")
+        required.carriedKeys["lport"] = "41000"
+        XCTAssertThrowsError(try required.toINI())
+    }
+
     func testPathContractRejectsMismatchedFamiliesAndUnknownCommandFields() throws {
         let update = QeliPathUpdate(
             generation: 7,

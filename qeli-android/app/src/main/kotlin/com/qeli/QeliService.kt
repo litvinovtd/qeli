@@ -943,6 +943,7 @@ class VpnServiceImpl : VpnService() {
         transportCore = runCatching {
             val stableDeviceId = deviceId()
             val roamingCapabilities = AndroidRoamingPolicy.platformCapabilities(
+                pathAllowedByConfig = config.allowsNativePathRoaming,
                 coreSupportsPathTransactions = TransportCore.supportsPathTransactions(),
                 coreSupportsPathRefreshRequests = TransportCore.supportsPathRefreshRequests(),
             )

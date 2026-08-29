@@ -59,7 +59,8 @@ public sealed class VpnTunnel : VpnTunnelBase
             : 0;
 
     internal static bool AllowsNativePathRoaming(VpnConfig config) =>
-        string.IsNullOrWhiteSpace(config.LocalAddress) && config.LocalPort == 0;
+        !config.RoamingPolicy.Equals("off", StringComparison.OrdinalIgnoreCase)
+        && string.IsNullOrWhiteSpace(config.LocalAddress) && config.LocalPort == 0;
 
     internal static void RunRoamingCapabilitySelfTest(Action<string, bool> check)
     {
@@ -75,6 +76,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         check("Fixed local address or port stays on reconnect fallback",
             !AllowsNativePathRoaming(new VpnConfig { LocalAddress = "192.0.2.10" })
             && !AllowsNativePathRoaming(new VpnConfig { LocalPort = 41000 }));
+        check("roaming = off disables the native path executor",
+            !AllowsNativePathRoaming(new VpnConfig { RoamingPolicy = "off" }));
     }
 
     protected override NativePathUpdate? CaptureNativeRoamingPath(VpnConfig config,

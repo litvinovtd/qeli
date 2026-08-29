@@ -353,6 +353,16 @@ public static class WireConformance
         check("ini-tofu: escape hatch is modelled and defaults fail-closed",
             carried.AllowUnpinnedTofu && !Ini().AllowUnpinnedTofu);
 
+        var roamingOff = Ini("roaming = off");
+        var roamingBack = Model.VpnConfig.FromIni(roamingOff.ToIni());
+        check("ini-roaming: non-default policy survives an open-and-save",
+            roamingOff.RoamingPolicy == "off" && roamingBack.RoamingPolicy == "off"
+            && roamingBack.UnknownKeys.Count == 0);
+        bool requiredPinRejected = false;
+        try { Ini("roaming = required", "local = 192.0.2.10").Validate(); }
+        catch (ArgumentException e) { requiredPinRejected = e.Message.Contains("cannot be combined"); }
+        check("ini-roaming: required rejects an explicit source pin", requiredPinRejected);
+
         // The sparse portable serializer is made explicit at the transport boundary: desktop
         // full-tunnel and GUI data-plane defaults differ from an absent Rust key.
         var nativeIni = Ini().ToTransportCoreIni();

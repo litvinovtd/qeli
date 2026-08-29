@@ -58,7 +58,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         "awg", "bind_static", "dns", "dns_servers", "exclude",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
-        "ipv6", "mode", "mtu", "mtu_probe", "obfs_key", "padding",
+        "ipv6", "mode", "mtu", "mtu_probe", "obfs_key", "padding", "roaming",
         "padding_max", "padding_min", "pass", "proto", "quic", "reality_sid",
         "reconnect", "reconnect_base_delay", "reconnect_max_delay", "reconnect_retries",
         "route_local", "server", "shaping", "shaping_budget", "shaping_gap_max",
@@ -119,6 +119,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     var mtuProbe = true
     var routingMode = "full-tunnel"
     var ipv6Policy = "auto"
+    var roamingPolicy = "auto"
     var addDefaultGateway = true
     var includeRoutes: [String] = []
     var excludeRoutes: [String] = []
@@ -211,6 +212,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// decision is deliberately transport-agnostic: ordinary TCP and every UDP camouflage mode
     /// use the same Rust roaming state machine once the iOS platform executor is available.
     var allowsNativePathRoaming: Bool {
+        guard roamingPolicy.caseInsensitiveCompare("off") != .orderedSame else { return false }
         let local = carriedKeys["local"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let port = carriedKeys["lport"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard local.isEmpty else { return false }
@@ -294,12 +296,18 @@ struct VPNConfig: Codable, Equatable, Sendable {
         let enums: [(String, String, [String])] = [
             ("front", obfsFronting, ["websocket", "none"]),
             ("routing_mode", routingMode, ["split-tunnel", "full-tunnel", "all"]),
-            ("ipv6", ipv6Policy, ["auto", "required", "off"])
+            ("ipv6", ipv6Policy, ["auto", "required", "off"]),
+            ("roaming", roamingPolicy, ["off", "auto", "required"])
         ]
         for (field, value, allowed) in enums where !allowed.contains(value) {
             throw VPNConfigError.invalid(
                 "unknown \(field) '\(value)' — expected "
                 + allowed.map { "'\($0)'" }.joined(separator: " or "))
+        }
+
+        if roamingPolicy == "required" && !allowsNativePathRoaming {
+            throw VPNConfigError.invalid(
+                "roaming = required cannot be combined with local or a non-zero lport")
         }
 
         let scalarFields: [(String, String)] = [
@@ -630,6 +638,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         let fullTunnel = boolAt("gateway", default: true)
         config.routingMode = fullTunnel ? "full-tunnel" : "split-tunnel"
         config.ipv6Policy = qeli["ipv6"]?.lowercased() ?? "auto"
+        config.roamingPolicy = qeli["roaming"]?.lowercased() ?? "auto"
         config.addDefaultGateway = fullTunnel
         config.includeRoutes = list(qeli["include"])
         config.excludeRoutes = list(qeli["exclude"])
@@ -828,6 +837,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         if !mtuProbe { lines.append("mtu_probe = false") }
         lines.append("gateway = \(isFullTunnel ? "true" : "false")")
         if ipv6Policy != "auto" { lines.append("ipv6 = \(ipv6Policy)") }
+        if roamingPolicy != "auto" { lines.append("roaming = \(roamingPolicy)") }
         if !includeRoutes.isEmpty { lines.append("include = \(includeRoutes.joined(separator: ", "))") }
         if !excludeRoutes.isEmpty { lines.append("exclude = \(excludeRoutes.joined(separator: ", "))") }
         if routeLocalNetworks { lines.append("route_local = true") }

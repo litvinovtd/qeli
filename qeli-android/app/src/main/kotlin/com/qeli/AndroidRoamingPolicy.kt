@@ -15,10 +15,11 @@ internal object AndroidRoamingPolicy {
         PLATFORM_PATH_TRANSACTIONS or PLATFORM_PATH_SOCKET_BINDING
 
     fun platformCapabilities(
+        pathAllowedByConfig: Boolean,
         coreSupportsPathTransactions: Boolean,
         coreSupportsPathRefreshRequests: Boolean,
     ): Long {
-        if (!coreSupportsPathTransactions) return 0L
+        if (!pathAllowedByConfig || !coreSupportsPathTransactions) return 0L
         return PLATFORM_ROAMING_PATH or
             (if (coreSupportsPathRefreshRequests) PLATFORM_PATH_REFRESH else 0L)
     }

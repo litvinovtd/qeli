@@ -92,6 +92,34 @@ class ConfigHardeningTest {
         profile().copy(ipv6 = "auto", mtu = 1200).validate()
     }
 
+    @Test
+    fun `roaming policy round trips and required rejects source pins`() {
+        val disabled = VpnConfig.fromIni(
+            "[qeli]\nserver = h:443\nuser = u\npass = p\nroaming = off\n"
+        )
+        assertEquals("off", disabled.roaming)
+        assertFalse(disabled.allowsNativePathRoaming)
+        assertEquals("off", VpnConfig.fromIni(disabled.toIni()).roaming)
+
+        val required = VpnConfig.fromIni(
+            "[qeli]\nserver = h:443\nuser = u\npass = p\nroaming = required\n"
+        )
+        required.validate()
+        assertEquals("required", VpnConfig.fromIni(required.toIni()).roaming)
+
+        for (pin in listOf("local = 192.0.2.10", "lport = 41000")) {
+            val pinned = VpnConfig.fromIni(
+                "[qeli]\nserver = h:443\nuser = u\npass = p\nroaming = required\n$pin\n"
+            )
+            try {
+                pinned.validate()
+                fail("expected required roaming with $pin to be refused")
+            } catch (e: IllegalArgumentException) {
+                assertTrue(e.message!!.contains("cannot be combined"))
+            }
+        }
+    }
+
     /** The `[logging]` section used to be parsed and thrown away, losing it on every save. */
     @Test
     fun `logging section survives a round trip`() {

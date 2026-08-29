@@ -45,6 +45,8 @@ data class VpnConfig(
     val addDefaultGateway: Boolean = true,
     // Inner IPv6 acceptance policy negotiated with the server.
     val ipv6: String = "auto",                 // "auto" | "required" | "off"
+    // Preserve the logical session across carrier changes when safely negotiated.
+    val roaming: String = "auto",              // "off" | "auto" | "required"
     // Android implements the shared kill-switch contract by requiring the OS-owned
     // Always-on VPN lockdown before a full-tunnel connection may start. The app cannot
     // flip that system policy itself, but it can verify it from the running VpnService and
@@ -212,6 +214,14 @@ data class VpnConfig(
             routingMode.equals("full-tunnel", ignoreCase = true) ||
             routingMode.equals("all", ignoreCase = true)
 
+    val allowsNativePathRoaming: Boolean
+        get() {
+            if (roaming.equals("off", ignoreCase = true)) return false
+            val local = carriedKeys["local"]?.trim().orEmpty()
+            val localPort = carriedKeys["lport"]?.trim().orEmpty()
+            return local.isEmpty() && (localPort.isEmpty() || localPort == "0")
+        }
+
     /**
      * Reject configs that cannot be represented as flat-INI, and range-check the numeric
      * fields. Mirrors the iOS `VPNConfig.validate()` so both mobile clients accept and
@@ -283,6 +293,15 @@ data class VpnConfig(
         }
         require(ipv6 in setOf("auto", "required", "off")) {
             "ipv6 policy must be auto, required or off — got '$ipv6'"
+        }
+
+        require(roaming in setOf("off", "auto", "required")) {
+            "roaming policy must be off, auto or required — got '$roaming'"
+        }
+        if (roaming == "required") {
+            require(allowsNativePathRoaming) {
+                "roaming = required cannot be combined with local or a non-zero lport"
+            }
         }
 
         // Credentials must leave the AUTH message inside one datagram on UDP.
@@ -526,6 +545,7 @@ data class VpnConfig(
         // re-serializes to INI). Mirrors the Rust client's `gateway` key.
         append("gateway = ").append(isFullTunnel).append('\n')
         if (ipv6 != "auto") append("ipv6 = ").append(ipv6).append('\n')
+        if (roaming != "auto") append("roaming = ").append(roaming).append('\n')
         if (killSwitch) append("kill_switch = true\n")
         if (routeLocalNetworks) append("route_local = true\n")
         if (allowIpv6Leak) append("allow_ipv6_leak = true\n")
@@ -793,6 +813,7 @@ data class VpnConfig(
                 routingMode = if (fullTunnel) "full-tunnel" else "split-tunnel",
                 addDefaultGateway = fullTunnel,
                 ipv6 = q["ipv6"]?.trim()?.lowercase() ?: "auto",
+                roaming = q["roaming"]?.trim()?.lowercase() ?: "auto",
                 killSwitch = boolAt("kill_switch", false),
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
                 sni = q["sni"]?.takeIf { it.isNotEmpty() },
@@ -1047,7 +1068,7 @@ data class VpnConfig(
             "dns", "dns_servers", "exclude",
             "front", "gateway", "heartbeat", "heartbeat_interval", "kill_switch",
             "heartbeat_jitter", "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
-            "ipv6", "mode", "mtu", "mtu_probe",
+            "ipv6", "mode", "mtu", "mtu_probe", "roaming",
             "obfs_key", "padding", "padding_max", "padding_min", "pass",
             "proto", "quic", "reality_sid", "reconnect", "reconnect_base_delay",
             "reconnect_max_delay", "reconnect_retries", "route_local", "server",

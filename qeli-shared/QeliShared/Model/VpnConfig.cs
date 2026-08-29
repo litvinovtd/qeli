@@ -97,6 +97,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public string RoutingMode { get; init; } = "full-tunnel";
     /// <summary>Inner IPv6 negotiation policy: auto, required or off.</summary>
     public string Ipv6Policy { get; init; } = "auto";
+    /// <summary>Session migration policy: off, auto or required.</summary>
+    public string RoamingPolicy { get; init; } = "auto";
     public bool AddDefaultGateway { get; init; } = true;
     public List<string> IncludeRoutes { get; init; } = new();
     public List<string> ExcludeRoutes { get; init; } = new();
@@ -245,7 +247,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         "exclude", "forward",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key", "kill_switch", "local",
-        "ipv6", "lport", "metric", "mode", "mtu", "mtu_probe", "name", "obfs_key", "padding",
+        "ipv6", "lport", "metric", "mode", "mtu", "mtu_probe", "name", "obfs_key", "padding", "roaming",
         "padding_max", "padding_min", "pass", "persist_tun", "proto", "quic", "reality_sid",
         "reconnect", "reconnect_base_delay", "reconnect_max_delay", "reconnect_retries",
         "route_file", "route_local", "server", "shaping", "shaping_budget", "shaping_gap_max",
@@ -417,6 +419,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
         Ipv6Policy = ipv6Policy ?? Ipv6Policy,
+        RoamingPolicy = RoamingPolicy,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
         AllowIpv4Leak = allowIpv4Leak ?? AllowIpv4Leak,
         AllowIpv6Leak = allowIpv6Leak ?? AllowIpv6Leak, Forward = Forward,
@@ -578,6 +581,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (!IsFullTunnel) sb.AppendLine("gateway = false");
         if (!Ipv6Policy.Equals("auto", StringComparison.OrdinalIgnoreCase))
             sb.AppendLine($"ipv6 = {IniSafe(Ipv6Policy.ToLowerInvariant())}");
+        if (!RoamingPolicy.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            sb.AppendLine($"roaming = {IniSafe(RoamingPolicy.ToLowerInvariant())}");
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
         if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes.Select(IniSafe))}");
         if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes.Select(IniSafe))}");
@@ -1015,6 +1020,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             // OPEN. The Rust client reads it (client.rs); mirror it.
             KillSwitch = BoolAt("kill_switch", false),
             Ipv6Policy = Get("ipv6", "auto").Trim().ToLowerInvariant(),
+            RoamingPolicy = Get("roaming", "auto").Trim().ToLowerInvariant(),
             AllowIpv6Leak = BoolAt("allow_ipv6_leak", false),
             AllowIpv4Leak = BoolAt("allow_ipv4_leak", false),
             LocalAddress = Get("local").Length > 0 ? Get("local") : null,
@@ -1226,6 +1232,17 @@ public sealed class VpnConfig : INotifyPropertyChanged
         {
             throw new ArgumentException(
                 $"ipv6 policy must be auto, required or off — got '{Ipv6Policy}'");
+        }
+        if (!new[] { "off", "auto", "required" }.Contains(RoamingPolicy.ToLowerInvariant()))
+        {
+            throw new ArgumentException(
+                $"roaming policy must be off, auto or required — got '{RoamingPolicy}'");
+        }
+        if (RoamingPolicy.Equals("required", StringComparison.OrdinalIgnoreCase)
+            && (!string.IsNullOrWhiteSpace(LocalAddress) || LocalPort != 0))
+        {
+            throw new ArgumentException(
+                "roaming = required cannot be combined with local or a non-zero lport");
         }
         if (Mtu != 0 && (Mtu < MtuMin || Mtu > MtuMax))
         {
