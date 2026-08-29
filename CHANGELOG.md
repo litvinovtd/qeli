@@ -138,6 +138,11 @@
   трафик сохранились без reconnect. REALITY gate использует отдельный реальный TLS target, проверяет
   заимствование TLS shape и цепочки сертификатов, прозрачный decoy bridge, точный pinned identity и
   настоящий HTTP/2 carrier. Runner явно пожинает фоновые server/client/target jobs при очистке.
+- Добавлен отдельный `roaming_wire` fuzz-target для произвольных UDP CID-заголовков, TCP resume
+  JOIN/proof и `PATH_*` control bodies; валидные round-trip инварианты и tampered-proof path
+  проверяются вместе с reject-путями. Цель включена в обязательный CI smoke и nightly matrix.
+  Lab ASan/libFuzzer smoke прошёл 1 324 437 запусков за 31 секунду при coverage 515, corpus 22 и
+  peak RSS 371 MiB без падений или ошибок санитайзера.
 - Linux `exit_node` теперь обновляет WAN-зависимые MARK/MASQUERADE/FORWARD и sysctl leases до
   публикации нового carrier route при roaming COMMIT. Состояние хранится отдельно для каждого TUN,
   поэтому обычный исходящий профиль в том же daemon-процессе не может унаследовать exit-node rules;

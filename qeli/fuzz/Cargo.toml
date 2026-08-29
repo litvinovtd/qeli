@@ -67,6 +67,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "roaming_wire"
+path = "fuzz_targets/roaming_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "quic"
 path = "fuzz_targets/quic.rs"
 test = false

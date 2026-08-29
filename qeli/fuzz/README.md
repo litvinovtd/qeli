@@ -28,6 +28,7 @@ artifact). See `.github/workflows/ci.yml`.
 | `obfs_datagram` | Datagram obfuscation framing and length checks. |
 | `udp_frag` | UDP handshake-fragment header/reassembly parser. |
 | `data_frag` | Authenticated UDP data-record fragments: malformed input, reorder, duplicates, conflicts and bounded reassembly. |
+| `roaming_wire` | UDP CID headers, TCP resume JOIN/proofs, and authenticated PATH control framing/round trips. |
 | `quic` | QUIC-like header and packet-number parsing. |
 
 ## Running

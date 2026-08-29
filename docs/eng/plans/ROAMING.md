@@ -138,6 +138,11 @@
 > through one runner. The REALITY slice uses a genuine local TLS target and verifies the borrowed
 > TLS shape/certificate chain, transparent decoy bridge, exact pinned identity, and genuine HTTP/2
 > carrier before exercising the same make-before-break handover.
+> A dedicated `roaming_wire` fuzz target now exercises arbitrary UDP CID headers, TCP resume
+> JOIN/proofs, and PATH control bodies plus canonical round trips and a tampered-proof path. It is
+> part of both the blocking CI smoke loop and the persisted-corpus nightly matrix. A lab
+> ASan/libFuzzer smoke completed 1,324,437 runs in 31 seconds at coverage 515, corpus 22, and
+> 371 MiB peak RSS without a crash or sanitizer finding.
 > Every live Linux TCP/UDP netns profile explicitly enables the server rollout and uses client
 > `required`, so reconnect fallback cannot produce a green migration gate. Split UDP case helpers
 > are loaded fail-closed; a missing helper is a verified `rc=2`, never a false `0 failed` result.

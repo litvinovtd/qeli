@@ -140,6 +140,11 @@
 > одним runner. REALITY-срез использует настоящий локальный TLS target и проверяет заимствованные
 > TLS shape/цепочку сертификатов, прозрачный decoy bridge, точный pinned identity и настоящий
 > HTTP/2 carrier до того, как проходит тот же make-before-break handover.
+> Отдельный `roaming_wire` fuzz-target теперь проверяет произвольные UDP CID-заголовки, TCP resume
+> JOIN/proof и PATH control bodies, валидные round-trip инварианты и tampered-proof path. Он включён
+> и в обязательный CI smoke loop, и в nightly matrix с сохраняемым corpus. Лабораторный
+> ASan/libFuzzer smoke выполнил 1 324 437 запусков за 31 секунду при coverage 515, corpus 22 и
+> peak RSS 371 MiB без падений или ошибок санитайзера.
 > Каждый live Linux TCP/UDP netns-профиль явно включает server rollout и использует client
 > `required`, поэтому reconnect fallback не может дать зелёную миграцию. Вынесенные UDP case
 > helpers загружаются fail-closed; отсутствие helper проверено как `rc=2`, а не ложный `0 failed`.

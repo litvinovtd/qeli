@@ -649,7 +649,7 @@ jobs:
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
-          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag; do
+          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag roaming_wire; do
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
@@ -664,7 +664,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag]
+        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag, roaming_wire]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
