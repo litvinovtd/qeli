@@ -7,7 +7,7 @@ namespace QeliMac.Vpn;
 /// <summary>macOS platform binding for the shared qeli data plane
 /// (<see cref="VpnTunnelBase"/>): opens a UtunDevice and configures the
 /// addressing / routes / DNS for the session via NetworkConfigurator.</summary>
-public sealed class VpnTunnel : VpnTunnelBase
+public sealed partial class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
     private PerAppController? _perApp;
@@ -346,9 +346,15 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        var failures = new List<Exception>();
+        // The base normally resets roaming before platform cleanup. Retry here because a
+        // failed ABORT deliberately retains its lease and policy ownership for another pass.
+        try { ResetNativeRoamingPath(); }
+        catch (Exception error) { failures.Add(error); }
         // Undo the host-wide sysctl before dropping the configurator, so a disconnect
         // leaves the machine as it was found. (C-18)
-        RestoreIpForwarding();
+        try { RestoreIpForwarding(); }
+        catch (Exception error) { failures.Add(error); }
         var network = _net;
         try
         {
@@ -358,10 +364,17 @@ public sealed class VpnTunnel : VpnTunnelBase
             network?.Dispose();
             if (ReferenceEquals(_net, network)) _net = null;
         }
+        catch (Exception error)
+        {
+            failures.Add(error);
+        }
         finally
         {
             _perApp = null;
         }
+        if (failures.Count == 1) throw failures[0];
+        if (failures.Count > 1)
+            throw new AggregateException("macOS platform cleanup is incomplete", failures);
     }
 
     // The system extension stays installed and retains its flow rules across a carrier

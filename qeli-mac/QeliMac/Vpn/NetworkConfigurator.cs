@@ -16,13 +16,27 @@ namespace QeliMac.Vpn;
 /// <see cref="Dispose"/>, so a disconnect leaves the machine exactly as it was — no
 /// leaked default route, no broken DNS. Requires root.
 /// </summary>
-public sealed class NetworkConfigurator : IDisposable
+public sealed partial class NetworkConfigurator : IDisposable
 {
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
     private readonly List<OwnedRoute> _ownedRoutes = new();
     private readonly List<string> _degraded = new();
     private Action? _dnsRelease;
+    private readonly Dictionary<string, PinnedServerRoute> _pinnedServerRoutes =
+        new(StringComparer.Ordinal);
+
+    private sealed class PinnedServerRoute
+    {
+        public required IPAddress Address { get; init; }
+        public required string Family { get; init; }
+        public required ExistingRoute? Previous { get; init; }
+        public required string CurrentNextHop { get; set; }
+        public required IPAddress? CurrentGateway { get; set; }
+        public required string? CurrentInterface { get; set; }
+        public bool Owned { get; set; }
+        public bool UndoRegistered { get; set; }
+    }
 
     private sealed class OwnedRoute
     {
@@ -309,41 +323,21 @@ public sealed class NetworkConfigurator : IDisposable
         bool v6 = serverIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         string family = v6 ? "-inet6" : "-inet";
         ExistingRoute? previous = ExistingHostRouteFor(serverIp);
-        bool alreadyMatches = gateway != null
-            ? previous?.Gateway != null && SameAddressIgnoringScope(previous.Gateway, gateway)
-            : previous?.Gateway == null && previous?.Interface == physicalInterface;
+        bool alreadyMatches = RouteMatches(previous, gateway, physicalInterface);
+        var state = new PinnedServerRoute
+        {
+            Address = serverIp,
+            Family = family,
+            Previous = previous,
+            CurrentNextHop = nextHop,
+            CurrentGateway = gateway,
+            CurrentInterface = physicalInterface,
+        };
         if (alreadyMatches)
         {
+            _pinnedServerRoutes[s] = state;
             _log($"Preserving an existing exact server route {s} via {nextHop}");
             return;
-        }
-        void RestorePrevious()
-        {
-            if (previous?.Gateway != null)
-            {
-                if (!Run("/sbin/route",
-                        $"-n add {family} -host {s} {previous.Gateway}", optional: true))
-                {
-                    var current = ExistingHostRouteFor(serverIp);
-                    var expected = ParseRouteGateway(previous.Gateway);
-                    if (expected == null || current?.Gateway == null ||
-                        !SameAddressIgnoringScope(current.Gateway, expected) ||
-                        (previous.Interface != null && current.Interface != previous.Interface))
-                        throw new InvalidOperationException($"could not restore server route {s}");
-                }
-                _log($"restored the pre-existing host route {s} via {previous.Gateway}");
-            }
-            else if (previous?.Interface != null)
-            {
-                if (!Run("/sbin/route",
-                        $"-n add {family} -host {s} -interface {previous.Interface}", optional: true))
-                {
-                    var current = ExistingHostRouteFor(serverIp);
-                    if (current?.Gateway != null || current?.Interface != previous.Interface)
-                        throw new InvalidOperationException($"could not restore on-link server route {s}");
-                }
-                _log($"restored the pre-existing host route {s} on {previous.Interface}");
-            }
         }
 
         if (previous != null &&
@@ -356,24 +350,92 @@ public sealed class NetworkConfigurator : IDisposable
         }
         catch (Exception addError)
         {
-            try { RestorePrevious(); }
+            try { RestoreServerRoute(serverIp, family, previous); }
             catch (Exception restoreError)
             {
-                _undo.Add(RestorePrevious);
+                _undo.Add(() => RestoreServerRoute(serverIp, family, previous));
                 throw new AggregateException(
                     $"server route {s} failed and its previous route was not restored",
                     addError, restoreError);
             }
             throw;
         }
-        _undo.Add(() =>
-        {
-            Run("/sbin/route", $"-n delete {family} -host {s} {nextHop}", optional: true);
-            RestorePrevious();
-        });
+        state.Owned = true;
+        _pinnedServerRoutes[s] = state;
+        RegisterPinnedServerRouteUndo(state);
         _log($"Pinned server route {s} via {nextHop}"
              + (previous != null ? " (temporarily replacing an existing exact host route)" : ""));
     }
+
+    private void RegisterPinnedServerRouteUndo(PinnedServerRoute state)
+    {
+        if (state.UndoRegistered) return;
+        state.UndoRegistered = true;
+        _undo.Add(() =>
+        {
+            if (!state.Owned) return;
+            if (!RemovePinnedServerRoute(state))
+                throw new InvalidOperationException(
+                    $"could not remove Qeli-owned server route {state.Address}");
+            RestoreServerRoute(state.Address, state.Family, state.Previous);
+            state.Owned = false;
+        });
+    }
+
+    private bool RemovePinnedServerRoute(PinnedServerRoute state) =>
+        RemoveExactServerRoute(state.Address, state.Family, state.CurrentNextHop,
+            state.CurrentGateway, state.CurrentInterface);
+
+    private bool RemoveExactServerRoute(IPAddress address, string family,
+        string nextHop, IPAddress? gateway, string? interfaceName)
+    {
+        if (Run("/sbin/route", OrdinaryHostRouteArguments(
+                "delete", address, nextHop), optional: true))
+            return true;
+        ExistingRoute? current = ExistingHostRouteFor(address);
+        return current == null || !RouteMatches(current, gateway, interfaceName);
+    }
+
+    private void RestoreServerRoute(
+        IPAddress address, string family, ExistingRoute? previous)
+    {
+        string literal = address.ToString();
+        if (previous?.Gateway != null)
+        {
+            if (!Run("/sbin/route",
+                    $"-n add {family} -host {literal} {previous.Gateway}", optional: true))
+            {
+                var current = ExistingHostRouteFor(address);
+                var expected = ParseRouteGateway(previous.Gateway);
+                if (expected == null || current?.Gateway == null ||
+                    !SameAddressIgnoringScope(current.Gateway, expected) ||
+                    (previous.Interface != null && current.Interface != previous.Interface))
+                    throw new InvalidOperationException(
+                        $"could not restore server route {literal}");
+            }
+            _log($"restored the pre-existing host route {literal} via {previous.Gateway}");
+        }
+        else if (previous?.Interface != null)
+        {
+            if (!Run("/sbin/route",
+                    $"-n add {family} -host {literal} -interface {previous.Interface}",
+                    optional: true))
+            {
+                var current = ExistingHostRouteFor(address);
+                if (current?.Gateway != null || current?.Interface != previous.Interface)
+                    throw new InvalidOperationException(
+                        $"could not restore on-link server route {literal}");
+            }
+            _log($"restored the pre-existing host route {literal} on {previous.Interface}");
+        }
+    }
+
+    private static bool RouteMatches(
+        ExistingRoute? route, IPAddress? gateway, string? interfaceName) =>
+        gateway != null
+            ? route?.Gateway != null && SameAddressIgnoringScope(route.Gateway, gateway)
+              && (interfaceName == null || route.Interface == interfaceName)
+            : route?.Gateway == null && route?.Interface == interfaceName;
 
     /// <summary>Assign the client IP to the point-to-point utun interface and bring it up,
     /// using the server-pushed subnet prefix.</summary>
@@ -672,6 +734,7 @@ public sealed class NetworkConfigurator : IDisposable
     public void Dispose()
     {
         var failedRoutes = new List<string>();
+        CleanupRoamingRoutes(failedRoutes);
         for (int i = _ownedRoutes.Count - 1; i >= 0; i--)
         {
             var route = _ownedRoutes[i];

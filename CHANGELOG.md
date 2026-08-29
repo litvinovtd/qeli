@@ -88,7 +88,7 @@
   допустимые причины и flags, сетевой token/interface index, TTL и совместимость IPv4/IPv6,
   отклоняет неизвестные поля и сохраняет 64-битный Windows `SOCKET` без сужения к `Int32`.
   Managed conformance suite, shared library и Windows desktop client собираются без предупреждений.
-  Base capability по умолчанию остаётся нулевым; macOS/iOS сохраняют full-reconnect fallback.
+  Base capability по умолчанию остаётся нулевым; iOS сохраняет full-reconnect fallback.
 - Windows C# path executor реализует общую для TCP и всех UDP camouflage modes сериализованную
   транзакцию PREPARE → BIND → COMMIT/ABORT. `GetBestRoute2` ограничивается точным физическим
   interface/source; candidate lease создаёт только пригодные `/32`/`/128`, сохраняет operator routes,
@@ -100,6 +100,16 @@
   UDP fake-TLS, UDP-QUIC и UDP-obfs профилей. Явные `local`/`lport`, default/старое ядро и
   unsupported peer используют прежний reconnect fallback. Managed route/socket/policy self-tests
   проходят; Windows real-device, race, kill-switch и soak acceptance остаются до rollout.
+- macOS C# path executor реализует ту же общую для обычного TCP и всех UDP camouflage modes
+  транзакцию. PREPARE создаёт точные interface-scoped host routes, BIND применяет Darwin
+  `IP_BOUND_IF`/`IPV6_BOUND_IF` и выбранный source address к заимствованному fd до connect, COMMIT
+  сохраняет scoped route для активного socket, переключает Qeli-owned обычный host route для
+  будущего bonded TCP repair и сужает PF old+new до new-only, а ABORT возвращает старую policy и
+  удаляет только candidate-owned state. Исходные operator routes сохраняются и восстанавливаются;
+  незавершённая очистка повторяется при disconnect. Явные `local`/`lport`, default/старое ядро и
+  unsupported peer используют прежний reconnect fallback. Release cross-build прошёл без
+  предупреждений, все macOS route/socket/capability self-tests — `PASS`; live macOS device/race,
+  route-command, PF, per-app и sleep/soak acceptance остаётся обязательным gate до rollout.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`

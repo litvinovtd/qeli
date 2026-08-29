@@ -61,7 +61,10 @@ public static class CliRunner
         Console.WriteLine("qeli-mac platform self-test");
         DnsJournal.RunSelfTests(Check);
         NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
+        NetworkConfigurator.RunRoamingRouteSelfTest(Check);
         KillSwitch.RunSelfTests(Check);
+        MacRoamingSocket.RunSelfTest(Check);
+        VpnTunnel.RunRoamingCapabilitySelfTest(Check);
         Check("utun cleanup: IPv4 and IPv6 addresses have family-correct undo commands",
             NetworkConfigurator.AddressRemovalArguments("utun7", IPAddress.Parse("10.8.0.2")) ==
                 "utun7 inet 10.8.0.2 -alias"
