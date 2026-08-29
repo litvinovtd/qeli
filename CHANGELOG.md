@@ -101,6 +101,13 @@
   trailer и pre-`AUTH_EXT_V1` peer. Политика `auto` в обоих случаях оставляет byte-for-byte legacy
   AUTH и обычный reconnect fallback, а `required` отказывает fail-closed до credentials/полной
   аутентификации. Live mixed-version бинарная матрица остаётся отдельным этапом 6 gate.
+- Добавлен конфигурируемый same-session UDP soak case: release-default выполняет 10 000
+  последовательных A↔B PATH_COMMIT и на всём цикле контролирует PID/TUN, одну AUTH, отсутствие
+  reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS.
+  Harness использует общий UDP actor и запускается с любым camouflage mode. Lab smoke на QUIC
+  прошёл 100 последовательных миграций: client/server fd остались 14/10, server RSS стабилен,
+  client RSS уложился в 32 MiB budget. Это проверка harness; полный 10k и остальные
+  transport/platform soak gates пока не объявляются закрытыми.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

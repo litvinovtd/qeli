@@ -1048,6 +1048,10 @@ control/status и transport-aware dashboard показывают worker-lifetime
 Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
 CID aliases и orphaned sessions. Допустимая регрессия throughput/CPU на включённом
 роуминге — не более 3–5% относительно того же транспорта без него.
+Конфигурируемый same-session UDP harness теперь по умолчанию выполняет 10 000 последовательных
+A↔B commit и контролирует PID/TUN, AUTH/reconnect, exact route, client/server commit, fd и sampled
+RSS. Smoke на 100 QUIC-миграций прошёл; это подтверждает harness, но полный 10k и остальные
+transport/platform soak gates остаются открытыми.
 
 Release запрещён, если хотя бы одна поддерживаемая платформа:
 

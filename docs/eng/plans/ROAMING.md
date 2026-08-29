@@ -746,7 +746,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   expiry, and pending paths without identifiers or secrets. Every shipped server profile explicitly
   retains the safe default-off budgets, and every client template explicitly selects `auto`, including
   the multiprofile installer source, Reality release files, Keenetic, and OpkgTun.
-- **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
+- **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
+  configurable same-session UDP harness now defaults to 10,000 sequential A/B commits and checks
+  PID/TUN, AUTH/reconnect, exact routes, client/server commit counts, fd, and sampled RSS. A
+  100-migration QUIC harness smoke passes; the full 10k and other transport/platform gates remain open.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.

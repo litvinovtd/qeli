@@ -38,9 +38,9 @@ DRAIN_DOWN_PID=
 NETNS_ETC=
 
 case "$CASE" in
-  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind) ;;
+  success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind|soak) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind]" >&2
+    echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind|soak]" >&2
     exit 2
     ;;
 esac
@@ -371,6 +371,9 @@ elif [ "$CASE" = frag-loss ]; then
 elif [ "$CASE" = nat-rebind ]; then
   # shellcheck source=roaming_udp_netns_nat_rebind_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_udp_netns_nat_rebind_case.sh" run_nat_rebind_case || exit $?
+elif [ "$CASE" = soak ]; then
+  # shellcheck source=roaming_udp_netns_soak_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_udp_netns_soak_case.sh" run_udp_soak_case || exit $?
 elif [ "$CASE" = pmtu ] || [ "$CASE" = pmtu-asym ]; then
   if wait_for 100 "grep -q 'UDP path probe: inner MTU .* uplink UDP payload budget' $WORK/client.log"; then
     ok "epoch-zero roaming framing carried the startup uplink PMTU probe"
