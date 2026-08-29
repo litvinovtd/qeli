@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v43-android-all-mode-grace -->
+<!-- normative-sync: roaming-v44-worker-resource-probe -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -848,6 +848,19 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   carrier now removes only `is_finished()` handles, while active and still-closing tasks remain
   available to teardown. An async regression pins the bounded registry; a full 10k retest of the
   fixed release+jemalloc binary remains mandatory.
+  The TCP/UDP soak server-resource probe has also been corrected. The old
+  `ip netns pids ... | head -n1` selected the `qeli server` supervisor, while the real data-plane
+  fd, sockets, and RSS belong to its `qeli _worker` child. A live audit saw 10 fd, 3 sockets, and
+  about 22 MiB on the mistakenly sampled supervisor versus 16 fd, 6 sockets, and about 57 MiB on
+  the worker. The shared probe now requires exactly one PID with the same canonical executable,
+  `_worker` role, and exact current `-c/--config` argument. TCP and UDP also pin client and worker
+  `/proc/<pid>/stat` start ticks, so disappearance, ambiguity, or PID reuse fails closed. The Linux
+  contract matrix passes 4/4, the helper and both soak cases pass ShellCheck, and isolated one-cycle
+  live smokes on fixed SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` pass TCP 15/15 and UDP QUIC
+  15/15 while reporting the exact worker PID, 16 fd, 6 sockets, and worker RSS. The already-started
+  10k run remains valid functional/client-resource evidence, but its server-resource result is not
+  accepted; the corrected harness must repeat the full 10k gate.
   A dedicated TCP performance gate now reuses the exact same netns runner and binary for an
   `off` baseline and a negotiated `required` sample. It takes configurable odd-count medians for
   upload, download, and combined qeli client/server CPU, and fails any relative regression beyond

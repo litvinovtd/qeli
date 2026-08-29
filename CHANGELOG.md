@@ -134,6 +134,19 @@
   фактически завершённые handles, сохраняя активные и ещё закрывающиеся задачи для безопасного
   teardown. Детерминированный async regression фиксирует bounded registry; полный 10k retest
   исправленного бинарника остаётся release gate.
+- Исправлен ложный server-side resource probe в TCP/UDP soak harness. `ip netns pids ... | head -n1`
+  выбирал supervisor `qeli server`, тогда как fd, sockets и RSS реального data plane принадлежат
+  дочернему `qeli _worker`; живой аудит длительного TCP-прогона показал соответственно 10/3/~22 MiB
+  у ошибочно измеряемого supervisor и 16/6/~57 MiB у worker. Общий helper теперь требует ровно один
+  PID с тем же canonical executable, ролью `_worker` и точным аргументом `-c/--config` текущего
+  server.conf. TCP и UDP дополнительно фиксируют `/proc/<pid>/stat` start ticks клиента и worker,
+  поэтому исчезновение, неоднозначность или PID reuse завершают gate fail-closed. Linux contract
+  matrix прошла 4/4, общий helper и оба soak case прошли ShellCheck, а изолированные одноцикловые
+  live smoke на фиксированном SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` закрыли TCP 15/15 и UDP QUIC
+  15/15 с явным `server_worker_pid`, fd 16, sockets 6 и worker RSS. Ранее запущенный 10k остаётся
+  пригодным как functional/client-resource evidence, но его server-resource часть не засчитывается;
+  полный 10k должен быть повторён исправленным harness.
 - Добавлен воспроизводимый TCP performance gate для роуминга. Новый `perf` case переиспользует
   тот же netns runner и один бинарник, а wrapper последовательно измеряет медианы upload/download
   и суммарный CPU процессов qeli сначала при `roaming=off`, затем при согласованном

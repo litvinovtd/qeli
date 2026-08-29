@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v43-android-all-mode-grace -->
+<!-- normative-sync: roaming-v44-worker-resource-probe -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1156,6 +1156,19 @@ carrier оставались в generation registry до полного teardown
 carrier теперь удаляет только `is_finished()` handles; активные и ещё закрывающиеся задачи остаются
 доступны teardown. Async regression фиксирует bounded registry, а полный 10k исправленного
 release+jemalloc бинарника остаётся обязательным gate.
+Server-resource probe TCP/UDP soak также исправлен. Старый
+`ip netns pids ... | head -n1` выбирал supervisor `qeli server`, хотя fd, sockets и RSS настоящего
+data plane принадлежат дочернему `qeli _worker`. Живой аудит показал 10 fd, 3 sockets и около
+22 MiB у ошибочно измеряемого supervisor против 16 fd, 6 sockets и около 57 MiB у worker. Общий
+probe теперь требует ровно один PID с тем же canonical executable, ролью `_worker` и точным
+аргументом `-c/--config` текущего server.conf. TCP и UDP также закрепляют start ticks клиента и
+worker из `/proc/<pid>/stat`, поэтому исчезновение, неоднозначность или PID reuse дают fail-closed.
+Linux contract matrix прошла 4/4, helper и оба soak case прошли ShellCheck, а изолированные
+одноцикловые live smoke на фиксированном SHA-256
+`b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` прошли TCP 15/15 и UDP QUIC
+15/15 с явным PID worker, 16 fd, 6 sockets и worker RSS. Уже запущенный 10k остаётся пригодным как
+functional/client-resource evidence, но его server-resource результат не засчитывается; полный
+10k gate должен быть повторён исправленным harness.
 Отдельный TCP performance gate теперь переиспользует тот же netns runner и бинарник для baseline
 с `roaming=off` и согласованного `roaming=required`. Он берёт настраиваемые медианы нечётного числа
 замеров upload, download и суммарного CPU qeli client/server и по умолчанию отклоняет относительную
