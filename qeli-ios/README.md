@@ -32,27 +32,34 @@ every other client, not because a build of it was released.
 - Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM).
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- `NEPacketTunnelProvider` target with a small ABI 1.11 platform adapter. Swift applies
+- `NEPacketTunnelProvider` target over the compatible ABI 1.11 base plus optional ABI
+  1.12/1.13 path transactions. Swift applies
   authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
   packet batches between `NEPacketTunnelFlow` and Rust.
 - The common Rust whole-client core owns each plain/fake-TLS/obfs/REALITY TCP/UDP/QUIC
   generation, X25519+ML-KEM, authentication, packet crypto, heartbeat/shaping, MTU and
-  fixed/adaptive bonding. Swift owns only the lifecycle decision to start the next generation
-  under the shared reconnect policy; no Swift wire implementation is on the production path.
+  fixed/adaptive bonding plus the shared roaming state machine. Swift owns Apple path
+  observation, path-scoped DNS/NAT64 resolution, socket/interface binding and the exact
+  excluded-route transaction requested by Rust; no Swift wire implementation is on the
+  production path.
 - `NetworkPlan` application is fail-closed for IPv4, IPv6 and dual-stack plans: unsupported
   DNS ports, addresses or routes are rejected before the shared core receives ACK.
 - The status bridge reports server-pushed routes separately from client/local routes and
   uses effective post-push padding, heartbeat and shaping facts supplied by Rust.
-- Rust iOS XCFramework build script for the complete `transport-core-ffi` static library,
-  including the canonical ABI header and device/simulator slices.
+- Rust iOS XCFramework build script for the complete `transport-core-ffi experimental-roaming`
+  static library, including the canonical ABI header and device/simulator slices.
 - Home Screen status widget and authenticated connect/disconnect action; iOS 18 adds
   the same action as a Control Center, Lock Screen and Action button control.
 - MDM deployment templates, typed managed configuration, enforced profile/On-Demand
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
-The production Packet Tunnel now uses the same ABI 1.11 Rust transport as Linux, Android,
-Windows and macOS. Swift applies `NetworkPlan`, persists trust/device identity and copies
-bounded IP batches to/from `NEPacketTunnelFlow`; it no longer implements a wire protocol.
+The production Packet Tunnel uses the same versioned Rust transport ABI as Linux, Android,
+Windows and macOS: ABI 1.11 remains the compatible base, while ABI 1.12/1.13 activates the
+optional path-command and path-refresh contracts. Ordinary TCP and every UDP camouflage mode
+use that one Rust roaming policy. Explicit `local`/non-zero `lport`, a default or older core,
+and an unsupported peer retain the previous full-reconnect fallback. Swift applies
+`NetworkPlan`, persists trust/device identity, executes Apple path operations and copies bounded
+IP batches to/from `NEPacketTunnelFlow`; it does not implement a wire protocol.
 CI builds the real device/simulator XCFramework, compiles the generated Xcode project for
 the simulator and runs the iOS unit tests. A physical-iPhone smoke test and the complete
 interoperability matrix still have to be performed before release. See `PARITY.md` for that
@@ -127,13 +134,17 @@ the reason, not a broken project file.
 the Rust crate three times — `aarch64-apple-ios` for the device,
 plus `aarch64-apple-ios-sim` and `x86_64-apple-ios` lipo'd into one simulator slice — and
 packages both with the headers from `QeliCore/Native/include` into the XCFramework. It
-builds `--no-default-features --features transport-core-ffi`: the iOS slice is the
-whole-client static library, with no server or CLI. `QELI_RUST_MANIFEST` and
-`QELI_CARGO_TARGET_DIR` override the paths for out-of-tree builds.
+builds `--no-default-features --features 'transport-core-ffi experimental-roaming'` by
+default: the iOS slice is the whole-client static library, with no server or CLI.
+`QELI_RUST_FEATURES` can override that exact feature set for compatibility checks;
+`QELI_RUST_MANIFEST` and `QELI_CARGO_TARGET_DIR` override the paths for out-of-tree builds.
 
 The Swift side talks through the versioned whole-client ABI in
 `QeliCore/Native/QeliFFI.swift`: `new/start/run/stop`, lifecycle events, server-identity and
-NetworkPlan ACKs, stats, `tun_push/pull`, plus the handle-free UDP diagnostic. Rust owns
+NetworkPlan ACKs, stats, `tun_push/pull`, the handle-free UDP diagnostic, and optional
+`PathUpdate`/`PathCommandResult` calls. `NWPathMonitor`, a path-scoped UDP `NWConnection`,
+Darwin `IP_BOUND_IF`/`IPV6_BOUND_IF`, and exact `/32`/`/128` `excludedRoutes` implement
+PREPARE/BIND/COMMIT/ABORT without replacing the packet tunnel. Rust owns
 record framing, handshakes, crypto, carriers and packet loops. Swift owns only Apple system
 APIs, profile storage and UI. Both production targets exclude the old Swift `Protocol/`
 conformance code; `QeliIOSTests` compiles it explicitly for cross-language KATs. The Packet

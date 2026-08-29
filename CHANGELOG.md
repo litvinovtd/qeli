@@ -88,7 +88,7 @@
   допустимые причины и flags, сетевой token/interface index, TTL и совместимость IPv4/IPv6,
   отклоняет неизвестные поля и сохраняет 64-битный Windows `SOCKET` без сужения к `Int32`.
   Managed conformance suite, shared library и Windows desktop client собираются без предупреждений.
-  Base capability по умолчанию остаётся нулевым; iOS сохраняет full-reconnect fallback.
+  Base capability по умолчанию остаётся нулевым; default/старые cores сохраняют full-reconnect fallback.
 - Windows C# path executor реализует общую для TCP и всех UDP camouflage modes сериализованную
   транзакцию PREPARE → BIND → COMMIT/ABORT. `GetBestRoute2` ограничивается точным физическим
   interface/source; candidate lease создаёт только пригодные `/32`/`/128`, сохраняет operator routes,
@@ -110,6 +110,19 @@
   unsupported peer используют прежний reconnect fallback. Release cross-build прошёл без
   предупреждений, все macOS route/socket/capability self-tests — `PASS`; live macOS device/race,
   route-command, PF, per-app и sleep/soak acceptance остаётся обязательным gate до rollout.
+- iOS Swift path executor подключён к той же общей Rust state machine для обычного TCP и всех UDP
+  camouflage modes. `NWPathMonitor` отбрасывает TUN/loopback-шум; path-scoped UDP `NWConnection`
+  получает effective local/remote endpoint через выбранный интерфейс после DNS/NAT64. PREPARE
+  применяет точные old+new carrier `/32`/`/128` как NetworkExtension `excludedRoutes`, BIND связывает
+  borrowed fd с `IP_BOUND_IF`/`IPV6_BOUND_IF` и выбранным source address, COMMIT сужает обход до
+  new-only, ABORT возвращает old-only. Wake и `PATH_REFRESH` используют тот же generation-scoped
+  PathUpdate; невозможность подготовить обычный path сохраняет bounded full-reconnect fallback.
+  Явные `local`/ненулевой `lport`, default/старое ядро и unsupported peer также используют reconnect.
+  `build_native.sh` теперь по умолчанию включает `transport-core-ffi experimental-roaming`, а
+  iOS-only descriptor-backed TUN dependency исключена: strict `aarch64-apple-ios` cross-target
+  Clippy на лабе проходит без предупреждений. Swift/Xcode и NetworkExtension в Linux-среде не
+  собираются; Xcode 16 и real-iPhone Wi-Fi/cellular, wake, NAT64, rollback, per-app/MDM и soak
+  остаются обязательными gate до включения по умолчанию.
 - Linux/OpenWrt in-process TCP adapter получил наблюдатель физического пути. Он раз в секунду
   читает только готовые global-адреса и физические default routes, исключает TUN, требует две
   стабильные выборки при смене route/address и распознаёт wake-gap от 5 секунд. `PathUpdate`

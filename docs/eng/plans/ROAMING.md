@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v34-macos-path-executor -->
+<!-- normative-sync: roaming-v35-ios-path-executor -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -30,9 +30,11 @@
 > the same PID/TUN without entering top-level reconnect. A three-path supersede scenario passed 24/24:
 > blackholed B emitted PATH_INIT, then the platform executed `ABORT(B) → PREPARE(C)`, the actor
 > discarded the old socket before retry expiry, and the server saw challenge/commit only on C with
-> exactly one published commit. PID/TUN and traffic survived without reconnect. The Windows C# path
-> and macOS C# path executors are now source-complete; their device/race acceptance, the iOS adapter,
-> and Phases 4–6 remain. A deterministic commit-race scenario passed 24/24: after server
+> exactly one published commit. PID/TUN and traffic survived without reconnect. The Windows/macOS
+> C# and iOS Swift path executors are now source-complete; their device/race acceptance and Phases
+> 4–6 remain. The iOS Rust slice passes strict `aarch64-apple-ios` cross-target Clippy, while Xcode
+> and physical-device NetworkExtension acceptance remain. A deterministic commit-race scenario passed
+> 24/24: after server
 > PATH_COMMIT(B), local COMMIT(B) route mutation was delayed while the detector observed C, but the
 > serialized executor prevented C from cancelling or overtaking B. B's exact ACK/publication completed
 > before PREPARE(C), after which C committed exactly once; PID/TUN and traffic survived without reconnect.
@@ -425,8 +427,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   recovers through the existing authenticated hard-resume path instead of publishing an uncommitted
   local path. Android enables `ROAMING_PATH` for feature TCP and all UDP modes, and advertises
   `PATH_REFRESH` only when an ABI 1.13 core exposes the matching core capability.
-  Windows and macOS advertise both path capabilities for ordinary profiles when the feature core
-  exposes the matching ABI; fixed `local`/`lport` and iOS retain reconnect fallback.
+  Windows, macOS and iOS advertise both path capabilities for ordinary profiles when the feature
+  core exposes the matching ABI. On iOS, `NWPathMonitor`, interface-scoped endpoint resolution,
+  Darwin socket binding and exact carrier `excludedRoutes` execute the same transaction. Explicit
+  `local`/non-zero `lport`, default/old cores and unsupported peers retain reconnect fallback.
 
   Lab `.10` passes the final default/feature suites (865/910 library tests, 4 CLI,
   7 integration; one privileged test ignored in each configuration) and strict all-target
@@ -454,8 +458,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   PID/VPN Network/`NetworkPlan 1`, ran AUTH once, and still resolved DNS names. The full Rust library
   suite passed 931 tests with three ignored; strict all-target Clippy and Android release `-D warnings` passed.
 
-  Real devices, platform-specific same-network NAT rebinding, Windows/macOS device/race acceptance,
-  the iOS adapter, and the broader transport/family/race/soak matrix remain.
+  Real devices, platform-specific same-network NAT rebinding, Windows/macOS/iOS device/race
+  acceptance, iOS Xcode/NetworkExtension compilation, and the broader
+  transport/family/NAT64/per-app/race/soak matrix remain.
 - **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a default-off,
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
@@ -709,14 +714,20 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   pending.
   The native candidate contract now preserves a borrowed signed 64-bit Unix descriptor or Windows
   `SOCKET`, and the same UDP migration actor compiles on Windows. Strict Windows-host and Linux
-  all-target feature checks pass; the Windows and macOS C# path executors are source-complete and
-  their live acceptance remains pending.
+  all-target feature checks pass; the Windows/macOS C# and iOS Swift path executors are
+  source-complete and their live acceptance remains pending. The iOS adapter observes only physical
+  `NWPathMonitor` paths, resolves an effective local/remote endpoint on the selected interface,
+  protects old+new then new-only carrier addresses with exact NetworkExtension excluded routes,
+  binds the borrowed descriptor with Darwin interface/source options and ACKs the same shared
+  PREPARE/BIND/COMMIT/ABORT commands used by ordinary TCP and all UDP modes. The feature Rust slice
+  passes strict `aarch64-apple-ios` cross-target Clippy; Xcode 16 compilation and physical-device
+  Wi-Fi/cellular, wake, NAT64, rollback, per-app/MDM and soak gates remain.
   Linux IPv4 packet delay/reorder/duplicate
   and in-flight receive-drain acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate
   bidirectional DATA_FRAG-loss are complete. Deterministic Linux same-network NAT dead-mapping is
-  accepted in netns; real-device race/soak/NAT-rebinding, Windows/macOS acceptance, the iOS adapter,
+  accepted in netns; real-device race/soak/NAT-rebinding, Windows/macOS/iOS acceptance,
   and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core and the Windows/macOS C# path executors are source-complete; Windows/macOS device/race acceptance, iOS, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core plus Windows/macOS/iOS path executors are source-complete; desktop/iOS device and race acceptance, iOS Xcode compilation, real-device soak/NAT-rebinding, and exit-node acceptance remain.
 - **Phase 5:** flat-INI, app editors, panel/API, metrics, examples, and RU/EN docs.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 

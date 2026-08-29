@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Network
 import NetworkExtension
 
 private struct NativeNetworkPlan: Decodable, Sendable {
@@ -161,6 +162,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private let stateLock = NSLock()
     private let packetWriteLock = NSLock()
     private let settingsGate = NativeSettingsGate()
+    private lazy var roamingController = IOSRoamingController(
+        engine: self,
+        serverAddress: config.serverAddress,
+        serverPort: UInt16(config.port))
 
     private var native: QeliNativeTransport?
     private var supervisorTask: Task<Void, Never>?
@@ -231,9 +236,11 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         // refreshes this set; a temporarily unavailable resolver falls back to these last-known
         // addresses so DDNS support never makes an ordinary outage less recoverable.
         let resolvedCarriers = try await Self.resolveIPCandidates(config.serverAddress)
-        let transport = try QeliNativeTransport(config: try config.toTransportCoreINI())
+        let transport = try QeliNativeTransport(
+            config: try config.toTransportCoreINI(), roamingEnabled: config.allowsNativePathRoaming)
         try transport.setDeviceID(try SecureIdentityStore().deviceID())
-        try await applyBootstrapSettings()
+        await roamingController.start()
+        try await applyBootstrapSettings(carrierAddresses: resolvedCarriers)
         try transport.start()
 
         let installed = stateLock.withLock { () -> Bool in
@@ -273,7 +280,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             throw CancellationError()
         }
         if detailedLogging {
-            sharedStore.appendLog("Native ABI 1.11 transport started; TUN remains fail-closed until NetworkPlan ACK")
+            sharedStore.appendLog("Native ABI transport started; TUN remains fail-closed until NetworkPlan ACK")
         }
     }
 
@@ -300,6 +307,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             return value
         }
         guard resources.7 else { return }
+        await roamingController.stop()
         provider.reasserting = false
         resources.1?.cancel()
         resources.3?.cancel()
@@ -312,28 +320,31 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     func wake() {
-        let generation = stateLock.withLock { () -> UInt64? in
+        let state = stateLock.withLock { () -> (UInt64, QeliNativeTransport, UInt64)? in
             guard !stopped else { return nil }
             wakeGeneration &+= 1
-            return wakeGeneration
+            guard let native, let generation = activePlan?.generation,
+                  snapshot.phase == .connected else { return nil }
+            return (wakeGeneration, native, generation)
         }
-        guard let generation else { return }
+        guard let state else { return }
         sharedStore.appendLog("Device woke; waiting briefly for the physical link")
         Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 750_000_000) } catch { return }
             guard let self else { return }
-            let active = self.stateLock.withLock { () -> QeliNativeTransport? in
+            let active = self.stateLock.withLock { () -> Bool in
                 guard !self.stopped,
-                      self.wakeGeneration == generation,
-                      self.snapshot.phase == .connected else { return nil }
-                return self.native
+                      self.wakeGeneration == state.0,
+                      self.native === state.1,
+                      self.activePlan?.generation == state.2,
+                      self.snapshot.phase == .connected else { return false }
+                return true
             }
-            guard let active else { return }
-            self.provider.reasserting = true
-            self.sharedStore.appendLog(
-                "Device wake: replacing the established native transport generation"
-            )
-            active.stop()
+            guard active else { return }
+            if await self.roamingController.requestUpdate(
+                reason: "wake", requiredGeneration: state.2, reconnectOnFailure: true) {
+                self.sharedStore.appendLog("Device wake: submitted an in-process roaming path")
+            }
         }
     }
 
@@ -344,10 +355,13 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     func reloadNetworkSettings() async throws {
-        guard let plan = stateLock.withLock({ stopped ? nil : activePlan }) else {
+        guard let state = stateLock.withLock({ () -> (NativeNetworkPlan, [String])? in
+            guard !stopped, let activePlan else { return nil }
+            return (activePlan, carrierAddresses)
+        }) else {
             throw NativeTunnelError.sessionUnavailable
         }
-        try await applyNetworkSettings(plan)
+        try await applyNetworkSettings(state.0, carrierExclusions: state.1)
         sharedStore.appendLog("Native NetworkPlan settings reloaded")
     }
 
@@ -385,7 +399,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 } catch {
                     failure = error
                     sessionWasEstablished = stateLock.withLock({ snapshot.phase == .connected })
-                    cleanupAttempt(active)
+                    await cleanupAttempt(active)
                     transport = nil
                 }
             }
@@ -493,6 +507,31 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     )
                 case 5:
                     try acceptServerIdentity(event, transport: transport)
+                case QeliRoamingPath.pathCommandEvent:
+                    let command = try QeliRoamingPath.decodeCommand(event)
+                    var accepted = false
+                    var reason = ""
+                    do {
+                        try await roamingController.apply(command: command, transport: transport)
+                        accepted = true
+                    } catch {
+                        reason = error.localizedDescription
+                        sharedStore.appendLog(
+                            "WARN: iOS roaming \(command.action) candidate "
+                                + "\(command.candidateID) rejected: \(reason)"
+                        )
+                    }
+                    try transport.pathCommandResult(
+                        event: event, command: command, accepted: accepted, reason: reason)
+                    if !accepted && command.action == "abort_path" {
+                        throw NativeTunnelError.transportStopped(
+                            "iOS roaming rollback failed: \(reason)")
+                    }
+                case QeliRoamingPath.pathRefreshEvent:
+                    let generation = try QeliRoamingPath.decodeRefreshGeneration(event)
+                    _ = await roamingController.requestUpdate(
+                        reason: "same_network_nat_failure", requiredGeneration: generation,
+                        reconnectOnFailure: false)
                 default:
                     break
                 }
@@ -509,7 +548,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     private func launchReconnectTransport(carrierAddresses: [String]) throws -> QeliNativeTransport {
-        let next = try QeliNativeTransport(config: try config.toTransportCoreINI())
+        let next = try QeliNativeTransport(
+            config: try config.toTransportCoreINI(), roamingEnabled: config.allowsNativePathRoaming)
         try next.setDeviceID(try SecureIdentityStore().deviceID())
         let input = try runtimeInput(carrierAddresses: carrierAddresses)
         try next.start()
@@ -548,7 +588,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         return next
     }
 
-    private func cleanupAttempt(_ transport: QeliNativeTransport) {
+    private func cleanupAttempt(_ transport: QeliNativeTransport) async {
+        await roamingController.disarm(transport: transport)
         let tasks = stateLock.withLock { () -> (
             Task<Void, Never>?, Task<Void, Never>?, Task<Void, Never>?, Task<Void, Never>?
         ) in
@@ -617,9 +658,14 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         )
         (plan.connectionLog ?? []).forEach { sharedStore.appendLog($0) }
         do {
-            try await applyNetworkSettings(plan)
+            let carriers = stateLock.withLock { carrierAddresses }
+            try await applyNetworkSettings(plan, carrierExclusions: carriers)
             try transport.networkPlanResult(generation: plan.generation, accepted: true)
             stateLock.withLock { activePlan = plan }
+            await roamingController.arm(
+                transport: transport,
+                generation: plan.generation,
+                carrierAddresses: carriers)
             startPacketPumps(transport: transport, generation: plan.generation)
             let dns = plan.dnsServers.isEmpty
                 ? "system unchanged"
@@ -782,7 +828,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         transport.stop()
     }
 
-    private func applyBootstrapSettings() async throws {
+    private func applyBootstrapSettings(carrierAddresses: [String]) async throws {
         let plan = NativeNetworkPlan(
             generation: 0,
             familyMode: "ipv4",
@@ -814,12 +860,14 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             ),
             connectionLog: []
         )
-        try await applyNetworkSettings(plan, publishFacts: false)
+        try await applyNetworkSettings(
+            plan, publishFacts: false, carrierExclusions: carrierAddresses)
     }
 
     private func applyNetworkSettings(
         _ plan: NativeNetworkPlan,
-        publishFacts: Bool = true
+        publishFacts: Bool = true,
+        carrierExclusions: [String] = []
     ) async throws {
         let ipv4Addresses = plan.addresses.filter { $0.family == "ipv4" }
         let ipv6Addresses = plan.addresses.filter { $0.family == "ipv6" }
@@ -894,11 +942,27 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             fullTunnel: plan.fullTunnel,
             allowLAN: allowLAN
         )
-        let excluded = effectiveExcludes.compactMap(Self.ipv4Route)
-        let excludedIPv6 = effectiveExcludes.compactMap(Self.ipv6Route)
+        let uniqueCarrierExclusions = Array(Set(carrierExclusions))
+        guard uniqueCarrierExclusions.count <= QeliRoamingPath.maximumAddresses * 2,
+              uniqueCarrierExclusions.allSatisfy({
+                  Self.isIPv4Address($0) || Self.isIPv6Address($0)
+              }) else { throw NativeTunnelError.invalidNetworkPlan }
+        var excluded = effectiveExcludes.compactMap(Self.ipv4Route)
+        var excludedIPv6 = effectiveExcludes.compactMap(Self.ipv6Route)
         guard excluded.count + excludedIPv6.count == effectiveExcludes.count else {
             throw NativeTunnelError.invalidNetworkPlan
         }
+        let carrierIPv4 = uniqueCarrierExclusions.compactMap { address in
+            Self.isIPv4Address(address) ? Self.ipv4Route("\(address)/32") : nil
+        }
+        let carrierIPv6 = uniqueCarrierExclusions.compactMap { address in
+            Self.isIPv6Address(address) ? Self.ipv6Route("\(address)/128") : nil
+        }
+        guard carrierIPv4.count + carrierIPv6.count == uniqueCarrierExclusions.count else {
+            throw NativeTunnelError.invalidNetworkPlan
+        }
+        excluded += carrierIPv4
+        excludedIPv6 += carrierIPv6
         let protectedDNSRoutes = Set(plan.dnsServers.map { dns in
             "\(dns.address)/\(Self.isIPv4Address(dns.address) ? 32 : 128)"
         })
@@ -1214,6 +1278,57 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         }
         udpLogs.forEach { sharedStore.appendLog($0) }
     }
+
+    func applyRoamingCarrierExclusions(
+        _ addresses: [String], transport: QeliNativeTransport, generation: UInt64
+    ) async throws {
+        guard let plan = stateLock.withLock({ () -> NativeNetworkPlan? in
+            guard !stopped, native === transport, activePlan?.generation == generation else {
+                return nil
+            }
+            return activePlan
+        }) else { throw NativeTunnelError.sessionUnavailable }
+        try await applyNetworkSettings(
+            plan, publishFacts: false, carrierExclusions: addresses)
+        guard stateLock.withLock({
+            !stopped && native === transport && activePlan?.generation == generation
+        }) else { throw NativeTunnelError.sessionUnavailable }
+    }
+
+    func commitRoamingCarriers(
+        _ addresses: [String], transport: QeliNativeTransport, generation: UInt64
+    ) throws {
+        let committed = stateLock.withLock { () -> Bool in
+            guard !stopped, native === transport, activePlan?.generation == generation else {
+                return false
+            }
+            carrierAddresses = addresses
+            return true
+        }
+        guard committed else { throw NativeTunnelError.sessionUnavailable }
+    }
+
+    func isActiveRoamingGeneration(
+        transport: QeliNativeTransport, generation: UInt64
+    ) -> Bool {
+        stateLock.withLock {
+            !stopped && native === transport && activePlan?.generation == generation
+        }
+    }
+
+    func requestRoamingReconnect(
+        transport: QeliNativeTransport, generation: UInt64, reason: String
+    ) {
+        let shouldStop = stateLock.withLock {
+            !stopped && native === transport && activePlan?.generation == generation
+        }
+        guard shouldStop else { return }
+        provider.reasserting = true
+        sharedStore.appendLog("\(reason); using full reconnect fallback")
+        transport.stop()
+    }
+
+    func roamingLog(_ message: String) { sharedStore.appendLog(message) }
 
     private func update(phase: TunnelPhase, message: String, error: String? = nil) {
         stateLock.withLock {

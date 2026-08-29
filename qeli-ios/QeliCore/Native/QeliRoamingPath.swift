@@ -216,7 +216,9 @@ enum QeliRoamingPath {
     private static func validateIdentifier(_ value: String, label: String) throws {
         let bytes = value.utf8.count
         guard (1...256).contains(bytes),
-              !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+              !value.unicodeScalars.contains(where: {
+                  CharacterSet.controlCharacters.contains($0)
+              }) else {
             throw QeliNativeError.invalidInput("\(label) must be 1...256 bytes without controls")
         }
     }

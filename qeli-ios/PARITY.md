@@ -28,11 +28,13 @@
 - Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- The production Packet Tunnel is an ABI 1.11 adapter over the common Rust whole-client
-  core used by Linux, Android, Windows and macOS. Rust owns DNS/connect, plain and
+- The production Packet Tunnel uses the compatible ABI 1.11 base and optional ABI 1.12/1.13
+  path contracts over the common Rust whole-client core used by Linux, Android, Windows and
+  macOS. Rust owns DNS/connect, plain and
   hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,
-  MTU discovery and fixed/adaptive bonding for one generation; Swift owns only the
-  reconnect-policy lifecycle that starts the next Rust generation.
+  MTU discovery, fixed/adaptive bonding and the common TCP/UDP roaming policy. Swift owns
+  the Apple path observer, path-scoped DNS/NAT64 probe, socket binding and excluded-route
+  executor requested by that policy.
 - Swift owns only Apple platform operations: Keychain device/trust state,
   `NEPacketTunnelNetworkSettings`, lifecycle/status and bounded packet batches between
   `NEPacketTunnelFlow` and `qeli_client_tun_push/pull`. It ACKs a `NetworkPlan` only after
@@ -47,10 +49,17 @@
 - The iOS packet bridge has a fixed memory budget: two Rust pools of 32 × 65,535-byte
   buffers (4,194,240 bytes), 128-slot queues and at most three reusable 256 KiB Swift
   caller buffers, with backpressure and no fallback allocation.
-- `build_native.sh` builds device and simulator slices with `transport-core-ffi`, packages
-  the canonical ABI header and creates the XCFramework. CI runs that build, compiles the
+- `build_native.sh` builds device and simulator slices with
+  `transport-core-ffi experimental-roaming` by default, packages the canonical ABI header
+  and creates the XCFramework. CI runs that build, compiles the
   generated Xcode project for the simulator and runs its unit tests. A signed physical-device
   build and runtime pass remain outstanding.
+- `NWPathMonitor` ignores tunnel/loopback interfaces and submits generation-scoped path or wake
+  changes. A UDP `NWConnection` constrained by `requiredInterface` obtains the effective local
+  and remote endpoint after DNS/NAT64 resolution. PREPARE keeps old+new exact carrier exclusions,
+  BIND applies Darwin interface/source binding to the borrowed socket, COMMIT narrows routes to
+  new-only, and ABORT restores old-only. Ordinary TCP and all UDP modes share this Rust transaction;
+  explicit `local`/non-zero `lport`, old/default cores and unsupported peers reconnect normally.
 - WidgetKit status widget with an authenticated App Intent action and an iOS 18
   Control Center / Lock Screen / Action button control. The toggle drives the installed
   tunnel from the widget process, so it connects without foregrounding the app (matching
@@ -61,11 +70,13 @@
 
 ## Remaining verification milestones
 
-1. Build the ABI 1.11 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
-   both the app and Packet Tunnel targets; this cannot be substituted by the Linux Rust
-   cross-target check.
+1. Build the feature-enabled ABI 1.13 Rust XCFramework and generated project on macOS/Xcode
+   16+, then compile both the app and Packet Tunnel targets; the strict
+   `aarch64-apple-ios` Rust cross-target Clippy passes on the Linux lab, but cannot substitute
+   for Swift/NetworkExtension compilation.
 2. Run physical-device interoperability tests against every Android/server wire mode,
-   including packet loss, Wi-Fi/cellular transitions and bonded-stream failure.
+   including packet loss, Wi-Fi/cellular transitions, wake, same-network NAT rebinding,
+   NAT64, route rollback, per-app/MDM interaction and bonded-stream failure.
 3. Measure packet-pump memory, backpressure, throughput, UDP loss and MTU behaviour on
    device. Buffer/queue tuning is intentionally a separate performance pass after the
    architecture migration.

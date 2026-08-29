@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v34-macos-path-executor -->
+<!-- normative-sync: roaming-v35-ios-path-executor -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -30,9 +30,11 @@
 > тот же PID/TUN и не вошёл в top-level reconnect. Трёхмаршрутный supersede-сценарий прошёл 24/24:
 > blackholed B успел отправить PATH_INIT, затем platform выполнила `ABORT(B) → PREPARE(C)`, actor
 > удалил старый socket до retry-expiry, а сервер challenge/commit увидел только путь C и ровно один
-> commit. PID/TUN и трафик сохранились без reconnect. Windows C# path executor теперь готов по
-> исходникам вместе с macOS C# path executor; впереди их device/race-приёмка, adapter iOS и этапы
-> 4–6. Детерминированный commit-race-сценарий прошёл 24/24: после server PATH_COMMIT(B)
+> commit. PID/TUN и трафик сохранились без reconnect. Windows/macOS C# и iOS Swift path executors
+> теперь готовы по исходникам; впереди их device/race-приёмка и этапы 4–6. iOS Rust slice проходит
+> строгий cross-target Clippy для `aarch64-apple-ios`, но Xcode- и physical-device
+> NetworkExtension-приёмка ещё не выполнены. Детерминированный commit-race-сценарий прошёл 24/24:
+> после server PATH_COMMIT(B)
 > локальная route-мутация COMMIT(B) была задержана, detector увидел C, но сериализованный executor
 > не позволил C отменить или обогнать B. Exact ACK и публикация B завершились до PREPARE(C), после
 > чего C также был подтверждён ровно один раз; PID/TUN и трафик сохранились без reconnect.
@@ -636,8 +638,10 @@ full-reconnect fallback. Ошибки candidate connect/JOIN также отка
 carrier, поэтому клиент восстанавливается существующим hard resume, не публикуя локально
 неподтверждённый path. Android включает `ROAMING_PATH` для feature TCP и всех UDP-режимов, а
 `PATH_REFRESH` объявляет только если ядро ABI 1.13 сообщает парный core capability.
-Windows и macOS объявляют оба path capability для обычных профилей, когда feature core
-предоставляет соответствующий ABI; явные `local`/`lport` и iOS сохраняют reconnect fallback.
+Windows, macOS и iOS объявляют оба path capability для обычных профилей, когда feature core
+предоставляет соответствующий ABI. На iOS ту же транзакцию исполняют `NWPathMonitor`,
+interface-scoped endpoint resolution, Darwin socket binding и точные carrier `excludedRoutes`.
+Явные `local`/ненулевой `lport`, default/старое ядро и unsupported peer сохраняют reconnect fallback.
 
 На lab `.10` финальные default/feature suites прошли с 865/910 library tests, 4 CLI и
 7 integration tests (по одному privileged test ignored), а strict all-target Clippy — в обеих
@@ -668,7 +672,8 @@ hard loss Wi-Fi→cellular и один для обратного make-before-bre
 release-сборка с `-D warnings` прошли.
 
 Впереди остаются реальные устройства, platform-specific same-network NAT rebinding,
-Windows/macOS device/race-приёмка, adapter iOS и расширенная transport/family/race/soak matrix.
+Windows/macOS/iOS device/race-приёмка, iOS Xcode/NetworkExtension-сборка и расширенная
+transport/family/NAT64/per-app/race/soak matrix.
 
 ### Этап 3. UDP migration
 
@@ -915,16 +920,16 @@ generation-scoped discovery A/AAAA: альтернативы доступны т
 до connect. Linux network detection, capability activation и начальная live-приёмка завершены;
 Linux IPv4 packet delay/reorder/duplicate, in-flight receive-drain, outer-family PMTU round-trip и
 deliberate DATA_FRAG-loss приняты live-gate; детерминированный Linux same-network NAT dead mapping
-принят в netns. Остаются Windows/macOS device/race-приёмка, adapter iOS, real-device NAT rebinding и soak.
+принят в netns. Остаются Windows/macOS/iOS device/race-приёмка, real-device NAT rebinding и soak.
 
 - Linux UDP real-device NAT rebinding и soak;
-- Windows/macOS device/race-приёмка, adapter iOS, конфигурация/rollout и полная platform matrix;
+- Windows/macOS/iOS device/race-приёмка, конфигурация/rollout и полная platform matrix;
 
 Результат: безопасный feature-gated UDP роуминг прошёл Linux live success/rollback/supersede,
 commit-race, control-loss/replay, PMTU, receive-drain/reorder/duplicate, outer-family,
 deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
-### Этап 4. Платформы — 🟡 Linux/Android live, Windows/macOS executors source-complete
+### Этап 4. Платформы — 🟡 Linux/Android live, Windows/macOS/iOS executors source-complete
 
 - Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
@@ -942,7 +947,14 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
   host route для будущего ремонта bonded TCP. Обычный TCP и все UDP profiles используют общий
   Rust state machine; default/старое ядро и явные `local`/`lport` используют reconnect.
   Cross-build и managed self-tests готовы; device/race/PF/per-app/sleep/soak acceptance впереди;
-- iOS.
+- iOS: `NWPathMonitor` наблюдает только физические пути, path-scoped UDP `NWConnection` получает
+  effective local/remote endpoint после DNS/NAT64, PREPARE держит точные old+new `/32`/`/128`
+  NetworkExtension `excludedRoutes`, BIND применяет `IP_BOUND_IF`/`IPV6_BOUND_IF` и source address
+  к borrowed fd, COMMIT сужает маршруты до new-only, ABORT возвращает old-only. Обычный TCP и все
+  UDP profiles используют общую Rust-транзакцию; явные `local`/ненулевой `lport`, default/старое
+  ядро и unsupported peer используют reconnect. Feature Rust slice прошёл strict
+  `aarch64-apple-ios` cross-target Clippy; Xcode 16 compile и real-iPhone Wi-Fi/cellular, wake,
+  NAT64, rollback, per-app/MDM и soak acceptance впереди.
 
 Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
 

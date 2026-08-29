@@ -48,10 +48,15 @@ pub mod ffi;
 ))]
 pub mod jni;
 
-// Unix fd-based clients share one TUN backend. Android supplies the descriptor through
+// Descriptor-backed clients share one TUN backend. Android supplies the descriptor through
 // VpnService, macOS supplies its utun control socket, and Linux opens the device locally.
-#[cfg(all(unix, any(feature = "client", feature = "transport-core-ffi")))]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+// iOS exchanges packet batches through NEPacketTunnelFlow and therefore must not compile this
+// adapter or its dependency on the Linux/Android/macOS `tun` module.
+#[cfg(all(
+    any(target_os = "linux", target_os = "android", target_os = "macos"),
+    any(feature = "client", feature = "transport-core-ffi")
+))]
+#[cfg_attr(any(target_os = "android", target_os = "macos"), allow(dead_code))]
 pub mod linux_tun;
 
 // Wintun and iOS packetFlow cannot hand Rust a portable descriptor. Their small platform
@@ -80,6 +85,9 @@ pub(crate) mod wintun;
     feature = "transport-core-ffi"
 ))]
 pub(crate) mod runtime;
+// iOS moves packet batches through NEPacketTunnelFlow rather than the descriptor-backed TUN
+// writer, so the fd-only DropSink variants are intentionally dormant on that target.
+#[cfg_attr(target_os = "ios", allow(dead_code))]
 pub(crate) mod udp_buffer;
 pub(crate) mod udp_client_framing;
 pub(crate) mod udp_receive;
