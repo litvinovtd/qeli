@@ -280,10 +280,96 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
     kicked.len()
 }
 
+/// Snapshot worker-lifetime roaming outcomes without exposing session locators, CIDs or proofs.
+async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
+    let profiles = state.profiles.read().await;
+    let mut ordered = profiles.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|(name, _)| *name);
+    let mut out = Vec::with_capacity(ordered.len());
+
+    for (name, profile) in ordered {
+        let tcp = profile.tcp_roaming_metrics.snapshot();
+        #[cfg(feature = "experimental-roaming")]
+        let (
+            tcp_sessions,
+            orphaned_sessions,
+            orphaned_bytes,
+            udp_attempts,
+            udp_commits,
+            udp_failures,
+            udp_sessions,
+            udp_candidates,
+        ) = {
+            let tcp_sessions = profile
+                .sessions
+                .read()
+                .await
+                .by_ip
+                .values()
+                .filter(|session| session.tcp_roaming.is_some())
+                .count();
+            let (orphaned_sessions, orphaned_bytes) = {
+                let limiter = crate::server::lock_or_recover(
+                    &profile.tcp_orphans,
+                    "control::roaming_tcp_orphans",
+                );
+                (limiter.sessions(), limiter.bytes())
+            };
+            let udp = profile.udp_roaming_registry.stats();
+            (
+                tcp_sessions,
+                orphaned_sessions,
+                orphaned_bytes,
+                udp.attempts_total,
+                udp.commits_total,
+                udp.failures_total,
+                udp.active_sessions,
+                udp.active_candidates,
+            )
+        };
+        #[cfg(not(feature = "experimental-roaming"))]
+        let (
+            tcp_sessions,
+            orphaned_sessions,
+            orphaned_bytes,
+            udp_attempts,
+            udp_commits,
+            udp_failures,
+            udp_sessions,
+            udp_candidates,
+        ) = (0usize, 0usize, 0usize, 0u64, 0u64, 0u64, 0usize, 0usize);
+
+        out.push(serde_json::json!({
+            "name": name,
+            "enabled": profile.config.roaming.enabled,
+            "feature_compiled": cfg!(feature = "experimental-roaming"),
+            "transport": profile.config.bind.transport,
+            "worker_lifetime": true,
+            "tcp": {
+                "attempts_total": tcp.attempts_total,
+                "commits_total": tcp.commits_total,
+                "failures_total": tcp.failures_total,
+                "grace_expired_total": tcp.grace_expired_total,
+                "active_sessions": tcp_sessions,
+                "orphaned_sessions": orphaned_sessions,
+                "orphaned_bytes": orphaned_bytes,
+            },
+            "udp": {
+                "attempts_total": udp_attempts,
+                "commits_total": udp_commits,
+                "failures_total": udp_failures,
+                "active_sessions": udp_sessions,
+                "active_candidates": udp_candidates,
+            },
+        }));
+    }
+
+    serde_json::json!({ "profiles": out })
+}
 async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
     // Audit-log every administrative (state-changing) control command. list-clients
     // is read-only and may be polled, so it is excluded to avoid log spam.
-    if req.cmd != "list-clients" && req.cmd != "list-blocked" {
+    if req.cmd != "list-clients" && req.cmd != "list-blocked" && req.cmd != "roaming-stats" {
         log::info!(
             "CONTROL action='{}' user='{}' profile='{}' mbps={} ip='{}'",
             crate::util::log_sanitize(&req.cmd),
@@ -331,6 +417,12 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             }
         }
 
+        "roaming-stats" => Response {
+            ok: true,
+            error: None,
+            clients: None,
+            message: Some(roaming_status(state).await.to_string()),
+        },
         "kick" => {
             if req.username.is_empty() {
                 return Response {
@@ -947,6 +1039,7 @@ mod tests {
         for cmd in [
             "list-clients",
             "list-blocked",
+            "roaming-stats",
             "kick",
             "disable-user",
             "set-limit",

@@ -83,17 +83,76 @@ pub(super) fn client_array(reply: &Option<Value>) -> Vec<Value> {
         .cloned()
         .unwrap_or_default()
 }
+fn roaming_profiles(reply: &Option<Value>) -> std::collections::HashMap<String, Value> {
+    let Some(message) = reply
+        .as_ref()
+        .and_then(|value| value.get("message"))
+        .and_then(Value::as_str)
+    else {
+        return std::collections::HashMap::new();
+    };
+    let Ok(payload) = serde_json::from_str::<Value>(message) else {
+        return std::collections::HashMap::new();
+    };
+    payload
+        .get("profiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.get("name").and_then(Value::as_str)?.to_string();
+            let mut entry = entry.clone();
+            entry
+                .as_object_mut()?
+                .insert("runtime_available".into(), Value::Bool(true));
+            Some((name, entry))
+        })
+        .collect()
+}
+
+fn unavailable_roaming_profile(
+    profile: &crate::config::server::ProfileConfig,
+) -> serde_json::Value {
+    json!({
+        "name": profile.name,
+        "enabled": profile.roaming.enabled,
+        "feature_compiled": null,
+        "runtime_available": false,
+        "transport": profile.bind.transport,
+        "worker_lifetime": true,
+        "tcp": {
+            "attempts_total": 0,
+            "commits_total": 0,
+            "failures_total": 0,
+            "grace_expired_total": 0,
+            "active_sessions": 0,
+            "orphaned_sessions": 0,
+            "orphaned_bytes": 0,
+        },
+        "udp": {
+            "attempts_total": 0,
+            "commits_total": 0,
+            "failures_total": 0,
+            "active_sessions": 0,
+            "active_candidates": 0,
+        },
+    })
+}
 
 pub async fn status(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let live = control(json!({"cmd": "list-clients"})).await;
+    let (live, roaming_live) = tokio::join!(
+        control(json!({"cmd": "list-clients"})),
+        control(json!({"cmd": "roaming-stats"}))
+    );
     let worker_ok = live
         .as_ref()
         .map(|v| v["ok"].as_bool().unwrap_or(false))
         .unwrap_or(false);
     let clients = client_array(&live);
+    let roaming_by_profile = roaming_profiles(&roaming_live);
 
     // Per-profile connected counts.
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -110,10 +169,15 @@ pub async fn status(
             .profiles
             .iter()
             .map(|p| {
+                let roaming = roaming_by_profile
+                    .get(&p.name)
+                    .cloned()
+                    .unwrap_or_else(|| unavailable_roaming_profile(p));
                 json!({
                     "name": p.name,
                     "client_count": counts.get(&p.name).copied().unwrap_or(0),
                     "bind": p.bind,
+                    "roaming": roaming,
                 })
             })
             .collect(),
@@ -191,7 +255,7 @@ pub async fn status(
 
 #[cfg(test)]
 mod tests {
-    use super::clean_hostname;
+    use super::{clean_hostname, roaming_profiles};
 
     #[test]
     fn hostname_is_safe_for_panel_display() {
@@ -205,6 +269,29 @@ mod tests {
         );
         assert_eq!(clean_hostname(" \r\n\t "), None);
         assert_eq!(clean_hostname(&"a".repeat(300)).unwrap().len(), 253);
+    }
+    #[test]
+    fn roaming_control_payload_is_joined_by_profile_without_exposing_raw_message() {
+        let reply = Some(serde_json::json!({
+            "ok": true,
+            "message": serde_json::json!({
+                "profiles": [{
+                    "name": "mobile",
+                    "enabled": true,
+                    "transport": "udp",
+                    "udp": { "commits_total": 3 }
+                }]
+            }).to_string()
+        }));
+        let profiles = roaming_profiles(&reply);
+        let mobile = profiles.get("mobile").expect("profile telemetry");
+        assert_eq!(mobile["udp"]["commits_total"], 3);
+        assert_eq!(mobile["runtime_available"], true);
+        assert!(roaming_profiles(&Some(serde_json::json!({
+            "ok": true,
+            "message": "not-json"
+        })))
+        .is_empty());
     }
 }
 

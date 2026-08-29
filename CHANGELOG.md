@@ -76,6 +76,14 @@
   значениям, а UI явно предупреждает, что включение требует feature-бинарник и иначе отклоняется
   fail-closed.
 
+- Сервер публикует безопасную worker-lifetime телеметрию роуминга через read-only control/API
+  и отдельную карточку dashboard: попытки, подтверждённые миграции, финальные ошибки, истечения
+  TCP grace и текущие ожидающие TCP/UDP пути. UDP-счётчики принадлежат общему профильному registry,
+  поэтому fake-TLS, QUIC, obfs и obfs-AWG используют одинаковую дедупликацию retransmit и один
+  контракт результата; TCP и UDP показаны одной transport-aware моделью. В метрики и логи не
+  попадают CID, session locator, proof или секреты, а UI явно сообщает, что значения сбрасываются
+  при перезапуске data-plane worker.
+
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
   согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor

@@ -292,6 +292,18 @@ struct UdpSession {
     candidate: Option<CandidatePath>,
     last_commit: Option<CommittedPath>,
 }
+/// Monotonic profile-lifetime outcomes for authenticated UDP path transactions.
+///
+/// Retransmitted PATH_INIT/PATH_RESPONSE flights do not create new attempts or commits. A failure
+/// is recorded only when a candidate is finally aborted, expires, or is removed with its session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UdpRoamingStats {
+    pub attempts_total: u64,
+    pub commits_total: u64,
+    pub failures_total: u64,
+    pub active_sessions: usize,
+    pub active_candidates: usize,
+}
 
 /// One instance is owned by a profile actor (or protected by one profile-wide mutex).
 /// All operations are O(1) except rotation/cleanup over at most three aliases per session.
@@ -303,6 +315,9 @@ pub struct UdpRoamingTable {
     max_candidate_starts_per_window: usize,
     candidate_starts: VecDeque<Instant>,
     candidate_count: usize,
+    attempts_total: u64,
+    commits_total: u64,
+    failures_total: u64,
     next_session_generation: u64,
     next_candidate_id: u64,
     cid_index: HashMap<UdpCid, CidOwner>,
@@ -337,6 +352,9 @@ impl UdpRoamingTable {
             max_candidate_starts_per_window,
             candidate_starts: VecDeque::with_capacity(max_candidate_starts_per_window),
             candidate_count: 0,
+            attempts_total: 0,
+            commits_total: 0,
+            failures_total: 0,
             next_session_generation: 1,
             next_candidate_id: 1,
             cid_index: HashMap::new(),
@@ -354,6 +372,15 @@ impl UdpRoamingTable {
 
     pub fn candidate_count(&self) -> usize {
         self.candidate_count
+    }
+    pub fn stats(&self) -> UdpRoamingStats {
+        UdpRoamingStats {
+            attempts_total: self.attempts_total,
+            commits_total: self.commits_total,
+            failures_total: self.failures_total,
+            active_sessions: self.session_count(),
+            active_candidates: self.candidate_count(),
+        }
     }
 
     pub fn lookup(&self, cid: &UdpCid) -> Option<CidLookup> {
@@ -545,6 +572,7 @@ impl UdpRoamingTable {
         });
         self.candidate_count += 1;
         self.candidate_starts.push_back(now);
+        self.attempts_total = self.attempts_total.saturating_add(1);
         Ok(CandidateChallenge {
             ticket,
             token: challenge,
@@ -752,6 +780,7 @@ impl UdpRoamingTable {
         let removed_candidate = session.candidate.take().is_some();
         debug_assert!(removed_candidate, "validated candidate remains present");
         self.candidate_count -= usize::from(removed_candidate);
+        self.commits_total = self.commits_total.saturating_add(1);
         Ok(CommitDecision {
             outcome,
             replayed: false,
@@ -776,6 +805,9 @@ impl UdpRoamingTable {
                 }
             });
         self.candidate_count -= usize::from(removed);
+        if removed {
+            self.failures_total = self.failures_total.saturating_add(1);
+        }
         removed
     }
 
@@ -854,7 +886,11 @@ impl UdpRoamingTable {
         let Some(session) = self.sessions.remove(&session_id) else {
             return false;
         };
-        self.candidate_count -= usize::from(session.candidate.is_some());
+        let removed_candidate = session.candidate.is_some();
+        self.candidate_count -= usize::from(removed_candidate);
+        if removed_candidate {
+            self.failures_total = self.failures_total.saturating_add(1);
+        }
         for (cid, _) in session.aliases {
             if self.cid_index.get(&cid).is_some_and(|owner| {
                 owner.session_id == session_id && owner.session_generation == session.generation
@@ -915,6 +951,7 @@ impl UdpRoamingTable {
             .map(|candidate| candidate.ticket)
             .expect("expired candidate remains present");
         self.candidate_count -= 1;
+        self.failures_total = self.failures_total.saturating_add(1);
         Some(ticket)
     }
 
@@ -1169,6 +1206,9 @@ impl UdpRoamingRegistry {
 
     pub fn candidate_count(&self) -> usize {
         self.lock_table().candidate_count()
+    }
+    pub fn stats(&self) -> UdpRoamingStats {
+        self.lock_table().stats()
     }
 }
 
@@ -1977,6 +2017,16 @@ mod tests {
             ),
             Err(UdpRoamingError::StaleCandidate)
         ));
+        assert_eq!(
+            table.stats(),
+            UdpRoamingStats {
+                attempts_total: 2,
+                commits_total: 0,
+                failures_total: 2,
+                active_sessions: 0,
+                active_candidates: 0,
+            }
+        );
     }
 
     #[test]

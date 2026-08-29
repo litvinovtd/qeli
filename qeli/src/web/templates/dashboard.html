@@ -115,6 +115,40 @@
     </div>
   </div>
 
+  <!-- Roaming rollout observability (shown only for explicitly-enabled profiles) -->
+  <div class="card p-4 mb-6" x-show="roamingProfiles.length > 0">
+    <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
+      <div>
+        <h3 class="text-sm font-semibold text-white">Session roaming rollout <span class="text-amber-400">(experimental)</span></h3>
+        <p class="text-xs mt-1" style="color:var(--txt-dim)">Authenticated worker-lifetime outcomes. Counters reset when the data-plane worker restarts.</p>
+      </div>
+      <span x-show="roamingRuntimeUnavailable" class="badge text-amber-300">runtime unavailable</span>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="rounded-lg p-3" style="background:var(--bg);border:1px solid var(--line)">
+        <div class="text-lg font-bold text-white" x-text="roamingProfiles.length"></div>
+        <div class="text-[10px] uppercase tracking-wide" style="color:var(--txt-dim)">enabled profiles</div>
+      </div>
+      <div class="rounded-lg p-3" style="background:var(--bg);border:1px solid var(--line)">
+        <div class="text-lg font-bold text-emerald-400" x-text="roamingTotals.commits + ' / ' + roamingTotals.attempts"></div>
+        <div class="text-[10px] uppercase tracking-wide" style="color:var(--txt-dim)">commits / attempts</div>
+      </div>
+      <div class="rounded-lg p-3" style="background:var(--bg);border:1px solid var(--line)">
+        <div class="text-lg font-bold" :class="roamingTotals.failures ? 'text-amber-400' : 'text-white'" x-text="roamingTotals.failures"></div>
+        <div class="text-[10px] uppercase tracking-wide" style="color:var(--txt-dim)">failed / grace expired</div>
+      </div>
+      <div class="rounded-lg p-3" style="background:var(--bg);border:1px solid var(--line)">
+        <div class="text-lg font-bold text-blue-400" x-text="roamingTotals.pending"></div>
+        <div class="text-[10px] uppercase tracking-wide" style="color:var(--txt-dim)">pending paths</div>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3">
+      <template x-for="p in roamingProfiles" :key="'roaming-' + p.name">
+        <span class="badge font-mono" :class="p.roaming.runtime_available ? '' : 'text-amber-300'"
+          x-text="roamingProfileSummary(p)"></span>
+      </template>
+    </div>
+  </div>
   <!-- Profiles row -->
   <div class="profile-grid mb-6" x-show="profiles.length > 0">
     <template x-for="p in profiles" :key="p.name">
@@ -333,6 +367,43 @@ function dashboard() {
     // x-text="dur(...)" does not silently render an empty cell.
     dur(value) { return window.dur ? window.dur(Number(value) || 0) : '0s'; },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
+    get roamingProfiles() {
+      return this.profiles.filter(profile => profile.roaming && profile.roaming.enabled);
+    },
+    get roamingRuntimeUnavailable() {
+      return this.roamingProfiles.some(profile => !profile.roaming.runtime_available);
+    },
+    roamingStats(profile) {
+      const roaming = profile.roaming || {};
+      const transport = roaming.transport === 'udp' ? 'udp' : 'tcp';
+      const stats = roaming[transport] || {};
+      return {
+        transport: transport.toUpperCase(),
+        attempts: Number(stats.attempts_total || 0),
+        commits: Number(stats.commits_total || 0),
+        failures: Number(stats.failures_total || 0)
+          + (transport === 'tcp' ? Number(stats.grace_expired_total || 0) : 0),
+        pending: transport === 'udp'
+          ? Number(stats.active_candidates || 0)
+          : Number(stats.orphaned_sessions || 0),
+      };
+    },
+    get roamingTotals() {
+      return this.roamingProfiles.reduce((total, profile) => {
+        const stats = this.roamingStats(profile);
+        total.attempts += stats.attempts;
+        total.commits += stats.commits;
+        total.failures += stats.failures;
+        total.pending += stats.pending;
+        return total;
+      }, { attempts: 0, commits: 0, failures: 0, pending: 0 });
+    },
+    roamingProfileSummary(profile) {
+      const stats = this.roamingStats(profile);
+      return profile.name + ' · ' + stats.transport + ' · '
+        + stats.commits + '/' + stats.attempts + ' commits · '
+        + stats.failures + ' failed · ' + stats.pending + ' pending';
+    },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
     get processId() { return 'pid ' + ((this.sys.proc && this.sys.proc.pid) || '—'); },

@@ -1484,9 +1484,22 @@ where
                     .and_then(|ip| sessions.by_ip.get(ip).cloned())
             }
             .ok_or_else(|| anyhow::anyhow!("resume JOIN with unknown locator from {addr}"))?;
-            let reservation = session
-                .begin_tcp_resume(&join, &transcript_hash)
-                .map_err(|error| anyhow::anyhow!("authenticated resume JOIN rejected: {error}"))?;
+            profile.tcp_roaming_metrics.note_attempt();
+            let reservation = match session.begin_tcp_resume(&join, &transcript_hash) {
+                Ok(reservation) => reservation,
+                Err(error) => {
+                    profile.tcp_roaming_metrics.note_failure();
+                    return Err(anyhow::anyhow!(
+                        "authenticated resume JOIN rejected: {error}"
+                    ));
+                }
+            };
+            log::info!(
+                "ROAMING transport=tcp event=attempt profile='{}' user='{}' peer={}",
+                profile.name,
+                crate::util::log_identity(&session.username),
+                addr
+            );
             (session, StreamAttach::Resume { reservation })
         }
     };
@@ -2084,6 +2097,7 @@ async fn run_stream<R, W>(
         );
         #[cfg(feature = "experimental-roaming")]
         if let StreamAttach::Resume { reservation } = stream_attach {
+            profile.tcp_roaming_metrics.note_failure();
             if let Some(roaming) = &session.tcp_roaming {
                 roaming.abort_resume(reservation);
             }
@@ -2101,12 +2115,23 @@ async fn run_stream<R, W>(
     #[cfg(feature = "experimental-roaming")]
     if let StreamAttach::Resume { reservation } = stream_attach {
         let Some(roaming) = &session.tcp_roaming else {
+            profile.tcp_roaming_metrics.note_failure();
             session.remove_stream(stream_id);
             return;
         };
         match roaming.commit_resume(reservation, stream_id) {
-            Ok(outcome) => session.activate_resume_stream(stream_id, outcome),
+            Ok(outcome) => {
+                session.activate_resume_stream(stream_id, outcome);
+                profile.tcp_roaming_metrics.note_commit();
+                log::info!(
+                    "ROAMING transport=tcp event=commit profile='{}' user='{}' peer={}",
+                    profile.name,
+                    crate::util::log_identity(&session.username),
+                    addr
+                );
+            }
             Err(error) => {
+                profile.tcp_roaming_metrics.note_failure();
                 session.remove_stream(stream_id);
                 roaming.abort_resume(reservation);
                 log::warn!(
@@ -2694,6 +2719,7 @@ async fn detach_stream(
             }
             Ok(DetachOutcome::Closing | DetachOutcome::Revoked) => {}
             Err(error) => {
+                profile.tcp_roaming_metrics.note_failure();
                 // Cap exhaustion and terminal races fail closed. A concurrent authoritative
                 // removal makes the legacy guarded cleanup below a no-op.
                 log::warn!(
@@ -2760,6 +2786,7 @@ fn schedule_tcp_orphan_reaper(
             .as_ref()
             .is_some_and(|roaming| roaming.reap(ticket, Instant::now()));
         if should_reap {
+            profile.tcp_roaming_metrics.note_grace_expired();
             finalize_orphaned_tcp_session(&profile, &session, addr).await;
         }
     });

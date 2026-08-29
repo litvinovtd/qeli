@@ -24,3 +24,18 @@ pub async fn dashboard(State(state): State<Arc<ServerState>>, headers: HeaderMap
 
     Html(html).into_response()
 }
+#[cfg(test)]
+mod tests {
+    use super::DASHBOARD;
+
+    #[test]
+    fn roaming_rollout_uses_one_transport_aware_dashboard_contract() {
+        assert!(DASHBOARD.contains("Session roaming rollout"));
+        assert!(DASHBOARD.contains("profile.roaming && profile.roaming.enabled"));
+        assert!(DASHBOARD.contains("roaming.transport === 'udp' ? 'udp' : 'tcp'"));
+        assert!(DASHBOARD.contains("stats.commits_total"));
+        assert!(DASHBOARD.contains("stats.active_candidates"));
+        assert!(DASHBOARD.contains("stats.orphaned_sessions"));
+        assert!(DASHBOARD.contains("Counters reset when the data-plane worker restarts"));
+    }
+}

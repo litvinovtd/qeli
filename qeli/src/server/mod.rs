@@ -10,6 +10,7 @@ pub mod notify;
 pub mod pool;
 pub mod preflight;
 pub mod reality;
+mod roaming_metrics;
 pub mod udp_handler;
 pub mod update;
 pub mod usage;
@@ -616,6 +617,8 @@ pub struct ProfileRuntime {
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
     /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
     pub(crate) udp_buffer_counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
+    /// Worker-lifetime TCP outcomes; UDP outcomes live in the shared registry itself.
+    pub(crate) tcp_roaming_metrics: roaming_metrics::TcpRoamingMetrics,
     /// Generation-safe CID/session ownership shared by every UDP listener and worker.
     #[cfg(feature = "experimental-roaming")]
     pub(crate) udp_roaming_registry: crate::transport_core::udp_roaming::UdpRoamingRegistry,
@@ -5117,6 +5120,7 @@ async fn run_profile_generation(
         udp_buffer_counters: Arc::new(
             crate::transport_core::udp_buffer::UdpBufferCounters::default(),
         ),
+        tcp_roaming_metrics: roaming_metrics::TcpRoamingMetrics::default(),
         #[cfg(feature = "experimental-roaming")]
         udp_roaming_registry: crate::transport_core::udp_roaming::UdpRoamingRegistry::new(
             (pcfg.performance.connection.max_clients as usize).max(1),
