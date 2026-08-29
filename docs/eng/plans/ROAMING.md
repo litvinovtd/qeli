@@ -807,6 +807,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
   while current `required` remains pre-TUN and pre-full-AUTH across retries. The full 10k and
   platform gates remain open.
+  An older diagnostic TCP 10k passed every functional/fd check but exceeded the 32 MiB RSS budget.
+  Code audit found the lifecycle cause: two or three completed Tokio task handles for every retired
+  carrier remained in the generation registry until full tunnel teardown. Registering the next
+  carrier now removes only `is_finished()` handles, while active and still-closing tasks remain
+  available to teardown. An async regression pins the bounded registry; a full 10k retest of the
+  fixed release+jemalloc binary remains mandatory.
   A dedicated TCP performance gate now reuses the exact same netns runner and binary for an
   `off` baseline and a negotiated `required` sample. It takes configurable odd-count medians for
   upload, download, and combined qeli client/server CPU, and fails any relative regression beyond

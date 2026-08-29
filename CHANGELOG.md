@@ -127,6 +127,13 @@
   последовательных миграций за 223 секунды: client/server fd остались 13/10, server RSS был стабилен,
   а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
   Полный TCP 10k и остальные transport/platform soak gates остаются открытыми.
+- Исправлено накопление завершённых TCP carrier tasks при длительном same-session roaming.
+  Каждый stream регистрировал 2–3 Tokio `JoinHandle`, но до полного teardown туннеля registry не
+  удалял уже завершённые handles; при 10 000 handover fd оставались стабильны, а client RSS вышел
+  за бюджет 32 MiB. Перед регистрацией task следующего carrier registry теперь удаляет только
+  фактически завершённые handles, сохраняя активные и ещё закрывающиеся задачи для безопасного
+  teardown. Детерминированный async regression фиксирует bounded registry; полный 10k retest
+  исправленного бинарника остаётся release gate.
 - Добавлен воспроизводимый TCP performance gate для роуминга. Новый `perf` case переиспользует
   тот же netns runner и один бинарник, а wrapper последовательно измеряет медианы upload/download
   и суммарный CPU процессов qeli сначала при `roaming=off`, затем при согласованном

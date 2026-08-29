@@ -2768,8 +2768,8 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 mod tcp_resume_client_tests {
     use super::{
         decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, publish_tcp_path_handover,
-        should_defer_tcp_resume_for_handover, ClientStreamSender, TcpActiveSlots, TcpResumeContext,
-        TcpSecondaryAttach, TCP_HANDOVER_PREPARE_GRACE,
+        register_tcp_stream_task, should_defer_tcp_resume_for_handover, ClientStreamSender,
+        TcpActiveSlots, TcpResumeContext, TcpSecondaryAttach, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::sync::Arc;
@@ -2860,6 +2860,40 @@ mod tcp_resume_client_tests {
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].logical_slot_id, 0);
         assert!(old_zero_rx.is_closed() && old_one_rx.is_closed() && old_two_rx.is_closed());
+    }
+
+    #[tokio::test]
+    async fn replacement_stream_reaps_completed_task_handles() {
+        let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
+        register_tcp_stream_task(&tasks, tokio::spawn(async {}));
+
+        for _ in 0..100 {
+            if crate::util::lock_or_recover(&tasks, "test::stream_tasks")[0].is_finished() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(crate::util::lock_or_recover(&tasks, "test::stream_tasks")[0].is_finished());
+
+        register_tcp_stream_task(&tasks, tokio::spawn(std::future::pending::<()>()));
+        let registered = crate::util::lock_or_recover(&tasks, "test::stream_tasks");
+        assert_eq!(
+            registered.len(),
+            1,
+            "a completed carrier task must not remain registered until tunnel teardown"
+        );
+        drop(registered);
+
+        register_tcp_stream_task(&tasks, tokio::spawn(std::future::pending::<()>()));
+        let mut registered = crate::util::lock_or_recover(&tasks, "test::stream_tasks");
+        assert_eq!(
+            registered.len(),
+            2,
+            "active carrier tasks must remain registered for safe tunnel teardown"
+        );
+        for task in registered.drain(..) {
+            task.abort();
+        }
     }
 
     #[test]
@@ -3085,6 +3119,16 @@ fn deliver_client_tcp_plaintext(
 }
 
 type TcpActiveSlots = Arc<std::sync::Mutex<std::collections::BTreeMap<u32, usize>>>;
+type TcpStreamTasks = Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>;
+
+fn register_tcp_stream_task(tasks: &TcpStreamTasks, task: tokio::task::JoinHandle<()>) {
+    let mut registered = crate::util::lock_or_recover(tasks, "client::stream_tasks");
+    // A successful handover deliberately keeps the tunnel generation alive, so teardown cannot
+    // be the only place that drops completed task allocations. Tasks still finishing after their
+    // sender was retired stay registered and are collected by the following carrier spawn.
+    registered.retain(|registered_task| !registered_task.is_finished());
+    registered.push(task);
+}
 
 #[cfg(feature = "experimental-roaming")]
 fn publish_tcp_path_handover(
@@ -3195,7 +3239,7 @@ fn spawn_stream<R, W>(
     // half-open connection outlived its connection generation, retaining its socket,
     // codecs and outbound channel. The shared TUN pump can now stop despite sender
     // clones, but the obsolete stream tasks still must not survive a reconnect.
-    tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    tasks: TcpStreamTasks,
     cfg: StreamPump,
 ) -> ClientStreamSender
 where
@@ -3309,7 +3353,7 @@ where
                     }
                 }
             });
-            crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
+            register_tcp_stream_task(&tasks, __h);
             RxSink::Pipe(rec_tx)
         } else {
             RxSink::Inline {
@@ -3399,7 +3443,7 @@ where
                 last_live_lost_at.as_ref(),
             );
         });
-        crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
+        register_tcp_stream_task(&tasks, __h);
     }
 
     // Writer + heartbeat: outgoing plaintext → encrypt → socket.
@@ -3742,7 +3786,7 @@ where
                 last_live_lost_at.as_ref(),
             );
         });
-        crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
+        register_tcp_stream_task(&tasks, __h);
     }
 
     stream_sender
@@ -4103,8 +4147,7 @@ where
     // Live outgoing channels — one per active stream; the distributor round-robins
     // across them. The adaptive ramp task grows this Vec at runtime.
     // Handles for every task the bonded streams spawn, so the teardown can stop them.
-    let stream_tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> =
-        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let stream_tasks: TcpStreamTasks = Arc::new(std::sync::Mutex::new(Vec::new()));
     let outs: Arc<std::sync::Mutex<Vec<ClientStreamSender>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let active_slots = tcp_resume.as_ref().map(|_| {
