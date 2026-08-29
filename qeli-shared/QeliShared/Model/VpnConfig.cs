@@ -387,7 +387,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         long? connectionTimeoutSecs = null, bool? reconnectEnabled = null,
         int? reconnectMaxRetries = null, bool? persistTun = null,
         bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null,
-        string? ipv6Policy = null, bool? allowIpv4Leak = null, bool? allowIpv6Leak = null) => new()
+        string? ipv6Policy = null, string? roamingPolicy = null,
+        bool? allowIpv4Leak = null, bool? allowIpv6Leak = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -419,7 +420,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
         Ipv6Policy = ipv6Policy ?? Ipv6Policy,
-        RoamingPolicy = RoamingPolicy,
+        RoamingPolicy = roamingPolicy ?? RoamingPolicy,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
         AllowIpv4Leak = allowIpv4Leak ?? AllowIpv4Leak,
         AllowIpv6Leak = allowIpv6Leak ?? AllowIpv6Leak, Forward = Forward,

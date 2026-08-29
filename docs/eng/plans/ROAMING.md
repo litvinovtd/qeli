@@ -121,7 +121,7 @@
 > Client `off|auto|required` policy, transport-specific capability negotiation, and flat-INI/
 > `qeli://` round-trip are now source-complete in Rust, Kotlin, C#, and Swift. `off` cannot enter
 > TCP resume/handover, every UDP camouflage mode uses the same policy gate, and `required` fails
-> closed before credentials/full AUTH. Phase 5 still needs explicit GUI controls, panel/API/metrics,
+> closed before credentials/full AUTH. Phase 5 still needs Android/iOS GUI controls, panel/API/metrics,
 > and packaged examples; Phase 6 device/soak gates remain open.
 >
 > Rechecked against the current unified Rust-core architecture. This document defines
@@ -733,8 +733,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   accepted in netns; real-device race/soak/NAT-rebinding, Windows/macOS/iOS acceptance,
   and exit-node acceptance remain.
 - **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core plus Windows/macOS/iOS path executors are source-complete; desktop/iOS device and race acceptance, iOS Xcode compilation, real-device soak/NAT-rebinding, and exit-node acceptance remain.
-- **Phase 5 — 🟡 models/round-trip/docs:** flat-INI and all four client models plus non-default
-  `qeli://` sharing are complete; explicit app controls, panel/API/metrics, and packaged examples remain.
+- **Phase 5 — 🟡 models/round-trip/docs + desktop GUI:** flat-INI and all four client models plus
+  non-default `qeli://` sharing are complete. Windows and macOS expose `Auto / Required / Off`,
+  persist it through the shared C# model, and reject `required` with a hidden source pin;
+  Android/iOS controls, panel/API/metrics, and packaged examples remain.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback.
 
 ## 8. Compatibility / rollout

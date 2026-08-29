@@ -411,15 +411,18 @@ public static class WireConformance
             heartbeatJitterMs: edited.HeartbeatJitterMs,
             connectionTimeoutSecs: 45, reconnectEnabled: false, reconnectMaxRetries: 5,
             persistTun: true, mtuProbe: false, killSwitch: true, dnsMode: "system",
-            ipv6Policy: "required", allowIpv4Leak: true, allowIpv6Leak: true);
+            ipv6Policy: "required", roamingPolicy: "required",
+            allowIpv4Leak: true, allowIpv6Leak: true);
         string extendedIni = extendedEdit.ToIni();
         check("ini-editor: extended desktop controls persist",
             extendedEdit.ConnectionTimeoutSecs == 45 && !extendedEdit.ReconnectEnabled
             && extendedEdit.ReconnectMaxRetries == 5 && extendedEdit.PersistTun
             && !extendedEdit.MtuProbe && extendedEdit.KillSwitch
             && extendedEdit.DnsMode == "system" && extendedEdit.Ipv6Policy == "required"
+            && extendedEdit.RoamingPolicy == "required"
             && extendedEdit.AllowIpv4Leak && extendedEdit.AllowIpv6Leak
             && extendedIni.Contains("ipv6 = required")
+            && extendedIni.Contains("roaming = required")
             && extendedIni.Contains("allow_ipv4_leak = true")
             && extendedIni.Contains("allow_ipv6_leak = true"));
 

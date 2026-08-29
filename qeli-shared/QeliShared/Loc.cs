@@ -199,6 +199,16 @@ public static class Loc
         ["KillSwitch"] = ("Block traffic if the tunnel is interrupted (kill switch)", "Блокировать трафик при разрыве туннеля (kill switch)"),
         ["ConnectionBehavior"] = ("Connection behavior", "Поведение подключения"),
         ["FieldTimeout"] = ("Connection timeout, seconds (1–300)", "Таймаут подключения, секунд (1–300)"),
+        ["FieldRoamingPolicy"] = ("Session roaming", "Роуминг сессии"),
+        ["RoamingAuto"] = ("Automatic (when supported)", "Автоматически (если поддерживается)"),
+        ["RoamingRequired"] = ("Required", "Обязательно"),
+        ["RoamingOff"] = ("Disabled", "Отключено"),
+        ["RoamingPolicyHint"] = (
+            "Auto keeps the authenticated session across network and address changes when both endpoints support it, otherwise reconnects. Required refuses a server or platform without roaming.",
+            "Авто сохраняет авторизованную сессию при смене сети и адреса, когда это поддерживают обе стороны, иначе переподключается. «Обязательно» отклоняет сервер или платформу без роуминга."),
+        ["RoamingRequiredPinned"] = (
+            "Required roaming cannot be combined with local or a non-zero lport. Remove the source pin in Edit INI, or choose Automatic/Disabled.",
+            "Обязательный роуминг нельзя сочетать с local или ненулевым lport. Удалите привязку исходного адреса в редакторе INI либо выберите «Автоматически»/«Отключено»."),
         ["ReconnectAutomatically"] = ("Reconnect automatically", "Переподключаться автоматически"),
         ["ReconnectRetries"] = ("Retry limit", "Лимит попыток"),
         ["RetriesUnlimited"] = ("Unlimited", "Без ограничений"),

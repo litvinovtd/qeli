@@ -41,6 +41,7 @@ public partial class ConfigEditorWindow : Window
             SelectByTag(ModeBox, "faketls");
             SelectByTag(RoutingBox, "full-tunnel");
             SelectByTag(Ipv6PolicyBox, "auto");
+            SelectByTag(RoamingPolicyBox, "auto");
             SelectByTag(AppsModeBox, "all");
             SelectByTag(DnsModeBox, "tunnel");
             SelectByTag(ReconnectRetriesBox, "-1");
@@ -66,6 +67,7 @@ public partial class ConfigEditorWindow : Window
             PortBox.Text = existing.Port.ToString();
             SelectByTag(ModeBox, PresetIdOf(existing));
             SelectByTag(Ipv6PolicyBox, existing.Ipv6Policy);
+            SelectByTag(RoamingPolicyBox, existing.RoamingPolicy);
             SelectByTag(RoutingBox, existing.IsFullTunnel ? "full-tunnel" : "split-tunnel");
             SelectByTag(AppsModeBox, NormalizeAppsMode(existing.AppsMode));
             SelectByTag(DnsModeBox, NormalizeDnsMode(existing.DnsMode));
@@ -230,6 +232,11 @@ public partial class ConfigEditorWindow : Window
         if ((UserBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedLogin")); return; }
         if ((TagOf(AppsModeBox) is "include" or "exclude") && ParsedApps().Count == 0)
         { await Warn(Loc.T("NeedApps")); return; }
+        if (TagOf(RoamingPolicyBox) == "required" && _base is { } baseConfig
+            && (!string.IsNullOrWhiteSpace(baseConfig.LocalAddress) || baseConfig.LocalPort != 0))
+        {
+            await Warn(Loc.T("RoamingRequiredPinned")); return;
+        }
 
         _result = BuildFromForm();
         Close();
@@ -294,6 +301,7 @@ public partial class ConfigEditorWindow : Window
             killSwitch: KillSwitchBox.IsChecked == true,
             dnsMode: TagOf(DnsModeBox) ?? "tunnel",
             ipv6Policy: TagOf(Ipv6PolicyBox) ?? "auto",
+            roamingPolicy: TagOf(RoamingPolicyBox) ?? "auto",
             allowIpv4Leak: AllowIpv4LeakBox.IsChecked == true,
             allowIpv6Leak: AllowIpv6LeakBox.IsChecked == true);
     }
@@ -327,6 +335,7 @@ public partial class ConfigEditorWindow : Window
         SelectByTag(RoutingBox, parsed.IsFullTunnel ? "full-tunnel" : "split-tunnel");
         SelectByTag(DnsModeBox, NormalizeDnsMode(parsed.DnsMode));
         SelectByTag(Ipv6PolicyBox, parsed.Ipv6Policy);
+        SelectByTag(RoamingPolicyBox, parsed.RoamingPolicy);
         SelectRetryCount(parsed.ReconnectMaxRetries);
         SelectPadding(parsed);
         SelectHeartbeat(parsed);

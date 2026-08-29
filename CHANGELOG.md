@@ -62,6 +62,10 @@
   неизвестная политика отклоняется при импорте. Общий conformance fixture проверяет positive
   round-trip и fail-closed negative case. Lab: 966 feature-тестов (3 ignored), strict
   default/feature Clippy, C# conformance и Android unit suite проходят.
+- В редакторах профилей Windows и macOS добавлен явный единый выбор роуминга сессии
+  `Автоматически / Обязательно / Отключено`. Значение сохраняется и после ручного INI-редактирования;
+  `required` не позволяет сохранить профиль с явным `local` или ненулевым `lport`, а общий managed
+  conformance фиксирует передачу настройки в flat-INI.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

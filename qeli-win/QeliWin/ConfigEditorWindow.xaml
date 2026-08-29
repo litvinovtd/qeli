@@ -111,6 +111,16 @@
                                 <ComboBoxItem Content="120"/>
                             </ComboBox>
                         </StackPanel>
+                        <StackPanel Style="{StaticResource Field}">
+                            <TextBlock Text="{l:Loc FieldRoamingPolicy}" Style="{StaticResource Label}"/>
+                            <ComboBox x:Name="RoamingPolicyBox">
+                                <ComboBoxItem Content="{l:Loc RoamingAuto}" Tag="auto"/>
+                                <ComboBoxItem Content="{l:Loc RoamingRequired}" Tag="required"/>
+                                <ComboBoxItem Content="{l:Loc RoamingOff}" Tag="off"/>
+                            </ComboBox>
+                            <TextBlock Text="{l:Loc RoamingPolicyHint}" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,5,0,0"/>
+                        </StackPanel>
                         <CheckBox x:Name="ReconnectBox" Content="{l:Loc ReconnectAutomatically}"
                                   Checked="OnReconnectChanged" Unchecked="OnReconnectChanged" Margin="0,0,0,12"/>
                         <StackPanel x:Name="ReconnectPanel" Margin="26,0,0,0">
