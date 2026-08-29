@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v42-android-all-mode-sleep -->
+<!-- normative-sync: roaming-v43-android-all-mode-grace -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -502,6 +502,21 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   emitted only the same-network keep marker. Each temporary server then stopped without leaving
   its port or TUN behind. Parser regressions cover the real one-line `dumpsys deviceidle` flag
   format. This repeatable emulator gate does not replace physical-device suspend/NAT acceptance.
+
+  `scripts/roaming_android_udp_grace_expiry_gate.py` adds a separate credentials-free, fail-closed
+  acceptance gate for UDP roaming-grace expiry on any already-connected experimental profile. It
+  accepts only an executable `apply|restore` fault hook, never invokes it through a shell, and always
+  restores the fault, Doze flags, and screen state on every exit path. The gate requires real deep
+  `IDLE`, keeps the previous path unavailable beyond the negotiated grace, then enforces the ordered
+  same-network soft recovery → transport fallback → exactly one new AUTH → exactly one applied
+  NetworkPlan sequence. After a full reconnect it locates the replacement TUN by its exact assigned
+  address rather than the unstable `tun0` name; the application PID must remain unchanged.
+
+  The complete API 34 feature-APK matrix passed for `fake-tls`, `quic`, `obfs`, and `obfs-awg`: the
+  old UDP path was blackholed bidirectionally for 40 seconds with a shared 15-second grace and no
+  endpoint restart. All four modes recovered 5/5 tunnel pings and DNS through the server tunnel
+  resolver. This emulator gate proves the shared policy across all UDP adapters, but does not replace
+  physical-device suspend/NAT acceptance.
 
   The shared TCP supervisor now always yields generic slot repair to an already-prepared exact-path
   candidate and, after the last carrier disappears, gives a handover-enabled platform a bounded

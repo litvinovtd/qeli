@@ -187,6 +187,19 @@
   режима временный сервер останавливался без оставшегося порта или TUN. Parser-регрессии покрывают
   реальный однострочный формат `dumpsys deviceidle`. Это повторяемый emulator gate; real-device
   suspend/NAT rebinding по-прежнему остаются обязательной приёмкой.
+- Добавлен отдельный credentials-free Android UDP grace-expiry gate для уже подключённого
+  experimental-roaming профиля. Harness принимает только исполняемый `apply|restore` fault hook,
+  не запускает его через shell, проверяет права на исполнение и всегда вызывает идемпотентный
+  `restore`, возвращает Doze/экран и снимает fault даже при ошибке. После реального deep `IDLE`
+  транспортный путь блокируется дольше общего roaming grace; gate требует упорядоченную попытку
+  same-network soft recovery, transport fallback, ровно одну новую AUTH и ровно один применённый
+  NetworkPlan. Replacement TUN находится по точному назначенному адресу, а не по имени `tun0`,
+  которое Android вправе сменить после полного reconnect.
+  Полная API 34 матрица feature APK прошла для `fake-tls`, `quic`, `obfs` и `obfs-awg`: прежний
+  UDP-путь блокировался на 40 секунд при общем grace 15 секунд без рестарта endpoint, PID приложения
+  сохранялся, каждый режим восстановил tunnel ping 5/5 и DNS через серверный tunnel-resolver.
+  Это доказывает единый bounded grace/fallback для всех UDP camouflage adapters на эмуляторе;
+  physical-device suspend/NAT acceptance остаётся обязательной.
 - Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и

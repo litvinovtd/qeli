@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v42-android-all-mode-sleep -->
+<!-- normative-sync: roaming-v43-android-all-mode-grace -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -714,6 +714,21 @@ tunnel-resolver после wake и записал только same-network keep
 временный сервер останавливался без оставшегося порта или TUN. Parser-регрессии покрывают реальный
 однострочный формат флагов `dumpsys deviceidle`. Этот повторяемый emulator gate не заменяет приёмку
 suspend/NAT rebinding на физическом устройстве.
+
+`scripts/roaming_android_udp_grace_expiry_gate.py` добавляет отдельную credentials-free
+fail-closed приёмку истечения UDP roaming grace для любого уже подключённого experimental-профиля.
+Она принимает только исполняемый `apply|restore` fault hook, не запускает его через shell и всегда
+восстанавливает fault, Doze и экран при любом исходе. Gate требует реальный deep `IDLE`, держит
+прежний путь недоступным дольше согласованного grace, а затем проверяет строгий порядок
+same-network soft recovery → transport fallback → ровно одна новая AUTH → ровно один применённый
+NetworkPlan. После полного reconnect replacement TUN определяется по точному назначенному адресу,
+а не по нестабильному имени `tun0`; PID приложения должен сохраниться.
+
+Полная API 34 матрица feature APK прошла для `fake-tls`, `quic`, `obfs` и `obfs-awg`: старый
+UDP-путь блокировался в обе стороны на 40 секунд при общем grace 15 секунд без рестарта endpoint.
+Во всех четырёх режимах восстановились tunnel ping 5/5 и DNS через серверный tunnel-resolver.
+Этот emulator gate подтверждает единую policy для всех UDP adapters, но не заменяет
+physical-device suspend/NAT acceptance.
 
 Общий TCP supervisor теперь всегда уступает generic-восстановление слота уже подготовленному
 exact-path candidate, а после исчезновения последнего carrier даёт handover-enabled платформе
