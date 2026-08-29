@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v38-multinode-live-gate -->
+<!-- normative-sync: roaming-v39-performance-live-gate -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1133,8 +1133,12 @@ release+jemalloc бинарника остаётся обязательным ga
 с `roaming=off` и согласованного `roaming=required`. Он берёт настраиваемые медианы нечётного числа
 замеров upload, download и суммарного CPU qeli client/server и по умолчанию отклоняет относительную
 регрессию больше 5%. Policy overrides принимаются только case `perf`, поэтому success/soak нельзя
-случайно понизить до reconnect. Live-замер на лабе будет выполнен после текущего 10k resource soak,
-чтобы два gate не искажали результаты друг друга.
+случайно понизить до reconnect. Live gate на отдельной lab `.11` прошёл на фиксированном SHA-256
+`b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`: baseline `off` дал медианы
+518/648 Мбит/с upload/download и 160.255% суммарного CPU, а `required` — 528/648 Мбит/с и 161.131%
+CPU. Оба варианта прошли 10/10 функциональных проверок без reconnect, итоговое сравнение — 3/3 при
+бюджете 5%. TCP 10k продолжался на отдельной `.10`, поэтому два gate не разделяли CPU, namespaces
+или процессы.
 Единый `roaming_resource_release_gate.sh` закрепляет fail-closed порядок resource-приёмки на одном
 неизменном бинарнике: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и
 multi-node fallback. SHA-256 проверяется до и после каждого этапа, а его PASS-маркер печатается

@@ -140,6 +140,12 @@
   `roaming=required`. Gate по умолчанию отклоняет регрессию любого направления throughput или CPU
   больше 5%; число раундов, длительность и бюджет настраиваются. Policy overrides разрешены только
   для `perf`, поэтому обычные success/soak сценарии по-прежнему fail-closed требуют роуминг.
+  Live gate на отдельной lab `.11` прошёл на фиксированном SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`: baseline `off` дал медианы
+  518/648 Мбит/с upload/download и 160.255% суммарного CPU, а `required` — 528/648 Мбит/с и
+  161.131% CPU. Оба варианта прошли функциональные инварианты 10/10 без reconnect; итоговое
+  сравнение прошло 3/3 при бюджете 5%. Параллельный 10k soak на `.10` использовал отдельную VM и
+  не разделял CPU, network namespaces или процессы с performance gate.
 - Добавлен единый fail-closed orchestrator resource release gate. Он фиксирует SHA-256 одного
   бинарника перед запуском, перепроверяет его до и после каждого этапа и строго последовательно
   выполняет TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и multi-node

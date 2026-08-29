@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v38-multinode-live-gate -->
+<!-- normative-sync: roaming-v39-performance-live-gate -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -825,8 +825,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   `off` baseline and a negotiated `required` sample. It takes configurable odd-count medians for
   upload, download, and combined qeli client/server CPU, and fails any relative regression beyond
   5% by default. Policy overrides are accepted only by the `perf` case, so success/soak cannot be
-  accidentally downgraded. Its live lab measurement waits for the current 10k resource soak to
-  finish so the two gates do not contaminate each other.
+  accidentally downgraded. The live gate passed on a separate lab `.11` with fixed SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`: the `off` medians were
+  518/648 Mbit/s upload/download and 160.255% combined CPU; `required` produced 528/648 Mbit/s and
+  161.131% CPU. Both variants passed 10/10 functional checks without reconnect, and the final
+  comparison passed 3/3 under the 5% budget. TCP 10k continued on separate `.10`, so the gates did
+  not share CPU, namespaces, or processes.
   A single `roaming_resource_release_gate.sh` now pins the fail-closed resource acceptance order to
   one immutable binary: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance,
   negative multi-node fallback. SHA-256 is checked before and after every phase, and a phase PASS
