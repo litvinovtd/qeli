@@ -115,6 +115,10 @@
   RSS. Lab smoke прошёл 100 последовательных миграций за 223 секунды: client/server fd остались
   13/10, server RSS был стабилен, а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
   Полный TCP 10k и остальные transport/platform soak gates остаются открытыми.
+- Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
+  рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
+  работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и
+  очистке временных network namespaces.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

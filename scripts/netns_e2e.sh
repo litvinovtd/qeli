@@ -95,7 +95,7 @@ perf.connection.new_session_rate_window_secs = 60
 EOF
 : > "$WORK/users.conf"
 "$BIN" add-client nsuser -p nspass1234 -c "$WORK/server.conf" >/dev/null 2>&1
-ip netns exec qsrv "$BIN" server -c "$WORK/server.conf" > "$WORK/server.log" 2>&1 &
+ip netns exec qsrv env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" > "$WORK/server.log" 2>&1 &
 sleep 3
 check "server is listening in its namespace" \
       "ip netns exec qsrv ss -lnt | grep -q ':4443'"
