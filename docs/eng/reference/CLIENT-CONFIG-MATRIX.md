@@ -1,6 +1,6 @@
 # Client config: current contract and the 0.7.14 → 0.7.15 migration
 
-This table records the **current 80-key `[qeli]` contract** for all five clients while
+This table records the **current 81-key `[qeli]` contract** for all five clients while
 retaining the refactor history. “Before” is released 0.7.14 behaviour; “after” began as
 the 0.7.15 shared-core contract and is extended here with current code, including
 NetworkPlan v2 and complete IPv6.
@@ -12,6 +12,7 @@ Legend:
 - **R** — recognized as valid, but neither applied nor re-saved by this client (the headless
   CLI has no profile editor);
 - **D** — accepted but lost when a GUI saved the profile; this was a 0.7.14 defect;
+- **N** — not yet part of the 0.7.14 contract; that release treated the key as unknown;
 - `X→Y` — historical state in 0.7.14 and the current state on the right.
 
 `C` and `R` do not mean “misspelled”. A name unknown to every qeli client is still rejected
@@ -25,6 +26,7 @@ can apply it; separately exposed controls are identified in the notes.
 | Keys | CLI | Windows | macOS | Android | iOS | Current contract / change |
 |---|:-:|:-:|:-:|:-:|:-:|---|
 | `server` `proto` `user` `pass` `key` `bind_static` `mode` `sni` `obfs_key` `front` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `route_local` `include` `exclude` `dns` `ipv6` `allow_ipv6_leak` `allow_ipv4_leak` | A→A | A→A | A→A | A→A | A→A | IPv6 is negotiated inside authenticated capabilities/NetworkPlan v2. The `auto`, `required`, and `off` modes and symmetric leak controls are shared across all adapters. GUI→Rust boundaries make platform `gateway` defaults explicit. |
+| `roaming` | N→A | N→A | N→A | N→A | N→A | New shared 0.8 key: `off` forbids roam, `auto` uses safely negotiated TCP/UDP roam with reconnect fallback, and `required` refuses an incomplete contract. Explicit `local`/non-zero `lport` are incompatible with `required`. |
 | `reality_compact` `reality_split` `reality_split_delay` | R→A | C→A | C→A | C→A | C→A | The shared Rust core now owns REALITY ClientHello sizing and split-write evasion for every app. Editors that do not expose controls preserve the exact values. |
 | `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` | R→R | A→A | A→A | A→A | A→A | Reconnect remains a platform lifecycle concern. Rust owns one connection attempt, not the GUI's decision to start the next one. The 0.7.15 iOS adapter now actually creates the next generation; before the audit these keys round-tripped but every native/pump failure was terminal. |
 | `timeout` | R→A | A→A | A→A | A→A | A→A | The connect timeout moved into Rust and now reaches the shared core. |

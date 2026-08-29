@@ -49,6 +49,20 @@
   `experimental-roaming` отклоняется fail-closed. TCP grace/orphan budget берутся из профиля,
   а TCP и все UDP camouflage modes используют один и тот же профильный capability gate.
 
+- Клиентская политика `[qeli] roaming = off|auto|required` теперь реализована в общем
+  Rust-ядре и моделях Android, Windows, macOS и iOS. `off` маскирует все клиентские roaming
+  capability и не может быть обойдён TCP resume/handover; `auto` использует согласованный
+  безопасный roam и сохраняет reconnect fallback; `required` отказывает до передачи credentials
+  и полной AUTH, если platform/core/peer не предоставляют полный transport-specific контракт.
+  Обычный TCP и fake-TLS, QUIC, obfs и AWG поверх UDP используют одну policy/state machine.
+  Явные `local` или ненулевой `lport` запрещают native path migration: сочетание с `required`
+  отклоняется при валидации, а `auto` возвращается к reconnect.
+- Flat-INI и `qeli://` сохраняют non-default `roaming` без потерь во всех четырёх независимых
+  реализациях Rust/Kotlin/C#/Swift; `auto` по-прежнему опускается из компактной ссылки, а
+  неизвестная политика отклоняется при импорте. Общий conformance fixture проверяет positive
+  round-trip и fail-closed negative case. Lab: 966 feature-тестов (3 ignored), strict
+  default/feature Clippy, C# conformance и Android unit suite проходят.
+
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
   согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor

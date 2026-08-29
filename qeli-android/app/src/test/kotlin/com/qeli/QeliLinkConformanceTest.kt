@@ -80,6 +80,7 @@ class QeliLinkConformanceTest {
                 assertEquals("case '$name': front", nullable(e, "front") ?: "websocket", cfg.obfsFronting)
             }
             if (e.has("mtu")) assertEquals("case '$name': mtu", e.getInt("mtu"), cfg.mtu)
+            if (e.has("roaming")) assertEquals("case '$name': roaming", e.getString("roaming"), cfg.roaming)
             if (e.has("quic")) assertEquals("case '$name': quic", e.getBoolean("quic"), cfg.quicEnabled)
             if (e.has("awg")) assertEquals("case '$name': awg", e.getBoolean("awg"), cfg.awgEnabled)
             if (e.has("jc")) assertEquals("case '$name': jc", e.getInt("jc"), cfg.awgJc)
@@ -131,6 +132,7 @@ class QeliLinkConformanceTest {
             assertEquals("case '$name': sni round-trip", first.sni, again.sni)
             assertEquals("case '$name': rsid round-trip", first.realityShortId, again.realityShortId)
             assertEquals("case '$name': obfs round-trip", first.obfsKey, again.obfsKey)
+            assertEquals("case '$name': roaming round-trip", first.roaming, again.roaming)
             assertEquals("case '$name': quic round-trip", first.quicEnabled, again.quicEnabled)
             assertEquals("case '$name': awg round-trip", first.awgEnabled, again.awgEnabled)
             assertEquals("case '$name': mtu round-trip", first.mtu, again.mtu)

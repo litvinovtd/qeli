@@ -527,6 +527,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // round-trips to plain UDP and a quic-mode server stays silent.
         if (QuicEnabled) q.Add("quic=1");
         if (Mtu > 0) q.Add($"mtu={Mtu}");  // 0 = auto, omit
+        if (!RoamingPolicy.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            q.Add($"roaming={RoamingPolicy.ToLowerInvariant()}");
         // Per-application routing is deliberately file-only. Application identifiers are
         // platform-owned (Windows paths versus Android/macOS identifiers), and Rust, Android
         // and iOS all treat qeli:// as a connection descriptor rather than device policy.
@@ -1539,6 +1541,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // F2 AmneziaWG junk params (off unless awg=1).
         bool awg = false;
         uint awgJc = 0;
+        string roaming = "auto";
         ushort awgJmin = 40, awgJmax = 300;
         if (query != null)
         {
@@ -1579,6 +1582,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
                     case "front": if (v.Length > 0) front = v; break;
                     case "quic": quic = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                     case "mtu": int.TryParse(v, out mtu); break;
+                    case "roaming": roaming = v.Trim().ToLowerInvariant(); break;
                     case "awg": awg = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                     case "jc": if (uint.TryParse(v, out var jcp)) awgJc = Math.Min(jcp, 128u); break;
                     case "jmin": if (ushort.TryParse(v, out var jminp)) awgJmin = Math.Min(jminp, (ushort)1400); break;
@@ -1610,6 +1614,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             AwgJmin = awgJmin,
             AwgJmax = awgJmax,
             RealityShortId = rsid,
+            RoamingPolicy = roaming,
             Mtu = LinkMtu(mtu),
         };
         // Kotlin's fromQeliUri and Swift's fromQeliURI both end with validate(); C# defined

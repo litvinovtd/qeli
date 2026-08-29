@@ -60,6 +60,10 @@ pub struct ClientLink {
     /// client adopts the MTU the server pushes at auth. Only present in the link
     /// when set to a non-zero override.
     pub mtu: i32,
+    /// Client session-migration policy (`off`, `auto`, or `required`). `auto` is
+    /// the default and is omitted from compact links; non-default policy must
+    /// survive sharing between clients.
+    pub roaming: String,
     /// Human label shown in the client UI (URI fragment).
     pub label: Option<String>,
 }
@@ -215,6 +219,7 @@ impl ClientLink {
             // mtu=0 (auto): the client adopts the server-pushed TUN MTU. Omitted from the
             // URI; set a non-zero value only to force a client-side override.
             mtu: 0,
+            roaming: "auto".into(),
             label,
             // AmneziaWG-style junk masking. Junk is emitted only where the handshake
             // actually sends it: on TCP the obfs wire mode (protocol::obfs), and on UDP
@@ -286,6 +291,9 @@ impl ClientLink {
         }
         if self.mtu > 0 {
             query.push(("mtu".into(), self.mtu.to_string()));
+        }
+        if !self.roaming.is_empty() && self.roaming != "auto" {
+            query.push(("roaming".into(), self.roaming.clone()));
         }
         if !query.is_empty() {
             uri.push('?');
@@ -380,6 +388,7 @@ impl ClientLink {
             jmin: 0,
             jmax: 0,
             mtu: 0,
+            roaming: "auto".into(),
             label: fragment,
         };
 
@@ -401,6 +410,14 @@ impl ClientLink {
                     "jmin" => link.jmin = v.parse().unwrap_or(0),
                     "jmax" => link.jmax = v.parse().unwrap_or(0),
                     "mtu" => link.mtu = v.parse().unwrap_or(0),
+                    "roaming" => match v.trim().to_ascii_lowercase().as_str() {
+                        "off" | "auto" | "required" => {
+                            link.roaming = v.trim().to_ascii_lowercase()
+                        }
+                        _ => {
+                            return Err(LinkError("roaming must be off, auto or required"));
+                        }
+                    },
                     _ => {} // forward-compatible: ignore unknown params
                 }
             }
@@ -570,6 +587,7 @@ mod tests {
             jmin: 0,
             jmax: 0,
             mtu: 0,
+            roaming: "auto".into(),
             label: Some("My VPN".into()),
         }
     }
@@ -611,6 +629,7 @@ mod tests {
             jmin: 0,
             jmax: 0,
             mtu: 1280,
+            roaming: "required".into(),
             label: None,
         };
         let back = ClientLink::from_uri(&link.to_uri()).unwrap();
@@ -619,6 +638,8 @@ mod tests {
         assert_eq!(back.fronting.as_deref(), Some("none"));
         assert!(back.quic);
         assert_eq!(back.server_key, "");
+        assert_eq!(back.mtu, 1280);
+        assert_eq!(back.roaming, "required");
         assert_eq!(back.label, None);
     }
 
@@ -801,6 +822,9 @@ mod conformance {
             if let Some(v) = e.get("mtu").and_then(Value::as_i64) {
                 assert_eq!(link.mtu, v as i32, "case '{name}': mtu");
             }
+            if let Some(v) = e.get("roaming").and_then(Value::as_str) {
+                assert_eq!(link.roaming, v, "case '{name}': roaming");
+            }
             if let Some(v) = e.get("quic").and_then(Value::as_bool) {
                 assert_eq!(link.quic, v, "case '{name}': quic");
             }
@@ -861,6 +885,10 @@ mod conformance {
             assert_eq!(
                 link.obfs_key, again.obfs_key,
                 "case '{name}': obfs round-trip"
+            );
+            assert_eq!(
+                link.roaming, again.roaming,
+                "case '{name}': roaming round-trip"
             );
             assert_eq!(link.quic, again.quic, "case '{name}': quic round-trip");
             assert_eq!(link.awg, again.awg, "case '{name}': awg round-trip");

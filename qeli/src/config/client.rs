@@ -850,6 +850,7 @@ impl ClientConfig {
             jmin: self.obfuscation.awg.jmin,
             jmax: self.obfuscation.awg.jmax,
             mtu: self.tun.mtu,
+            roaming: self.roaming.to_string(),
             label,
         }
     }
@@ -908,6 +909,7 @@ impl ClientConfig {
         } else {
             link.mtu
         };
+        cfg.roaming = link.roaming.parse().unwrap_or_default();
         cfg
     }
 
@@ -2154,7 +2156,7 @@ sni    = www.cloudflare.com
 
     #[test]
     fn link_round_trip_through_config() {
-        let src = "[qeli]\nserver = 1.2.3.4:8443\nproto = udp\nuser = bob\npass = x\nmode = obfs\nobfs_key = shared\n";
+        let src = "[qeli]\nserver = 1.2.3.4:8443\nproto = udp\nuser = bob\npass = x\nmode = obfs\nobfs_key = shared\nroaming = required\n";
         let c = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
         let link = c.to_link(Some("Edge".into()));
         let uri = link.to_uri();
@@ -2165,6 +2167,7 @@ sni    = www.cloudflare.com
         assert_eq!(c2.auth.username, "bob");
         assert_eq!(c2.obfuscation.mode, "obfs");
         assert_eq!(c2.obfuscation.obfs_key, "shared");
+        assert_eq!(c2.roaming, ClientRoamingPolicy::Required);
     }
 
     #[test]
@@ -2672,6 +2675,7 @@ shaping_stealth_mbps = 3
 [qeli]
 server = vpn.example.com:8443
 proto = udp
+roaming = off
 user = carol
 pass = topsecret
 key = 1111111111111111111111111111111111111111111111111111111111111111
@@ -2749,6 +2753,7 @@ file = /tmp/client.log
         let qeli_tokens = [
             "server = vpn.example.com:8443",
             "proto = udp",
+            "roaming = off",
             "user = carol",
             "pass = topsecret",
             "key = 1111",

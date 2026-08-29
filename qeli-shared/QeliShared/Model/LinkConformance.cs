@@ -93,6 +93,8 @@ public static class LinkConformance
                             == cfg.ObfsFronting, check);
                 if (e2.TryGetProperty("mtu", out var mtu))
                     ok &= Report($"conformance[{name}]: mtu", mtu.GetInt32() == cfg.Mtu, check);
+                if (e2.TryGetProperty("roaming", out var roaming))
+                    ok &= Report($"conformance[{name}]: roaming", roaming.GetString() == cfg.RoamingPolicy, check);
                 if (e2.TryGetProperty("quic", out var quic))
                     ok &= Report($"conformance[{name}]: quic", quic.GetBoolean() == cfg.QuicEnabled, check);
                 if (e2.TryGetProperty("awg", out var awg))
@@ -121,6 +123,7 @@ public static class LinkConformance
                                   && again.Sni == cfg.Sni
                                   && again.RealityShortId == cfg.RealityShortId
                                   && again.ObfsKey == cfg.ObfsKey
+                                  && again.RoamingPolicy == cfg.RoamingPolicy
                                   && again.QuicEnabled == cfg.QuicEnabled
                                   && again.AwgEnabled == cfg.AwgEnabled;
                         check($"conformance[{name}]: round-trip", rt);

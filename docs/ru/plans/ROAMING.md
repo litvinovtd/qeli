@@ -110,7 +110,7 @@
 > сохраняют reconnect. Cross-platform Release build и macOS route/socket/capability self-tests
 > проходят без предупреждений. До rollout остаётся live macOS-приёмка route-команд, PF, per-app,
 > device/race и sleep/soak; этот source-only gate не выдаётся за проверку на реальном macOS.
-> Текущие lab gates: 961 feature library tests при трёх ignored, 872 default tests при
+> Текущие lab gates: 966 feature library tests при трёх ignored, 875 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, TCP roaming netns 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
@@ -118,6 +118,11 @@
 > same-network NAT dead-mapping 21/21,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
+> Клиентская политика `off|auto|required`, transport-specific capability negotiation и
+> flat-INI/`qeli://` round-trip теперь source-complete в Rust, Kotlin, C# и Swift. `off` не
+> допускает TCP resume/handover, а все UDP camouflage modes используют тот же policy gate;
+> `required` fail-closed до credentials/полной AUTH. До завершения этапа 5 остаются явные GUI
+> controls, panel/API/metrics и packaged examples; device/soak gates этапа 6 не закрыты.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -958,13 +963,18 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
 
-### Этап 5. Конфиги, приложения и панель
+### Этап 5. Конфиги, приложения и панель — 🟡 модели/round-trip/docs
 
 - flat-INI parsing/defaults/validation/round-trip;
 - GUI editors и встроенные quick-start режимы;
 - API/dashboard/metrics/logging;
 - русская и английская документация;
 - install/deb/examples в /etc/qeli.
+
+Flat-INI defaults/validation, все Rust/Kotlin/C#/Swift модели, non-default `qeli://` share
+и основной RU/EN config reference реализованы. Общий fixture фиксирует `required` round-trip
+и отказ от неизвестного значения. Впереди остаются явные controls в редакторах приложений,
+панель/API/метрики и проверка packaged examples.
 
 ### Этап 6. Лаба, soak и rollout
 

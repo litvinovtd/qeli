@@ -48,6 +48,20 @@
       }
     },
     {
+      "name": "roaming-required",
+      "why": "A non-default client roaming policy must survive sharing; auto stays omitted for compact backwards-compatible links.",
+      "uri": "qeli://roamer:pw@vpn.example.com:443?proto=tcp&mode=fake-tls&roaming=required",
+      "expect": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "user": "roamer",
+        "pass": "pw",
+        "proto": "tcp",
+        "mode": "fake-tls",
+        "roaming": "required"
+      }
+    },
+    {
       "name": "pinned-key-and-sni",
       "why": "A pinned server identity (64 hex) plus an explicit SNI.",
       "uri": "qeli://bob:pw@1.2.3.4:8443?proto=tcp&mode=fake-tls&key=3b1f8a2c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8&sni=www.microsoft.com",
@@ -246,6 +260,11 @@
     {
       "name": "empty-host",
       "uri": "qeli://user:pw@:443?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "invalid-roaming-policy",
+      "why": "Unknown roaming values must fail at import instead of silently changing session continuity policy.",
+      "uri": "qeli://user:pw@vpn.example.com:443?proto=tcp&mode=fake-tls&roaming=always"
     },
     {
       "name": "wrong-scheme",

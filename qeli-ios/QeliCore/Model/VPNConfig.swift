@@ -762,6 +762,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
             case "obfs": config.obfsKey = value
             case "front": config.obfsFronting = value.nonEmpty ?? "websocket"
             case "quic": config.quicEnabled = value == "1" || value.lowercased() == "true"
+            case "roaming": config.roamingPolicy = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             case "awg": config.awgEnabled = value == "1" || value.lowercased() == "true"
             case "jc": config.awgJunkCount = Int(value) ?? 0
             case "jmin": config.awgJunkMin = Int(value) ?? 40
@@ -918,6 +919,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
             query += ["awg=1", "jc=\(awgJunkCount)", "jmin=\(awgJunkMin)", "jmax=\(awgJunkMax)"]
         }
         if mtu != 0 { query.append("mtu=\(mtu)") }
+        if roamingPolicy != "auto" { query.append("roaming=\(roamingPolicy)") }
         let fragment = label?.nonEmpty.map { "#\(Self.percentEncode($0))" } ?? ""
         return "qeli://\(auth)\(Self.formatEndpoint(host: serverAddress, port: port))?\(query.joined(separator: "&"))\(fragment)"
     }

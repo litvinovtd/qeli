@@ -77,6 +77,7 @@ final class LinkConformanceTests: XCTestCase {
                                "case '\(name)': front")
             }
             if let v = e["mtu"] as? Int { XCTAssertEqual(cfg.mtu, v, "case '\(name)': mtu") }
+            if let v = e["roaming"] as? String { XCTAssertEqual(cfg.roamingPolicy, v, "case '\(name)': roaming") }
             if let v = e["quic"] as? Bool { XCTAssertEqual(cfg.quicEnabled, v, "case '\(name)': quic") }
             if let v = e["awg"] as? Bool { XCTAssertEqual(cfg.awgEnabled, v, "case '\(name)': awg") }
             if let v = e["jc"] as? Int { XCTAssertEqual(cfg.awgJunkCount, v, "case '\(name)': jc") }
@@ -122,6 +123,7 @@ final class LinkConformanceTests: XCTestCase {
             XCTAssertEqual(first.sni, again.sni, "case '\(name)': sni round-trip")
             XCTAssertEqual(first.realityShortID, again.realityShortID, "case '\(name)': rsid round-trip")
             XCTAssertEqual(first.obfsKey, again.obfsKey, "case '\(name)': obfs round-trip")
+            XCTAssertEqual(first.roamingPolicy, again.roamingPolicy, "case '\(name)': roaming round-trip")
             XCTAssertEqual(first.quicEnabled, again.quicEnabled, "case '\(name)': quic round-trip")
             XCTAssertEqual(first.awgEnabled, again.awgEnabled, "case '\(name)': awg round-trip")
         }

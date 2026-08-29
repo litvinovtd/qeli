@@ -496,7 +496,8 @@ and path executors for Linux/OpenWrt, Android, Windows, macOS and iOS are source
 `experimental-roaming`; Linux TCP/UDP+QUIC and Android TCP/UDP have partial live acceptance while
 preserving session id, inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP, routes and quota state.
 The server now has profile-scoped default-off rollout configuration. Client `off|auto|required`
-policy, panel exposure, the full platform/race/soak matrix, and staged rollout remain in Stages 5–6.
+policy, its flat-INI/`qeli://` round-trip, and shared transport-specific gates are source-complete
+across all clients. Panel exposure, explicit GUI controls, the full platform/race/soak matrix, and staged rollout remain in Stages 5–6.
 
 - Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1`, and
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; and a generation-scoped

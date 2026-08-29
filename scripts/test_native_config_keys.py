@@ -126,7 +126,7 @@ def documented_client_matrix(relative: str) -> dict[str, tuple[str, ...]]:
         if not keys:
             raise AssertionError(f"client-matrix row has no keys in {relative}: {line}")
         states = tuple(cells[1:6])
-        if any(not re.fullmatch(r"[ACRD]→[ACRD]", state) for state in states):
+        if any(not re.fullmatch(r"[ACRDN]→[ACRDN]", state) for state in states):
             raise AssertionError(
                 f"invalid before/after state in {relative}: {states!r}"
             )
@@ -163,8 +163,8 @@ class ClientConfigKeyContractTests(unittest.TestCase):
         # Deliberate contract-size tripwire: an accidental removal from the shared source
         # plus all generated/maintained mirrors must not make the equality checks vacuous.
         # Full IPv6 adds ipv6/leak controls/lan_subnet_ipv6 and the shared REALITY core adds
-        # its three transport-owned settings to the former 73-key surface.
-        self.assertEqual(len(expected), 80)
+        # its three transport-owned settings; roaming adds one shared session-policy key.
+        self.assertEqual(len(expected), 81)
 
     def test_android_has_no_silently_unsupported_shared_security_keys(self):
         _recognized, unsupported = android_contract()

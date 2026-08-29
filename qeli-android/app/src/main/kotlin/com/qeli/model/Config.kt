@@ -482,6 +482,7 @@ data class VpnConfig(
         if (awgEnabled) { q.add("awg=1"); q.add("jc=$awgJc"); q.add("jmin=$awgJmin"); q.add("jmax=$awgJmax") }
         if (quicEnabled) q.add("quic=1")
         if (mtu > 0) q.add("mtu=$mtu")   // 0 = auto, omit
+        if (roaming != "auto") q.add("roaming=$roaming")
         // `front` affects the wire: omitting it does not mean "default" to the importer,
         // it means the import silently re-defaults to websocket — a different framing, so
         // the tunnel never handshakes. Carried by every implementation. (C-12)
@@ -1239,6 +1240,7 @@ data class VpnConfig(
             var proto = "tcp"; var mode = "fake-tls"
             var key: String? = null; var sni: String? = null; var obfs = ""
             var front = "websocket"; var quic = false; var rsid: String? = null
+            var roaming = "auto"
             // F2 AmneziaWG junk: awg (=1 when enabled), jc, jmin, jmax.
             var awg = false; var jc = 0; var jmin = 40; var jmax = 300
             // Parsed here so a link emitted by toQeliUri survives a round trip. `mtu` was
@@ -1258,6 +1260,7 @@ data class VpnConfig(
                     "obfs" -> obfs = v
                     "front" -> if (v.isNotEmpty()) front = v
                     "quic" -> quic = v == "1" || v.equals("true", ignoreCase = true)
+                    "roaming" -> roaming = v.trim().lowercase()
                     "awg" -> awg = v == "1" || v.equals("true", ignoreCase = true)
                     "jc" -> jc = v.toIntOrNull() ?: 0
                     "jmin" -> jmin = v.toIntOrNull() ?: 40
@@ -1306,6 +1309,7 @@ data class VpnConfig(
                 quicEnabled = quic,
                 sni = sni,
                 realityShortId = rsid,
+                roaming = roaming,
                 mtu = linkMtu,
                 mtuProbe = linkMtuProbe,
                 bindStaticToSession = bindStatic
