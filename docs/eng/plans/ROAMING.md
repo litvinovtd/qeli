@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v41-android-deep-idle-gate -->
+<!-- normative-sync: roaming-v42-android-all-mode-sleep -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -495,10 +495,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   reproducible and fail-closed for any already-connected TCP or UDP profile, without carrying a
   profile or credentials. It saves and restores the AVD's Doze flags and screen state, requires
   actual deep `IDLE`, runs continuous tunnel probes, and after wake compares the application PID,
-  `/proc/net/if_inet6` TUN identity and address while rejecting any new AUTH or NetworkPlan. A live
-  API 34 run with the 0.8.0 feature APK over obfs-AWG remained in deep idle for 20 seconds, retained
-  180/180 probes and the same PID/`tun0`, resolved `example.com` after wake, and emitted only the
-  same-network keep marker. Parser regressions cover the real one-line `dumpsys deviceidle` flag
+  `/proc/net/if_inet6` TUN identity and address while rejecting any new AUTH or NetworkPlan. The
+  complete API 34 matrix with the 0.8.0 feature APK passed for `fake-tls`, `quic`, `obfs`, and
+  `obfs-awg`: every mode remained in deep idle for 20 seconds, retained 180/180 probes and the same
+  PID/`tun0`, resolved `example.com` through the server-pushed tunnel resolver after wake, and
+  emitted only the same-network keep marker. Each temporary server then stopped without leaving
+  its port or TUN behind. Parser regressions cover the real one-line `dumpsys deviceidle` flag
   format. This repeatable emulator gate does not replace physical-device suspend/NAT acceptance.
 
   The shared TCP supervisor now always yields generic slot repair to an already-prepared exact-path

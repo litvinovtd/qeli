@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v41-android-deep-idle-gate -->
+<!-- normative-sync: roaming-v42-android-all-mode-sleep -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -707,11 +707,13 @@ feature e2e также прошёл 15/15: path B завершил authenticated
 fail-closed для любого уже подключённого TCP- или UDP-профиля, не сохраняя профиль или credentials.
 Он запоминает и восстанавливает флаги Doze и состояние экрана AVD, требует реальный deep `IDLE`,
 ведёт непрерывный tunnel ping, а после wake сравнивает PID приложения, идентичность `tun0` из
-`/proc/net/if_inet6` и его адрес, запрещая новую AUTH или NetworkPlan. Live-run API 34 с feature APK
-0.8.0 через obfs-AWG оставался в deep idle 20 секунд, сохранил 180/180 ping, тот же PID/`tun0`,
-разрешил `example.com` после wake и записал только same-network keep-маркер. Parser-регрессии
-покрывают реальный однострочный формат флагов `dumpsys deviceidle`. Этот повторяемый emulator gate
-не заменяет приёмку suspend/NAT rebinding на физическом устройстве.
+`/proc/net/if_inet6` и его адрес, запрещая новую AUTH или NetworkPlan. Полная матрица API 34 с
+feature APK 0.8.0 прошла для `fake-tls`, `quic`, `obfs` и `obfs-awg`: каждый режим оставался в deep
+idle 20 секунд, сохранил 180/180 ping и тот же PID/`tun0`, разрешил `example.com` через серверный
+tunnel-resolver после wake и записал только same-network keep-маркер. После каждого режима
+временный сервер останавливался без оставшегося порта или TUN. Parser-регрессии покрывают реальный
+однострочный формат флагов `dumpsys deviceidle`. Этот повторяемый emulator gate не заменяет приёмку
+suspend/NAT rebinding на физическом устройстве.
 
 Общий TCP supervisor теперь всегда уступает generic-восстановление слота уже подготовленному
 exact-path candidate, а после исчезновения последнего carrier даёт handover-enabled платформе
