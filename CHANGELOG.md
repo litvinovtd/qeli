@@ -142,7 +142,7 @@
   для `perf`, поэтому обычные success/soak сценарии по-прежнему fail-closed требуют роуминг.
 - Добавлен единый fail-closed orchestrator resource release gate. Он фиксирует SHA-256 одного
   бинарника перед запуском, перепроверяет его до и после каждого этапа и строго последовательно
-  выполняет TCP/UDP all-mode smoke, TCP 10k, UDP 4×10k, TCP performance и отрицательный multi-node
+  выполняет TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и multi-node
   fallback. Маркер успеха этапа появляется только после нулевого exit code; ошибка или подмена
   бинарника исключает запуск всех последующих этапов. Изолированные contract-тесты проверяют
   порядок, остановку после ошибки, hash pin и отсутствие ложного финального PASS.
@@ -152,7 +152,18 @@
   `unknown locator` и не может создать roaming commit; после физической потери path A политика
   `auto` должна пройти штатный full reconnect и вторую полную AUTH, заменить выданный tunnel address
   и продолжить трафик. `multinode` принудительно ограничен fake-TLS/server-enabled/client-auto;
-  live gate поставлен в очередь после текущих resource/performance тестов.
+  live gate на неизменном бинарнике прошёл 26/26 на лабе: независимый registry отклонил foreign JOIN,
+  клиент и первичный сервер одновременно увидели детерминированный двусторонний TCP RST, после
+  30-секундного resume budget клиент сохранил supervisor, вошёл в top-level reconnect, получил новый
+  tunnel `/32` от второго процесса и восстановил carrier route и трафик без roaming commit. Сам gate
+  считает AUTH только по уникальной успешной строке и проверяет фактическую host-route маску `/32`.
+- Добавлены постоянные TCP `resume` и `grace-expiry` netns cases. Первый детерминированно сбрасывает
+  server-side carrier на неизменном path A и требует ровно один authenticated JOIN внутри grace без
+  второй AUTH, top-level reconnect или замены PID/TUN; live gate прошёл 18/18. Второй задаёт серверу
+  grace 3 секунды, блокирует replacement carriers до reap locator, проверяет точные `unknown locator`
+  отказы без JOIN commit, затем ждёт истечения 30-секундного клиентского resume budget и требует
+  обычный full reconnect, вторую AUTH и восстановление трафика; live gate также прошёл 18/18.
+  Сценарии проверяют transport grace детерминированно и не подменяют physical-device suspend gate.
 - Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и

@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v36-resource-release-gate -->
+<!-- normative-sync: roaming-v38-multinode-live-gate -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -474,7 +474,15 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   traffic recovers, and password AUTH occurs exactly once. A separate `.11 → .10` live test with
   required `PACKET_MUX_V1` passes 3/3 tunnel pings, observes both close markers, leaves zero
   established carriers and no client TUN, and confirms that the server did not enter resume
-  grace. Those `.10/.11` results cover hard resume and explicit close. The two-path Linux
+  grace. Those `.10/.11` results cover hard resume and explicit close.
+  A permanent `resume` netns case now reproduces a server-side carrier reset on unchanged path A:
+  exactly one authenticated JOIN completes within grace without a second AUTH, top-level reconnect,
+  or PID/TUN replacement; the live result is 18/18. Its paired `grace-expiry` case configures a
+  three-second server grace, blackholes replacement carriers until locator reap, requires exact
+  `unknown locator` rejections with no JOIN commit, then waits out the 30-second client resume
+  budget and accepts only an ordinary full reconnect, second AUTH, and restored traffic; its live
+  result is also 18/18. This is a deterministic short/expired transport-grace gate, not a substitute
+  for physical-device suspend acceptance. The two-path Linux
   feature e2e now also passes 15/15: path B completes authenticated JOIN/COMMIT, path A can be
   removed, the same PID/TUN survive, and 150/150 probes pass without a top-level reconnect.
   Android API 34 emulator acceptance covers both directions: Wi-Fi hard loss selects an already
@@ -820,7 +828,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   accidentally downgraded. Its live lab measurement waits for the current 10k resource soak to
   finish so the two gates do not contaminate each other.
   A single `roaming_resource_release_gate.sh` now pins the fail-closed resource acceptance order to
-  one immutable binary: TCP/UDP all-mode smoke, TCP 10k, UDP 4×10k, TCP performance, and the
+  one immutable binary: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance,
   negative multi-node fallback. SHA-256 is checked before and after every phase, and a phase PASS
   marker is emitted only after a zero exit code. Any failure or binary replacement prevents every
   later phase from starting; contract tests pin the order, hash check, and absence of a false final
@@ -829,8 +837,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   independent process that shares identity/users but not the in-memory session registry. A
   foreign authenticated JOIN must fail with an unknown locator and must never commit; after path A
   is physically removed, `auto` must use the ordinary reconnect path, perform a second full AUTH,
-  replace the assigned tunnel address, and restore traffic through path B. The live gate is queued
-  after the current resource and performance runs.
+  replace the assigned tunnel address, and restore traffic through path B. The immutable-binary lab
+  gate passed 26/26: bidirectional TCP RST deterministically exposed carrier loss to both client and
+  original server; after the 30-second resume budget the same supervisor completed a full AUTH on
+  the second process, replaced `10.88.0.2/32` with `10.89.0.2/32`, installed the path-B bypass, and
+  restored traffic without a foreign roaming commit.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.

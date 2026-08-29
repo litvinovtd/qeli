@@ -5,6 +5,8 @@
 # QELI_ROAMING_MULTIPATH_MODE selects single, fixed, or adaptive stream membership.
 # The perf case may override QELI_ROAMING_SERVER_ENABLED and
 # QELI_ROAMING_CLIENT_POLICY; success/soak keep their safe required defaults.
+# resume injects a one-sided carrier reset inside the server grace; grace-expiry keeps replacement
+# carriers blackholed until the server reaps the locator and the client performs a full AUTH.
 #
 #                         10.40.1.0/24 (path A)
 #                    +--------------------------------+
@@ -32,6 +34,13 @@ if [ "$CASE" = multinode ]; then
   DEFAULT_CLIENT_ROAMING_POLICY=auto
 fi
 SERVER_ROAMING_ENABLED=${QELI_ROAMING_SERVER_ENABLED:-true}
+DEFAULT_SERVER_ROAMING_GRACE_SECS=30
+SERVER_LOG_LEVEL=info
+if [ "$CASE" = grace-expiry ]; then
+  DEFAULT_SERVER_ROAMING_GRACE_SECS=3
+  SERVER_LOG_LEVEL=debug
+fi
+SERVER_ROAMING_GRACE_SECS=${QELI_ROAMING_SERVER_GRACE_SECS:-$DEFAULT_SERVER_ROAMING_GRACE_SECS}
 CLIENT_ROAMING_POLICY=${QELI_ROAMING_CLIENT_POLICY:-$DEFAULT_CLIENT_ROAMING_POLICY}
 WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}-${MULTIPATH_MODE}
 CLI_NS=qrm-cli
@@ -46,7 +55,7 @@ TARGET_JOB_PID=
 LOAD_JOB_PID=
 
 usage() {
-  echo "usage: $0 [qeli-binary] [success|soak|perf|multinode] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+  echo "usage: $0 [qeli-binary] [success|resume|grace-expiry|soak|perf|multinode] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
 }
 
 if [ "$#" -gt 3 ]; then
@@ -54,7 +63,7 @@ if [ "$#" -gt 3 ]; then
   exit 2
 fi
 case "$CASE" in
-  success|soak|perf|multinode) ;;
+  success|resume|grace-expiry|soak|perf|multinode) ;;
   *)
     usage
     exit 2
@@ -100,6 +109,16 @@ case "$SERVER_ROAMING_ENABLED" in
     exit 2
     ;;
 esac
+case "$SERVER_ROAMING_GRACE_SECS" in
+  ''|*[!0-9]*)
+    echo "QELI_ROAMING_SERVER_GRACE_SECS must be an integer from 1 to 3600" >&2
+    exit 2
+    ;;
+esac
+if [ "$SERVER_ROAMING_GRACE_SECS" -lt 1 ] || [ "$SERVER_ROAMING_GRACE_SECS" -gt 3600 ]; then
+  echo "QELI_ROAMING_SERVER_GRACE_SECS must be from 1 to 3600" >&2
+  exit 2
+fi
 case "$CLIENT_ROAMING_POLICY" in
   off|auto|required) ;;
   *)
@@ -287,7 +306,7 @@ bind_static_to_session = $AUTH_BIND_STATIC
 [web]
 enabled = false
 [logging]
-level = info
+level = $SERVER_LOG_LEVEL
 [profile:roam]
 enabled = true
 identity_key = $WORK/identity.key
@@ -295,6 +314,7 @@ bind.address = 0.0.0.0
 bind.port = 4443
 bind.transport = tcp
 roaming.enabled = $SERVER_ROAMING_ENABLED
+roaming.grace_secs = $SERVER_ROAMING_GRACE_SECS
 tun.name = qrms0
 tun.device_type = $DEVICE_TYPE
 tun.address = 10.88.0.1
@@ -441,6 +461,9 @@ if [ "$CASE" = soak ]; then
 elif [ "$CASE" = perf ]; then
   # shellcheck source=roaming_tcp_netns_perf_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_perf_case.sh" run_tcp_perf_case || exit $?
+elif [ "$CASE" = resume ] || [ "$CASE" = grace-expiry ]; then
+  # shellcheck source=roaming_tcp_resume_netns_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_resume_netns_case.sh" run_tcp_resume_case || exit $?
 elif [ "$CASE" = multinode ]; then
   # shellcheck source=roaming_tcp_multinode_netns_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_multinode_netns_case.sh" run_tcp_multinode_case || exit $?

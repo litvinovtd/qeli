@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v36-resource-release-gate -->
+<!-- normative-sync: roaming-v38-multinode-live-gate -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -686,6 +686,13 @@ interface-scoped endpoint resolution, Darwin socket binding и точные carr
 AUTH выполнилась ровно один раз. Отдельный live e2e `.11 → .10` с обязательным
 `PACKET_MUX_V1` прошёл 3/3 tunnel ping, подтвердил оба close-маркера, отсутствие established
 carrier и клиентского TUN после остановки и отсутствие перехода сервера в resume grace.
+Постоянный `resume` netns case теперь воспроизводит server-side carrier reset на неизменном path A:
+ровно один authenticated JOIN завершается внутри grace без второй AUTH, top-level reconnect или
+замены PID/TUN; live результат — 18/18. Парный `grace-expiry` case задаёт server grace 3 секунды,
+держит replacement carriers в blackhole до reap locator, требует точные `unknown locator` отказы без
+JOIN commit, затем ждёт исчерпания 30-секундного client resume budget и принимает только обычный
+full reconnect со второй AUTH и восстановлением трафика; live результат — 18/18. Это
+детерминированная transport-проверка short/expired grace, а не замена physical-device suspend gate.
 
 Эти результаты `.10/.11` относятся к hard resume и explicit close. Новый двухмаршрутный Linux
 feature e2e также прошёл 15/15: path B завершил authenticated JOIN/COMMIT, path A был выключен,
@@ -1096,7 +1103,11 @@ suite прошёл 973 теста при трёх ignored, strict feature/defaul
 - отрицательный тест multi-process/multi-node — source harness направляет path A в исходный процесс,
   а path B в независимый процесс с теми же identity/users, но отдельным registry; foreign JOIN
   обязан получить unknown locator без commit, после чего потеря A должна привести `auto` к full
-  reconnect, второй AUTH и рабочему трафику через B. Live gate поставлен в очередь.
+  reconnect, второй AUTH и рабочему трафику через B. Live gate прошёл 26/26 на неизменном бинарнике:
+  двусторонний TCP RST детерминированно зафиксировал потерю carrier на клиенте и исходном сервере,
+  после 30-секундного resume budget supervisor выполнил full AUTH во втором процессе, заменил tunnel
+  host-route `10.88.0.2/32` на `10.89.0.2/32`, установил bypass через path B и восстановил трафик без
+  foreign roaming commit.
 
 Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
 CID aliases и orphaned sessions. Допустимая регрессия throughput/CPU на включённом
@@ -1125,7 +1136,7 @@ release+jemalloc бинарника остаётся обязательным ga
 случайно понизить до reconnect. Live-замер на лабе будет выполнен после текущего 10k resource soak,
 чтобы два gate не искажали результаты друг друга.
 Единый `roaming_resource_release_gate.sh` закрепляет fail-closed порядок resource-приёмки на одном
-неизменном бинарнике: TCP/UDP all-mode smoke, TCP 10k, UDP 4×10k, TCP performance и отрицательный
+неизменном бинарнике: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и
 multi-node fallback. SHA-256 проверяется до и после каждого этапа, а его PASS-маркер печатается
 только после нулевого exit code. Любая ошибка или замена бинарника запрещает запуск последующих
 этапов; contract-тесты фиксируют порядок, hash pin и отсутствие ложного финального PASS.

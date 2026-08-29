@@ -72,15 +72,18 @@ class RoamingResourceReleaseGateTests(unittest.TestCase):
     def test_runs_every_phase_in_release_order(self) -> None:
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        trace = [line.split() for line in self.trace_lines()]
         self.assertEqual(
-            [line.split()[0] for line in self.trace_lines()],
+            [(parts[0], parts[2:]) for parts in trace],
             [
-                "roaming_tcp_all_modes_netns_e2e.sh",
-                "roaming_udp_all_modes_netns_e2e.sh",
-                "roaming_netns_e2e.sh",
-                "roaming_udp_all_modes_netns_e2e.sh",
-                "roaming_tcp_perf_netns_gate.sh",
-                "roaming_netns_e2e.sh",
+                ("roaming_tcp_all_modes_netns_e2e.sh", ["success"]),
+                ("roaming_udp_all_modes_netns_e2e.sh", ["success"]),
+                ("roaming_netns_e2e.sh", ["resume", "fake-tls"]),
+                ("roaming_netns_e2e.sh", ["grace-expiry", "fake-tls"]),
+                ("roaming_netns_e2e.sh", ["soak", "fake-tls"]),
+                ("roaming_udp_all_modes_netns_e2e.sh", ["soak"]),
+                ("roaming_tcp_perf_netns_gate.sh", ["fake-tls"]),
+                ("roaming_netns_e2e.sh", ["multinode", "fake-tls"]),
             ],
         )
         self.assertIn("ROAMING_RESOURCE_RELEASE_GATE_PASS", result.stdout)
@@ -88,7 +91,7 @@ class RoamingResourceReleaseGateTests(unittest.TestCase):
     def test_child_failure_prevents_every_later_phase(self) -> None:
         result = self.run_gate(QELI_TEST_FAIL_ON="roaming_tcp_perf_netns_gate.sh")
         self.assertEqual(result.returncode, 19, result.stdout + result.stderr)
-        self.assertEqual(len(self.trace_lines()), 5)
+        self.assertEqual(len(self.trace_lines()), 7)
         self.assertNotIn("ROAMING_RELEASE_TCP_PERF_PASS", result.stdout)
         self.assertNotIn("ROAMING_RELEASE_TCP_MULTINODE_PASS", result.stdout)
 
