@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v39-performance-live-gate -->
+<!-- normative-sync: roaming-v40-fixed-sha-short-gates -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1144,6 +1144,11 @@ CPU. Оба варианта прошли 10/10 функциональных п�
 multi-node fallback. SHA-256 проверяется до и после каждого этапа, а его PASS-маркер печатается
 только после нулевого exit code. Любая ошибка или замена бинарника запрещает запуск последующих
 этапов; contract-тесты фиксируют порядок, hash pin и отсутствие ложного финального PASS.
+Короткие фазы повторно прошли fail-closed на одном исправленном бинарнике SHA-256
+`b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`: TCP smoke — 6/6 режимов
+(`reality-tls` 21/21, остальные по 17/17), UDP smoke — 4/4 по 19/19, hard resume и grace-expiry —
+по 18/18, multi-node fallback — 26/26. SHA совпал после каждой фазы; после финала процессы и
+network namespaces теста отсутствовали.
 
 Release запрещён, если хотя бы одна поддерживаемая платформа:
 

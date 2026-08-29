@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v39-performance-live-gate -->
+<!-- normative-sync: roaming-v40-fixed-sha-short-gates -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -837,6 +837,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   marker is emitted only after a zero exit code. Any failure or binary replacement prevents every
   later phase from starting; contract tests pin the order, hash check, and absence of a false final
   PASS.
+  The short phases were rerun fail-closed on one fixed binary with SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`: TCP smoke passed all six
+  modes (`reality-tls` 21/21, the other five 17/17), UDP smoke passed all four modes at 19/19,
+  hard-resume and grace-expiry passed 18/18 each, and multi-node fallback passed 26/26. The SHA
+  matched after every phase; no test process or network namespace remained after the final gate.
   A negative TCP multi-node case now maps path A to the original process and path B to an
   independent process that shares identity/users but not the in-memory session registry. A
   foreign authenticated JOIN must fail with an unknown locator and must never commit; after path A
