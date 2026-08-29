@@ -1127,6 +1127,40 @@ profiles = tcp
 
 The check runs after password verification, on both TCP and UDP.
 
+## Experimental roaming rollout (`roaming.*`)
+
+Roaming is enabled separately for each server profile and is **off by default**. It is
+available only in a binary built with the `experimental-roaming` feature.
+
+```ini
+[profile:mobile-udp]
+roaming.enabled = true
+roaming.grace_secs = 30
+roaming.max_orphaned = 256
+roaming.max_orphan_bytes = 67108864
+```
+
+| Key | Default | Valid range | Purpose |
+|---|---:|---:|---|
+| `roaming.enabled` | `false` | boolean | advertise and accept authenticated TCP/UDP roaming for this profile |
+| `roaming.grace_secs` | `30` | `1..3600` | how long an unexpectedly detached TCP session may wait for authenticated resume |
+| `roaming.max_orphaned` | `256` | `1..65536` | profile-wide cap on detached TCP sessions retained for resume |
+| `roaming.max_orphan_bytes` | `67108864` | `4194304..1073741824` | profile-wide memory cap for retained TCP sessions; the 4 MiB minimum matches one fixed encrypted-record pool |
+
+With `roaming.enabled = false`, the server masks every roaming capability for that
+profile while retaining unrelated authenticated-extension and UDP-fragmentation bits;
+legacy reconnect behavior is unchanged. Setting it to `true` on a binary without the
+build feature is rejected by `check-config` instead of being silently ignored.
+
+The grace and orphan limits govern TCP hard-resume. UDP uses the same profile opt-in and
+authenticated capability negotiation for every UDP camouflage mode, but keeps its own
+short-lived candidate and anti-amplification bounds. `perf.connection.max_clients` and
+per-user `max_sessions` continue to apply on top.
+
+All four numeric values are validated even while the profile switch is off, so a typo
+cannot become active later during a rollout. Low-level proof, path-validation, PMTU and
+CID-rotation rules are protocol invariants and are intentionally not configurable.
+
 ## Connection limits (`max_clients` vs `max_sessions`)
 
 Two independent limits — do NOT confuse them:

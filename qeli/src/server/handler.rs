@@ -36,13 +36,6 @@ type HandshakeResumeSecret = ();
 
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
-/// Temporary feature-gated policy until Stage 5 exposes reviewed configuration keys.
-#[cfg(feature = "experimental-roaming")]
-pub(crate) const EXPERIMENTAL_TCP_ROAMING_GRACE: Duration = Duration::from_secs(30);
-#[cfg(feature = "experimental-roaming")]
-pub(crate) const EXPERIMENTAL_TCP_ORPHAN_MAX_SESSIONS: usize = 256;
-#[cfg(feature = "experimental-roaming")]
-pub(crate) const EXPERIMENTAL_TCP_ORPHAN_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
@@ -204,6 +197,12 @@ pub(crate) struct TcpRoamingSession {
     retained_bytes: usize,
     handover_enabled: bool,
 }
+#[cfg(feature = "experimental-roaming")]
+#[derive(Clone, Copy)]
+struct TcpRoamingPolicy {
+    grace: Duration,
+    handover_enabled: bool,
+}
 
 #[cfg(feature = "experimental-roaming")]
 impl TcpRoamingSession {
@@ -214,14 +213,14 @@ impl TcpRoamingSession {
         primary_transport: u64,
         resume_secret: HandshakeResumeSecret,
         limiter: Arc<std::sync::Mutex<OrphanLimiter>>,
-        handover_enabled: bool,
+        policy: TcpRoamingPolicy,
     ) -> Result<Self, LifecycleError> {
         Ok(Self {
             lifecycle: std::sync::Mutex::new(SessionLifecycle::new(
                 session_id,
                 locator,
                 max_slots,
-                EXPERIMENTAL_TCP_ROAMING_GRACE,
+                policy.grace,
                 primary_transport,
             )?),
             resume_secret,
@@ -231,7 +230,7 @@ impl TcpRoamingSession {
             // by all streams.  Count the complete allocation, not only currently checked-out
             // records, so the profile-wide byte cap is conservative and deterministic.
             retained_bytes: SERVER_WIRE_BUFFER_BYTES,
-            handover_enabled,
+            handover_enabled: policy.handover_enabled,
         })
     }
 
@@ -1253,7 +1252,9 @@ where
                 wire_pool,
                 streams: std::sync::Mutex::new(Vec::new()),
                 #[cfg(feature = "experimental-roaming")]
-                tcp_roaming: if crate::protocol::capabilities::tcp_resume_supported(capabilities) {
+                tcp_roaming: if pcfg.roaming.enabled
+                    && crate::protocol::capabilities::tcp_resume_supported(capabilities)
+                {
                     Some(TcpRoamingSession::new(
                         session_id,
                         token,
@@ -1261,13 +1262,19 @@ where
                         stream_id,
                         _handshake_resume_secret,
                         profile.tcp_orphans.clone(),
-                        crate::protocol::capabilities::tcp_handover_supported(capabilities),
+                        TcpRoamingPolicy {
+                            grace: Duration::from_secs(pcfg.roaming.grace_secs),
+                            handover_enabled: crate::protocol::capabilities::tcp_handover_supported(
+                                capabilities,
+                            ),
+                        },
                     )?)
                 } else {
                     None
                 },
                 #[cfg(feature = "experimental-roaming")]
-                tcp_control_v2: crate::protocol::capabilities::control_v2_supported(capabilities),
+                tcp_control_v2: pcfg.roaming.enabled
+                    && crate::protocol::capabilities::control_v2_supported(capabilities),
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -1589,12 +1596,13 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let static_shared = profile.static_keypair.derive_shared(&client_pub);
     let hide_identity = server_state.config.auth.require_client_key_proof;
     {
-        let auth_msg = build_server_auth_msg(
+        let auth_msg = build_server_auth_msg_with_capabilities(
             &profile.static_keypair,
             &client_pub,
             &shared.0,
             &transcript_hash,
             hide_identity,
+            crate::protocol::capabilities::server_capabilities_for_profile(pcfg.roaming.enabled),
         );
         let encrypted = server_tx.encrypt_packet(&auth_msg, &[])?;
         stream.write_all(&encrypted).await?;
@@ -1666,7 +1674,7 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
 mod tcp_resume_handler_tests {
     use super::{
         classify_control_v2, parse_first_message, ControlV2Disposition, FirstMessage,
-        TcpRoamingSession,
+        TcpRoamingPolicy, TcpRoamingSession,
     };
     use crate::protocol::roaming::{ResumeProofInput, TcpResumeJoin, TCP_RESUME_MAGIC};
     use crate::transport_core::tcp_roaming::{
@@ -1712,7 +1720,10 @@ mod tcp_resume_handler_tests {
             90,
             zeroize::Zeroizing::new(SECRET),
             limiter.clone(),
-            true,
+            TcpRoamingPolicy {
+                grace: Duration::from_secs(30),
+                handover_enabled: true,
+            },
         )
         .unwrap();
         session.mark_initial_transport_attached();
@@ -1748,7 +1759,10 @@ mod tcp_resume_handler_tests {
             100,
             zeroize::Zeroizing::new(SECRET),
             limiter,
-            false,
+            TcpRoamingPolicy {
+                grace: Duration::from_secs(30),
+                handover_enabled: false,
+            },
         )
         .unwrap();
         let transcript = [0x45; 32];

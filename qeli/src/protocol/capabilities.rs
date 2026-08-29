@@ -94,6 +94,15 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
     ServerCapabilities { bits }
 }
 
+/// Apply the profile's default-off rollout policy to TCP/server-generic capabilities.
+pub const fn server_capabilities_for_profile(roaming_enabled: bool) -> ServerCapabilities {
+    let mut capabilities = implemented_server_capabilities();
+    if !roaming_enabled {
+        capabilities.bits &= !server_capability::ROAMING_RESERVED;
+    }
+    capabilities
+}
+
 /// Capabilities safe for every UDP transport mode. After authenticated opt-in, all modes switch
 /// to the same eight-byte CID envelope; QUIC masking, fake-TLS and obfs remain handshake/profile
 /// choices rather than separate roaming implementations.
@@ -109,6 +118,15 @@ pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
     {
         capabilities
     }
+}
+
+/// Apply the same profile rollout policy to the UDP-specific capability set.
+pub const fn udp_server_capabilities_for_profile(roaming_enabled: bool) -> ServerCapabilities {
+    let mut capabilities = implemented_udp_server_capabilities();
+    if !roaming_enabled {
+        capabilities.bits &= !server_capability::ROAMING_RESERVED;
+    }
+    capabilities
 }
 
 /// CONTROL_V2 becomes live only after authenticated client opt-in. Individual roaming
@@ -566,6 +584,25 @@ mod tests {
             .contains(server_capability::CONTROL_V2 | server_capability::UDP_ROAM_V1));
         #[cfg(not(feature = "experimental-roaming"))]
         assert!(!implemented_udp_server_capabilities().contains(server_capability::UDP_ROAM_V1));
+    }
+
+    #[test]
+    fn profile_policy_is_default_off_for_both_transport_families() {
+        let tcp = server_capabilities_for_profile(false);
+        let udp = udp_server_capabilities_for_profile(false);
+        assert_eq!(tcp.bits & server_capability::ROAMING_RESERVED, 0);
+        assert_eq!(udp.bits & server_capability::ROAMING_RESERVED, 0);
+        assert!(tcp.contains(server_capability::AUTH_EXT_V1));
+        assert!(udp.contains(server_capability::UDP_DATA_FRAG_V1));
+
+        assert_eq!(
+            server_capabilities_for_profile(true),
+            implemented_server_capabilities()
+        );
+        assert_eq!(
+            udp_server_capabilities_for_profile(true),
+            implemented_udp_server_capabilities()
+        );
     }
 
     #[cfg(feature = "experimental-roaming")]

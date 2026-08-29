@@ -1397,6 +1397,49 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if !seen.insert(&p.name) {
             anyhow::bail!("duplicate profile name: '{}'", p.name);
         }
+        if p.roaming.enabled && !cfg!(feature = "experimental-roaming") {
+            anyhow::bail!(
+                "profile '{}': roaming.enabled = true requires a binary built with experimental-roaming",
+                p.name
+            );
+        }
+
+        if !(crate::config::server::ROAMING_MIN_GRACE_SECS
+            ..=crate::config::server::ROAMING_MAX_GRACE_SECS)
+            .contains(&p.roaming.grace_secs)
+        {
+            anyhow::bail!(
+                "profile '{}': roaming.grace_secs = {} must be between {} and {}",
+                p.name,
+                p.roaming.grace_secs,
+                crate::config::server::ROAMING_MIN_GRACE_SECS,
+                crate::config::server::ROAMING_MAX_GRACE_SECS
+            );
+        }
+        if !(crate::config::server::ROAMING_MIN_ORPHANED
+            ..=crate::config::server::ROAMING_MAX_ORPHANED)
+            .contains(&p.roaming.max_orphaned)
+        {
+            anyhow::bail!(
+                "profile '{}': roaming.max_orphaned = {} must be between {} and {}",
+                p.name,
+                p.roaming.max_orphaned,
+                crate::config::server::ROAMING_MIN_ORPHANED,
+                crate::config::server::ROAMING_MAX_ORPHANED
+            );
+        }
+        if !(crate::config::server::ROAMING_MIN_ORPHAN_BYTES
+            ..=crate::config::server::ROAMING_MAX_ORPHAN_BYTES)
+            .contains(&p.roaming.max_orphan_bytes)
+        {
+            anyhow::bail!(
+                "profile '{}': roaming.max_orphan_bytes = {} must be between {} and {}",
+                p.name,
+                p.roaming.max_orphan_bytes,
+                crate::config::server::ROAMING_MIN_ORPHAN_BYTES,
+                crate::config::server::ROAMING_MAX_ORPHAN_BYTES
+            );
+        }
 
         // `tun.name` reaches the kernel through an ioctl that copies only the first 15 bytes
         // (IFNAMSIZ - 1). A longer name therefore CREATED a truncated device and every
@@ -5062,8 +5105,8 @@ async fn run_profile_generation(
         #[cfg(feature = "experimental-roaming")]
         tcp_orphans: Arc::new(std::sync::Mutex::new(
             crate::transport_core::tcp_roaming::OrphanLimiter::new(
-                handler::EXPERIMENTAL_TCP_ORPHAN_MAX_SESSIONS,
-                handler::EXPERIMENTAL_TCP_ORPHAN_MAX_BYTES,
+                pcfg.roaming.max_orphaned,
+                pcfg.roaming.max_orphan_bytes,
             ),
         )),
         admission: Arc::new(Mutex::new(())),
@@ -6545,6 +6588,66 @@ mod tests {
         // The guard above must not start rejecting ordinary configs.
         assert!(validate_profiles(&cfg_addr("10.1.0.1", "10.1.0.0/24")).is_ok());
         assert!(validate_profiles(&cfg_addr("10.1.0.1", "10.1.0.0/16")).is_ok());
+    }
+
+    #[test]
+    fn roaming_resource_bounds_are_validated() {
+        use crate::config::server::{
+            ROAMING_MAX_GRACE_SECS, ROAMING_MAX_ORPHANED, ROAMING_MAX_ORPHAN_BYTES,
+            ROAMING_MIN_GRACE_SECS, ROAMING_MIN_ORPHANED, ROAMING_MIN_ORPHAN_BYTES,
+        };
+
+        let baseline = cfg_with("fake-tls", "tcp");
+        assert!(!baseline.profiles[0].roaming.enabled);
+        validate_profiles(&baseline).expect("documented roaming defaults must validate");
+
+        let mut enabled = baseline.clone();
+        enabled.profiles[0].roaming.enabled = true;
+        if cfg!(feature = "experimental-roaming") {
+            validate_profiles(&enabled).expect("a feature build must accept explicit opt-in");
+        } else {
+            let error = validate_profiles(&enabled).unwrap_err().to_string();
+            assert!(
+                error.contains("requires a binary built with experimental-roaming"),
+                "{error}"
+            );
+        }
+
+        for (key, config) in [
+            ("roaming.grace_secs", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.grace_secs = ROAMING_MIN_GRACE_SECS - 1;
+                config
+            }),
+            ("roaming.grace_secs", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.grace_secs = ROAMING_MAX_GRACE_SECS + 1;
+                config
+            }),
+            ("roaming.max_orphaned", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.max_orphaned = ROAMING_MIN_ORPHANED - 1;
+                config
+            }),
+            ("roaming.max_orphaned", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.max_orphaned = ROAMING_MAX_ORPHANED + 1;
+                config
+            }),
+            ("roaming.max_orphan_bytes", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.max_orphan_bytes = ROAMING_MIN_ORPHAN_BYTES - 1;
+                config
+            }),
+            ("roaming.max_orphan_bytes", {
+                let mut config = baseline.clone();
+                config.profiles[0].roaming.max_orphan_bytes = ROAMING_MAX_ORPHAN_BYTES + 1;
+                config
+            }),
+        ] {
+            let error = validate_profiles(&config).unwrap_err().to_string();
+            assert!(error.contains(key), "{key}: {error}");
+        }
     }
 
     #[test]

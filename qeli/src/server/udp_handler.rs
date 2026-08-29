@@ -4166,7 +4166,11 @@ async fn handle_udp_auth(
         };
         let negotiated = data_frag_enabled
             && crate::protocol::capabilities::udp_roaming_negotiated(
-                Some(crate::protocol::capabilities::implemented_udp_server_capabilities()),
+                Some(
+                    crate::protocol::capabilities::udp_server_capabilities_for_profile(
+                        profile.config.roaming.enabled,
+                    ),
+                ),
                 capabilities,
             );
         let client_to_server_cid_secret = client.client_to_server_cid_secret.take();
@@ -5122,7 +5126,9 @@ async fn handle_new_udp_client(
             &shared.0,
             &transcript_hash,
             hide_identity,
-            crate::protocol::capabilities::implemented_udp_server_capabilities(),
+            crate::protocol::capabilities::udp_server_capabilities_for_profile(
+                profile.config.roaming.enabled,
+            ),
         );
         server_tx.encrypt_packet(&auth_msg, &[])?
     };

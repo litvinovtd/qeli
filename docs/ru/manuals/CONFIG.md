@@ -1111,6 +1111,40 @@ profiles = tcp
 
 Проверка выполняется после верификации пароля и на TCP, и на UDP.
 
+## Экспериментальный rollout роуминга (`roaming.*`)
+
+Роуминг включается отдельно для каждого серверного профиля и **по умолчанию выключен**.
+Он доступен только в бинарнике, собранном с feature `experimental-roaming`.
+
+```ini
+[profile:mobile-udp]
+roaming.enabled = true
+roaming.grace_secs = 30
+roaming.max_orphaned = 256
+roaming.max_orphan_bytes = 67108864
+```
+
+| Ключ | Дефолт | Допустимый диапазон | Назначение |
+|---|---:|---:|---|
+| `roaming.enabled` | `false` | boolean | объявлять и принимать аутентифицированный TCP/UDP roaming на этом профиле |
+| `roaming.grace_secs` | `30` | `1..3600` | сколько неожиданно отсоединённая TCP-сессия ждёт аутентифицированного resume |
+| `roaming.max_orphaned` | `256` | `1..65536` | профильный предел отсоединённых TCP-сессий, сохраняемых для resume |
+| `roaming.max_orphan_bytes` | `67108864` | `4194304..1073741824` | профильный предел памяти сохраняемых TCP-сессий; минимум 4 МиБ равен одному фиксированному пулу encrypted records |
+
+При `roaming.enabled = false` сервер маскирует все roaming capability этого профиля,
+но сохраняет независимые authenticated-extension и UDP-fragmentation биты; обычный
+reconnect не меняется. `true` на бинарнике без feature отклоняется `check-config`, а не
+игнорируется молча.
+
+Grace и orphan-лимиты управляют TCP hard-resume. UDP использует тот же профильный opt-in
+и аутентифицированное согласование capability для всех UDP-режимов маскировки, но имеет
+собственные короткоживущие candidate- и anti-amplification-пределы. Поверх по-прежнему
+действуют `perf.connection.max_clients` и пользовательский `max_sessions`.
+
+Все числовые значения валидируются даже при выключенном переключателе, поэтому опечатка
+не активируется позже при rollout. Proof, path validation, PMTU и CID rotation являются
+инвариантами протокола и намеренно не выносятся в конфигурацию.
+
 ## Лимиты подключений (`max_clients` vs `max_sessions`)
 
 Два независимых лимита — НЕ путать:

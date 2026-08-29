@@ -407,6 +407,14 @@ fn profile_to(p: &ProfileConfig) -> Section {
     // other transport. Tidiness is not worth a save that loses data.
     // (Audit 2026-07-27, P5.)
     put(&mut s, "enabled", p.enabled);
+    put(&mut s, "roaming.enabled", p.roaming.enabled);
+    put(&mut s, "roaming.grace_secs", p.roaming.grace_secs);
+    put(&mut s, "roaming.max_orphaned", p.roaming.max_orphaned);
+    put(
+        &mut s,
+        "roaming.max_orphan_bytes",
+        p.roaming.max_orphan_bytes,
+    );
     if let Some(k) = &p.identity_key {
         put_str(&mut s, "identity_key", k);
     }
@@ -781,6 +789,11 @@ fn profile_from(s: &Section) -> ProfileConfig {
     let mut p = base.clone();
     p.name = s.instance.clone().unwrap_or_else(|| "default".to_string());
     p.enabled = s.bool_or("enabled", true);
+    p.roaming.enabled = s.bool_or("roaming.enabled", base.roaming.enabled);
+    p.roaming.grace_secs = s.parse_or("roaming.grace_secs", base.roaming.grace_secs);
+    p.roaming.max_orphaned = s.parse_or("roaming.max_orphaned", base.roaming.max_orphaned);
+    p.roaming.max_orphan_bytes =
+        s.parse_or("roaming.max_orphan_bytes", base.roaming.max_orphan_bytes);
     p.identity_key = s
         .get("identity_key")
         .filter(|k| !k.is_empty())
@@ -1490,6 +1503,21 @@ route = 2001:db8:400::/48 gateway=fd71:e1:1234:1::1 metric=20
     }
 
     #[test]
+    fn roaming_profile_policy_is_default_off() {
+        let cfg = crate::config::parse_server_config(
+            "[profile:edge]\n\
+             bind.transport = udp\n\
+             obf.mode = fake-tls\n",
+        )
+        .unwrap();
+        let roaming = &cfg.profiles[0].roaming;
+        assert!(!roaming.enabled);
+        assert_eq!(roaming.grace_secs, 30);
+        assert_eq!(roaming.max_orphaned, 256);
+        assert_eq!(roaming.max_orphan_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
     fn invalid_ipv6_mode_is_reported_instead_of_falling_back_silently() {
         let (_, findings) = crate::config::parse_server_config_reporting(
             "[profile:x]\ntun.ip_mode = duall\nrouting.ipv6.mode = nat6\n",
@@ -1531,6 +1559,10 @@ route = 2001:db8:400::/48 gateway=fd71:e1:1234:1::1 metric=20
             bind.address = 192.168.1.1
             bind.port = 8443
             bind.transport = udp
+            roaming.enabled = true
+            roaming.grace_secs = 45
+            roaming.max_orphaned = 128
+            roaming.max_orphan_bytes = 134217728
             tun.name = tun1
             tun.address = 10.1.0.1
             tun.mtu = 1400
@@ -1575,6 +1607,10 @@ route = 2001:db8:400::/48 gateway=fd71:e1:1234:1::1 metric=20
         assert_eq!(p.name, "edge");
         assert_eq!(p.bind.port, 8443);
         assert_eq!(p.bind.transport, "udp");
+        assert!(p.roaming.enabled);
+        assert_eq!(p.roaming.grace_secs, 45);
+        assert_eq!(p.roaming.max_orphaned, 128);
+        assert_eq!(p.roaming.max_orphan_bytes, 134_217_728);
         assert_eq!(p.pool.cidr, "10.1.0.0/16");
         assert_eq!(p.pool.static_reservations.get("bob").unwrap(), "10.1.0.100");
         assert_eq!(p.dns.upstream, vec!["9.9.9.9"]);

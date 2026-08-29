@@ -42,6 +42,13 @@
 
 ### Основа роуминга (stages 0–3E TCP/UDP, default off)
 
+- Серверный rollout роуминга стал явным и профильным: новые flat-INI ключи
+  `roaming.enabled` (дефолт `false`), `roaming.grace_secs`, `roaming.max_orphaned` и
+  `roaming.max_orphan_bytes` проходят lossless round-trip и строгую проверку диапазонов.
+  Выключенный профиль не рекламирует ни одного roaming capability; `true` на бинарнике без
+  `experimental-roaming` отклоняется fail-closed. TCP grace/orphan budget берутся из профиля,
+  а TCP и все UDP camouflage modes используют один и тот же профильный capability gate.
+
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
   согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor
@@ -289,18 +296,19 @@
 - Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
-  Полный контракт объявляют Linux in-process TCP и Android TCP при условиях feature gate,
-  описанных выше; Windows/macOS/iOS его ещё не включают.
-  Feature-сервер предлагает CONTROL_V2 и TCP resume/handover, а обычные сборки не меняют поведение.
+  Полный контракт под feature gate объявляют Linux/OpenWrt, Android, Windows, macOS и iOS,
+  если platform adapter и загруженное ядро подтверждают `ROAMING_PATH`; явные `local`/`lport`
+  и старые cores сохраняют reconnect fallback. Feature-сервер предлагает roaming capability
+  только на профиле с `roaming.enabled = true`, а обычные сборки не меняют поведение.
   Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
 - Из исходного handshake IKM доменно-разделённо выводятся resume, directional CID и control
   secrets с zeroization. Known-answer тесты подтверждают новые labels для classic, hybrid и
   static-bound режимов и одновременно фиксируют неизменность существующих data keys.
-- UDP-контракты пока остаются основой последующих этапов. TCP server data plane активирует
-  hard resume только для сессии с authenticated client opt-in. Default-сборки и
-  non-negotiated соединения сохраняют прежнее поведение.
+- TCP hard-resume и единый для всех camouflage modes UDP roaming data plane активируются
+  только при профильном server opt-in и authenticated client negotiation. Default-сборки,
+  выключенные профили и non-negotiated соединения сохраняют прежнее поведение.
 - Source ABI 1.12 добавляет под `experimental-roaming` ограниченный generation-scoped
   `PathUpdate` и транзакцию `PREPARE/BIND/COMMIT/ABORT`. Вход строго ограничен по размеру,
   адресам, TTL и идентификаторам; stale/duplicate update не создаёт работу, а superseding

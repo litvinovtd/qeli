@@ -36,6 +36,51 @@ fn default_dhcp_domain() -> String {
     "vpn".into()
 }
 
+pub const ROAMING_MIN_GRACE_SECS: u64 = 1;
+pub const ROAMING_MAX_GRACE_SECS: u64 = 3_600;
+pub const ROAMING_MIN_ORPHANED: usize = 1;
+pub const ROAMING_MAX_ORPHANED: usize = 65_536;
+pub const ROAMING_MIN_ORPHAN_BYTES: usize = 4 * 1024 * 1024;
+pub const ROAMING_MAX_ORPHAN_BYTES: usize = 1024 * 1024 * 1024;
+
+fn default_roaming_grace_secs() -> u64 {
+    30
+}
+fn default_roaming_max_orphaned() -> usize {
+    256
+}
+fn default_roaming_max_orphan_bytes() -> usize {
+    64 * 1024 * 1024
+}
+
+/// Profile-scoped server policy for the experimental roaming protocol.
+///
+/// The data plane is additionally compile-time gated. Keeping `enabled` false by default means
+/// an experimental binary can be deployed for compatibility testing without advertising a wire
+/// capability until an operator enables one canary profile explicitly.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RoamingConfig {
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    #[serde(default = "default_roaming_grace_secs")]
+    pub grace_secs: u64,
+    #[serde(default = "default_roaming_max_orphaned")]
+    pub max_orphaned: usize,
+    #[serde(default = "default_roaming_max_orphan_bytes")]
+    pub max_orphan_bytes: usize,
+}
+
+impl Default for RoamingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            grace_secs: default_roaming_grace_secs(),
+            max_orphaned: default_roaming_max_orphaned(),
+            max_orphan_bytes: default_roaming_max_orphan_bytes(),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
     #[serde(default)]
@@ -82,6 +127,8 @@ pub struct ProfileConfig {
     pub obfuscation: ServerObfuscationConfig,
     #[serde(default)]
     pub performance: ServerPerformanceConfig,
+    #[serde(default)]
+    pub roaming: RoamingConfig,
 }
 
 impl Default for ProfileConfig {
@@ -96,6 +143,7 @@ impl Default for ProfileConfig {
             dhcp: DhcpConfig::default(),
             obfuscation: ServerObfuscationConfig::default(),
             performance: ServerPerformanceConfig::default(),
+            roaming: RoamingConfig::default(),
             identity_key: None,
             enabled: true,
         }
@@ -118,7 +166,8 @@ impl ProfileConfig {
                 "tls":{"reality_proxy":{}},
                 "traffic_normalization":{},"traffic_shaping":{},"anti_fingerprinting":{},"quic":{},
                 "multipath":{},"awg":{}},
-            "performance":{"tcp":{},"tun":{},"connection":{}}
+            "performance":{"tcp":{},"tun":{},"connection":{}},
+            "roaming":{}
         }"#;
         serde_json::from_str(SKELETON).expect("baseline profile skeleton is valid")
     }

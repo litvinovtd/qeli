@@ -461,12 +461,12 @@ development implementation, а не релиз.
 ### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, Linux live-срез готов)
 
 **Нормативный план: [ROAMING.md](ROAMING.md).** Default-сборки и неподдерживаемые платформы при
-смене Wi-Fi↔LTE/IP выполняют быстрый reconnect с новым handshake и Argon2. Feature-сборки Linux
-уже сохраняют session id,
-внутренние IPv4/IPv6, NetworkPlan, TUN/TAP, маршруты и квоту.
-Этапы 0–3E, Linux TCP/UDP+QUIC migration и Android TCP прошли начальную live-приёмку под
-`experimental-roaming`; default data plane не изменён. Остальные native adapters, конфигурация,
-полная platform/race/soak matrix и rollout относятся к этапам 4–6.
+смене Wi-Fi↔LTE/IP выполняют быстрый reconnect с новым handshake и Argon2. Общий TCP/UDP core и
+path executors Linux/OpenWrt, Android, Windows, macOS и iOS source-complete под
+`experimental-roaming`; Linux TCP/UDP+QUIC и Android TCP/UDP имеют частичную live-приёмку с
+сохранением session id, внутренних IPv4/IPv6, NetworkPlan, TUN/TAP, маршрутов и квоты.
+На сервере реализован профильный default-off rollout. Клиентская политика `off|auto|required`,
+панель, полная platform/race/soak matrix и поэтапный rollout остаются в этапах 5–6.
 
 - Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
   `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; generation-scoped динамический

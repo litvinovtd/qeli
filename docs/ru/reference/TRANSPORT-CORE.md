@@ -587,7 +587,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | ✅ библиотека ABI 1.9 пересобрана; source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены; live handshake/NetworkPlan зелёный | platform gate: admin Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ universal2 dylib ABI 1.9 пересобран и упакован; source path передаёт utun fd Rust-ядру и не трогает payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter совместим с additive ABI 1.13, не объявляет `PATH_REFRESH` и использует общее Rust-ядро | code complete; Xcode/device gate остаётся |
+| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter использует общее Rust-ядро и условно объявляет path transactions ABI 1.12 плюс `PATH_REFRESH` ABI 1.13, только когда их предоставляет загруженное ядро | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
 расхождения там доказан; iOS последним — единственная платформа без fd и с потолком памяти.
@@ -599,7 +599,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Предыдущая матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с 6 Reality + 20 client exports; source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export. ABI 1.13 добавляет только event/capability values и сохраняет эти числа экспортов. `aarch64-apple-ios` whole-client cargo check был зелёным, минимальный ABI build script остаётся 1.11; обновлённую матрицу нужно повторить перед релизом, реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Предыдущая матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с 6 Reality + 20 client exports; source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export. ABI 1.13 добавляет только event/capability values и сохраняет эти числа экспортов. Базовый compatibility floor iOS остаётся ABI 1.11, path transactions требуют 1.12, а `PATH_REFRESH` — 1.13; `build_native.sh` теперь по умолчанию включает `transport-core-ffi experimental-roaming`. Feature Clippy для `aarch64-apple-ios` зелёный, но реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
@@ -637,7 +637,7 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 
 Аргумент в пользу «сейчас, а не потом»:
 
-- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — этапы 0–3E и начальная Linux TCP/UDP live-приёмка реализованы под feature gate; native adapters, полная matrix и rollout остаются;
+- **Роуминг** ([ROAMING.md](../plans/ROAMING.md)) — общий TCP/UDP core и path executors Android, Linux/OpenWrt, Windows, macOS и iOS source-complete под feature gate; остаются real-device/race/soak matrix и поэтапный rollout;
 - **multipath** — реализован только у Rust-клиента.
 
 Если ядро делать после них, обе возможности придётся написать четыре раза. Если до —
