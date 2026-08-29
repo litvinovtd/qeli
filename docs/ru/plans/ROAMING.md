@@ -1031,6 +1031,13 @@ fake-TLS 17/17 и UDP QUIC 19/19 с сохранением того же TAP, п
 повторный default-TUN gate прошёл те же 17/17 и 19/19. Harness сверяет фактический kernel kind,
 а оба типа устройства используют одну TCP/UDP roaming state machine. Открытыми остаются полный
 10k и платформенные gates.
+TCP harness дополнительно закрывает `max_streams=1`, fixed и adaptive bonding. Live regression
+воспроизвёл black-hole: после переноса slot 0 старые secondary writers продолжали принимать
+flow-pinned пакеты на исчезнувшем пути. COMMIT теперь закрывает весь старый carrier set, а общий
+stable-slot maintainer восстанавливает изученную ширину через новый route. Single прошёл 17/17,
+fixed 21/21, adaptive 22/22 после роста до трёх потоков под реальной tunnel-нагрузкой;
+восстановленные secondary JOIN пришли с path B, TUN/сессия сохранились без reconnect. Feature
+suite прошёл 973 теста при трёх ignored, strict feature/default Clippy прошёл.
 
 ## 15. Проверки и release gates
 
@@ -1073,7 +1080,9 @@ fake-TLS 17/17 и UDP QUIC 19/19 с сохранением того же TAP, п
   с проверкой фактического kernel `tun_flags` и сохранения экземпляра устройства;
 - все TCP режимы;
 - UDP fakeTLS/QUIC/obfs/AWG с DATA_FRAG;
-- max_streams 1, fixed и adaptive;
+- max_streams 1, fixed и adaptive — ✅ Linux TCP single 17/17, fixed 21/21 и adaptive 22/22;
+  adaptive вырос до трёх потоков под реальной нагрузкой, а fixed/adaptive восстановили secondary
+  slots с path B без замены TUN/сессии или reconnect;
 - full/split/per-app routing;
 - kill switch, Trusted Wi-Fi и жёсткий local pin;
 - reconnect false и persist_tun;

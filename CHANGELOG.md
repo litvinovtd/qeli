@@ -144,6 +144,18 @@
   тот же TAP и одна authenticated session без top-level reconnect. Повторный default-TUN gate
   прошёл те же 17/17 и 19/19, поэтому параметризация не меняет прежний путь. TUN/TAP используют
   одну roaming state machine; отдельной реализации транспорта для TAP не добавлено.
+- TCP roaming COMMIT теперь переносит весь bonded carrier set, а не только slot 0: после
+  публикации authenticated replacement старые fixed/adaptive writers закрываются, и общий
+  stable-slot maintainer восстанавливает требуемую ширину через новый platform route. Закрытие
+  последнего sender теперь явно завершает writer; раньше `Some(pt) = recv()` отключал select-ветку
+  на `None`, оставляя старые TCP-сокеты принимать flow-pinned пакеты в чёрный путь. Lab regression
+  сначала воспроизвёл потерю туннеля, затем прошёл single 17/17, fixed 21/21 и adaptive 22/22:
+  adaptive вырос до трёх потоков под реальной iperf-нагрузкой, secondary slots заново JOINed с
+  path B, а PID/TUN, одна AUTH и continuous probe сохранились без top-level reconnect.
+- Параллельный Linux TUN unit gate больше не проверяет освобождённые номера fd двумя раздельными
+  `fcntl`: другой тест мог легально переиспользовать второй номер между вызовами. Проверка теперь
+  фиксирует отключение обоих Unix-datagram peers. Feature suite прошёл 973 теста при трёх ignored;
+  строгий release Clippy прошёл с `experimental-roaming,jemalloc` и с default `jemalloc`.
 - Добавлен отдельный `roaming_wire` fuzz-target для произвольных UDP CID-заголовков, TCP resume
   JOIN/proof и `PATH_*` control bodies; валидные round-trip инварианты и tampered-proof path
   проверяются вместе с reject-путями. Цель включена в обязательный CI smoke и nightly matrix.

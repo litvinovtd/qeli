@@ -1006,13 +1006,9 @@ mod tests {
     }
 
     #[test]
-    fn drop_waits_until_both_descriptor_owners_exit() {
-        use std::os::fd::AsRawFd;
-
-        let (_reader_test, reader_fd) = packet_pair();
-        let (_writer_test, writer_fd) = packet_pair();
-        let reader_raw = reader_fd.as_raw_fd();
-        let writer_raw = writer_fd.as_raw_fd();
+    fn drop_waits_until_both_descriptor_peers_disconnect() {
+        let (reader_test, reader_fd) = packet_pair();
+        let (writer_test, writer_fd) = packet_pair();
         let pump = LinuxTunPump::start(
             reader_fd,
             writer_fd,
@@ -1027,7 +1023,10 @@ mod tests {
 
         drop(pump);
 
-        assert_eq!(unsafe { libc::fcntl(reader_raw, libc::F_GETFD) }, -1);
-        assert_eq!(unsafe { libc::fcntl(writer_raw, libc::F_GETFD) }, -1);
+        // Do not inspect the old raw fd numbers: parallel tests may legitimately reuse either
+        // number immediately after close. A connected Unix datagram send fails only after the
+        // corresponding worker-owned endpoint is gone, which is the lifecycle invariant here.
+        assert!(reader_test.send(&[1]).is_err());
+        assert!(writer_test.send(&[1]).is_err());
     }
 }

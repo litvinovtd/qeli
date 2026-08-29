@@ -2,6 +2,7 @@
 # Linux TCP make-before-break integration test. Everything runs in three isolated network
 # namespaces; no host route or production process is changed.
 # QELI_ROAMING_DEVICE_TYPE selects a Linux tun or tap endpoint on both sides (default: tun).
+# QELI_ROAMING_MULTIPATH_MODE selects single, fixed, or adaptive stream membership.
 #
 #                         10.40.1.0/24 (path A)
 #                    +--------------------------------+
@@ -23,7 +24,8 @@ BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
 WIRE_MODE=${3:-${QELI_ROAMING_TCP_WIRE_MODE:-fake-tls}}
 DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
-WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}
+MULTIPATH_MODE=${QELI_ROAMING_MULTIPATH_MODE:-single}
+WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}-${MULTIPATH_MODE}
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
 SRV_NS=qrm-srv
@@ -32,6 +34,7 @@ FAIL=0
 SERVER_JOB_PID=
 CLIENT_JOB_PID=
 TARGET_JOB_PID=
+LOAD_JOB_PID=
 
 usage() {
   echo "usage: $0 [qeli-binary] [success|soak] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
@@ -57,6 +60,27 @@ case "$DEVICE_TYPE" in
     ;;
   *)
     echo "QELI_ROAMING_DEVICE_TYPE must be tun or tap" >&2
+    exit 2
+    ;;
+esac
+case "$MULTIPATH_MODE" in
+  single)
+    MULTIPATH_ENABLED=false
+    MULTIPATH_MAX_STREAMS=1
+    MULTIPATH_ADAPTIVE=false
+    ;;
+  fixed)
+    MULTIPATH_ENABLED=true
+    MULTIPATH_MAX_STREAMS=3
+    MULTIPATH_ADAPTIVE=false
+    ;;
+  adaptive)
+    MULTIPATH_ENABLED=true
+    MULTIPATH_MAX_STREAMS=3
+    MULTIPATH_ADAPTIVE=true
+    ;;
+  *)
+    echo "QELI_ROAMING_MULTIPATH_MODE must be single, fixed, or adaptive" >&2
     exit 2
     ;;
 esac
@@ -144,7 +168,7 @@ run_case_helper() {
 }
 
 cleanup() {
-  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$TARGET_JOB_PID"; do
+  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$TARGET_JOB_PID" "$LOAD_JOB_PID"; do
     if [ -n "$pid" ]; then
       kill -9 "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -240,6 +264,9 @@ tun.mtu = 1400
 pool.cidr = 10.88.0.0/24
 pool.exclude = 10.88.0.1
 obf.mode = $SERVER_OBF_MODE
+obf.multipath.enabled = $MULTIPATH_ENABLED
+obf.multipath.max_streams = $MULTIPATH_MAX_STREAMS
+obf.multipath.adaptive = $MULTIPATH_ADAPTIVE
 $SERVER_OBF_EXTRA
 perf.connection.max_clients = 8
 perf.connection.handshake_timeout_secs = 10
@@ -313,6 +340,33 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.88.0.1"
 
+if [ "$MULTIPATH_MODE" = fixed ]; then
+  if wait_for 100 "grep -q 'Multipath: 3 bonded stream(s) active (fixed)' $WORK/client.log"; then
+    ok "fixed multipath opened all three logical slots before handover"
+  else
+    bad "fixed multipath did not open all three logical slots before handover"
+  fi
+  check "fixed multipath attached two secondary streams on path A" \
+    "test \"\$(grep -c 'JOINed session.*from 10.40.1.2:' $WORK/server.log)\" -ge 2"
+elif [ "$MULTIPATH_MODE" = adaptive ]; then
+  ip netns exec "$SRV_NS" iperf3 -s -1 -B 10.88.0.1 -p 5201 >"$WORK/iperf-server.log" 2>&1 &
+  LOAD_JOB_PID=$!
+  sleep 1
+  if ip netns exec "$CLI_NS" timeout 30 iperf3 -c 10.88.0.1 -p 5201 -t 18 -i 0 \
+      >"$WORK/iperf-client.log" 2>&1; then
+    ok "adaptive multipath received sustained tunnel load"
+  else
+    bad "adaptive multipath load failed"
+  fi
+  wait "$LOAD_JOB_PID" 2>/dev/null || true
+  LOAD_JOB_PID=
+  if wait_for 50 "grep -Eq 'Multipath adaptive: ramped to [2-9][0-9]* stream' $WORK/client.log"; then
+    ok "adaptive multipath grew beyond the primary slot before handover"
+  else
+    bad "adaptive multipath did not grow beyond the primary slot before handover"
+  fi
+fi
+
 if [ "$CASE" = soak ]; then
   SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_tcp_netns_soak_case.sh
@@ -345,6 +399,25 @@ check "tunnel survives removal of old path A" \
   "ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
 check "client process survived without reconnect" \
   "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
+if [ "$MULTIPATH_MODE" = fixed ]; then
+  if wait_for 100 "grep -Eq 'TCP stream slot [0-9]+ resumed; 3/3 stream' $WORK/client.log"; then
+    ok "fixed multipath restored all logical slots on path B"
+  else
+    bad "fixed multipath did not restore all logical slots on path B"
+  fi
+  check "fixed multipath secondary slots were reattached from path B" \
+    "test \"\$(grep -Ec 'Stream #[12] JOINed session.*from 10.40.2.2:' $WORK/server.log)\" -ge 2"
+elif [ "$MULTIPATH_MODE" = adaptive ]; then
+  check "adaptive multipath retained at least one authenticated path-B carrier" \
+    "grep -q 'Stream #0 JOINed session.*from 10.40.2.2:' $WORK/server.log"
+  if wait_for 100 "grep -Eq 'TCP stream slot [0-9]+ resumed; (2/2|3/3) stream' $WORK/client.log"; then
+    ok "adaptive multipath restored its learned width on path B"
+  else
+    bad "adaptive multipath did not restore its learned width on path B"
+  fi
+  check "adaptive multipath reattached a secondary slot from path B" \
+    "grep -Eq 'Stream #[12] JOINed session.*from 10.40.2.2:' $WORK/server.log"
+fi
 check "the same tunnel device instance survived handover" \
   "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/ifindex)\" = '$TUN_IFINDEX'"
 check "handover did not enter the top-level reconnect loop" \
@@ -358,7 +431,7 @@ check "continuous probe retained at least 140 of 150 packets" \
 fi
 
 echo
-echo "=== RESULT ($WIRE_MODE/$CASE/$DEVICE_TYPE): $PASS passed, $FAIL failed ==="
+echo "=== RESULT ($WIRE_MODE/$CASE/$DEVICE_TYPE/$MULTIPATH_MODE): $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -ne 0 ]; then
   echo "--- client.log (tail) ---"
   tail -n 120 "$WORK/client.log"

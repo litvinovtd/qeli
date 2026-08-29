@@ -2767,9 +2767,9 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 #[cfg(all(test, feature = "experimental-roaming"))]
 mod tcp_resume_client_tests {
     use super::{
-        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped,
-        should_defer_tcp_resume_for_handover, TcpActiveSlots, TcpResumeContext, TcpSecondaryAttach,
-        TCP_HANDOVER_PREPARE_GRACE,
+        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, publish_tcp_path_handover,
+        should_defer_tcp_resume_for_handover, ClientStreamSender, TcpActiveSlots, TcpResumeContext,
+        TcpSecondaryAttach, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::sync::Arc;
@@ -2827,6 +2827,39 @@ mod tcp_resume_client_tests {
         );
         mark_tcp_slot_stopped(&active, 3);
         assert!(!crate::util::lock_or_recover(&active, "test::active_slots").contains_key(&3));
+    }
+
+    #[test]
+    fn path_handover_retires_every_old_bonded_sender_before_publishing_slot_zero() {
+        let (old_zero, old_zero_rx) = tokio::sync::mpsc::channel(1);
+        let (old_one, old_one_rx) = tokio::sync::mpsc::channel(1);
+        let (old_two, old_two_rx) = tokio::sync::mpsc::channel(1);
+        let (new_zero, _new_zero_rx) = tokio::sync::mpsc::channel(1);
+        let mut outputs = vec![
+            ClientStreamSender {
+                logical_slot_id: 0,
+                sender: old_zero,
+            },
+            ClientStreamSender {
+                logical_slot_id: 1,
+                sender: old_one,
+            },
+            ClientStreamSender {
+                logical_slot_id: 2,
+                sender: old_two,
+            },
+        ];
+        let retired = publish_tcp_path_handover(
+            &mut outputs,
+            ClientStreamSender {
+                logical_slot_id: 0,
+                sender: new_zero,
+            },
+        );
+        assert_eq!(retired, 3);
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].logical_slot_id, 0);
+        assert!(old_zero_rx.is_closed() && old_one_rx.is_closed() && old_two_rx.is_closed());
     }
 
     #[test]
@@ -3052,6 +3085,23 @@ fn deliver_client_tcp_plaintext(
 }
 
 type TcpActiveSlots = Arc<std::sync::Mutex<std::collections::BTreeMap<u32, usize>>>;
+
+#[cfg(feature = "experimental-roaming")]
+fn publish_tcp_path_handover(
+    outputs: &mut Vec<ClientStreamSender>,
+    replacement: ClientStreamSender,
+) -> usize {
+    // A platform path transaction moves the complete bonded carrier set, not only stable slot 0.
+    // Keeping secondary writers bound to the old interface makes their flow-pinned queues accept
+    // packets into black-holed TCP sockets after that interface disappears. Retire every old
+    // sender immediately; the stable-slot maintainer rebuilds the desired fixed/adaptive width
+    // through the newly committed platform route while slot 0 keeps the inner tunnel alive.
+    let retired = outputs.len();
+    outputs.clear();
+    debug_assert_eq!(replacement.logical_slot_id, 0);
+    outputs.push(replacement);
+    retired
+}
 
 fn mark_tcp_slot_started(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
     let mut active = crate::util::lock_or_recover(active_slots, "client::active_slots");
@@ -3415,7 +3465,8 @@ where
 
                     _ = stream_stop_rx.changed() => break,
 
-                    Some(pt) = out_rx.recv() => {
+                    pt = out_rx.recv() => {
+                        let Some(pt) = pt else { break };
                         #[cfg(feature = "experimental-roaming")]
                         let pt = match pt {
                             ClientUplink::TerminalControl { packet, written } => {
@@ -4659,9 +4710,11 @@ where
                             pump_h.clone(),
                         );
                         let mut outputs = crate::util::lock_or_recover(&outs_h, "client::outs_h");
-                        outputs.retain(|entry| entry.logical_slot_id != 0 && !entry.is_closed());
-                        outputs.push(replacement);
-                        outputs.sort_unstable_by_key(|entry| entry.logical_slot_id);
+                        let retired = publish_tcp_path_handover(&mut outputs, replacement);
+                        log::info!(
+                            "TCP path handover retired {} previous carrier(s); stable slot 0 is live on the committed path",
+                            retired
+                        );
                         log::info!(
                             "TCP make-before-break committed candidate {} ({}) into stable slot 0",
                             candidate.candidate_id,

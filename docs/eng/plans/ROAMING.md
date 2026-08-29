@@ -788,7 +788,14 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   TCP fake-TLS 17/17 and UDP QUIC 19/19 while preserving the same TAP, process, and authenticated
   session across the handover; the default TUN regression passes the same 17/17 and 19/19. Both
   device types use the same TCP/UDP roaming state machines and the harness verifies their actual
-  kernel kind. The UDP all-modes wrapper forwards the same selected case, including `soak`, through
+  kernel kind. The TCP harness also covers `max_streams=1`, fixed bonding, and adaptive bonding.
+  A live regression exposed old secondary writers that kept accepting flow-pinned packets after
+  slot 0 moved; path COMMIT now retires the complete old carrier set and the shared stable-slot
+  maintainer rebuilds the learned width through the committed route. Single passes 17/17, fixed
+  passes 21/21, and adaptive passes 22/22 after growing to three streams under real tunnel load;
+  restored secondary JOINs originate from path B and the session/TUN survive without reconnect.
+  The feature suite passes 973 tests with three ignored, and strict feature/default Clippy passes.
+  The UDP all-modes wrapper forwards the same selected case, including `soak`, through
   QUIC, fake-TLS, obfs, and obfs+AWG. A live
   0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current server with legacy client and
   legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
