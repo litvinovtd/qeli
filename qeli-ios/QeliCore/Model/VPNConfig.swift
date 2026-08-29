@@ -206,6 +206,18 @@ struct VPNConfig: Codable, Equatable, Sendable {
         addDefaultGateway || routingMode == "full-tunnel" || routingMode == "all"
     }
 
+    /// A candidate path always uses a fresh ephemeral socket. An explicit source address or
+    /// source port is therefore a user routing contract that must retain full reconnect. The
+    /// decision is deliberately transport-agnostic: ordinary TCP and every UDP camouflage mode
+    /// use the same Rust roaming state machine once the iOS platform executor is available.
+    var allowsNativePathRoaming: Bool {
+        let local = carriedKeys["local"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let port = carriedKeys["lport"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard local.isEmpty else { return false }
+        guard !port.isEmpty else { return true }
+        return Int(port) == 0
+    }
+
     init(serverAddress: String, port: Int) {
         self.serverAddress = serverAddress
         self.port = port

@@ -41,6 +41,7 @@ enum QeliNativeCore {
 struct QeliTransportEvent: Sendable {
     let kind: UInt32
     let state: UInt32
+    let payloadFormat: UInt32
     let sequence: UInt64
     let planGeneration: UInt64
     let errorCode: Int32
@@ -59,12 +60,20 @@ struct QeliTransportStats: Sendable {
     let udpInternalDrops: UInt64
     let udpBufferGrows: UInt64
     let udpRecvBufferBytes: UInt64
+    let roamAttempts: UInt64
+    let roamSuccesses: UInt64
+    let roamFailures: UInt64
+    let roamReconnectFallbacks: UInt64
+    let roamCandidates: UInt64
+    let lastRoamLatencyMilliseconds: UInt64
 }
 
 /// Thin owner of the whole-client C ABI. Rust owns the transport and every wire byte; this
 /// object only moves lifecycle events and bounded packet batches across NetworkExtension.
 final class QeliNativeTransport: @unchecked Sendable {
     static let abiVersion: UInt32 = 0x0001_000b
+    static let pathTransactionsABIVersion: UInt32 = 0x0001_000c
+    static let pathRefreshABIVersion: UInt32 = 0x0001_000d
     static let platformRoutes: UInt64 = 1 << 0
     static let platformDNS: UInt64 = 1 << 1
     static let platformPacketBatch: UInt64 = 1 << 4
@@ -72,17 +81,24 @@ final class QeliNativeTransport: @unchecked Sendable {
     static let platformIPv6Tun: UInt64 = 1 << 8
     static let platformIPv6Routes: UInt64 = 1 << 9
     static let platformIPv6DNS: UInt64 = 1 << 10
-    static let platformCapabilities = platformRoutes | platformDNS | platformPacketBatch
+    static let platformPathTransactions: UInt64 = 1 << 12
+    static let platformPathSocketBinding: UInt64 = 1 << 13
+    static let platformPathRefresh: UInt64 = 1 << 14
+    static let basePlatformCapabilities = platformRoutes | platformDNS | platformPacketBatch
         | platformServerIdentity | platformIPv6Tun | platformIPv6Routes | platformIPv6DNS
     static let coreNativeDataPlane: UInt64 = 1 << 8
     static let corePacketIO: UInt64 = 1 << 9
     static let coreUDPDiagnostic: UInt64 = 1 << 10
+    static let corePathTransactions: UInt64 = 1 << 13
+    static let corePathRefreshEvents: UInt64 = 1 << 14
     static let maxPacketBytes = 65_535
     static let maxBatchPackets = 64
     static let batchBytes = 256 * 1024
     static let maxEventPayload = 256 * 1024
 
     private let handle: UInt64
+    let pathTransactionsEnabled: Bool
+    let pathRefreshEnabled: Bool
     private let eventLock = NSLock()
     private let uplinkLock = NSLock()
     private let downlinkLock = NSLock()
@@ -109,8 +125,21 @@ final class QeliNativeTransport: @unchecked Sendable {
         }
     }
 
-    init(config: String) throws {
+    init(config: String, roamingEnabled: Bool = false) throws {
         try Self.requireCompatible()
+        let actualABI = qeli_client_abi_version()
+        let coreCapabilities = qeli_client_core_capabilities()
+        let transactions = roamingEnabled
+            && actualABI >= Self.pathTransactionsABIVersion
+            && coreCapabilities & Self.corePathTransactions != 0
+        let refresh = transactions
+            && actualABI >= Self.pathRefreshABIVersion
+            && coreCapabilities & Self.corePathRefreshEvents != 0
+        var platformCapabilities = Self.basePlatformCapabilities
+        if transactions {
+            platformCapabilities |= Self.platformPathTransactions | Self.platformPathSocketBinding
+        }
+        if refresh { platformCapabilities |= Self.platformPathRefresh }
         var bytes = Array(config.utf8)
         defer { bytes.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) } }
         var value: UInt64 = 0
@@ -118,7 +147,7 @@ final class QeliNativeTransport: @unchecked Sendable {
             qeli_client_new(
                 raw.bindMemory(to: UInt8.self).baseAddress,
                 bytes.count,
-                Self.platformCapabilities,
+                platformCapabilities,
                 128,
                 &value
             )
@@ -127,6 +156,8 @@ final class QeliNativeTransport: @unchecked Sendable {
             throw QeliNativeError.operationFailed("transport create (\(status))")
         }
         handle = value
+        pathTransactionsEnabled = transactions
+        pathRefreshEnabled = refresh
         uplinkBytes.reserveCapacity(Self.batchBytes)
         uplinkLengths.reserveCapacity(Self.maxBatchPackets)
     }
@@ -180,6 +211,7 @@ final class QeliNativeTransport: @unchecked Sendable {
             return QeliTransportEvent(
                 kind: event.kind,
                 state: event.state,
+                payloadFormat: event.payload_format,
                 sequence: event.sequence,
                 planGeneration: event.plan_generation,
                 errorCode: event.error_code,
@@ -200,6 +232,43 @@ final class QeliNativeTransport: @unchecked Sendable {
         try resultWithReason(reason) { pointer, length in
             qeli_client_server_identity_result(
                 handle, sequence, accepted ? 0 : -1, pointer, length
+            )
+        }
+    }
+
+    func pathUpdate(_ update: QeliPathUpdate) throws -> UInt64 {
+        guard pathTransactionsEnabled else {
+            throw QeliNativeError.operationFailed("path transactions are not enabled")
+        }
+        let data = try QeliRoamingPath.encode(update)
+        var candidateID: UInt64 = 0
+        let status = data.withUnsafeBytes { raw in
+            qeli_client_path_update(
+                handle, raw.bindMemory(to: UInt8.self).baseAddress, data.count, &candidateID
+            )
+        }
+        try check(status, "path update")
+        guard candidateID != 0 else {
+            throw QeliNativeError.operationFailed("path update returned no candidate")
+        }
+        return candidateID
+    }
+
+    func pathCommandResult(
+        event: QeliTransportEvent,
+        command: QeliPathCommand,
+        accepted: Bool,
+        reason: String = ""
+    ) throws {
+        guard event.kind == QeliRoamingPath.pathCommandEvent,
+              event.sequence != 0,
+              event.planGeneration == command.generation else {
+            throw QeliNativeError.invalidInput("path command result correlation mismatch")
+        }
+        try resultWithReason(reason) { pointer, length in
+            qeli_client_path_command_result(
+                handle, command.generation, command.candidateID, event.sequence,
+                accepted ? 0 : -1, pointer, length
             )
         }
     }
@@ -298,7 +367,13 @@ final class QeliNativeTransport: @unchecked Sendable {
             udpKernelDrops: value.udp_kernel_drops,
             udpInternalDrops: value.udp_internal_drops,
             udpBufferGrows: value.udp_buffer_grows,
-            udpRecvBufferBytes: value.udp_recv_buffer_bytes
+            udpRecvBufferBytes: value.udp_recv_buffer_bytes,
+            roamAttempts: value.roam_attempts,
+            roamSuccesses: value.roam_successes,
+            roamFailures: value.roam_failures,
+            roamReconnectFallbacks: value.roam_reconnect_fallbacks,
+            roamCandidates: value.roam_candidates,
+            lastRoamLatencyMilliseconds: value.last_roam_latency_ms
         )
     }
 
