@@ -4369,6 +4369,9 @@ struct ProfileTeardown {
     /// Async descendants of this exact generation. The normal path awaits them before Drop;
     /// this synchronous abort is the panic/cancellation fallback.
     tasks: ProfileTasks,
+    /// Exact INPUT-rule ownership survives a mixed native-nft chain that `iptables-nft -S`
+    /// cannot enumerate. Clearing the leases deletes only this generation's DNS permits.
+    dns_input_leases: Vec<nat::DnsInputLease>,
     /// Registry identity installed by this generation. Cleanup must not remove a replacement
     /// generation that registered under the same profile name.
     registered_profile: Option<Arc<ProfileRuntime>>,
@@ -4397,6 +4400,9 @@ impl Drop for ProfileTeardown {
         // Normal exits already awaited `shutdown`; this is essential for a cancelled or
         // panicking generation, whose wrapper cannot run async cleanup.
         self.tasks.abort_all();
+        // Exact leases first; the generic tag sweep below cannot list every mixed nft chain.
+        self.dns_input_leases.clear();
+
         // iptables first: the rules reference the interface by name, so removing them before
         // the device keeps the window where a rule points at a vanished device closed.
         nat::cleanup(&self.profile);
@@ -4600,6 +4606,7 @@ async fn run_profile(
         state: state.clone(),
         readers: None,
         tasks: tasks.clone(),
+        dns_input_leases: Vec::new(),
         registered_profile: None,
     };
 
@@ -5756,7 +5763,7 @@ async fn run_profile_generation(
         // A resolver bound to the profile TUN address is local server traffic: packets hit
         // filter/INPUT, not FORWARD. Install a narrowly scoped permit before advertising the
         // resolver so hosts with INPUT DROP cannot create a connected-but-DNS-dead tunnel.
-        nat::enable_dns_input(
+        let primary_dns_input = nat::enable_dns_input(
             &name,
             &ifname,
             primary_dns_pool,
@@ -5764,6 +5771,7 @@ async fn run_profile_generation(
             primary_dns_cfg.port,
         )
         .map_err(|error| anyhow::anyhow!("profile '{}': {error}", name))?;
+        teardown.dns_input_leases.push(primary_dns_input);
 
         // Bridge 53 -> dns.port inside the tunnel when the proxy listens somewhere else, so
         // clients can keep using the only port their platform can express. No-op on 53.
@@ -5870,13 +5878,14 @@ async fn run_profile_generation(
                 pcfg.dns.listen_ipv6.clone().ok_or_else(|| {
                     anyhow::anyhow!("profile '{}': missing dns.listen_ipv6", name)
                 })?;
-            nat::enable_dns_input(
+            let ipv6_dns_input = nat::enable_dns_input(
                 &name,
                 &ifname,
                 &pcfg.pool.ipv6.cidr,
                 &listen_ipv6,
                 pcfg.dns.port,
             )?;
+            teardown.dns_input_leases.push(ipv6_dns_input);
             if !nat::enable_dns_redirect(&name, &ifname, &listen_ipv6, pcfg.dns.port) {
                 anyhow::bail!(
                     "profile '{}': IPv6 DNS redirect on {} could not be installed",

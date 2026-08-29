@@ -200,6 +200,17 @@
   сохранялся, каждый режим восстановил tunnel ping 5/5 и DNS через серверный tunnel-resolver.
   Это доказывает единый bounded grace/fallback для всех UDP camouflage adapters на эмуляторе;
   physical-device suspend/NAT acceptance остаётся обязательной.
+- Исправлена штатная очистка server-side DNS INPUT permits на хостах со смешанной native nftables /
+  iptables-nft цепочкой. На таких системах точные `iptables -C/-D` работают, но `iptables -S INPUT`
+  отказывается перечислять chain; прежний tag sweep поэтому молча оставлял по два правила после
+  каждого остановленного DNS-профиля. Теперь каждый успешный `enable_dns_input` возвращает RAII lease
+  точных interface/pool/listen/port/protocol rules. `ProfileTeardown` освобождает leases до удаления
+  TUN и до дополнительного generic cleanup, а отказ частичной установки выполняет тот же exact
+  rollback; число удаляемых одинаковых копий ограничено fail-closed.
+  Изолированный live gate на mixed-nft lab с release feature-бинарником SHA-256
+  `f793789feb7432aa75bc28830baea77f9b84e4449cc4332b00ded3b770559d68` подтвердил, что udp+tcp
+  permits появляются при неперечисляемом INPUT, а после SIGTERM отсутствуют supervisor/worker,
+  listener, TUN и оба правила; остальные firewall entries не изменяются.
 - Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и

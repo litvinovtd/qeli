@@ -957,18 +957,120 @@ fn dns_input_rule(
     ]
 }
 
-/// Permit only this profile's clients to reach its in-process DNS proxy.
-///
-/// Full-tunnel traffic normally crosses `FORWARD`, but the pushed resolver is the server's
-/// own TUN address and therefore crosses `INPUT`. Keep the exception narrow: exact interface,
-/// client pool, resolver address and port, for both DNS transports.
-pub fn enable_dns_input(
+const MAX_EXACT_RULE_COPIES: usize = 1024;
+
+fn exact_delete_args(table: &str, chain: &str, rule: &[String]) -> Vec<String> {
+    let mut args = vec!["-t".into(), table.into(), "-D".into(), chain.into()];
+    args.extend_from_slice(rule);
+    args
+}
+
+/// Delete every copy of one rule without listing its chain. Native nftables rules can make
+/// `iptables-nft -S` reject an otherwise mutable built-in chain; exact `-C`/`-D` remains valid.
+fn delete_exact_rule(path: &str, table: &str, chain: &str, rule: &[String]) -> anyhow::Result<()> {
+    for _ in 0..MAX_EXACT_RULE_COPIES {
+        if !rule_present(path, table, chain, rule) {
+            return Ok(());
+        }
+        let args = exact_delete_args(table, chain, rule);
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = ipt(path, &argv).map_err(|error| {
+            anyhow::anyhow!("could not execute exact {table}/{chain} cleanup: {error}")
+        })?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "exact {table}/{chain} cleanup failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+    }
+    anyhow::bail!(
+        "refusing to remove more than {MAX_EXACT_RULE_COPIES} identical {table}/{chain} rules"
+    )
+}
+
+fn cleanup_dns_input_with(
+    path: &str,
     profile: &str,
     tun: &str,
     pool_cidr: &str,
     listen: &str,
     port: u16,
 ) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
+    for proto in ["udp", "tcp"] {
+        let args = dns_input_rule(profile, tun, pool_cidr, listen, port, proto);
+        if let Err(error) = delete_exact_rule(path, "filter", "INPUT", &args) {
+            errors.push(format!("{proto}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("DNS INPUT cleanup failed: {}", errors.join("; "))
+    }
+}
+
+/// Exact ownership token for the INPUT permits installed by [`enable_dns_input`].
+///
+/// The ordinary tag sweep remains useful on compatible hosts and at worker startup. This lease
+/// is the graceful-teardown authority on hosts whose mixed native nftables chain cannot be listed
+/// through `iptables-nft -S`, even though exact `-C`/`-D` operations work.
+#[derive(Debug)]
+pub(crate) struct DnsInputLease {
+    profile: String,
+    tun: String,
+    pool_cidr: String,
+    listen: String,
+    port: u16,
+}
+
+impl Drop for DnsInputLease {
+    fn drop(&mut self) {
+        let _firewall_guard = firewall_program_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ipv6 = self
+            .listen
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_ipv6());
+        let path = if ipv6 {
+            ip6tables_path()
+        } else {
+            iptables_path()
+        };
+        let Some(path) = path else {
+            log::error!(
+                "Profile '{}': cannot remove DNS INPUT permits because the firewall tool disappeared",
+                self.profile
+            );
+            return;
+        };
+        if let Err(error) = cleanup_dns_input_with(
+            &path,
+            &self.profile,
+            &self.tun,
+            &self.pool_cidr,
+            &self.listen,
+            self.port,
+        ) {
+            log::error!("Profile '{}': {error}", self.profile);
+        }
+    }
+}
+
+/// Permit only this profile's clients to reach its in-process DNS proxy.
+///
+/// Full-tunnel traffic normally crosses `FORWARD`, but the pushed resolver is the server's
+/// own TUN address and therefore crosses `INPUT`. Keep the exception narrow: exact interface,
+/// client pool, resolver address and port, for both DNS transports.
+pub(crate) fn enable_dns_input(
+    profile: &str,
+    tun: &str,
+    pool_cidr: &str,
+    listen: &str,
+    port: u16,
+) -> anyhow::Result<DnsInputLease> {
     let _firewall_guard = firewall_program_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1004,14 +1106,25 @@ pub fn enable_dns_input(
         }
     }
     if !unapplied.is_empty() {
-        match input_policy(&path) {
-            Some(status) if status.unconditionally_accepts => log::warn!(
+        let status = input_policy(&path);
+        if status
+            .as_ref()
+            .is_some_and(|value| value.unconditionally_accepts)
+        {
+            log::warn!(
                 "Profile '{profile}': DNS INPUT rule(s) for {} could not be verified, but the \
                  empty built-in chain has policy ACCEPT. If you tighten it later, permit {listen}:{port} \
                  from {pool_cidr} on {tun} yourself.",
                 unapplied.join("+")
-            ),
-            status => anyhow::bail!(
+            );
+        } else {
+            if let Err(error) = cleanup_dns_input_with(&path, profile, tun, pool_cidr, listen, port)
+            {
+                log::error!(
+                    "Profile '{profile}': partial DNS INPUT rollback failed after setup refusal: {error}"
+                );
+            }
+            anyhow::bail!(
                 "could not install DNS INPUT rule(s) for {} on {} and the observed INPUT \
                  chain state is {} - clients would receive {} as their resolver but queries may \
                  be firewalled",
@@ -1019,13 +1132,19 @@ pub fn enable_dns_input(
                 tun,
                 status.as_ref().map_or("unknown", |value| value.summary()),
                 listen
-            ),
+            );
         }
     }
     log::info!(
         "Profile '{profile}': DNS INPUT permit {pool_cidr} via {tun} -> {listen}:{port}, udp+tcp"
     );
-    Ok(())
+    Ok(DnsInputLease {
+        profile: profile.to_string(),
+        tun: tun.to_string(),
+        pool_cidr: pool_cidr.to_string(),
+        listen: listen.to_string(),
+        port,
+    })
 }
 
 /// Pure L3 routing WITHOUT NAT (`routing.forward_private`): enable `net.ipv4.ip_forward`
@@ -1434,7 +1553,7 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        chain_policy_from_output, cross_profile_drop_rules, dns_input_rule,
+        chain_policy_from_output, cross_profile_drop_rules, dns_input_rule, exact_delete_args,
         forward_permit_position_from_listing, ipv6_off_rules, ipv6_rules, resolve_wan_ipv6,
         rule_comment, server_sysctl_scope, tag,
     };
@@ -1648,6 +1767,36 @@ mod tests {
         assert_eq!(
             dns_input_rule("udp-obfs", "vpn8", "10.9.8.0/24", "10.9.8.1", 53, "udp"),
             [
+                "-i",
+                "vpn8",
+                "-s",
+                "10.9.8.0/24",
+                "-p",
+                "udp",
+                "-d",
+                "10.9.8.1",
+                "--dport",
+                "53",
+                "-m",
+                "comment",
+                "--comment",
+                "qeli-nat:udp-obfs",
+                "-j",
+                "ACCEPT",
+            ]
+        );
+    }
+
+    #[test]
+    fn exact_dns_cleanup_replays_the_owned_rule_without_listing_the_chain() {
+        let rule = dns_input_rule("udp-obfs", "vpn8", "10.9.8.0/24", "10.9.8.1", 53, "udp");
+        assert_eq!(
+            exact_delete_args("filter", "INPUT", &rule),
+            [
+                "-t",
+                "filter",
+                "-D",
+                "INPUT",
                 "-i",
                 "vpn8",
                 "-s",
