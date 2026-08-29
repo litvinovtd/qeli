@@ -1026,8 +1026,11 @@ control/status и transport-aware dashboard показывают worker-lifetime
 Live netns-матрица реальных бинарников 0.8.0↔0.7.14 прошла 24/24 проверки для TCP и UDP.
 Current-server/legacy-client и legacy-server/current-`auto` создают TUN, передают трафик и
 выполняют ровно одну полную AUTH без входа в roaming. Current-`required` с legacy server при
-повторных попытках остаётся до TUN и полной AUTH. Открытыми остаются полный 10k, остальные UDP
-camouflage modes и платформенные gates.
+повторных попытках остаётся до TUN и полной AUTH. Репрезентативный Linux TAP gate прошёл TCP
+fake-TLS 17/17 и UDP QUIC 19/19 с сохранением того же TAP, процесса и authenticated session;
+повторный default-TUN gate прошёл те же 17/17 и 19/19. Harness сверяет фактический kernel kind,
+а оба типа устройства используют одну TCP/UDP roaming state machine. Открытыми остаются полный
+10k и платформенные gates.
 
 ## 15. Проверки и release gates
 
@@ -1066,7 +1069,8 @@ camouflage modes и платформенные gates.
 ### End-to-end матрица
 
 - inner IPv4, IPv6, dual-stack на outer IPv4 и IPv6;
-- TUN и TAP;
+- TUN и TAP — ✅ representative Linux TCP fake-TLS 17/17 и UDP QUIC 19/19 для обоих типов,
+  с проверкой фактического kernel `tun_flags` и сохранения экземпляра устройства;
 - все TCP режимы;
 - UDP fakeTLS/QUIC/obfs/AWG с DATA_FRAG;
 - max_streams 1, fixed и adaptive;

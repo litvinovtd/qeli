@@ -138,6 +138,12 @@
   трафик сохранились без reconnect. REALITY gate использует отдельный реальный TLS target, проверяет
   заимствование TLS shape и цепочки сертификатов, прозрачный decoy bridge, точный pinned identity и
   настоящий HTTP/2 carrier. Runner явно пожинает фоновые server/client/target jobs при очистке.
+- Общие Linux TCP/UDP roaming harness теперь принимают `QELI_ROAMING_DEVICE_TYPE=tun|tap`,
+  создают выбранный тип на сервере и клиенте и fail-closed сверяют фактический kernel `tun_flags`.
+  Lab TAP gate прошёл TCP fake-TLS 17/17 и UDP QUIC 19/19: после A→B сохранились PID,
+  тот же TAP и одна authenticated session без top-level reconnect. Повторный default-TUN gate
+  прошёл те же 17/17 и 19/19, поэтому параметризация не меняет прежний путь. TUN/TAP используют
+  одну roaming state machine; отдельной реализации транспорта для TAP не добавлено.
 - Добавлен отдельный `roaming_wire` fuzz-target для произвольных UDP CID-заголовков, TCP resume
   JOIN/proof и `PATH_*` control bodies; валидные round-trip инварианты и tampered-proof path
   проверяются вместе с reject-путями. Цель включена в обязательный CI smoke и nightly matrix.

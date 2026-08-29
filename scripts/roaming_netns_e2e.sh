@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Linux TCP make-before-break integration test. Everything runs in three isolated network
 # namespaces; no host route or production process is changed.
+# QELI_ROAMING_DEVICE_TYPE selects a Linux tun or tap endpoint on both sides (default: tun).
 #
 #                         10.40.1.0/24 (path A)
 #                    +--------------------------------+
@@ -21,7 +22,8 @@ export LC_ALL=C
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
 WIRE_MODE=${3:-${QELI_ROAMING_TCP_WIRE_MODE:-fake-tls}}
-WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}
+DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
+WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
 SRV_NS=qrm-srv
@@ -43,6 +45,18 @@ case "$CASE" in
   success|soak) ;;
   *)
     usage
+    exit 2
+    ;;
+esac
+case "$DEVICE_TYPE" in
+  tun)
+    EXPECTED_DEVICE_KIND=1
+    ;;
+  tap)
+    EXPECTED_DEVICE_KIND=2
+    ;;
+  *)
+    echo "QELI_ROAMING_DEVICE_TYPE must be tun or tap" >&2
     exit 2
     ;;
 esac
@@ -220,6 +234,7 @@ bind.port = 4443
 bind.transport = tcp
 roaming.enabled = true
 tun.name = qrms0
+tun.device_type = $DEVICE_TYPE
 tun.address = 10.88.0.1
 tun.mtu = 1400
 pool.cidr = 10.88.0.0/24
@@ -248,6 +263,10 @@ fi
 ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4443'" || bad "server did not listen"
+wait_for 50 "ip netns exec $SRV_NS ip link show qrms0" || bad "server tunnel device did not come up"
+check "server $DEVICE_TYPE device has the requested kernel kind" \
+  "flags=\$(ip netns exec $SRV_NS cat /sys/class/net/qrms0/tun_flags); \
+   test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
 if [ "$REALITY_TARGET" = true ]; then
   check "REALITY server borrowed the target TLS shape and certificate" \
     "grep -q 'borrowed TLS shape.*real cert chain: captured' $WORK/server.log"
@@ -267,6 +286,7 @@ pass = roam-pass-1234
 mode = $CLIENT_OBF_MODE
 $CLIENT_OBF_EXTRA
 dev = qrm0
+device_type = $DEVICE_TYPE
 bind_static = $CLIENT_BIND_STATIC
 gateway = true
 dns = off
@@ -279,7 +299,10 @@ ip netns exec "$CLI_NS" env QELI_KNOWN_HOSTS="$WORK/client-known-hosts" \
   QELI_DEVICE_ID_FILE="$WORK/client-device-id" \
   "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
 CLIENT_JOB_PID=$!
-wait_for 100 "ip netns exec $CLI_NS ip link show qrm0" || bad "client TUN did not come up"
+wait_for 100 "ip netns exec $CLI_NS ip link show qrm0" || bad "client tunnel device did not come up"
+check "client $DEVICE_TYPE device has the requested kernel kind" \
+  "flags=\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/tun_flags); \
+   test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
 
 CLIENT_PID=$(ip netns pids "$CLI_NS" 2>/dev/null | head -n1)
 TUN_IFINDEX=$(ip netns exec "$CLI_NS" cat /sys/class/net/qrm0/ifindex 2>/dev/null || true)
@@ -322,7 +345,7 @@ check "tunnel survives removal of old path A" \
   "ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
 check "client process survived without reconnect" \
   "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
-check "the same TUN instance survived handover" \
+check "the same tunnel device instance survived handover" \
   "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/ifindex)\" = '$TUN_IFINDEX'"
 check "handover did not enter the top-level reconnect loop" \
   "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
@@ -335,7 +358,7 @@ check "continuous probe retained at least 140 of 150 packets" \
 fi
 
 echo
-echo "=== RESULT ($WIRE_MODE/$CASE): $PASS passed, $FAIL failed ==="
+echo "=== RESULT ($WIRE_MODE/$CASE/$DEVICE_TYPE): $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -ne 0 ]; then
   echo "--- client.log (tail) ---"
   tail -n 120 "$WORK/client.log"

@@ -784,8 +784,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
   every UDP camouflage mode. It checks PID/TUN, AUTH/reconnect, exact routes, independent client/server
   commit counts, fd, and sampled RSS. The 100-migration TCP and all four UDP wire-mode harness
-  smokes pass while retaining one authenticated session. The UDP all-modes wrapper forwards the
-  same selected case, including `soak`, through QUIC, fake-TLS, obfs, and obfs+AWG. A live
+  smokes pass while retaining one authenticated session. The representative Linux TAP gate passes
+  TCP fake-TLS 17/17 and UDP QUIC 19/19 while preserving the same TAP, process, and authenticated
+  session across the handover; the default TUN regression passes the same 17/17 and 19/19. Both
+  device types use the same TCP/UDP roaming state machines and the harness verifies their actual
+  kernel kind. The UDP all-modes wrapper forwards the same selected case, including `soak`, through
+  QUIC, fake-TLS, obfs, and obfs+AWG. A live
   0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current server with legacy client and
   legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
   while current `required` remains pre-TUN and pre-full-AUTH across retries. The full 10k and

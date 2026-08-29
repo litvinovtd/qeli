@@ -3,6 +3,7 @@
 # fake-tls, obfs, or obfs-awg; all use the same authenticated CID migration after AuthOK.
 # Everything runs in three isolated network namespaces; no host route or production process is
 # changed. The success case commits path B;
+# QELI_ROAMING_DEVICE_TYPE selects a Linux tun or tap endpoint on both sides (default: tun).
 # rollback blackholes B; supersede replaces that in-flight candidate with reachable path C;
 # commit-race changes to C while the platform is still committing B; loss-replay drops the first
 # PATH_CHALLENGE and PATH_COMMIT and requires fresh encrypted retries to finish the handover;
@@ -24,7 +25,8 @@ export LC_ALL=C
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
 WIRE_MODE=${QELI_ROAMING_UDP_WIRE_MODE:-quic}
-WORK=/tmp/qeli-roaming-udp-netns
+DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
+WORK=/tmp/qeli-roaming-udp-netns-${DEVICE_TYPE}
 CLI_NS=qru-cli
 RTR_NS=qru-rtr
 SRV_NS=qru-srv
@@ -41,6 +43,18 @@ case "$CASE" in
   success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind|soak) ;;
   *)
     echo "usage: $0 [qeli-binary] [success|rollback|supersede|commit-race|loss-replay|pmtu|pmtu-asym|drain-reorder|family-switch|frag-loss|nat-rebind|soak]" >&2
+    exit 2
+    ;;
+esac
+case "$DEVICE_TYPE" in
+  tun)
+    EXPECTED_DEVICE_KIND=1
+    ;;
+  tap)
+    EXPECTED_DEVICE_KIND=2
+    ;;
+  *)
+    echo "QELI_ROAMING_DEVICE_TYPE must be tun or tap" >&2
     exit 2
     ;;
 esac
@@ -267,6 +281,7 @@ bind.transport = udp
 roaming.enabled = true
 $EXTRA_LISTENER
 tun.name = qrus0
+tun.device_type = $DEVICE_TYPE
 tun.address = 10.89.0.1
 tun.mtu = 1400
 pool.cidr = 10.89.0.0/24
@@ -290,6 +305,10 @@ EOF
 ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnu | grep -q ':4444'" || bad "server did not listen"
+wait_for 50 "ip netns exec $SRV_NS ip link show qrus0" || bad "server tunnel device did not come up"
+check "server $DEVICE_TYPE device has the requested kernel kind" \
+  "flags=\$(ip netns exec $SRV_NS cat /sys/class/net/qrus0/tun_flags); \
+   test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
 
 if [ "$CASE" = family-switch ]; then
   check "server owns distinct IPv4 and IPv6 UDP listeners" \
@@ -306,6 +325,7 @@ mode = $CLIENT_OBF_MODE
 quic = $QUIC_ENABLED
 $CLIENT_OBF_EXTRA
 dev = qru0
+device_type = $DEVICE_TYPE
 bind_static = false
 gateway = true
 dns = off
@@ -350,7 +370,10 @@ EOF
 fi
 ip netns exec "$CLI_NS" "${CLIENT_ENV[@]}" "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
 CLIENT_JOB_PID=$!
-wait_for 100 "ip netns exec $CLI_NS ip link show qru0" || bad "client TUN did not come up"
+wait_for 100 "ip netns exec $CLI_NS ip link show qru0" || bad "client tunnel device did not come up"
+check "client $DEVICE_TYPE device has the requested kernel kind" \
+  "flags=\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/tun_flags); \
+   test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
 
 CLIENT_PID=$(ip netns pids "$CLI_NS" 2>/dev/null | head -n1)
 TUN_IFINDEX=$(ip netns exec "$CLI_NS" cat /sys/class/net/qru0/ifindex 2>/dev/null || true)
@@ -742,7 +765,7 @@ check "tunnel survives removal of old path A" \
   "ip netns exec $CLI_NS ping -c5 -W1 10.89.0.1"
 check "client process survived without reconnect" \
   "test -n '$CLIENT_PID' && ip netns pids $CLI_NS | grep -qx '$CLIENT_PID'"
-check "the same TUN instance survived handover" \
+check "the same tunnel device instance survived handover" \
   "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qru0/ifindex)\" = '$TUN_IFINDEX'"
 check "handover did not enter the top-level reconnect loop" \
   "! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log"
@@ -755,7 +778,7 @@ check "continuous probe retained at least 140 of 150 packets" \
 fi
 
 echo
-echo "=== RESULT: $PASS passed, $FAIL failed ==="
+echo "=== RESULT ($WIRE_MODE/$CASE/$DEVICE_TYPE): $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -ne 0 ]; then
   echo "--- client.log (tail) ---"
   tail -n 160 "$WORK/client.log"
