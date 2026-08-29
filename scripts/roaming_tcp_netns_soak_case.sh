@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by roaming_netns_e2e.sh for repeated same-session TCP path migration.
 # The release gate defaults to 10,000 committed A/B flips. Set
 # QELI_ROAMING_SOAK_ITERATIONS to a smaller value only for harness smoke tests.

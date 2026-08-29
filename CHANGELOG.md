@@ -131,6 +131,12 @@
   вычисление каталога runner не зависит от внешнего `CDPATH`. После safety-правок feature release
   повторно прошёл success matrix для `quic`, `fake-tls`, `obfs` и `obfs-awg`: 4/4 режима,
   каждый 17/17 без замены PID/TUN или top-level reconnect.
+- TCP netns runner использует один roaming path для self-contained `fake-tls`, `plain`, `obfs-ws`,
+  `obfs-none` и `obfs-awg`, а `roaming_tcp_all_modes_netns_e2e.sh` последовательно проверяет их
+  без копирования transport-логики. Feature release прошёл 5/5 режимов, каждый 15/15: candidate
+  был подготовлен и присоединён с path B, PID/TUN и трафик сохранились без reconnect. Runner
+  теперь явно пожинает фоновые server/client jobs при очистке. `reality-tls` не подменяется
+  упрощённым netns и остаётся отдельным gate с реальным TLS/HTTP2 target и pinned identity.
 - Linux `exit_node` теперь обновляет WAN-зависимые MARK/MASQUERADE/FORWARD и sysctl leases до
   публикации нового carrier route при roaming COMMIT. Состояние хранится отдельно для каждого TUN,
   поэтому обычный исходящий профиль в том же daemon-процессе не может унаследовать exit-node rules;

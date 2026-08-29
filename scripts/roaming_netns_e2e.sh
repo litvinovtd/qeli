@@ -20,17 +20,62 @@ export LC_ALL=C
 
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
-WORK=/tmp/qeli-roaming-netns
+WIRE_MODE=${3:-${QELI_ROAMING_TCP_WIRE_MODE:-fake-tls}}
+WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
 SRV_NS=qrm-srv
 PASS=0
 FAIL=0
+SERVER_JOB_PID=
+CLIENT_JOB_PID=
 
+usage() {
+  echo "usage: $0 [qeli-binary] [success|soak] [fake-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+}
+
+if [ "$#" -gt 3 ]; then
+  usage
+  exit 2
+fi
 case "$CASE" in
   success|soak) ;;
   *)
-    echo "usage: $0 [qeli-binary] [success|soak]" >&2
+    usage
+    exit 2
+    ;;
+esac
+
+SERVER_OBF_MODE=fake-tls
+CLIENT_OBF_MODE=fake-tls
+SERVER_OBF_EXTRA=
+CLIENT_OBF_EXTRA=
+case "$WIRE_MODE" in
+  fake-tls) ;;
+  plain)
+    SERVER_OBF_MODE=plain
+    CLIENT_OBF_MODE=plain
+    ;;
+  obfs-ws)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA=$'obf.obfs_key = roam-tcp-obfs-key-1234\nobf.obfs_fronting = websocket'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-tcp-obfs-key-1234\nfront = websocket'
+    ;;
+  obfs-none)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA=$'obf.obfs_key = roam-tcp-obfs-key-1234\nobf.obfs_fronting = none'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-tcp-obfs-key-1234\nfront = none'
+    ;;
+  obfs-awg)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA=$'obf.obfs_key = roam-tcp-obfs-key-1234\nobf.obfs_fronting = websocket\nobf.awg.enabled = true\nobf.awg.jc = 4\nobf.awg.jmin = 48\nobf.awg.jmax = 160'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-tcp-obfs-key-1234\nfront = websocket\nawg = true\njc = 4\njmin = 48\njmax = 160'
+    ;;
+  *)
+    usage
     exit 2
     ;;
 esac
@@ -56,6 +101,8 @@ run_case_helper() {
     echo "required TCP roaming case helper is missing: $helper" >&2
     return 2
   fi
+  # The validated case-specific helper is selected at runtime.
+  # shellcheck disable=SC1090
   if ! . "$helper"; then
     echo "failed to load TCP roaming case helper: $helper" >&2
     return 2
@@ -68,6 +115,12 @@ run_case_helper() {
 }
 
 cleanup() {
+  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID"; do
+    if [ -n "$pid" ]; then
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
   ip netns pids "$CLI_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
   ip netns pids "$SRV_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
   for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do
@@ -135,7 +188,8 @@ tun.address = 10.88.0.1
 tun.mtu = 1400
 pool.cidr = 10.88.0.0/24
 pool.exclude = 10.88.0.1
-obf.mode = fake-tls
+obf.mode = $SERVER_OBF_MODE
+$SERVER_OBF_EXTRA
 perf.connection.max_clients = 8
 perf.connection.handshake_timeout_secs = 10
 perf.connection.new_session_rate_max = 100
@@ -144,6 +198,7 @@ EOF
 : >"$WORK/users.conf"
 "$BIN" add-client roam-user -p roam-pass-1234 -c "$WORK/server.conf" >/dev/null 2>&1
 ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
+SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4443'" || bad "server did not listen"
 
 cat >"$WORK/client.conf" <<EOF
@@ -153,7 +208,8 @@ proto = tcp
 roaming = required
 user = roam-user
 pass = roam-pass-1234
-mode = fake-tls
+mode = $CLIENT_OBF_MODE
+$CLIENT_OBF_EXTRA
 dev = qrm0
 bind_static = false
 gateway = true
@@ -164,6 +220,7 @@ timeout = 5
 level = info
 EOF
 ip netns exec "$CLI_NS" "$BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
+CLIENT_JOB_PID=$!
 wait_for 100 "ip netns exec $CLI_NS ip link show qrm0" || bad "client TUN did not come up"
 
 CLIENT_PID=$(ip netns pids "$CLI_NS" 2>/dev/null | head -n1)
@@ -176,7 +233,7 @@ check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.88.0.1"
 
 if [ "$CASE" = soak ]; then
-  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_tcp_netns_soak_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_soak_case.sh" run_tcp_soak_case || exit $?
 else
@@ -220,7 +277,7 @@ check "continuous probe retained at least 140 of 150 packets" \
 fi
 
 echo
-echo "=== RESULT: $PASS passed, $FAIL failed ==="
+echo "=== RESULT ($WIRE_MODE/$CASE): $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -ne 0 ]; then
   echo "--- client.log (tail) ---"
   tail -n 120 "$WORK/client.log"

@@ -128,13 +128,15 @@
 > рабочем каталоге; TCP и все UDP-маскировки проходят один общий exit-node COMMIT path.
 > Текущие lab gates: 972 feature library tests при трёх ignored, 881 default tests при
 > одном ignored, strict default/feature Clippy, базовый Linux netns 26/26, exit-node TCP 35/35,
-> exit-node UDP 4/4 режима по 35/35, TCP roaming netns 15/15,
+> exit-node UDP 4/4 режима по 35/35, TCP self-contained wire matrix 5/5 режимов по 15/15,
 > UDP roaming netns success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24 и
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19 и
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25 и
 > same-network NAT dead-mapping 21/21,
 > Android x86_64 NDK release с
 > `-D warnings` и Gradle unit/assemble. Полная platform/race/soak matrix остаётся release gate. Целевая версия — 0.8.x.
+> TCP matrix покрывает `fake-tls`, `plain`, `obfs-ws`, `obfs-none` и `obfs-awg` одним runner;
+> отдельная live-приёмка `reality-tls` с TLS/HTTP2 target и pinned identity остаётся открытой.
 > Каждый live Linux TCP/UDP netns-профиль явно включает server rollout и использует client
 > `required`, поэтому reconnect fallback не может дать зелёную миграцию. Вынесенные UDP case
 > helpers загружаются fail-closed; отсутствие helper проверено как `rc=2`, а не ложный `0 failed`.
