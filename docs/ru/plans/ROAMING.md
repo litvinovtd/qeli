@@ -994,6 +994,12 @@ control/status и transport-aware dashboard показывают worker-lifetime
 - staged enablement;
 - проверка fallback на legacy peers.
 
+Live netns-матрица реальных бинарников 0.8.0↔0.7.14 прошла 24/24 проверки для TCP и UDP.
+Current-server/legacy-client и legacy-server/current-`auto` создают TUN, передают трафик и
+выполняют ровно одну полную AUTH без входа в roaming. Current-`required` с legacy server при
+повторных попытках остаётся до TUN и полной AUTH. Открытыми остаются полный 10k, остальные UDP
+camouflage modes и платформенные gates.
+
 ## 15. Проверки и release gates
 
 ### Протокол и криптография
@@ -1042,7 +1048,9 @@ control/status и transport-aware dashboard показывают worker-lifetime
 - sleep меньше и больше grace;
 - A/AAAA reorder и DNS64/NAT64;
 - legacy peer fallback — ✅ source regression для TCP/UDP, absent trailer и pre-`AUTH_EXT_V1`;
-  live mixed-version бинарная матрица остаётся впереди;
+  ✅ live 0.8.0↔0.7.14 netns-матрица прошла 24/24 проверки: совместимые TCP/UDP пары выполняют
+  одну полную AUTH и передают трафик без roaming, а `required` с legacy server остаётся до TUN/
+  полной AUTH при повторных попытках;
 - отрицательный тест multi-process/multi-node.
 
 Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,

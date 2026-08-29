@@ -100,7 +100,11 @@
 - Capability regression теперь для TCP и UDP фиксирует оба legacy-варианта: peer без capability
   trailer и pre-`AUTH_EXT_V1` peer. Политика `auto` в обоих случаях оставляет byte-for-byte legacy
   AUTH и обычный reconnect fallback, а `required` отказывает fail-closed до credentials/полной
-  аутентификации. Live mixed-version бинарная матрица остаётся отдельным этапом 6 gate.
+  аутентификации. Live mixed-version netns-матрица на реальных бинарниках 0.8.0↔0.7.14 прошла
+  24/24 проверки для TCP и UDP: current-server/legacy-client и legacy-server/current-`auto`
+  устанавливают TUN, передают трафик и выполняют ровно одну полную AUTH без входа в roaming,
+  а current-`required` с legacy server при повторных попытках остаётся до TUN/полной AUTH.
+  Тестовые серверы используют отдельные control sockets и не пересекаются с сервисом лабы.
 - Добавлен конфигурируемый same-session UDP soak case: release-default выполняет 10 000
   последовательных A↔B PATH_COMMIT и на всём цикле контролирует PID/TUN, одну AUTH, отсутствие
   reconnect, единственный exact carrier route, число client/server commit, fd и sampled RSS.

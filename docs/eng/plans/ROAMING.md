@@ -750,7 +750,10 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
   every UDP camouflage mode. It checks PID/TUN, AUTH/reconnect, exact routes, independent client/server
   commit counts, fd, and sampled RSS. The 100-migration TCP and QUIC harness smokes pass while retaining
-  one authenticated session; the full 10k, remaining UDP camouflage, and platform gates remain open.
+  one authenticated session. A live 0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current
+  server with legacy client and legacy server with current `auto` carry traffic after one full AUTH
+  without entering roaming, while current `required` remains pre-TUN and pre-full-AUTH across retries.
+  The full 10k, remaining UDP camouflage, and platform gates remain open.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.
@@ -759,7 +762,10 @@ roaming lifecycle only after the authenticated client extension opts in. Legacy 
 normal full-reconnect path, so rollout does not require a lockstep server/client upgrade.
 A source regression now pins this for both TCP and UDP against both an absent capability trailer
 and a pre-`AUTH_EXT_V1` peer: `auto` keeps legacy AUTH, while `required` fails before credentials/
-full AUTH. The live mixed-version binary matrix remains an open Phase 6 gate.
+full AUTH. The live netns matrix additionally validates the actual 0.8.0 and 0.7.14 binaries in both
+server/client directions for TCP and UDP. All compatible pairs establish a TUN, carry traffic, and
+perform exactly one full AUTH without negotiating roaming; `required` against the legacy server
+remains fail-closed before the TUN and full AUTH even while the headless CLI retries.
 The initial server default is off and client policy is auto. Any failed or unsupported
 transaction rolls back candidate resources and falls back to a full reconnect.
 
