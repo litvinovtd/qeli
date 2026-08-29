@@ -42,14 +42,14 @@ pub(crate) fn candidate_socket_handle(socket: &Socket) -> anyhow::Result<i64> {
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
-        return Ok(i64::from(socket.as_raw_fd()));
+        Ok(i64::from(socket.as_raw_fd()))
     }
     #[cfg(windows)]
     {
         use std::os::windows::io::AsRawSocket;
-        return i64::try_from(socket.as_raw_socket()).map_err(|_| {
+        i64::try_from(socket.as_raw_socket()).map_err(|_| {
             anyhow::anyhow!("candidate socket handle is outside the signed 64-bit ABI range")
-        });
+        })
     }
     #[cfg(not(any(unix, windows)))]
     {
