@@ -109,6 +109,13 @@
   client RSS уложился в 32 MiB budget. Это проверка harness; полный 10k и остальные
   transport/platform soak gates пока не объявляются закрытыми.
 
+- Добавлен симметричный same-session TCP soak case: release-default выполняет 10 000 A↔B
+  make-before-break commit и сверяет точное число независимых client commit, server commit и JOIN,
+  единственную первичную AUTH, отсутствие reconnect/grace, PID/TUN, exact carrier route, fd и sampled
+  RSS. Lab smoke прошёл 100 последовательных миграций за 223 секунды: client/server fd остались
+  13/10, server RSS был стабилен, а рост client RSS составил около 1,5 MiB при бюджете 32 MiB.
+  Полный TCP 10k и остальные transport/platform soak gates остаются открытыми.
+
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
   согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor

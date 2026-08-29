@@ -19,12 +19,21 @@ set -o pipefail
 export LC_ALL=C
 
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
+CASE=${2:-${CASE:-success}}
 WORK=/tmp/qeli-roaming-netns
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
 SRV_NS=qrm-srv
 PASS=0
 FAIL=0
+
+case "$CASE" in
+  success|soak) ;;
+  *)
+    echo "usage: $0 [qeli-binary] [success|soak]" >&2
+    exit 2
+    ;;
+esac
 
 ok() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
@@ -39,6 +48,23 @@ wait_for() { # $1=attempts, $2=command
     sleep 0.2
   done
   return 1
+}
+
+run_case_helper() {
+  local helper=$1 entry=$2
+  if [ ! -r "$helper" ]; then
+    echo "required TCP roaming case helper is missing: $helper" >&2
+    return 2
+  fi
+  if ! . "$helper"; then
+    echo "failed to load TCP roaming case helper: $helper" >&2
+    return 2
+  fi
+  if ! type "$entry" >/dev/null 2>&1; then
+    echo "TCP roaming case helper does not define $entry: $helper" >&2
+    return 2
+  fi
+  "$entry"
 }
 
 cleanup() {
@@ -149,6 +175,11 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.88.0.1"
 
+if [ "$CASE" = soak ]; then
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=roaming_tcp_netns_soak_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_soak_case.sh" run_tcp_soak_case || exit $?
+else
 # Give the observer enough time to establish its A baseline, then make B the physical default.
 sleep 3
 ip netns exec "$CLI_NS" ping -n -i 0.2 -c 150 -W1 10.88.0.1 >"$WORK/ping.log" 2>&1 &
@@ -186,6 +217,7 @@ PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); 
   "$WORK/ping.log" | tail -n1)
 check "continuous probe retained at least 140 of 150 packets" \
   "test -n '$PING_RX' && test '$PING_RX' -ge 140"
+fi
 
 echo
 echo "=== RESULT: $PASS passed, $FAIL failed ==="
