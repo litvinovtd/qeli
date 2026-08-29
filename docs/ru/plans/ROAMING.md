@@ -963,7 +963,7 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 Каждая платформа проходит prepare/bind/commit/rollback тесты до включения capability.
 
-### Этап 5. Конфиги, приложения и панель — 🟡 модели/round-trip/docs + desktop GUI
+### Этап 5. Конфиги, приложения и панель — 🟡 модели/round-trip/docs + GUI controls
 
 - flat-INI parsing/defaults/validation/round-trip;
 - GUI editors и встроенные quick-start режимы;
@@ -973,10 +973,10 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 Flat-INI defaults/validation, все Rust/Kotlin/C#/Swift модели, non-default `qeli://` share
 и основной RU/EN config reference реализованы. Общий fixture фиксирует `required` round-trip
-и отказ от неизвестного значения. Редакторы Windows и macOS явно предлагают
-`Автоматически / Обязательно / Отключено`, сохраняют выбор через общий C# model и отклоняют
-`required` при скрытом source pin. Впереди остаются controls Android/iOS, панель/API/метрики
-и проверка packaged examples.
+и отказ от неизвестного значения. Все четыре редактора Windows/macOS/Android/iOS явно предлагают
+`Автоматически / Обязательно / Отключено`, сохраняют выбор через общую платформенную модель и
+отклоняют `required` при скрытом source pin. Впереди остаются панель/API/метрики и проверка
+packaged examples.
 
 ### Этап 6. Лаба, soak и rollout
 

@@ -113,6 +113,13 @@
     <string name="edit_profile_title">Изменить профиль</string>
     <string name="profile_name_hint">Название профиля</string>
     <string name="config_ini_label">Конфиг (INI)</string>
+    <string name="roaming_policy_label">Роуминг сессии</string>
+    <string-array name="roaming_policy_options">
+        <item>Автоматически (если поддерживается)</item>
+        <item>Обязательно</item>
+        <item>Отключено</item>
+    </string-array>
+    <string name="roaming_policy_hint">Авто сохраняет авторизованную сессию при смене сети, когда это поддерживается, иначе переподключается. «Обязательно» отклоняет неподдерживаемый сервер или платформу.</string>
     <string name="add_profile_title">Добавить профиль</string>
     <string name="add_scan_qr">Сканировать QR-код</string>
     <string name="add_paste_link">Вставить ссылку qeli://</string>

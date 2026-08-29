@@ -101,6 +101,13 @@
     <string name="edit_profile_title">Edit profile</string>
     <string name="profile_name_hint">Profile name</string>
     <string name="config_ini_label">Config (INI)</string>
+    <string name="roaming_policy_label">Session roaming</string>
+    <string-array name="roaming_policy_options">
+        <item>Automatic (when supported)</item>
+        <item>Required</item>
+        <item>Disabled</item>
+    </string-array>
+    <string name="roaming_policy_hint">Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms.</string>
     <string name="add_profile_title">Add profile</string>
     <string name="add_scan_qr">Scan QR code</string>
     <string name="add_paste_link">Paste qeli:// link</string>

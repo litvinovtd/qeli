@@ -1101,7 +1101,11 @@ ipv6 = auto
         val dlgBinding = DialogConfigEditorBinding.inflate(LayoutInflater.from(this))
         val editing = profiles.getOrNull(index)
         dlgBinding.editName.setText(editing?.name ?: getString(R.string.new_profile_title))
-        dlgBinding.editJson.setText(editing?.text ?: TEMPLATE)
+        val initialConfigText = editing?.text ?: TEMPLATE
+        dlgBinding.editJson.setText(initialConfigText)
+        val roamingPolicies = listOf("auto", "required", "off")
+        val initialRoaming = runCatching { VpnConfig.parse(initialConfigText).roaming }.getOrDefault("auto")
+        dlgBinding.spinnerRoaming.setSelection(roamingPolicies.indexOf(initialRoaming).coerceAtLeast(0))
 
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(getString(if (index < 0) R.string.new_profile_title else R.string.edit_profile_title))
@@ -1112,11 +1116,14 @@ ipv6 = auto
         dialog.show()
         dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val cfgText = dlgBinding.editJson.text.toString().trim()
-            val cfg = try { VpnConfig.parse(cfgText).also { it.validate() } } catch (e: Exception) {
+            val roamingPolicy = roamingPolicies.getOrElse(dlgBinding.spinnerRoaming.selectedItemPosition) { "auto" }
+            val cfg = try {
+                VpnConfig.parse(cfgText).copy(roaming = roamingPolicy).also { it.validate() }
+            } catch (e: Exception) {
                 Toast.makeText(this, getString(R.string.invalid_config, e.message ?: ""), Toast.LENGTH_LONG).show(); return@setOnClickListener
             }
-            // Re-emit as canonical INI so the stored text stays tidy/consistent.
-            val iniText = if (cfgText.trimStart().startsWith("{")) cfg.toIni() else cfgText
+            // The form owns roaming; canonical INI keeps every modelled/carried portable key.
+            val iniText = cfg.toIni()
             var name = dlgBinding.editName.text.toString().trim()
             if (name.isBlank()) name = cfg.serverAddress.ifBlank { getString(R.string.profile_fallback_name) }
             val candidate = profiles.map { it.copy() }.toMutableList()

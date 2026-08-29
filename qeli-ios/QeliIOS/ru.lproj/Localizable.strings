@@ -45,6 +45,11 @@
 "Edit profile" = "Изменить профиль";
 "Profile name" = "Имя профиля";
 "Config (INI)" = "Конфигурация (INI)";
+"Session roaming" = "Роуминг сессии";
+"Automatic (when supported)" = "Автоматически (если поддерживается)";
+"Required" = "Обязательно";
+"Disabled" = "Отключено";
+"Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms." = "Авто сохраняет авторизованную сессию при смене сети, когда это поддерживается, иначе переподключается. «Обязательно» отклоняет неподдерживаемый сервер или платформу.";
 "Share profile" = "Поделиться профилем";
 "The share link contains the profile credentials." = "Ссылка содержит учетные данные профиля.";
 "Done" = "Готово";

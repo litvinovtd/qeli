@@ -45,6 +45,11 @@
 "Edit profile" = "Edit profile";
 "Profile name" = "Profile name";
 "Config (INI)" = "Config (INI)";
+"Session roaming" = "Session roaming";
+"Automatic (when supported)" = "Automatic (when supported)";
+"Required" = "Required";
+"Disabled" = "Disabled";
+"Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms." = "Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms.";
 "Share profile" = "Share profile";
 "The share link contains the profile credentials." = "The share link contains the profile credentials.";
 "Done" = "Done";
