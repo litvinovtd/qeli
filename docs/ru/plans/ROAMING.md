@@ -967,7 +967,9 @@ deliberate DATA_FRAG-loss и same-network NAT dead-mapping приёмку.
 
 ### Этап 4. Платформы — 🟡 Linux/Android live, Windows/macOS/iOS executors source-complete
 
-- Linux/OpenWrt in-process TCP: detector/capability/live netns готовы; device/soak и exit-node впереди;
+- Linux/OpenWrt in-process TCP: detector/capability/live netns и общий exit-node gate готовы;
+  TCP прошёл 35/35, а `quic`, `fake-tls`, `obfs` и `obfs-awg` — по 35/35 каждый;
+  real-device/soak впереди;
 - Android TCP: exact Network DNS/bind/protect, PREPARE/BIND/COMMIT/ABORT, stale/supersede guards,
   Wi-Fi↔cellular и sleep/wake emulator live готовы; real-device/race/soak/NAT rebinding впереди;
 - Android UDP: тот же exact-Network transaction включён для fake-TLS/QUIC/obfs/AWG; общий Rust core

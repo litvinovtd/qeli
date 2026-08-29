@@ -764,9 +764,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   Linux IPv4 packet delay/reorder/duplicate
   and in-flight receive-drain acceptance, the Linux IPv4↔IPv6 PMTU round-trip, and deliberate
   bidirectional DATA_FRAG-loss are complete. Deterministic Linux same-network NAT dead-mapping is
-  accepted in netns; real-device race/soak/NAT-rebinding, Windows/macOS/iOS acceptance,
-  and exit-node acceptance remain.
-- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding matrix is accepted. The Windows shared core plus Windows/macOS/iOS path executors are source-complete; desktop/iOS device and race acceptance, iOS Xcode compilation, real-device soak/NAT-rebinding, and exit-node acceptance remain.
+  accepted in netns. Linux exit-node acceptance is complete for TCP and every UDP camouflage mode;
+  real-device race/soak/NAT-rebinding and Windows/macOS/iOS acceptance remain.
+- **Phase 4 — 🟡:** Linux/OpenWrt and Android TCP feature adapters are complete at initial
+  live-acceptance level; Android UDP is source-complete and its complete emulator NAT-rebinding
+  matrix is accepted. Linux exit-node TCP and all-UDP acceptance is complete. The Windows shared
+  core plus Windows/macOS/iOS path executors are source-complete; desktop/iOS device and race
+  acceptance, iOS Xcode compilation, and real-device soak/NAT-rebinding remain.
 - **Phase 5 — 🟢 source-complete:** flat-INI, non-default `qeli://` sharing,
   and all four client models/editors are complete. Windows/macOS/Android/iOS expose
   `Auto / Required / Off`, persist it through their shared platform model, and reject `required`
