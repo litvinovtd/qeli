@@ -39,4 +39,16 @@ mod tests {
         assert!(!CONFIG_PAGE.contains("📡"));
         assert!(!CONFIG_PAGE.contains("🔒"));
     }
+
+    #[test]
+    fn profile_form_exposes_lossless_roaming_policy() {
+        assert!(CONFIG_PAGE.contains("id=\"sec-roaming\""));
+        assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.enabled"));
+        assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.grace_secs"));
+        assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.max_orphaned"));
+        assert!(CONFIG_PAGE.contains("roamingMaxMiB(cfg.profiles[activeTab])"));
+        assert!(CONFIG_PAGE.contains("profile.roaming.max_orphan_bytes = mib * 1048576"));
+        assert!(CONFIG_PAGE.contains("roaming: { enabled: false, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }"));
+        assert!(CONFIG_PAGE.contains("Requires a server binary built with"));
+    }
 }

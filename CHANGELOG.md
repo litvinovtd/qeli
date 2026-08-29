@@ -70,6 +70,12 @@
   над полным INI. Сохранение изменяет общий ключ `roaming` через штатные Kotlin/Swift-модели и
   их валидацию; отдельной мобильной или UDP-only логики не добавлено.
 
+- В форме серверного профиля web-панели добавлена отдельная секция Session Roaming: единый
+  профильный переключатель для TCP и всех UDP camouflage modes, grace period, лимит ожидающих
+  сессий и лимит памяти в MiB. Старые/неполные JSON-профили нормализуются к безопасным default-off
+  значениям, а UI явно предупреждает, что включение требует feature-бинарник и иначе отклоняется
+  fail-closed.
+
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно
   согласует `PATH_REFRESH_EVENTS`/`PATH_REFRESH`: при authenticated RX silence общий UDP actor

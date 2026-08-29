@@ -121,8 +121,9 @@
 > Клиентская политика `off|auto|required`, transport-specific capability negotiation и
 > flat-INI/`qeli://` round-trip теперь source-complete в Rust, Kotlin, C# и Swift. `off` не
 > допускает TCP resume/handover, а все UDP camouflage modes используют тот же policy gate;
-> `required` fail-closed до credentials/полной AUTH. До завершения этапа 5 остаются явные GUI
-> controls, panel/API/metrics и packaged examples; device/soak gates этапа 6 не закрыты.
+> `required` fail-closed до credentials/полной AUTH. Все четыре клиентских GUI и профильные
+> настройки серверной панели/API готовы. До завершения этапа 5 остаются runtime-метрики/logging
+> и packaged examples; device/soak gates этапа 6 не закрыты.
 >
 > План повторно сверен с текущей архитектурой ветки dev после перехода всех приложений
 > на единое Rust-ядро. Документ задаёт обязательные инварианты реализации. Номера строк
@@ -975,8 +976,9 @@ Flat-INI defaults/validation, все Rust/Kotlin/C#/Swift модели, non-defa
 и основной RU/EN config reference реализованы. Общий fixture фиксирует `required` round-trip
 и отказ от неизвестного значения. Все четыре редактора Windows/macOS/Android/iOS явно предлагают
 `Автоматически / Обязательно / Отключено`, сохраняют выбор через общую платформенную модель и
-отклоняют `required` при скрытом source pin. Впереди остаются панель/API/метрики и проверка
-packaged examples.
+отклоняют `required` при скрытом source pin. Серверная панель/API показывает профильный
+default-off rollout switch, grace period и ограниченные бюджеты ожидающих сессий/памяти;
+впереди остаются runtime-метрики/logging и проверка packaged examples.
 
 ### Этап 6. Лаба, soak и rollout
 

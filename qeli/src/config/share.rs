@@ -411,9 +411,7 @@ impl ClientLink {
                     "jmax" => link.jmax = v.parse().unwrap_or(0),
                     "mtu" => link.mtu = v.parse().unwrap_or(0),
                     "roaming" => match v.trim().to_ascii_lowercase().as_str() {
-                        "off" | "auto" | "required" => {
-                            link.roaming = v.trim().to_ascii_lowercase()
-                        }
+                        "off" | "auto" | "required" => link.roaming = v.trim().to_ascii_lowercase(),
                         _ => {
                             return Err(LinkError("roaming must be off, auto or required"));
                         }
