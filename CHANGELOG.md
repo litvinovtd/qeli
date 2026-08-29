@@ -126,6 +126,11 @@
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и
   очистке временных network namespaces.
+- UDP netns/soak harness проходит строгий ShellCheck preflight: динамический case-helper явно
+  помечен как проверенный runtime source, очистка использует обязательный непустой `WORK`, а
+  вычисление каталога runner не зависит от внешнего `CDPATH`. После safety-правок feature release
+  повторно прошёл success matrix для `quic`, `fake-tls`, `obfs` и `obfs-awg`: 4/4 режима,
+  каждый 17/17 без замены PID/TUN или top-level reconnect.
 - Linux `exit_node` теперь обновляет WAN-зависимые MARK/MASQUERADE/FORWARD и sysctl leases до
   публикации нового carrier route при roaming COMMIT. Состояние хранится отдельно для каждого TUN,
   поэтому обычный исходящий профиль в том же daemon-процессе не может унаследовать exit-node rules;

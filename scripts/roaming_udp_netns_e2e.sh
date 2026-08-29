@@ -104,6 +104,8 @@ run_case_helper() {
     echo "required UDP roaming case helper is missing: $helper" >&2
     return 2
   fi
+  # The validated case-specific helper is selected at runtime.
+  # shellcheck disable=SC1090
   if ! . "$helper"; then
     echo "failed to load UDP roaming case helper: $helper" >&2
     return 2
@@ -136,7 +138,8 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$WORK"
 rm -f "$WORK"/*.log "$WORK"/*.conf
-rm -rf "$WORK/bin" "$WORK"/commit-race-*
+: "${WORK:?UDP roaming work directory must be set}"
+rm -rf -- "${WORK:?}/bin" "${WORK:?}"/commit-race-*
 
 for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do ip netns add "$ns"; done
 ip link add qru-a type veth peer name qru-ar
@@ -358,7 +361,7 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$CASE" = drain-reorder ]; then
   # shellcheck source=roaming_udp_netns_drain_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh" run_drain_reorder_case || exit $?

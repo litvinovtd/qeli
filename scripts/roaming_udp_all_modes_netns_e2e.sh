@@ -8,7 +8,7 @@ export LC_ALL=C
 
 BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 RUNNER="$SCRIPT_DIR/roaming_udp_netns_e2e.sh"
 PASS=0
 FAIL=0
