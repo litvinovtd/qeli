@@ -111,8 +111,18 @@
 > The cross-platform Release build and macOS route/socket/capability self-tests pass without
 > warnings. Live macOS route-command, PF, per-app, device/race and sleep/soak acceptance is still
 > required before rollout; no live macOS result is claimed by this source-only gate.
-> Current lab gates pass 970 feature library tests with three ignored,
-> 879 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
+> A dedicated Linux TCP exit-node roaming gate passed 34/34. A real full-tunnel consumer sent
+> traffic through server → exit → WAN A, then the exit's authenticated carrier and physical default
+> moved to WAN B without another full AUTH, PID/TUN replacement, or top-level reconnect. Exact
+> MARK/MASQUERADE/FORWARD rules and NAT counters were verified on both WANs; the previous generation
+> remained available for fail-safe drain. After the exit process completed SIGTERM cleanup, rules
+> for both generations were absent and the original `ip_forward`/`rp_filter` values were restored.
+> Exit WAN ownership is now keyed by TUN, so an ordinary sibling profile in the same daemon cannot
+> acquire exit rules. IPv4 and IPv6 refresh their actual default uplinks independently instead of
+> assuming that either matches the qeli carrier interface. The gate isolates its identity, TOFU,
+> device-id, and control socket state inside its work directory.
+> Current lab gates pass 972 feature library tests with three ignored,
+> 881 default tests with one ignored, strict default/feature Clippy, base Linux netns 26/26, TCP roaming
 > netns 15/15, UDP roaming success 17/17, rollback 20/20, supersede 24/24, commit-race 24/24,
 > control-loss/replay 18/18, symmetric IPv4 PMTU 19/19, asymmetric IPv4 PMTU 19/19, and
 > receive-drain/reorder/duplicate 26/26, outer-family round-trip 32/32, DATA_FRAG-loss 25/25, and

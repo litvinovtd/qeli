@@ -126,6 +126,18 @@
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и
   очистке временных network namespaces.
+- Linux `exit_node` теперь обновляет WAN-зависимые MARK/MASQUERADE/FORWARD и sysctl leases до
+  публикации нового carrier route при roaming COMMIT. Состояние хранится отдельно для каждого TUN,
+  поэтому обычный исходящий профиль в том же daemon-процессе не может унаследовать exit-node rules;
+  IPv4 и IPv6 независимо перечитывают свои фактические default uplink и не приравниваются к
+  интерфейсу qeli carrier. Правила прежнего WAN остаются на bounded drain/rollback и все поколения
+  удаляются при чистой остановке.
+  Новый `roaming_exit_node_netns_e2e.sh` поднимает отдельные server, exit, consumer и router
+  namespaces и передаёт реальный consumer-трафик через server → exit → WAN A/B. Feature release
+  прошёл 34/34: выросли NAT-счётчики обоих WAN, сохранились одна полная AUTH, PID и TUN, top-level
+  reconnect не запускался, а после SIGTERM были удалены правила обоих поколений и восстановлены
+  `ip_forward`/`rp_filter`. Identity, TOFU, device-id и control socket теста изолированы в его
+  рабочем каталоге.
 
 - Android feature adapter объявляет полный `ROAMING_PATH` для TCP и всех UDP-режимов только
   когда загруженное Rust-ядро подтверждает path-transaction ABI. ABI 1.13 дополнительно

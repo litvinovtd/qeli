@@ -63,18 +63,40 @@ pub fn ipv6_available() -> bool {
 const EXIT_TAG: &str = "qeli-exit-node";
 const EXIT_MARK: &str = "0x51/0x51";
 
-/// Every WAN used across reconnects. A physical-path change can select a new interface
-/// while tagged rules on the previous one remain; remembering only the latest leaked them.
-static EXIT_WANS_V4: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-static EXIT_WANS_V6: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// Every WAN used by each TUN across reconnects. A daemon may run ordinary and exit-node
+/// client profiles in the same process; keying by TUN keeps one profile's roaming COMMIT
+/// from installing exit rules for another profile. Keeping every WAN per TUN lets clean
+/// teardown remove old+new rules after a physical-path change.
+type ExitWansByTun = std::collections::BTreeMap<String, Vec<String>>;
+static EXIT_WANS_V4: std::sync::Mutex<ExitWansByTun> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+static EXIT_WANS_V6: std::sync::Mutex<ExitWansByTun> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 static GATEWAY_V4_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static GATEWAY_V6_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn remember_exit_wan(store: &std::sync::Mutex<Vec<String>>, wan: &str) {
-    let mut wans = store.lock().unwrap_or_else(|error| error.into_inner());
+fn remember_exit_wan(store: &std::sync::Mutex<ExitWansByTun>, tun_if: &str, wan: &str) {
+    let mut by_tun = store.lock().unwrap_or_else(|error| error.into_inner());
+    let wans = by_tun.entry(tun_if.to_string()).or_default();
     if !wans.iter().any(|existing| existing == wan) {
         wans.push(wan.to_string());
     }
+}
+
+fn exit_wans_for(store: &std::sync::Mutex<ExitWansByTun>, tun_if: &str) -> Vec<String> {
+    store
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(tun_if)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn forget_exit_tun(store: &std::sync::Mutex<ExitWansByTun>, tun_if: &str) {
+    store
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(tun_if);
 }
 
 /// Extract the token following `dev` in an `ip route` line.
@@ -353,7 +375,18 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
              out of. An exit node needs its own working internet path to share."
         )
     })?;
-    if !valid_ifname(&wan) {
+    engage_exit_on(tun_if, &wan)
+}
+
+/// Add the IPv4 exit-node rules for one exact authenticated physical path. Existing
+/// rules for the previous WAN deliberately remain until clean teardown: keeping old+new
+/// is fail-safe while in-flight forwarded flows drain, and [`remove_exit_rules`] already
+/// remembers every interface that this process touched.
+fn engage_exit_on(tun_if: &str, wan: &str) -> anyhow::Result<()> {
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("exit-node: invalid TUN interface name {tun_if:?}");
+    }
+    if !valid_ifname(wan) {
         anyhow::bail!("exit-node: detected WAN interface name {wan:?} is invalid");
     }
     let path = ipt_path("iptables").ok_or_else(|| {
@@ -389,7 +422,7 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     // Record the target before the first stateful rule is attempted. An iptables failure can
     // leave the MARK rule installed while the later MASQUERADE verification fails; teardown
     // must still know which WAN that partial rule names, including after a roaming event.
-    remember_exit_wan(&EXIT_WANS_V4, &wan);
+    remember_exit_wan(&EXIT_WANS_V4, tun_if, wan);
 
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
         ensure_rule(&path, tun_if, table, chain, rule)
@@ -397,16 +430,16 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
 
     // MARK + MASQUERADE are both essential — without either, tunnel traffic reaches the
     // WAN with a private source and the return path is black-holed.
-    if !ensure("mangle", "FORWARD", &exit_mark_rule(tun_if, &wan)) {
+    if !ensure("mangle", "FORWARD", &exit_mark_rule(tun_if, wan)) {
         anyhow::bail!("exit-node: could not install the tun->wan MARK rule (mangle FORWARD)");
     }
-    if !ensure("nat", "POSTROUTING", &exit_masq_rule(&wan)) {
+    if !ensure("nat", "POSTROUTING", &exit_masq_rule(wan)) {
         anyhow::bail!("exit-node: could not install MASQUERADE out {wan} (nat POSTROUTING)");
     }
     // FORWARD accepts are conditional — only an empty chain with policy ACCEPT makes them
     // redundant; on iptables-nft hosts the legacy filter chain can be incompatible.
-    let fwd_ok = ensure("filter", "FORWARD", &exit_fwd_out(tun_if, &wan))
-        & ensure("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
+    let fwd_ok = ensure("filter", "FORWARD", &exit_fwd_out(tun_if, wan))
+        & ensure("filter", "FORWARD", &exit_fwd_in(tun_if, wan));
     let mss_ok = ensure("mangle", "FORWARD", &exit_mss(tun_if));
 
     if !fwd_ok {
@@ -450,6 +483,17 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
             "exit-node IPv6: no IPv6 default route found — cannot determine the IPv6 WAN"
         )
     })?;
+    engage_exit_ipv6_on(tun_if, &wan)
+}
+
+/// IPv6 counterpart of [`engage_exit_on`]. The exact candidate interface is retained
+/// across the forwarding transition; if Router Advertisement handling moves the default
+/// elsewhere, the authenticated candidate is stale and COMMIT must fail closed.
+fn engage_exit_ipv6_on(tun_if: &str, requested_wan: &str) -> anyhow::Result<()> {
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("exit-node IPv6: invalid TUN interface name {tun_if:?}");
+    }
+    let wan = requested_wan.to_string();
     if !valid_ifname(&wan) {
         anyhow::bail!("exit-node IPv6: detected WAN interface name {wan:?} is invalid");
     }
@@ -486,6 +530,11 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
             "exit-node IPv6: the IPv6 default route disappeared after enabling forwarding (check accept_ra=2)"
         )
     })?;
+    if wan != requested_wan {
+        anyhow::bail!(
+            "exit-node IPv6: authenticated candidate WAN {requested_wan} is no longer the active IPv6 default ({wan})"
+        );
+    }
     if !valid_ifname(&wan) {
         anyhow::bail!("exit-node IPv6: post-forwarding WAN name {wan:?} is invalid");
     }
@@ -498,7 +547,7 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
     // See the IPv4 path above: remember the WAN before a partially successful rule batch
     // can return an error, otherwise a subsequent path change makes that batch unreachable
     // to clean teardown.
-    remember_exit_wan(&EXIT_WANS_V6, &wan);
+    remember_exit_wan(&EXIT_WANS_V6, tun_if, &wan);
 
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
         ensure_rule(&path, tun_if, table, chain, rule)
@@ -532,6 +581,45 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
         "Exit-node IPv6 engaged: NAT66 tunnel traffic out {wan} (+forward, forwarding=1). \
          The server-side exit user also needs client_subnet = ::/0."
     );
+    Ok(())
+}
+
+/// Refresh WAN-dependent exit-node state at the Linux platform COMMIT boundary.
+///
+/// The initial authenticated NetworkPlan records which inner families were actually
+/// enabled for this exact TUN. A normal profile therefore returns before validating its
+/// interface name or touching the host, even when another profile in the same daemon is an
+/// exit node. IPv4 and IPv6 defaults are resolved independently: the qeli carrier interface
+/// is not necessarily either exit WAN, and dual-stack hosts may use different uplinks.
+///
+/// Rules for the old WAN are intentionally not removed here. Removing them before transport
+/// COMMIT would break in-flight flows; removing them afterwards would make platform rollback
+/// lossy. They are narrow `-i/-o` rules, harmless once that interface is no longer selected,
+/// and the existing remembered-WAN cleanup removes every generation on a clean stop.
+pub fn refresh_exit_paths_if_active(tun_if: &str) -> anyhow::Result<()> {
+    let ipv4_active = !exit_wans_for(&EXIT_WANS_V4, tun_if).is_empty();
+    let ipv6_active = !exit_wans_for(&EXIT_WANS_V6, tun_if).is_empty();
+    if !ipv4_active && !ipv6_active {
+        return Ok(());
+    }
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("exit-node roaming TUN interface {tun_if:?} is invalid");
+    }
+    if ipv4_active {
+        let wan = detect_wan().ok_or_else(|| {
+            anyhow::anyhow!("exit-node roaming: no IPv4 default route remains at platform COMMIT")
+        })?;
+        engage_exit_on(tun_if, &wan)?;
+        if detect_wan().as_deref() != Some(wan.as_str()) {
+            anyhow::bail!("exit-node roaming: IPv4 default route changed while refreshing {wan}");
+        }
+    }
+    if ipv6_active {
+        let wan = detect_wan_ipv6().ok_or_else(|| {
+            anyhow::anyhow!("exit-node roaming: no IPv6 default route remains at platform COMMIT")
+        })?;
+        engage_exit_ipv6_on(tun_if, &wan)?;
+    }
     Ok(())
 }
 
@@ -610,27 +698,15 @@ fn remove_exit_rules(tun_if: &str) -> anyhow::Result<()> {
         }
     }
 
-    let wans_v4 = EXIT_WANS_V4
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
-    let wans_v6 = EXIT_WANS_V6
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
+    let wans_v4 = exit_wans_for(&EXIT_WANS_V4, tun_if);
+    let wans_v6 = exit_wans_for(&EXIT_WANS_V6, tun_if);
     let v4 = remove_family("iptables", tun_if, &wans_v4, detect_wan());
     let v6 = remove_family("ip6tables", tun_if, &wans_v6, detect_wan_ipv6());
     if v4.is_ok() {
-        EXIT_WANS_V4
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
+        forget_exit_tun(&EXIT_WANS_V4, tun_if);
     }
     if v6.is_ok() {
-        EXIT_WANS_V6
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
+        forget_exit_tun(&EXIT_WANS_V6, tun_if);
     }
     match (v4, v6) {
         (Ok(()), Ok(())) => Ok(()),
@@ -1044,8 +1120,9 @@ fn restore_sysctls(tun_if: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        forward_insert_position, policy_output_accepts_forward,
-        policy_output_has_first_forward_jump,
+        exit_wans_for, forget_exit_tun, forward_insert_position, policy_output_accepts_forward,
+        policy_output_has_first_forward_jump, refresh_exit_paths_if_active, remember_exit_wan,
+        ExitWansByTun,
     };
 
     #[test]
@@ -1078,5 +1155,28 @@ mod tests {
         assert!(!policy_output_accepts_forward(
             "-P FORWARD ACCEPT\n-A FORWARD -j DROP\n"
         ));
+    }
+
+    #[test]
+    fn inactive_exit_node_path_refresh_is_a_strict_noop() {
+        // LinuxPathController invokes the refresh for every committed path. A normal
+        // client must neither validate the synthetic names nor execute a host command.
+        assert!(refresh_exit_paths_if_active("not/a/tun").is_ok());
+    }
+
+    #[test]
+    fn exit_wan_ownership_is_scoped_to_the_exact_tun() {
+        let store = std::sync::Mutex::new(ExitWansByTun::new());
+        remember_exit_wan(&store, "exit0", "wan-a");
+        remember_exit_wan(&store, "exit0", "wan-b");
+        remember_exit_wan(&store, "exit0", "wan-b");
+
+        assert_eq!(exit_wans_for(&store, "exit0"), ["wan-a", "wan-b"]);
+        assert!(exit_wans_for(&store, "ordinary0").is_empty());
+
+        forget_exit_tun(&store, "ordinary0");
+        assert_eq!(exit_wans_for(&store, "exit0"), ["wan-a", "wan-b"]);
+        forget_exit_tun(&store, "exit0");
+        assert!(exit_wans_for(&store, "exit0").is_empty());
     }
 }

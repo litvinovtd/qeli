@@ -774,6 +774,12 @@ impl LinuxPathController {
                         anyhow::anyhow!("COMMIT_PATH has no compatible carrier address")
                     })?;
                 let previous_carriers = active_carrier_ips();
+                // Exit-node forwarding is WAN-dependent, unlike the qeli carrier itself.
+                // Refresh each active inner family's current default uplink before publishing
+                // the authenticated carrier route; those interfaces may differ from the
+                // carrier and from each other. Failure leaves the previous route active and
+                // makes the core enqueue ABORT/reconnect.
+                gateway::refresh_exit_paths_if_active(&self.tunnel_interface)?;
                 prepared.commit(&previous_carriers)?;
                 mark_carrier_candidates_pinned(&[address]);
                 note_connected_peer(address);
