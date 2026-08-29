@@ -143,6 +143,9 @@
   проверяются вместе с reject-путями. Цель включена в обязательный CI smoke и nightly matrix.
   Lab ASan/libFuzzer smoke прошёл 1 324 437 запусков за 31 секунду при coverage 515, corpus 22 и
   peak RSS 371 MiB без падений или ошибок санитайзера.
+- RU/EN threat model теперь явно описывает linkability при roaming: CID rotation убирает
+  стабильный открытый UDP-идентификатор, но сервер всё равно связывает оба адреса с одной
+  сессией, а глобальный наблюдатель может коррелировать переход по timing/volume/overlap.
 - Linux `exit_node` теперь обновляет WAN-зависимые MARK/MASQUERADE/FORWARD и sysctl leases до
   публикации нового carrier route при roaming COMMIT. Состояние хранится отдельно для каждого TUN,
   поэтому обычный исходящий профиль в том же daemon-процессе не может унаследовать exit-node rules;

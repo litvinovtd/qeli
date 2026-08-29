@@ -112,7 +112,21 @@ some are explicit engineering trade-offs.
     their configuration explicitly requests. None of these is telemetry, but an operator's
     egress policy must allow and account for them.
 
-### 3.1. Residual dual-stack, TAP, and fragmentation risks
+### 3.1. Roaming linkability and path changes
+
+Roaming preserves one authenticated VPN session when the physical network changes.
+It improves continuity; it does not make the old and new paths unlinkable.
+
+- **UDP on the wire.** Each committed path gets a new directional eight-byte CID. This
+  removes a stable cleartext qeli locator across the handover, but not timing or volume signals.
+- **TCP on the wire.** The JOIN/resume proof and stable session locator travel only inside the
+  newly encrypted carrier; no reusable resume token is exposed as cleartext.
+- **Who can correlate.** The server necessarily attaches both peer addresses to the same
+  authenticated session to retain its TUN address and NetworkPlan. An observer that sees both
+  networks can still correlate the transition by timing, volume, or make-before-break overlap.
+  CID rotation removes the trivial identifier; it is not an anonymity guarantee.
+
+### 3.2. Residual dual-stack, TAP, and fragmentation risks
 
 - **Outer/inner family confusion.** IPv6 reachability to the server does not imply inner
   IPv6, and vice versa. Capability or NetworkPlan drift can cause a silent downgrade;
@@ -139,8 +153,8 @@ some are explicit engineering trade-offs.
   and to cross-compile without `ring`. It has had internal review and is
   covered by unit tests, but no third-party cryptographic audit. Treat it
   accordingly.
-- **Fuzzing:** harnesses for the untrusted-input parsers (ClientHello, packet
-  codec, realtls records) live under [`qeli/fuzz/`](../../../qeli/fuzz). Continuous
+- **Fuzzing:** harnesses for the untrusted-input parsers (ClientHello, packet codec, realtls
+  records, and roaming wire contracts) live under [`qeli/fuzz/`](../../../qeli/fuzz). Continuous
   fuzzing coverage is being built out.
 - **Tests:** the crate has an extensive in-tree unit-test suite (crypto vectors,
   replay window, handshake transcript binding, config round-trips) enforced as a

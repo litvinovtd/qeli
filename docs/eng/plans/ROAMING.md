@@ -380,7 +380,8 @@ anyway); Windows `IP_UNICAST_IF` (or bind to the interface address); macOS
   and atomic PATH_COMMIT are required before downstream or the active address changes.
 - **Anti-linkability:** CID rotation (UDP). The TCP token is in-tunnel, no wire tell —
   but the **server** sees both IPs under one session (as it already does via device-id),
-  and a global observer correlates by timing/volume — **add to THREAT-MODEL.md**.
+  and a global observer correlates by timing/volume. This residual is now documented in
+  `THREAT-MODEL.md`; CID rotation is not presented as an anonymity guarantee.
 - **Anti-DoS:** grace/orphaned caps; orphaned counts against limits; UDP migration is
   O(1) lookups; CID aliases, candidates, and anti-amplification are bounded.
 - **Nonce reuse (the #1 footgun):** the client must carry the codec **verbatim** across
