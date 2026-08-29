@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v40-fixed-sha-short-gates -->
+<!-- normative-sync: roaming-v41-android-deep-idle-gate -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -702,6 +702,16 @@ feature e2e также прошёл 15/15: path B завершил authenticated
 200/200. PID приложения, VPN Network, `tun0` и `NetworkPlan 1` не менялись, `Auth OK` появился
 ровно один раз. Sleep/wake на прежнем Network сохранил 160/160 ping без лишнего handover; после
 обоих переходов и сна системный DNS продолжил разрешать имя.
+
+`scripts/roaming_android_sleep_wake_gate.py` теперь делает эту same-network приёмку повторяемой и
+fail-closed для любого уже подключённого TCP- или UDP-профиля, не сохраняя профиль или credentials.
+Он запоминает и восстанавливает флаги Doze и состояние экрана AVD, требует реальный deep `IDLE`,
+ведёт непрерывный tunnel ping, а после wake сравнивает PID приложения, идентичность `tun0` из
+`/proc/net/if_inet6` и его адрес, запрещая новую AUTH или NetworkPlan. Live-run API 34 с feature APK
+0.8.0 через obfs-AWG оставался в deep idle 20 секунд, сохранил 180/180 ping, тот же PID/`tun0`,
+разрешил `example.com` после wake и записал только same-network keep-маркер. Parser-регрессии
+покрывают реальный однострочный формат флагов `dumpsys deviceidle`. Этот повторяемый emulator gate
+не заменяет приёмку suspend/NAT rebinding на физическом устройстве.
 
 Общий TCP supervisor теперь всегда уступает generic-восстановление слота уже подготовленному
 exact-path candidate, а после исчезновения последнего carrier даёт handover-enabled платформе

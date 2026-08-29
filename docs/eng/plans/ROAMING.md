@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v40-fixed-sha-short-gates -->
+<!-- normative-sync: roaming-v41-android-deep-idle-gate -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -490,6 +490,16 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   200/200. The same process, VPN Network, `tun0`, and `NetworkPlan 1` survive, with exactly one
   `Auth OK`. Sleep/wake on the unchanged Network retains 160/160 probes without an unnecessary
   handover, and system DNS still resolves after both transitions and sleep.
+
+  `scripts/roaming_android_sleep_wake_gate.py` now makes that unchanged-path acceptance
+  reproducible and fail-closed for any already-connected TCP or UDP profile, without carrying a
+  profile or credentials. It saves and restores the AVD's Doze flags and screen state, requires
+  actual deep `IDLE`, runs continuous tunnel probes, and after wake compares the application PID,
+  `/proc/net/if_inet6` TUN identity and address while rejecting any new AUTH or NetworkPlan. A live
+  API 34 run with the 0.8.0 feature APK over obfs-AWG remained in deep idle for 20 seconds, retained
+  180/180 probes and the same PID/`tun0`, resolved `example.com` after wake, and emitted only the
+  same-network keep marker. Parser regressions cover the real one-line `dumpsys deviceidle` flag
+  format. This repeatable emulator gate does not replace physical-device suspend/NAT acceptance.
 
   The shared TCP supervisor now always yields generic slot repair to an already-prepared exact-path
   candidate and, after the last carrier disappears, gives a handover-enabled platform a bounded

@@ -176,6 +176,15 @@
   отказы без JOIN commit, затем ждёт истечения 30-секундного клиентского resume budget и требует
   обычный full reconnect, вторую AUTH и восстановление трафика; live gate также прошёл 18/18.
   Сценарии проверяют transport grace детерминированно и не подменяют physical-device suspend gate.
+- Добавлен воспроизводимый fail-closed Android deep-idle/wake gate для уже установленного туннеля.
+  Harness не содержит профилей или credentials, временно включает Doze на AVD, требует фактическое
+  состояние `IDLE`, ведёт непрерывный tunnel ping и после wake сверяет PID приложения, идентичность и
+  адрес `tun0`, DNS-разрешение, отсутствие новой AUTH/NetworkPlan и точный same-network keep-маркер.
+  Исходные флаги Doze и состояние экрана восстанавливаются даже после ошибки. API 34 live-run с
+  feature APK `0.8.0` и obfs-AWG остался в deep idle 20 секунд, передал 180/180 ping, сохранил PID
+  и `tun0`, разрешил `example.com` после wake и не выполнил повторную AUTH/NetworkPlan. Parser-
+  регрессии покрывают реальный однострочный формат `dumpsys deviceidle`. Это повторяемый emulator
+  gate; real-device suspend/NAT rebinding по-прежнему остаются обязательной приёмкой.
 - Все Linux netns-сценарии теперь запускают тестовый сервер с отдельным control socket внутри
   рабочего каталога через `QELI_CONTROL_SOCKET`. Это исключает коллизию с `/var/run/qeli/control.sock`
   работающего сервиса лабы: тесты не могут занять, удалить или использовать его при создании и
