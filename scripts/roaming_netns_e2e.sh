@@ -3,6 +3,8 @@
 # namespaces; no host route or production process is changed.
 # QELI_ROAMING_DEVICE_TYPE selects a Linux tun or tap endpoint on both sides (default: tun).
 # QELI_ROAMING_MULTIPATH_MODE selects single, fixed, or adaptive stream membership.
+# The perf case may override QELI_ROAMING_SERVER_ENABLED and
+# QELI_ROAMING_CLIENT_POLICY; success/soak keep their safe required defaults.
 #
 #                         10.40.1.0/24 (path A)
 #                    +--------------------------------+
@@ -25,6 +27,8 @@ CASE=${2:-${CASE:-success}}
 WIRE_MODE=${3:-${QELI_ROAMING_TCP_WIRE_MODE:-fake-tls}}
 DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
 MULTIPATH_MODE=${QELI_ROAMING_MULTIPATH_MODE:-single}
+SERVER_ROAMING_ENABLED=${QELI_ROAMING_SERVER_ENABLED:-true}
+CLIENT_ROAMING_POLICY=${QELI_ROAMING_CLIENT_POLICY:-required}
 WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}-${MULTIPATH_MODE}
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
@@ -37,7 +41,7 @@ TARGET_JOB_PID=
 LOAD_JOB_PID=
 
 usage() {
-  echo "usage: $0 [qeli-binary] [success|soak] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+  echo "usage: $0 [qeli-binary] [success|soak|perf] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
 }
 
 if [ "$#" -gt 3 ]; then
@@ -45,7 +49,7 @@ if [ "$#" -gt 3 ]; then
   exit 2
 fi
 case "$CASE" in
-  success|soak) ;;
+  success|soak|perf) ;;
   *)
     usage
     exit 2
@@ -84,6 +88,24 @@ case "$MULTIPATH_MODE" in
     exit 2
     ;;
 esac
+case "$SERVER_ROAMING_ENABLED" in
+  true|false) ;;
+  *)
+    echo "QELI_ROAMING_SERVER_ENABLED must be true or false" >&2
+    exit 2
+    ;;
+esac
+case "$CLIENT_ROAMING_POLICY" in
+  off|auto|required) ;;
+  *)
+    echo "QELI_ROAMING_CLIENT_POLICY must be off, auto, or required" >&2
+    exit 2
+    ;;
+esac
+if [ "$CASE" != perf ] && { [ "$SERVER_ROAMING_ENABLED" != true ] || [ "$CLIENT_ROAMING_POLICY" != required ]; }; then
+  echo "roaming policy overrides are restricted to the perf case" >&2
+  exit 2
+fi
 
 SERVER_OBF_MODE=fake-tls
 CLIENT_OBF_MODE=fake-tls
@@ -256,7 +278,7 @@ identity_key = $WORK/identity.key
 bind.address = 0.0.0.0
 bind.port = 4443
 bind.transport = tcp
-roaming.enabled = true
+roaming.enabled = $SERVER_ROAMING_ENABLED
 tun.name = qrms0
 tun.device_type = $DEVICE_TYPE
 tun.address = 10.88.0.1
@@ -307,7 +329,7 @@ cat >"$WORK/client.conf" <<EOF
 [qeli]
 server = 10.40.3.2:4443
 proto = tcp
-roaming = required
+roaming = $CLIENT_ROAMING_POLICY
 user = roam-user
 pass = roam-pass-1234
 mode = $CLIENT_OBF_MODE
@@ -333,8 +355,13 @@ check "client $DEVICE_TYPE device has the requested kernel kind" \
 
 CLIENT_PID=$(ip netns pids "$CLI_NS" 2>/dev/null | head -n1)
 TUN_IFINDEX=$(ip netns exec "$CLI_NS" cat /sys/class/net/qrm0/ifindex 2>/dev/null || true)
-check "TCP handover capability was negotiated" \
-  "grep -q 'TCP make-before-break negotiated' $WORK/client.log"
+if [ "$SERVER_ROAMING_ENABLED" = true ] && [ "$CLIENT_ROAMING_POLICY" != off ]; then
+  check "TCP handover capability was negotiated" \
+    "grep -q 'TCP make-before-break negotiated' $WORK/client.log"
+else
+  check "TCP handover capability stayed disabled for the baseline" \
+    "! grep -q 'TCP make-before-break negotiated' $WORK/client.log"
+fi
 check "initial carrier bypass uses path A" \
   "ip netns exec $CLI_NS ip route show 10.40.3.2 | grep -q '^10.40.3.2 via 10.40.1.1 dev qrm-a'"
 check "tunnel works before route change" \
@@ -367,10 +394,13 @@ elif [ "$MULTIPATH_MODE" = adaptive ]; then
   fi
 fi
 
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$CASE" = soak ]; then
-  SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
   # shellcheck source=roaming_tcp_netns_soak_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_soak_case.sh" run_tcp_soak_case || exit $?
+elif [ "$CASE" = perf ]; then
+  # shellcheck source=roaming_tcp_netns_perf_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_perf_case.sh" run_tcp_perf_case || exit $?
 else
 # Give the observer enough time to establish its A baseline, then make B the physical default.
 sleep 3

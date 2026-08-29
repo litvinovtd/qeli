@@ -801,6 +801,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
   while current `required` remains pre-TUN and pre-full-AUTH across retries. The full 10k and
   platform gates remain open.
+  A dedicated TCP performance gate now reuses the exact same netns runner and binary for an
+  `off` baseline and a negotiated `required` sample. It takes configurable odd-count medians for
+  upload, download, and combined qeli client/server CPU, and fails any relative regression beyond
+  5% by default. Policy overrides are accepted only by the `perf` case, so success/soak cannot be
+  accidentally downgraded. Its live lab measurement waits for the current 10k resource soak to
+  finish so the two gates do not contaminate each other.
 
 ## 8. Compatibility / rollout
 Each roaming feature is negotiated through the existing authenticated capability trailer.

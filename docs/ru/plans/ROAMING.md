@@ -1105,6 +1105,12 @@ exact route, независимые client/server commit, fd и sampled RSS. UDP
 по 100 миграций во всех четырёх UDP wire modes прошли с сохранением одной аутентифицированной
 сессии, исходных PID/TUN, точных client/server commit и fd 14/10; полный 10k и platform gates
 остаются открытыми.
+Отдельный TCP performance gate теперь переиспользует тот же netns runner и бинарник для baseline
+с `roaming=off` и согласованного `roaming=required`. Он берёт настраиваемые медианы нечётного числа
+замеров upload, download и суммарного CPU qeli client/server и по умолчанию отклоняет относительную
+регрессию больше 5%. Policy overrides принимаются только case `perf`, поэтому success/soak нельзя
+случайно понизить до reconnect. Live-замер на лабе будет выполнен после текущего 10k resource soak,
+чтобы два gate не искажали результаты друг друга.
 
 Release запрещён, если хотя бы одна поддерживаемая платформа:
 
