@@ -159,10 +159,16 @@
   161.131% CPU. Оба варианта прошли функциональные инварианты 10/10 без reconnect; итоговое
   сравнение прошло 3/3 при бюджете 5%. Параллельный 10k soak на `.10` использовал отдельную VM и
   не разделял CPU, network namespaces или процессы с performance gate.
+- Resource soak сокращён без потери независимого покрытия: один representative TCP и UDP QUIC
+  выполняют по 10 000 same-session миграций, а UDP fake-TLS, obfs и obfs+AWG — по 1000. Все UDP
+  режимы используют общий actor/state machine; короткие adapter-прогоны сохраняют проверку framing,
+  fd/sockets/RSS, PID/TUN, routes, commits, candidates и CID aliases, не дублируя ещё 30 000 циклов
+  общей логики. Отдельный fail-closed wrapper фиксирует порядок, бюджеты и PASS-маркеры режимов.
 - Добавлен единый fail-closed orchestrator resource release gate. Он фиксирует SHA-256 одного
   бинарника перед запуском, перепроверяет его до и после каждого этапа и строго последовательно
-  выполняет TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и multi-node
-  fallback. Маркер успеха этапа появляется только после нулевого exit code; ошибка или подмена
+  выполняет TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP QUIC 10k, остальные UDP
+  adapters по 1k, performance и multi-node fallback. Маркер успеха этапа появляется только после
+  нулевого exit code; ошибка или подмена
   бинарника исключает запуск всех последующих этапов. Изолированные contract-тесты проверяют
   порядок, остановку после ошибки, hash pin и отсутствие ложного финального PASS.
 - Короткие этапы release gate повторно пройдены на одном исправленном бинарнике SHA-256

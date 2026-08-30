@@ -15,6 +15,7 @@ SCRIPT = Path(__file__).with_name("roaming_resource_release_gate.sh")
 CHILDREN = (
     "roaming_tcp_all_modes_netns_e2e.sh",
     "roaming_udp_all_modes_netns_e2e.sh",
+    "roaming_udp_resource_soak_netns_gate.sh",
     "roaming_netns_e2e.sh",
     "roaming_tcp_perf_netns_gate.sh",
 )
@@ -81,7 +82,7 @@ class RoamingResourceReleaseGateTests(unittest.TestCase):
                 ("roaming_netns_e2e.sh", ["resume", "fake-tls"]),
                 ("roaming_netns_e2e.sh", ["grace-expiry", "fake-tls"]),
                 ("roaming_netns_e2e.sh", ["soak", "fake-tls"]),
-                ("roaming_udp_all_modes_netns_e2e.sh", ["soak"]),
+                ("roaming_udp_resource_soak_netns_gate.sh", []),
                 ("roaming_tcp_perf_netns_gate.sh", ["fake-tls"]),
                 ("roaming_netns_e2e.sh", ["multinode", "fake-tls"]),
             ],

@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v44-worker-resource-probe -->
+<!-- normative-sync: roaming-v45-tiered-resource-soak -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1136,11 +1136,13 @@ suite прошёл 973 теста при трёх ignored, strict feature/defaul
   host-route `10.88.0.2/32` на `10.89.0.2/32`, установил bypass через path B и восстановил трафик без
   foreign roaming commit.
 
-Soak: не менее 10 000 смен пути с контролем памяти, fd, sockets, routes, firewall rules,
-CID aliases и orphaned sessions. Допустимая регрессия throughput/CPU на включённом
-роуминге — не более 3–5% относительно того же транспорта без него.
+Soak: не менее 10 000 смен пути для одного representative TCP и одного representative UDP режима
+с контролем памяти, fd, sockets, routes, firewall rules, CID aliases и orphaned sessions. Остальные
+UDP wire adapters проходят по 1000 последовательных смен каждый: они используют тот же UDP actor,
+поэтому повторять полный 10k для каждой camouflage-обёртки не требуется. Допустимая регрессия
+throughput/CPU на включённом роуминге — не более 3–5% относительно того же транспорта без него.
 Конфигурируемый same-session harness теперь по умолчанию выполняет 10 000 последовательных A↔B
-commit как для TCP, так и для любого UDP camouflage mode. Он контролирует PID/TUN, AUTH/reconnect,
+commit для отдельного TCP или UDP запуска. Он контролирует PID/TUN, AUTH/reconnect,
 exact route, независимые client/server commit, все fd, отдельное число socket-дескрипторов и sampled
 RSS. Sockets ограничены baseline + 2 финально и baseline + 8 на выборках. Агрегаты control socket:
 TCP требует точные attempts/commits, одну session и ноль failures/grace/orphaned state; UDP — точные
@@ -1180,8 +1182,9 @@ CPU. Оба варианта прошли 10/10 функциональных п�
 бюджете 5%. TCP 10k продолжался на отдельной `.10`, поэтому два gate не разделяли CPU, namespaces
 или процессы.
 Единый `roaming_resource_release_gate.sh` закрепляет fail-closed порядок resource-приёмки на одном
-неизменном бинарнике: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance и
-multi-node fallback. SHA-256 проверяется до и после каждого этапа, а его PASS-маркер печатается
+неизменном бинарнике: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, representative UDP QUIC
+10k, UDP fake-TLS/obfs/obfs+AWG по 1k, performance и multi-node fallback. SHA-256 проверяется до и
+после каждого этапа, а его PASS-маркер печатается
 только после нулевого exit code. Любая ошибка или замена бинарника запрещает запуск последующих
 этапов; contract-тесты фиксируют порядок, hash pin и отсутствие ложного финального PASS.
 Короткие фазы повторно прошли fail-closed на одном исправленном бинарнике SHA-256

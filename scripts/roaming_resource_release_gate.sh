@@ -2,7 +2,8 @@
 # Fail-closed resource/performance acceptance for one immutable roaming build.
 #
 # The individual netns runners remain useful on their own. This wrapper is the release-order
-# contract: wire-mode smoke -> resume/grace -> TCP 10k -> UDP 4x10k -> performance -> cross-node
+# contract: wire-mode smoke -> resume/grace -> TCP 10k -> UDP representative 10k plus adapter
+# 3x1k -> performance -> cross-node
 # fallback.
 # A later phase is never started after an earlier failure, and the binary hash is checked before
 # every phase so a rebuild cannot silently mix results from two revisions.
@@ -66,8 +67,8 @@ run_phase tcp-grace-expiry ROAMING_RELEASE_TCP_GRACE_EXPIRY_PASS \
 run_phase tcp-resource-soak ROAMING_RELEASE_TCP_10K_PASS \
   env QELI_ROAMING_MULTIPATH_MODE=single \
   "$SCRIPT_DIR/roaming_netns_e2e.sh" "$BIN" soak fake-tls
-run_phase udp-resource-soak ROAMING_RELEASE_UDP_ALL_10K_PASS \
-  "$SCRIPT_DIR/roaming_udp_all_modes_netns_e2e.sh" "$BIN" soak
+run_phase udp-resource-soak ROAMING_RELEASE_UDP_RESOURCE_MATRIX_PASS \
+  "$SCRIPT_DIR/roaming_udp_resource_soak_netns_gate.sh" "$BIN"
 run_phase tcp-performance ROAMING_RELEASE_TCP_PERF_PASS \
   "$SCRIPT_DIR/roaming_tcp_perf_netns_gate.sh" "$BIN" fake-tls
 run_phase tcp-cross-node-fallback ROAMING_RELEASE_TCP_MULTINODE_PASS \

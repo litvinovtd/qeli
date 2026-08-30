@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v44-worker-resource-probe -->
+<!-- normative-sync: roaming-v45-tiered-resource-soak -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -818,9 +818,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   template explicitly selects `auto`, including the multiprofile installer source, Reality release
   files, Keenetic, and OpkgTun.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
-  configurable same-session harness now defaults to 10,000 sequential A/B commits for both TCP and
-  every UDP mode. It checks PID/TUN, AUTH/reconnect, exact routes, client/server commits, all fd,
-  a separate socket-descriptor count, and sampled RSS. Sockets are bounded at baseline + 2 finally
+  representative TCP mode and representative UDP QUIC mode each require 10,000 sequential A/B
+  commits. The fake-TLS, obfs, and obfs+AWG UDP wire adapters each require 1,000: all four modes use
+  the same UDP actor, so repeating the full endurance count for every camouflage wrapper adds no
+  distinct resource-state coverage. The configurable same-session harness still defaults to 10,000
+  for an individual TCP or UDP invocation. It checks PID/TUN, AUTH/reconnect, exact routes,
+  client/server commits, all fd, a separate socket-descriptor count, and sampled RSS. Sockets are
+  bounded at baseline + 2 finally
   and baseline + 8 in samples. Control aggregates require exact attempts/commits and one session;
   TCP requires zero failures/grace/orphan state; UDP requires zero failures/candidates and exactly
   three CID aliases after the first commit (two at epoch zero).
@@ -872,8 +876,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   comparison passed 3/3 under the 5% budget. TCP 10k continued on separate `.10`, so the gates did
   not share CPU, namespaces, or processes.
   A single `roaming_resource_release_gate.sh` now pins the fail-closed resource acceptance order to
-  one immutable binary: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, UDP 4×10k, performance,
-  negative multi-node fallback. SHA-256 is checked before and after every phase, and a phase PASS
+  one immutable binary: TCP/UDP all-mode smoke, TCP resume/grace, TCP 10k, representative UDP QUIC
+  10k, UDP fake-TLS/obfs/obfs+AWG at 1k each, performance, and negative multi-node fallback.
+  SHA-256 is checked before and after every phase, and a phase PASS
   marker is emitted only after a zero exit code. Any failure or binary replacement prevents every
   later phase from starting; contract tests pin the order, hash check, and absence of a false final
   PASS.
