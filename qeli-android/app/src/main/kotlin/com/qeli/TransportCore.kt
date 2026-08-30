@@ -227,7 +227,7 @@ internal class TransportCore private constructor(
         requestSequence: Long,
         accepted: Boolean,
         reason: String? = null,
-    ) {
+    ): Boolean {
         require(generation > 0 && candidateId > 0 && requestSequence > 0) {
             "path command correlation values must be positive"
         }
@@ -239,7 +239,7 @@ internal class TransportCore private constructor(
                 .toByteArray(Charsets.UTF_8)
         }
         try {
-            acceptResult(
+            return acceptResult(
                 nativePathCommandResult(
                     requireHandle(),
                     generation,

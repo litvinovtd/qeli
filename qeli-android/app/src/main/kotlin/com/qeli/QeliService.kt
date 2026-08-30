@@ -1154,6 +1154,7 @@ class VpnServiceImpl : VpnService() {
         event: TransportCoreEvent,
     ) {
         val command = TransportCoreEventCodec.decodePathCommand(event)
+        var platformCommitApplied = false
         val failure = runCatching {
             if (command.action == "abort_path") return@runCatching
             check(transportCore === core && activePlanGeneration == command.generation) {
@@ -1181,6 +1182,7 @@ class VpnServiceImpl : VpnService() {
                     check(setUnderlyingNetworks(arrayOf(network))) {
                         "Android rejected the committed underlying network"
                     }
+                    platformCommitApplied = true
                     currentNetwork = network
                     networkSignatures[network] = physicalNetworkSignature(cm, network)
                 }
@@ -1188,13 +1190,35 @@ class VpnServiceImpl : VpnService() {
             }
         }.exceptionOrNull()
         val reason = failure?.message ?: failure?.javaClass?.simpleName
-        core.pathCommandResult(
-            generation = command.generation,
-            candidateId = command.candidateId,
-            requestSequence = command.sequence,
-            accepted = failure == null,
-            reason = reason,
-        )
+        if (failure != null && platformCommitApplied) {
+            terminateGenerationAfterCommittedPathFailure(
+                core = core,
+                platformPathId = command.path.platformPathId,
+                detail = reason ?: "unknown platform error",
+            )
+            return
+        }
+        val acknowledgement = TransportCoreEventDispatcher.acknowledgePathCommand(
+            action = command.action,
+            platformCommitApplied = platformCommitApplied,
+        ) {
+            core.pathCommandResult(
+                generation = command.generation,
+                candidateId = command.candidateId,
+                requestSequence = command.sequence,
+                accepted = failure == null,
+                reason = reason,
+            )
+        }
+        if (acknowledgement.reconnectGeneration) {
+            terminateGenerationAfterCommittedPathFailure(
+                core = core,
+                platformPathId = command.path.platformPathId,
+                detail = acknowledgement.error?.message ?: "JNI acknowledgement failed",
+            )
+            return
+        }
+        acknowledgement.error?.let { throw it }
         if (failure != null) {
             broadcastLog(
                 "WARN: Android ${command.action} rejected for ${command.path.platformPathId}: " +
@@ -1203,6 +1227,28 @@ class VpnServiceImpl : VpnService() {
         } else if (command.action == "commit_path") {
             broadcastLog("Roaming path committed: ${command.path.platformPathId}")
         }
+    }
+
+    /** A committed Android path cannot be rolled back through ABORT_PATH (which is a no-op on
+     * Android). Stop this exact native generation without the normal network-change debounce so
+     * the retry loop rebuilds Rust and platform state from a single authoritative snapshot. */
+    private fun terminateGenerationAfterCommittedPathFailure(
+        core: TransportCore,
+        platformPathId: String,
+        detail: String,
+    ) {
+        if (transportCore !== core) return
+        broadcastLog(
+            "ERROR: Android committed roaming path $platformPathId but could not complete " +
+                "its acknowledgement ($detail); forcing a full reconnect"
+        )
+        activePlanGeneration = 0L
+        declareNoUnderlyingNetwork()
+        forcedReconnectInFlight = true
+        runCatching { core.stop() }
+            .onFailure {
+                broadcastLog("Committed-path native stop failed: ${it.message}")
+            }
     }
 
     private fun dispatchTransportCorePathRefresh(

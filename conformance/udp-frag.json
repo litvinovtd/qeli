@@ -174,7 +174,7 @@
     },
     {
       "name": "mtu-probe-ack",
-      "why": "The probe ACK is fully deterministic (id + outer_size, little-endian), so it is pinned byte for byte here — id 0xBEEF, outer size 1400.",
+      "why": "The probe ACK is fully deterministic (id + probe_payload_size, little-endian), so it is pinned byte for byte here — id 0xBEEF, pre-wrapper payload size 1400.",
       "datagram": "f09b71050001efbe7805",
       "expect": { "is_fragment": true, "is_junk": false, "is_mtu_probe": false, "is_mtu_probe_ack": true, "is_auth_ok": false }
     },

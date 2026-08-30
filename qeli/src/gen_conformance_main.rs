@@ -1220,8 +1220,8 @@ fn build_udp_frag() -> String {
         ),
         (
             "mtu-probe-ack",
-            "The probe ACK is fully deterministic (id + outer_size, little-endian), so it is \
-             pinned byte for byte here — id 0xBEEF, outer size 1400.",
+            "The probe ACK is fully deterministic (id + probe_payload_size, little-endian), so it is \
+             pinned byte for byte here — id 0xBEEF, pre-wrapper payload size 1400.",
             ack.clone(),
         ),
         (

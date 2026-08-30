@@ -108,7 +108,7 @@ const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 struct UdpMtuChallenge {
     candidate: i32,
     id: u16,
-    outer_size: u16,
+    probe_payload_size: u16,
     sends: u8,
     deadline: tokio::time::Instant,
 }
@@ -146,7 +146,7 @@ impl LiveUdpMtuProbe {
                 self.challenge = Some(UdpMtuChallenge {
                     candidate,
                     id: rand::random(),
-                    outer_size: u16::try_from(
+                    probe_payload_size: u16::try_from(
                         candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
                     )
                     .ok()?,
@@ -172,9 +172,9 @@ impl LiveUdpMtuProbe {
 
     /// Accept only an exact id+size echo. `Some(candidate)` means the third independent
     /// confirmation completed and the live data-plane budget may be widened.
-    fn acknowledge(&mut self, id: u16, outer_size: u16) -> Option<i32> {
+    fn acknowledge(&mut self, id: u16, probe_payload_size: u16) -> Option<i32> {
         let challenge = self.challenge?;
-        if challenge.id != id || challenge.outer_size != outer_size {
+        if challenge.id != id || challenge.probe_payload_size != probe_payload_size {
             return None;
         }
         self.confirmations = self.confirmations.saturating_add(1);
@@ -583,6 +583,26 @@ pub(crate) type PathAckFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 
 #[cfg(feature = "experimental-roaming")]
+#[derive(Debug, thiserror::Error)]
+enum PathAckFailure {
+    #[error("{action} rejected: {reason}")]
+    Rejected {
+        action: &'static str,
+        reason: String,
+    },
+    #[error("{action} acknowledgement was cancelled")]
+    Cancelled { action: &'static str },
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn path_ack_is_explicit_rejection(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<PathAckFailure>(),
+        Some(PathAckFailure::Rejected { .. })
+    )
+}
+
+#[cfg(feature = "experimental-roaming")]
 fn path_ack_future(
     receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
     action: &'static str,
@@ -590,8 +610,8 @@ fn path_ack_future(
     Box::pin(async move {
         match receiver.await {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(reason)) => Err(anyhow::anyhow!("{action} rejected: {reason}")),
-            Err(_) => Err(anyhow::anyhow!("{action} acknowledgement was cancelled")),
+            Ok(Err(reason)) => Err(PathAckFailure::Rejected { action, reason }.into()),
+            Err(_) => Err(PathAckFailure::Cancelled { action }.into()),
         }
     })
 }
@@ -2767,10 +2787,11 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 #[cfg(all(test, feature = "experimental-roaming"))]
 mod tcp_resume_client_tests {
     use super::{
-        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, publish_tcp_path_handover,
-        register_tcp_stream_task, should_defer_tcp_resume_for_handover,
-        tcp_handover_failure_action, ClientStreamSender, TcpActiveSlots, TcpHandoverFailureAction,
-        TcpResumeContext, TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
+        decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, path_ack_future,
+        path_ack_is_explicit_rejection, publish_tcp_path_handover, register_tcp_stream_task,
+        should_defer_tcp_resume_for_handover, tcp_handover_failure_action, ClientStreamSender,
+        TcpActiveSlots, TcpHandoverCommitPhase, TcpHandoverFailureAction, TcpResumeContext,
+        TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::{sync::Arc, time::Duration};
@@ -2928,16 +2949,50 @@ mod tcp_resume_client_tests {
     #[test]
     fn post_platform_commit_failure_is_terminal_and_server_wait_has_margin() {
         assert_eq!(
-            tcp_handover_failure_action(false),
+            tcp_handover_failure_action(TcpHandoverCommitPhase::Reversible, false),
             TcpHandoverFailureAction::RollbackCandidate
         );
         assert_eq!(
-            tcp_handover_failure_action(true),
+            tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, true),
+            TcpHandoverFailureAction::RollbackCandidate,
+            "only an explicit platform rejection is safely reversible after issuance"
+        );
+        assert_eq!(
+            tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, false),
+            TcpHandoverFailureAction::ReconnectGeneration
+        );
+        assert_eq!(
+            tcp_handover_failure_action(TcpHandoverCommitPhase::PlatformCommitted, true),
             TcpHandoverFailureAction::ReconnectGeneration
         );
         let server_wait =
             Duration::from_secs(crate::protocol::roaming::TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS);
         assert!(server_wait >= PATH_ACK_TIMEOUT + Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn late_platform_commit_ack_is_uncertain_and_forces_reconnect() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(1),
+            path_ack_future(receiver, "COMMIT_PATH"),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        assert_eq!(
+            tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, false),
+            TcpHandoverFailureAction::ReconnectGeneration
+        );
+        assert!(sender.send(Ok(())).is_err(), "late ACK lost its receiver");
+
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        sender.send(Err("route rejected".into())).unwrap();
+        let rejection = path_ack_future(receiver, "COMMIT_PATH").await.unwrap_err();
+        assert!(path_ack_is_explicit_rejection(&rejection));
+        assert_eq!(
+            tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, true),
+            TcpHandoverFailureAction::RollbackCandidate
+        );
     }
 
     #[test]
@@ -3185,17 +3240,30 @@ fn mark_tcp_slot_stopped(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
 
 #[cfg(feature = "experimental-roaming")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TcpHandoverCommitPhase {
+    Reversible,
+    CommitIssued,
+    PlatformCommitted,
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TcpHandoverFailureAction {
     RollbackCandidate,
     ReconnectGeneration,
 }
 
 #[cfg(feature = "experimental-roaming")]
-fn tcp_handover_failure_action(platform_committed: bool) -> TcpHandoverFailureAction {
-    if platform_committed {
-        TcpHandoverFailureAction::ReconnectGeneration
-    } else {
+fn tcp_handover_failure_action(
+    commit_phase: TcpHandoverCommitPhase,
+    explicit_platform_rejection: bool,
+) -> TcpHandoverFailureAction {
+    if commit_phase == TcpHandoverCommitPhase::Reversible
+        || (commit_phase == TcpHandoverCommitPhase::CommitIssued && explicit_platform_rejection)
+    {
         TcpHandoverFailureAction::RollbackCandidate
+    } else {
+        TcpHandoverFailureAction::ReconnectGeneration
     }
 }
 
@@ -4736,7 +4804,7 @@ where
                     continue;
                 }
 
-                let mut platform_committed = false;
+                let mut commit_phase = TcpHandoverCommitPhase::Reversible;
                 let attempt = async {
                     let resume = resume_h.as_deref().ok_or_else(|| {
                         anyhow::anyhow!("handover requires negotiated TCP resume")
@@ -4757,11 +4825,19 @@ where
                     )
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP handover JOIN timed out"))??;
+                    commit_phase = TcpHandoverCommitPhase::CommitIssued;
                     let commit = path_controller.commit_candidate_path(&candidate)?;
-                    tokio::time::timeout(PATH_ACK_TIMEOUT, commit)
-                        .await
-                        .map_err(|_| anyhow::anyhow!("COMMIT_PATH acknowledgement timed out"))??;
-                    platform_committed = true;
+                    match tokio::time::timeout(PATH_ACK_TIMEOUT, commit).await {
+                        Ok(Ok(())) => {
+                            commit_phase = TcpHandoverCommitPhase::PlatformCommitted;
+                        }
+                        Ok(Err(error)) => return Err(error),
+                        Err(_) => {
+                            return Err(anyhow::anyhow!(
+                                "COMMIT_PATH acknowledgement timed out"
+                            ));
+                        }
+                    }
                     let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
                         finish_tcp_secondary_handshake(&mut stream, pending),
@@ -4805,11 +4881,13 @@ where
                         );
                     }
                     Err(error) => {
-                        if tcp_handover_failure_action(platform_committed)
+                        let explicit_platform_rejection =
+                            path_ack_is_explicit_rejection(&error);
+                        if tcp_handover_failure_action(commit_phase, explicit_platform_rejection)
                             == TcpHandoverFailureAction::ReconnectGeneration
                         {
                             log::error!(
-                                "TCP handover candidate {} failed after irreversible platform commit; terminating this generation for immediate reconnect: {}",
+                                "TCP handover candidate {} failed after COMMIT_PATH was issued without a safe rollback outcome; terminating this generation for immediate reconnect: {}",
                                 candidate.candidate_id,
                                 error
                             );
@@ -4817,7 +4895,8 @@ where
                             joining_h.store(false, Ordering::Release);
                             break;
                         }
-                        // Before COMMIT_PATH ACK the candidate is still reversible and the
+                        // Before COMMIT_PATH issuance, or after an explicit platform rejection,
+                        // the candidate is still reversible and the
                         // platform must remove every prepared route/filter/socket binding.
                         let reason = format!("TCP handover failed: {error}");
                         match path_controller.abort_candidate_path(&candidate, &reason) {
@@ -9543,7 +9622,7 @@ pub(crate) async fn run_udp_tunnel(
                         .challenge
                         .filter(|_| !receive_is_draining)
                         .map(|challenge| {
-                            challenge.id == probe_id && challenge.outer_size == probe_size
+                            challenge.id == probe_id && challenge.probe_payload_size == probe_size
                         })
                         .unwrap_or(false);
                     if matches_live_challenge {

@@ -667,7 +667,10 @@ unbound socket, до connect требует точный platform `BIND_SOCKET` 
 после его ACK новый carrier заменяет stable slot 0. Перекрывающиеся carrier удерживают slot через
 refcount, а committed-набор адресов становится источником восстановления остальных bonded slots.
 BIND/COMMIT/ABORT имеют коррелированные oneshot-результаты, 45-секундный предел и отмену при
-supersede/stop.
+supersede/stop. До выдачи `COMMIT_PATH` ошибки candidate остаются обратимыми. После выдачи rollback
+разрешён только при явном отказе платформы; таймаут ACK, отмена, закрытый waiter или поздний/ошибочный
+ACK завершают текущую generation для полного reconnect. Android немедленно выбирает этот terminal-путь,
+если OS commit выполнился, но последующее локальное обновление или JNI-подтверждение завершилось ошибкой.
 
 Если peer не поддерживает handover, временный path проходит ACK-подтверждённый ABORT до обычного
 full-reconnect fallback. Ошибки candidate connect/JOIN также откатывают platform-состояние.

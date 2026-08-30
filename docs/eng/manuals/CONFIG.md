@@ -1164,10 +1164,13 @@ A live session migrates only when the client policy is `auto` or `required`, cli
 negotiate the transport-specific capability, and the platform adapter supplies the complete
 transactional `ROAMING_PATH` contract. Explicit client `local` or non-zero `lport` values pin
 the carrier socket: `auto` uses a normal reconnect while `required` is rejected during config
-validation. Before a platform `COMMIT_PATH` acknowledgement, prepare/bind/proof/commit failures
-roll back the exact candidate. Once that acknowledgement makes the platform change irreversible,
-a later `JOINCOMMIT` or final-ACK failure does not issue a stale abort: it terminates the current
-generation and immediately starts a full reconnect. `required` fails closed instead of silently
+validation. Before `COMMIT_PATH` is issued, prepare/bind/proof failures roll back the exact
+candidate. After it is issued, only an explicit platform rejection is safely reversible: an ACK
+timeout, cancellation, closed channel, or late/failed ACK is an ambiguous result and terminates
+the current generation for an immediate full reconnect. Once the platform ACK succeeds, a later
+`JOINCOMMIT` or final-ACK failure follows the same terminal path rather than issuing a stale abort.
+On Android, a failure after `setUnderlyingNetworks()` succeeds, including a JNI ACK exception,
+also stops the generation immediately. `required` fails closed instead of silently
 continuing on an unverified path.
 
 The grace and orphan limits govern TCP hard-resume. UDP uses the same profile opt-in and

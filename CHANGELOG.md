@@ -27,11 +27,17 @@
   macOS и iOS сборочных рецептах; regression-test также проверяет это соответствие.
   Синхронизация исходников на лабу теперь включает `examples`, необходимые для строгого
   `cargo clippy --all-targets` после переименования crate.
-- Закрыт post-commit blackhole TCP handover: после подтверждённого платформой `COMMIT_PATH`
-  ошибка `JOINCOMMIT` или финального ACK больше не вызывает stale `ABORT_PATH`. Текущая generation
-  немедленно завершается и запускает полный reconnect. До необратимого commit точный candidate
-  по-прежнему откатывается. Сервер ждёт client commit 60 секунд — на 15 секунд дольше клиентского
-  platform ACK timeout.
+- Закрыт post-commit blackhole TCP handover. До выдачи `COMMIT_PATH` точный candidate остаётся
+  обратимым; после выдачи rollback разрешён только при явном отказе платформы. Таймаут, отмена,
+  закрытие ACK-канала или поздний/ошибочный ACK считаются неоднозначным необратимым результатом:
+  текущая generation немедленно завершается и запускает полный reconnect вместо stale
+  `ABORT_PATH`. После подтверждённого commit ошибка `JOINCOMMIT` или финального ACK использует тот
+  же terminal-путь. Android дополнительно останавливает generation сразу, если
+  `setUnderlyingNetworks()` уже изменил сеть ОС, а локальное обновление или JNI ACK завершились
+  ошибкой. Сервер ждёт client commit 60 секунд — на 15 секунд дольше клиентского platform ACK
+  timeout; fault-injection тест фиксирует late-ACK сценарий.
+- PMTU probe API и wire-комментарии теперь явно называют записываемый размер длиной payload до
+  QUIC/obfs/UDP/IP-обёрток; расчёт фактических MTU-бюджетов не изменён.
 - Двухфазный TCP wire-контракт получил отдельную версию: magic изменён на `QELIRSM2`, версия и
   proof domain — на V2, а согласование использует новые `TCP_RESUME_V2`/`TCP_HANDOVER_V2` bits.
   Старые V1 bits оставлены зарезервированными и не рекламируются; смешанные версии безопасно

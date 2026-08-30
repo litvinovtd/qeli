@@ -115,4 +115,49 @@ class TransportCoreEventDispatcherTest {
         assertEquals(31, outcome.sequence)
         assertTrue(outcome.reason!!.contains("MISMATCH"))
     }
+
+    @Test
+    fun failedCommitAckAfterPlatformMutationRequiresGenerationReconnect() {
+        val outcome = TransportCoreEventDispatcher.acknowledgePathCommand(
+            action = "commit_path",
+            platformCommitApplied = true,
+        ) {
+            throw IllegalStateException("JNI ACK failed")
+        }
+
+        assertFalse(outcome.acknowledged)
+        assertTrue(outcome.reconnectGeneration)
+        assertEquals("JNI ACK failed", outcome.error?.message)
+    }
+
+    @Test
+    fun staleCommitAckAfterPlatformMutationRequiresGenerationReconnect() {
+        val outcome = TransportCoreEventDispatcher.acknowledgePathCommand(
+            action = "commit_path",
+            platformCommitApplied = true,
+        ) {
+            false
+        }
+
+        assertFalse(outcome.acknowledged)
+        assertTrue(outcome.reconnectGeneration)
+        assertNull(outcome.error)
+    }
+
+    @Test
+    fun acknowledgedPlatformRejectionRemainsSafelyReversible() {
+        var acknowledgements = 0
+        val outcome = TransportCoreEventDispatcher.acknowledgePathCommand(
+            action = "commit_path",
+            platformCommitApplied = false,
+        ) {
+            ++acknowledgements
+            true
+        }
+
+        assertTrue(outcome.acknowledged)
+        assertFalse(outcome.reconnectGeneration)
+        assertNull(outcome.error)
+        assertEquals(1, acknowledgements)
+    }
 }

@@ -455,7 +455,11 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   validated before `COMMIT_PATH`; only after its ACK does the new carrier replace stable slot 0.
   Overlapping carriers retain the slot by refcount, and the committed address set becomes the
   repair source for the remaining bonded slots. BIND/COMMIT/ABORT have correlated oneshot results,
-  a 45-second bound, and cancellation on supersede/stop.
+  a 45-second bound, and cancellation on supersede/stop. Before `COMMIT_PATH` issuance, candidate
+  failures remain rollbackable. After issuance, only an explicit platform rejection permits
+  rollback; an ACK timeout, cancellation, closed waiter, or late/failed ACK terminates the current
+  generation for full reconnect. Android takes that terminal path immediately if the OS commit
+  succeeded but local bookkeeping or JNI acknowledgement failed.
 
   An unsupported peer is rolled back with an ACK-confirmed ABORT before the normal full-reconnect
   fallback. Candidate connect/JOIN failures also abort temporary platform state. A COMMIT rejection
