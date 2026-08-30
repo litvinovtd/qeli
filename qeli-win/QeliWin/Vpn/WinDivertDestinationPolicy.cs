@@ -14,6 +14,7 @@ internal sealed class WinDivertDestinationPolicy
 {
     private readonly List<Cidr> _tunnelRoutes = new();
     private readonly List<Cidr> _exclude = new();
+    private readonly List<Cidr> _physicalLocalRoutes = new();
     private readonly bool _fullTunnel;
 
     public WinDivertDestinationPolicy(
@@ -22,7 +23,8 @@ internal sealed class WinDivertDestinationPolicy
         IEnumerable<string>? excludeRoutes,
         IEnumerable<string>? pushedRoutes,
         bool fullTunnel = true,
-        IEnumerable<string>? tunnelSubnets = null)
+        IEnumerable<string>? tunnelSubnets = null,
+        IEnumerable<string>? physicalLocalRoutes = null)
     {
         _fullTunnel = fullTunnel;
         if (tunnelSubnets != null)
@@ -32,8 +34,6 @@ internal sealed class WinDivertDestinationPolicy
             AddTunnel("10.0.0.0/8");
             AddTunnel("172.16.0.0/12");
             AddTunnel("192.168.0.0/16");
-            AddTunnel("fc00::/7");
-            AddTunnel("ff00::/8");
         }
         if (includeRoutes != null)
             foreach (var c in includeRoutes) AddTunnel(c);
@@ -41,6 +41,9 @@ internal sealed class WinDivertDestinationPolicy
             foreach (var c in pushedRoutes) AddTunnel(c);
         if (excludeRoutes != null)
             foreach (var c in excludeRoutes) AddExclude(c);
+        if (physicalLocalRoutes != null)
+            foreach (var c in physicalLocalRoutes)
+                if (TryParseCidr(c, out var route)) _physicalLocalRoutes.Add(route);
     }
 
     /// <summary>
@@ -63,14 +66,12 @@ internal sealed class WinDivertDestinationPolicy
         {
             if (IsIpv6LinkLocalOrLoopback(dst)) return true;
             if (Matches(_tunnelRoutes, dst)) return false;
-            if (IsIpv6UlaOrMulticast(dst)) return true;
             return !_fullTunnel;
         }
 
         if (IsIpv4LoopbackOrLinkLocal(dst)) return true;
         if (Matches(_tunnelRoutes, dst)) return false;
-        if (IsRfc1918(dst))
-            return true;
+        if (Matches(_physicalLocalRoutes, dst)) return true;
         return !_fullTunnel;
     }
 
@@ -100,14 +101,6 @@ internal sealed class WinDivertDestinationPolicy
         var b = ip.GetAddressBytes();
         // fe80::/10
         return b[0] == 0xfe && (b[1] & 0xc0) == 0x80;
-    }
-
-    public static bool IsIpv6UlaOrMulticast(IPAddress ip)
-    {
-        if (ip.AddressFamily != AddressFamily.InterNetworkV6) return false;
-        var b = ip.GetAddressBytes();
-        // fc00::/7 (ULA) or ff00::/8 (multicast).
-        return (b[0] & 0xfe) == 0xfc || b[0] == 0xff;
     }
 
     private void AddTunnel(string cidr)

@@ -28,7 +28,8 @@ func makeState(mode: String = "include", apps: [String] = ["com.apple.Safari"],
                allowIPv4: Bool = false, allowIPv6: Bool = false,
                fullTunnel: Bool = true,
                include: [String] = [], exclude: [String] = [], pushed: [String] = [],
-               tunnelSubnets: [String] = ["10.8.0.2/24", "fd71:e1:42::2/64"])
+               tunnelSubnets: [String] = ["10.8.0.2/24", "fd71:e1:42::2/64"],
+               physicalLocal: [String] = ["192.168.1.0/24"])
     -> RoutingState {
     RoutingState(version: qeliRoutingStateVersion, tunnelUp: true,
                  leaseExpiresAtUnixMs: Int64(Date().timeIntervalSince1970 * 1000) + 10_000,
@@ -41,6 +42,7 @@ func makeState(mode: String = "include", apps: [String] = ["com.apple.Safari"],
                  routeLocalNetworks: routeLocal, includeRoutes: include,
                  excludeRoutes: exclude, pushedRoutes: pushed,
                  tunnelSubnets: tunnelSubnets,
+                 physicalLocalRoutes: physicalLocal,
                  alwaysBypassApps: ["ru.qeli.app", "ru.qeli.app.perapp"])
 }
 
@@ -65,7 +67,8 @@ for mutation in [
     { (state: inout RoutingState) in state.tunnelIpv6.toggle() },
     { (state: inout RoutingState) in state.allowIpv4Leak.toggle() },
     { (state: inout RoutingState) in state.allowIpv6Leak.toggle() },
-    { (state: inout RoutingState) in state.fullTunnel.toggle() }
+    { (state: inout RoutingState) in state.fullTunnel.toggle() },
+    { (state: inout RoutingState) in state.physicalLocalRoutes.append("10.44.0.0/16") }
 ] {
     var changed = include
     mutation(&changed)
@@ -78,7 +81,10 @@ expect(exclude.selects("org.mozilla.firefox"), "exclude tunnels unlisted signing
 expect(exclude.selects(nil), "exclude tunnels unknown identity")
 
 expect(isTunnel(include.destinationDecision("1.1.1.1")), "public IPv4 tunnels")
-expect(isBypass(include.destinationDecision("192.168.1.1")), "RFC1918 bypasses by default")
+expect(isBypass(include.destinationDecision("192.168.1.1")),
+       "physically connected RFC1918 bypasses when route_local is off")
+expect(isTunnel(include.destinationDecision("192.168.50.1")),
+       "remote RFC1918 follows full-tunnel policy")
 expect(isTunnel(makeState(routeLocal: true).destinationDecision("192.168.1.1")),
        "route_local tunnels RFC1918")
 expect(isTunnel(makeState(include: ["10.20.0.0/16"]).destinationDecision("10.20.1.2")),
@@ -99,7 +105,7 @@ expect(isDrop(makeState(tunnelIPv4: false).destinationDecision("1.1.1.1")),
        "inactive IPv4 fails closed by default")
 expect(isBypass(makeState(tunnelIPv4: false, allowIPv4: true).destinationDecision("1.1.1.1")),
        "allow_ipv4_leak bypasses public IPv4")
-expect(isBypass(makeState().destinationDecision("fd00::1")), "ULA bypasses by default")
+expect(isTunnel(makeState().destinationDecision("fd00::1")), "ULA follows full-tunnel policy")
 expect(isTunnel(makeState(include: ["fd00::/8"]).destinationDecision("fd00::1")),
        "explicit IPv6 include tunnels ULA")
 expect(isBypass(makeState(exclude: ["2001:db8:1::/48"])
@@ -120,9 +126,9 @@ expect(isDrop(makeState(tunnelIPv4: false, allowIPv4: true, fullTunnel: false,
 expect(isDrop(makeState(tunnelIPv6: false, allowIPv6: true, fullTunnel: false,
                         include: ["2001:db8:20::/48"]).destinationDecision("2001:db8:20::7")),
        "split IPv6 include fails closed when IPv6 is inactive")
-expect(isDrop(makeState(routeLocal: true, tunnelIPv6: false, allowIPv6: true,
-                        fullTunnel: false).destinationDecision("fd00::1")),
-       "route_local IPv6 fails closed when IPv6 is inactive")
+expect(isBypass(makeState(routeLocal: true, tunnelIPv6: false, allowIPv6: true,
+                          fullTunnel: false).destinationDecision("fd00::1")),
+       "route_local does not change split-tunnel IPv6 policy")
 
 if failures > 0 { exit(1) }
 print("ALL PASS")

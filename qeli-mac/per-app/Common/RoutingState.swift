@@ -5,7 +5,7 @@ import NetworkExtension
 
 let qeliAppGroup = "group.ru.qeli.app"
 let qeliStateFile = "per-app-state.json"
-let qeliRoutingStateVersion = 3
+let qeliRoutingStateVersion = 4
 
 struct RoutingState: Codable, Equatable {
     var version: Int
@@ -32,6 +32,7 @@ struct RoutingState: Codable, Equatable {
     var excludeRoutes: [String]
     var pushedRoutes: [String]
     var tunnelSubnets: [String]
+    var physicalLocalRoutes: [String]
     var alwaysBypassApps: [String]
 
     func leaseIsValid(nowUnixMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Bool {
@@ -61,6 +62,7 @@ struct RoutingState: Codable, Equatable {
             && excludeRoutes == other.excludeRoutes
             && pushedRoutes == other.pushedRoutes
             && tunnelSubnets == other.tunnelSubnets
+            && physicalLocalRoutes == other.physicalLocalRoutes
             && alwaysBypassApps == other.alwaysBypassApps
     }
 
@@ -71,8 +73,8 @@ struct RoutingState: Codable, Equatable {
         return mode == "include" ? listed : !listed
     }
 
-    /// Mirrors WinDivertDestinationPolicy. Local/link-local destinations bypass; RFC1918
-    /// bypasses unless explicitly requested; exclusions win over includes/pushes.
+    /// Mirrors WinDivertDestinationPolicy. Explicit exclusions win. route_local applies
+    /// only to IPv4 RFC1918; otherwise full/split policy is identical to system-TUN.
     func destinationDecision(_ host: String) -> DestinationDecision {
         guard let address = IPAddress(host) else { return .tunnel }
         if excludeRoutes.compactMap(CIDR.init).contains(where: { $0.contains(address) }) {
@@ -80,24 +82,21 @@ struct RoutingState: Codable, Equatable {
         }
         let explicitlyTunneled = (tunnelSubnets + includeRoutes + pushedRoutes).compactMap(CIDR.init)
             .contains(where: { $0.contains(address) })
+        let physicallyConnected = physicalLocalRoutes.compactMap(CIDR.init)
+            .contains(where: { $0.contains(address) })
         if address.isIPv6 {
             if address.isIPv6LoopbackOrLinkLocal { return .bypass }
-            if address.isIPv6Local && !routeLocalNetworks && !explicitlyTunneled {
-                return .bypass
-            }
-            if explicitlyTunneled || (address.isIPv6Local && routeLocalNetworks) {
-                return tunnelIpv6 ? .tunnel : .drop
-            }
+            if explicitlyTunneled { return tunnelIpv6 ? .tunnel : .drop }
             if !fullTunnel { return .bypass }
             if tunnelIpv6 { return .tunnel }
             return allowIpv6Leak ? .bypass : .drop
         }
         if address.isIPv4LoopbackOrLinkLocal { return .bypass }
         if explicitlyTunneled { return tunnelIpv4 ? .tunnel : .drop }
-        if address.isRFC1918 {
-            guard routeLocalNetworks else { return .bypass }
+        if address.isRFC1918 && routeLocalNetworks {
             return tunnelIpv4 ? .tunnel : .drop
         }
+        if physicallyConnected { return .bypass }
         if !fullTunnel { return .bypass }
         if tunnelIpv4 { return .tunnel }
         return allowIpv4Leak ? .bypass : .drop
@@ -219,9 +218,6 @@ private struct IPAddress {
         guard isIPv6 else { return false }
         return (bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1)
             || (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80)
-    }
-    var isIPv6Local: Bool {
-        isIPv6 && ((bytes[0] & 0xfe) == 0xfc || bytes[0] == 0xff)
     }
 }
 

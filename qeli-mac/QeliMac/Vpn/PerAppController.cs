@@ -18,7 +18,7 @@ namespace QeliMac.Vpn;
 internal sealed class PerAppController
 {
     internal const string HelperName = "QeliPerAppCtl";
-    private const int RoutingStateVersion = 3;
+    private const int RoutingStateVersion = 4;
     private readonly Action<string> _log;
     private bool _started;
     private Process? _guardian;
@@ -50,6 +50,7 @@ internal sealed class PerAppController
         IReadOnlyList<string> excludeRoutes,
         IReadOnlyList<string> pushedRoutes,
         IReadOnlyList<string> tunnelSubnets,
+        IReadOnlyList<string> physicalLocalRoutes,
         bool tunnelIpv4,
         bool tunnelIpv6,
         bool tunnelUp)
@@ -92,6 +93,7 @@ internal sealed class PerAppController
             ExcludeRoutes = excludeRoutes.ToArray(),
             PushedRoutes = pushedRoutes.ToArray(),
             TunnelSubnets = tunnelSubnets.ToArray(),
+            PhysicalLocalRoutes = physicalLocalRoutes.ToArray(),
             AlwaysBypassApps = new[] { "ru.qeli.app", "ru.qeli.app.perapp" },
         };
 
@@ -280,6 +282,7 @@ internal sealed class PerAppController
         public string[] ExcludeRoutes { get; init; } = Array.Empty<string>();
         public string[] PushedRoutes { get; init; } = Array.Empty<string>();
         public string[] TunnelSubnets { get; init; } = Array.Empty<string>();
+        public string[] PhysicalLocalRoutes { get; init; } = Array.Empty<string>();
         public string[] AlwaysBypassApps { get; init; } = Array.Empty<string>();
     }
 }

@@ -3,6 +3,7 @@ using System.Text;
 using Qeli.Shared.Crypto;
 using Qeli.Shared.Model;
 using Qeli.Shared.Protocol;
+using Qeli.Shared.Vpn;
 
 namespace Qeli.Conformance;
 
@@ -104,6 +105,20 @@ public static class Program
         PrpNonceConformance.Run(Check);
         WireConformance.Run(Check);
         RoamingPathConformance.Run(Check);
+
+        var routeLocalCaptures = RouteLocalPolicy.BuildCapturePrefixes(
+            new[] { "192.168.1.27/24", "10.8.1.4/16", "203.0.113.4/24", "10.9.0.7/32" });
+        Check("route_local overrides connected RFC1918 prefixes without replacing them",
+            routeLocalCaptures.SequenceEqual(new[]
+            {
+                "10.8.0.0/17", "10.8.128.0/17",
+                "192.168.1.0/25", "192.168.1.128/25",
+            }));
+        Check("route_local capture respects broader and narrower exclusions",
+            RouteLocalPolicy.BuildCapturePrefixes(
+                new[] { "192.168.1.27/24" },
+                new[] { "192.168.1.0/25", "192.168.1.192/26" })
+            .SequenceEqual(new[] { "192.168.1.128/25" }));
 
         var mlKemEk = Enumerable.Range(0, 1184)
             .Select(i => unchecked((byte)(17 + i * 31))).ToArray();

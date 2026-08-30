@@ -2,6 +2,7 @@ use crate::config::client::ClientRoutingConfig;
 #[cfg(feature = "experimental-roaming")]
 use crate::transport_core::path::PreparedPathCandidate;
 use crate::transport_core::{NetworkAddressFamily, NetworkPlan, NetworkRoute};
+use ipnet::Ipv4Net;
 use std::net::IpAddr;
 
 /// Routes this process actually CREATED on the physical interface, so cleanup removes
@@ -641,6 +642,94 @@ fn tunnel_route_args(
     args
 }
 
+fn is_rfc1918_prefix(cidr: &Ipv4Net) -> bool {
+    ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+        .into_iter()
+        .map(|value| value.parse::<Ipv4Net>().expect("built-in RFC1918 CIDR"))
+        .any(|root| {
+            root.prefix_len() <= cidr.prefix_len()
+                && root.contains(&cidr.network())
+                && root.contains(&cidr.broadcast())
+        })
+}
+
+/// A directly connected route is more-specific than the broad RFC1918 NetworkPlan routes.
+/// Split it into two child prefixes instead of deleting/replacing the operator-owned route;
+/// longest-prefix matching then sends the entire LAN through Qeli while local host routes
+/// and later, more-specific exclusions keep their ordinary precedence.
+fn route_local_capture_cidrs(
+    connected: &[Ipv4Net],
+    exclude_cidrs: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let excludes = exclude_cidrs
+        .iter()
+        .filter_map(|value| value.parse::<Ipv4Net>().ok())
+        .collect::<Vec<_>>();
+    let mut captures = std::collections::BTreeSet::new();
+    for cidr in connected {
+        if cidr.prefix_len() >= 32 || !is_rfc1918_prefix(cidr) {
+            continue;
+        }
+        let child_prefix = cidr.prefix_len() + 1;
+        let first_network = cidr.network();
+        let second_network =
+            std::net::Ipv4Addr::from(u32::from(first_network) | (1u32 << (32 - child_prefix)));
+        for network in [first_network, second_network] {
+            let child = Ipv4Net::new(network, child_prefix)?;
+            if excludes.iter().any(|exclude| {
+                exclude.prefix_len() <= child.prefix_len()
+                    && exclude.contains(&child.network())
+                    && exclude.contains(&child.broadcast())
+            }) {
+                continue;
+            }
+            captures.insert((u32::from(child.network()), child.prefix_len()));
+        }
+    }
+    Ok(captures
+        .into_iter()
+        .map(|(network, prefix)| format!("{}/{}", std::net::Ipv4Addr::from(network), prefix))
+        .collect())
+}
+
+fn connected_rfc1918_prefixes(ifname: &str) -> anyhow::Result<Vec<Ipv4Net>> {
+    let output = std::process::Command::new("ip")
+        .args(["-4", "-o", "address", "show", "up", "scope", "global"])
+        .output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "could not enumerate connected IPv4 networks for route_local: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut prefixes = std::collections::BTreeSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let Some(device) = fields.get(1).and_then(|value| value.split('@').next()) else {
+            continue;
+        };
+        if device == ifname {
+            continue;
+        }
+        let Some(cidr) = fields
+            .windows(2)
+            .find(|pair| pair[0] == "inet")
+            .and_then(|pair| pair[1].parse::<Ipv4Net>().ok())
+        else {
+            continue;
+        };
+        let canonical = Ipv4Net::new(cidr.network(), cidr.prefix_len())?;
+        if is_rfc1918_prefix(&canonical) {
+            prefixes.insert((u32::from(canonical.network()), canonical.prefix_len()));
+        }
+    }
+    prefixes
+        .into_iter()
+        .map(|(network, prefix)| {
+            Ipv4Net::new(std::net::Ipv4Addr::from(network), prefix).map_err(Into::into)
+        })
+        .collect()
+}
 fn connected_tunnel_cidr(address: IpAddr, prefix: u8) -> anyhow::Result<String> {
     match address {
         IpAddr::V4(address) if prefix <= 32 => {
@@ -812,6 +901,17 @@ pub fn setup_network_plan_routes(
         })
         .collect();
 
+    let route_local_captures = if config.route_local_networks
+        && plan
+            .addresses
+            .iter()
+            .any(|address| address.family == NetworkAddressFamily::Ipv4)
+    {
+        route_local_capture_cidrs(&connected_rfc1918_prefixes(ifname)?, &config.exclude)?
+    } else {
+        Vec::new()
+    };
+
     // NetworkPlan v2 assigns host prefixes to an L3 TUN to prevent ARP/NDP. Install the
     // negotiated pool prefix explicitly so the server gateway, tunnel DNS and peer/client
     // addresses remain reachable in split-tunnel mode. Android already did this in its
@@ -864,6 +964,22 @@ pub fn setup_network_plan_routes(
 
     for route in &plan.routes {
         add_tunnel_route(&route.cidr, &route.gateway, ifname, route.metric, is_tap)?;
+    }
+
+    if !route_local_captures.is_empty() {
+        let address = plan
+            .addresses
+            .iter()
+            .find(|address| address.family == NetworkAddressFamily::Ipv4)
+            .ok_or_else(|| anyhow::anyhow!("route_local has no IPv4 tunnel address"))?;
+        let gateway = address.gateway.as_deref().unwrap_or(&address.address);
+        for cidr in &route_local_captures {
+            add_tunnel_route(cidr, gateway, ifname, 0, is_tap)?;
+        }
+        log::info!(
+            "route_local: installed {} connected-prefix override route(s) without replacing physical routes",
+            route_local_captures.len()
+        );
     }
 
     if config.kill_switch && !config.exclude.is_empty() {
@@ -1314,11 +1430,27 @@ pub fn apply_local_networks(
     if !routing.route_local_networks {
         return Ok(());
     }
-    // Broad RFC1918 ranges so any private destination also tunnels.
-    for cidr in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] {
+    // Broad routes cover remote private destinations. Child routes override every
+    // directly connected RFC1918 prefix without mutating its physical route.
+    let connected = connected_rfc1918_prefixes(ifname)?;
+    let mut cidrs = vec![
+        "10.0.0.0/8".to_string(),
+        "172.16.0.0/12".to_string(),
+        "192.168.0.0/16".to_string(),
+    ];
+    cidrs.extend(route_local_capture_cidrs(&connected, &routing.exclude)?);
+    for cidr in cidrs {
         let output = std::process::Command::new("ip")
             .args([
-                "route", "add", cidr, "via", gateway, "dev", ifname, "metric", "100",
+                "route",
+                "add",
+                cidr.as_str(),
+                "via",
+                gateway,
+                "dev",
+                ifname,
+                "metric",
+                "100",
             ])
             .output();
         match output {
@@ -1338,7 +1470,7 @@ pub fn apply_local_networks(
                     // swallowing it made the "routing local networks through the tunnel"
                     // line below a lie for that range.
                     let dev = format!("dev {ifname}");
-                    match existing_route_satisfies(false, cidr, &dev) {
+                    match existing_route_satisfies(false, &cidr, &dev) {
                         Some(true) => {}
                         Some(false) => anyhow::bail!(
                             "requested local network {} already has a route that does not use {}",
@@ -1699,8 +1831,8 @@ fn route_is_already_absent(stderr: &str) -> bool {
 mod tests {
     use super::{
         connected_tunnel_cidr, full_tunnel_prefixes, is_valid_cidr, is_valid_gateway,
-        planned_pushed_routes, route_output_satisfies_all, tunnel_route_args,
-        IPV6_CAPTURE_PREFIXES,
+        planned_pushed_routes, route_local_capture_cidrs, route_output_satisfies_all,
+        tunnel_route_args, IPV6_CAPTURE_PREFIXES,
     };
     use std::net::IpAddr;
 
@@ -1764,6 +1896,32 @@ mod tests {
         assert!(connected_tunnel_cidr("10.9.0.27".parse().unwrap(), 64).is_err());
     }
 
+    #[test]
+    fn route_local_overrides_connected_rfc1918_without_replacing_operator_routes() {
+        let connected = [
+            "192.168.1.27/24".parse::<ipnet::Ipv4Net>().unwrap(),
+            "10.8.1.4/16".parse::<ipnet::Ipv4Net>().unwrap(),
+            "203.0.113.4/24".parse::<ipnet::Ipv4Net>().unwrap(),
+            "10.9.0.7/32".parse::<ipnet::Ipv4Net>().unwrap(),
+        ];
+        assert_eq!(
+            route_local_capture_cidrs(&connected, &[]).unwrap(),
+            [
+                "10.8.0.0/17",
+                "10.8.128.0/17",
+                "192.168.1.0/25",
+                "192.168.1.128/25",
+            ]
+        );
+        assert_eq!(
+            route_local_capture_cidrs(
+                &connected[0..1],
+                &["192.168.1.0/25".into(), "192.168.1.192/26".into()],
+            )
+            .unwrap(),
+            ["192.168.1.128/25"]
+        );
+    }
     #[test]
     fn existing_route_match_is_token_exact_and_stays_on_one_route() {
         assert!(route_output_satisfies_all(

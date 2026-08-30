@@ -103,7 +103,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         int carrierPort,
         string carrierProtocol,
         int tunnelMtu,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        IEnumerable<string>? physicalLocalRoutes = null)
     {
         if (clientIpv4 != null && clientIpv4.AddressFamily != AddressFamily.InterNetwork)
             throw new ArgumentException("clientIpv4 must be an IPv4 address", nameof(clientIpv4));
@@ -122,7 +123,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         _fullTunnel = fullTunnel;
         _dest = new WinDivertDestinationPolicy(
             routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
-            fullTunnel, tunnelSubnets);
+            fullTunnel, tunnelSubnets, physicalLocalRoutes);
         _dnsServers = ParseDns(dnsServers);
         _carriers = MakeCarriers(new[] { carrierIp }, carrierPort, carrierProtocol);
         _tunnelMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);
@@ -161,7 +162,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         IPAddress carrierIp,
         int carrierPort,
         string carrierProtocol,
-        int tunnelMtu)
+        int tunnelMtu,
+        IEnumerable<string>? physicalLocalRoutes = null)
     {
         SetTunnelUp(false);
         if ((clientIpv4 != null && clientIpv4.AddressFamily != AddressFamily.InterNetwork)
@@ -174,7 +176,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         var replacementDns = ParseDns(dnsServers);
         var replacementDest = new WinDivertDestinationPolicy(
             routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
-            fullTunnel, tunnelSubnets);
+            fullTunnel, tunnelSubnets, physicalLocalRoutes);
         var replacementCarriers = MakeCarriers(
             new[] { carrierIp }, carrierPort, carrierProtocol);
         int replacementMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);

@@ -345,7 +345,9 @@ public sealed class VpnTunnel : VpnTunnelBase
                     serverIp,
                     config.Port,
                     config.Protocol,
-                    EffectiveMtu(config.Mtu, session.PushedMtu));
+                    EffectiveMtu(config.Mtu, session.PushedMtu),
+                    physicalLocalRoutes:
+                        RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes());
                 retained.SetTunnelUp(true);
             }
             return;
@@ -376,7 +378,9 @@ public sealed class VpnTunnel : VpnTunnelBase
                 carrierPort: config.Port,
                 carrierProtocol: config.Protocol,
                 tunnelMtu: EffectiveMtu(config.Mtu, session.PushedMtu),
-                log: Log);
+                log: Log,
+                physicalLocalRoutes:
+                    RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes());
             adapter.Open();
             adapter.SetTunnelUp(true);
             _tun = adapter;
@@ -435,6 +439,12 @@ public sealed class VpnTunnel : VpnTunnelBase
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
         _tun = wintun;
+        var localCaptureRoutes = config.RouteLocalNetworks
+            && assigned.Any(address => address.Family == "ipv4")
+            ? RouteLocalPolicy.BuildCapturePrefixes(
+                RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes(alias, tunIndex),
+                config.ExcludeRoutes)
+            : Array.Empty<string>();
 
         foreach (var address in assigned)
             _net.SetAddress(alias, address.Address, address.PrefixLength);
@@ -516,6 +526,16 @@ public sealed class VpnTunnel : VpnTunnelBase
                 _net.AddRoute(r, session.ClientIp, tunIndex);
             Log("Routing local networks (RFC1918 blanket) through the tunnel");
         }
+
+        foreach (string route in localCaptureRoutes)
+        {
+            if (!_net.AddRoute(route, session.ClientIp, tunIndex))
+                throw new InvalidOperationException(
+                    $"route_local connected-prefix override {route} was not applied");
+        }
+        if (localCaptureRoutes.Count > 0)
+            Log($"route_local: {localCaptureRoutes.Count} connected-prefix override route(s) "
+                + "installed without replacing physical routes");
 
         // Exclude: carve these destinations out of the tunnel. Route them via the physical
         // gateway so exclusion works even in full-tunnel (a plain delete is a no-op there);

@@ -55,6 +55,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
                     config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(session)).ToArray(),
                     config.ExcludeRoutes, PushedRouteCidrs(session.PlannedRoutes),
                     PerAppTunnelSubnets(session),
+                    RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes(retained.Name),
                     session.NetworkAddresses.Any(address => address.Family == "ipv4"),
                     session.NetworkAddresses.Any(address => address.Family == "ipv6"),
                     tunnelUp: true);
@@ -92,6 +93,12 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         _tun = utun;
 
         var assigned = session.NetworkAddresses;
+        var localCaptureRoutes = config.RouteLocalNetworks
+            && assigned.Any(address => address.Family == "ipv4")
+            ? RouteLocalPolicy.BuildCapturePrefixes(
+                RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes(dev),
+                config.ExcludeRoutes)
+            : Array.Empty<string>();
         foreach (var address in assigned)
             _net.SetAddress(dev, address.Address, address.PrefixLength);
         int mtu = EffectiveMtu(config.Mtu, session.PushedMtu);  // explicit > pushed > 1400
@@ -140,6 +147,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
                 config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(session)).ToArray(),
                 config.ExcludeRoutes, PushedRouteCidrs(session.PlannedRoutes),
                 PerAppTunnelSubnets(session),
+                RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes(dev),
                 assigned.Any(address => address.Family == "ipv4"),
                 assigned.Any(address => address.Family == "ipv6"),
                 tunnelUp: true);
@@ -193,6 +201,16 @@ public sealed partial class VpnTunnel : VpnTunnelBase
                 _net.AddRoute(r, dev);
             Log("Routing local networks (RFC1918 blanket) through the tunnel");
         }
+
+        foreach (string route in localCaptureRoutes)
+        {
+            if (!_net.AddRoute(route, dev))
+                throw new InvalidOperationException(
+                    $"route_local connected-prefix override {route} was not applied");
+        }
+        if (localCaptureRoutes.Count > 0)
+            Log($"route_local: {localCaptureRoutes.Count} connected-prefix override route(s) "
+                + "installed without replacing physical routes");
 
         // Exclude: route these subnets via the physical gateway so exclusion works even in
         // full-tunnel (a plain delete is a no-op there); fall back to a delete when the

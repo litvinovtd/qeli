@@ -16,11 +16,14 @@ internal static class WinDivertSelfTest
     public static int RunUnit(Action<string, bool> check)
     {
         // Destination policy: RFC1918 is NOT unconditionally direct.
-        var defaultPol = new WinDivertDestinationPolicy(false, null, null, null);
+        var defaultPol = new WinDivertDestinationPolicy(false, null, null, null,
+            physicalLocalRoutes: new[] { "192.168.1.0/24" });
         check("dest: public IP not bypassed",
             !defaultPol.ShouldBypassTunnel(IPAddress.Parse("1.1.1.1")));
-        check("dest: RFC1918 bypassed when route_local off",
+        check("dest: connected RFC1918 bypassed when route_local off",
             defaultPol.ShouldBypassTunnel(IPAddress.Parse("192.168.1.1")));
+        check("dest: remote RFC1918 follows full-tunnel policy",
+            !defaultPol.ShouldBypassTunnel(IPAddress.Parse("192.168.50.1")));
         check("dest: link-local always bypassed",
             defaultPol.ShouldBypassTunnel(IPAddress.Parse("169.254.10.1")));
 
@@ -29,10 +32,11 @@ internal static class WinDivertSelfTest
             !localPol.ShouldBypassTunnel(IPAddress.Parse("10.0.0.5")));
 
         var includePol = new WinDivertDestinationPolicy(false,
-            includeRoutes: new[] { "192.168.50.0/24" }, null, null);
+            includeRoutes: new[] { "192.168.50.0/24" }, null, null,
+            physicalLocalRoutes: new[] { "192.168.1.0/24" });
         check("dest: user include private CIDR tunnelled",
             !includePol.ShouldBypassTunnel(IPAddress.Parse("192.168.50.10")));
-        check("dest: other RFC1918 still bypassed without route_local",
+        check("dest: connected RFC1918 still bypassed without route_local",
             includePol.ShouldBypassTunnel(IPAddress.Parse("192.168.1.1")));
 
         var pushedPol = new WinDivertDestinationPolicy(false, null, null,
@@ -634,10 +638,11 @@ internal static class WinDivertSelfTest
             && c8.Contains(IPAddress.Parse("10.255.255.255"))
             && !c8.Contains(IPAddress.Parse("11.0.0.1")));
         var defaultDestinations = new WinDivertDestinationPolicy(
-            routeLocal: false, includeRoutes: null, excludeRoutes: null, pushedRoutes: null);
-        check("ipv6 policy: ULA and multicast stay local by default",
-            defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("fd00::1"))
-            && defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("ff02::1")));
+            routeLocal: false, includeRoutes: null, excludeRoutes: null, pushedRoutes: null,
+            physicalLocalRoutes: new[] { "192.168.1.0/24" });
+        check("ipv6 policy: ULA and multicast follow full-tunnel policy",
+            !defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("fd00::1"))
+            && !defaultDestinations.ShouldBypassTunnel(IPAddress.Parse("ff02::1")));
         var includedV6Destinations = new WinDivertDestinationPolicy(
             routeLocal: false,
             includeRoutes: new[] { "fd12:3456::/48" },

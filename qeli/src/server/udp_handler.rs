@@ -729,10 +729,10 @@ fn set_probe_df(socket: &socket2::Socket, peer_is_ipv6: bool) -> std::io::Result
     }
 }
 
-/// Send one reverse PMTU probe through a short-lived connected socket. The dedicated socket
-/// carries the same local address/port via SO_REUSEPORT, but its DF option cannot race with
-/// legacy data sends on the shared listener. It is closed immediately after `send`, so the
-/// ACK returns to the stable listener worker selected by the original four-tuple.
+/// Send one reverse PMTU probe through a short-lived unconnected socket. It carries the
+/// listener local address/port via SO_REUSEPORT, but never installs an exact connected
+/// four-tuple that could capture the immediate ACK. Its private DF option cannot race with
+/// data sends on the stable listener, and it is closed as soon as send_to returns.
 fn send_downlink_mtu_probe(
     local_addr: SocketAddr,
     peer: SocketAddr,
@@ -758,7 +758,7 @@ fn send_downlink_mtu_probe(
     socket.set_reuse_address(true)?;
     socket.set_reuse_port(true)?;
     socket.bind(&local_addr.into())?;
-    socket.connect(&peer.into())?;
+
     set_probe_df(&socket, peer.is_ipv6())?;
 
     let sealed;
@@ -768,7 +768,8 @@ fn send_downlink_mtu_probe(
     } else {
         packet
     };
-    let sent = socket.send(wire)?;
+    let peer_addr = peer.into();
+    let sent = socket.send_to(wire, &peer_addr)?;
     if sent == wire.len() {
         Ok(())
     } else {

@@ -1389,7 +1389,7 @@ failed roam.
 | `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | ✓ | tunnel MTU; `0` = adopt the server push |
 | `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | active path-MTU probe — **UDP with `mtu=0` only** |
 | `gateway` | \* | ✓ | ✓ | ✓ | ✓ | ✓ | full tunnel. Default: split on CLI, full in every GUI; `gateway=false` = split. The GUI→Rust boundary always makes the value explicit |
-| `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | pull the broad RFC1918 ranges into the tunnel |
+| `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | pull IPv4 RFC1918 into the tunnel; does not alter IPv6 policy |
 | `include` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list forced **into** the tunnel (Android — split-tunnel only) |
 | `exclude` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list carved **out** of the tunnel (Android — API 33+ only) |
 | `route_file` | — | — | ✓ | ✓ | — | — | split routes from a file (on the CLI use `include`/`exclude`) |
@@ -1573,7 +1573,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 
 | Key | Purpose |
 |---|---|
-| `route_local` | pull the **broad RFC1918 ranges** (10/8, 172.16/12, 192.168/16) into the tunnel. Default `false` — it would otherwise hijack the client's own LAN. **Routes the server explicitly advertises (`route = …`) are applied ALWAYS and do not depend on this flag** (since 0.7.12; before that they sat behind it and were silently dropped) |
+| `route_local` | pull the **IPv4 RFC1918 ranges** (10/8, 172.16/12, 192.168/16) into the tunnel. On desktop system-TUN clients, `true` also installs more-specific overrides for directly connected RFC1918 prefixes, so a physical `/24` cannot win over the broad tunnel route; desktop per-app mode applies the same decision policy. Explicit `exclude` CIDRs still win. This flag does not affect IPv6 ULA or multicast. Default `false` avoids hijacking a directly connected LAN; remote RFC1918 destinations still follow the ordinary full/split-tunnel policy. **Routes the server explicitly advertises (`route = …`) are applied ALWAYS and do not depend on this flag** (since 0.7.12; before that they sat behind it and were silently dropped) |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
 | `exclude` | comma-separated strict IPv4/IPv6 CIDRs to **exclude** from the tunnel — they go directly via the physical path of the same address family. Windows/macOS resolve that path before capture routes, iOS uses `NEIPv4Route`/`NEIPv6Route`, and Android uses `VpnService.excludeRoute` on API 33+ (a computed complement on older versions). Use `/32` for one IPv4 host or `/128` for one IPv6 host. Example: `exclude = 192.168.50.0/24, 2001:db8::7/128` |
 | `include` | comma-separated IPv4/IPv6 CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set). A route is accepted only when that family was negotiated in the authenticated NetworkPlan |
