@@ -194,12 +194,11 @@ pub async fn get_config(
     })))
 }
 
-/// Canonical defaults for the UI: a fully-defaulted profile template (every
-/// serde `default_*` applied). The panel builds new
-/// profiles / quick-start presets from this instead of hard-coding the schema in
-/// JS — single source of truth, so the form never drifts from the Rust structs.
+/// Canonical defaults for a newly created UI profile. Parser defaults remain separately
+/// upgrade-compatible, while new profiles opt into capabilities supported by standard builds.
+/// The panel consumes this instead of duplicating the schema in JavaScript.
 pub async fn get_config_defaults(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthError> {
-    let profile = crate::config::server::ProfileConfig::baseline();
+    let profile = crate::config::server::ProfileConfig::new_profile();
     Ok(Json(json!({
         "ok": true,
         "profile": profile,
@@ -470,7 +469,7 @@ fn build_quickstart_profile(
         .ok_or_else(|| format!("unknown Quick Start mode '{mode}'"))?;
     let short_id = spec.needs_short_id.then(|| random_hex(8));
     let obfs_key = spec.needs_obfs_key.then(|| random_hex(16));
-    let mut profile = crate::config::server::ProfileConfig::baseline();
+    let mut profile = crate::config::server::ProfileConfig::new_profile();
     profile.name = spec.id.to_string();
     profile.enabled = true;
     profile.bind.address = "0.0.0.0".into();
@@ -2339,6 +2338,10 @@ mod raw_secret_tests {
             let (profile, sid, obfs_key) = build_quickstart_profile(spec.id).unwrap();
             assert_eq!(sid.is_some(), spec.needs_short_id);
             assert_eq!(obfs_key.is_some(), spec.needs_obfs_key);
+            assert!(
+                profile.roaming.enabled,
+                "every newly created Quick Start mode must enable negotiated roaming"
+            );
             assert_eq!(
                 profile.obfuscation.recordizer.policy, "prefer",
                 "every shipped Quick Start mode must negotiate PACKET_MUX_V1"
@@ -2888,6 +2891,7 @@ mod raw_secret_tests {
         let (mut profile, original_sid, _) = build_quickstart_profile("reality-tls").unwrap();
         profile.enabled = false;
         profile.bind.port = 9443;
+        profile.roaming.enabled = false;
         profile.tun.mtu = 1337;
         profile.obfuscation.tls.reality_proxy.short_ids =
             vec![original_sid.clone().unwrap(), "0011223344556677".into()];
@@ -2900,6 +2904,10 @@ mod raw_secret_tests {
         assert!(was_reused);
         assert!(reused.enabled, "Launch must re-enable an existing profile");
         assert_eq!(reused.bind.port, 9443, "manual listener change was reset");
+        assert!(
+            !reused.roaming.enabled,
+            "relaunch must preserve an operator's explicit roaming override"
+        );
         assert_eq!(reused.tun.mtu, 1337, "manual MTU was reset");
         assert_eq!(
             reused.obfuscation.tls.reality_proxy.short_ids,

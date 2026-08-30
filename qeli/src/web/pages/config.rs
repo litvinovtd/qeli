@@ -48,7 +48,9 @@ mod tests {
         assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.max_orphaned"));
         assert!(CONFIG_PAGE.contains("roamingMaxMiB(cfg.profiles[activeTab])"));
         assert!(CONFIG_PAGE.contains("profile.roaming.max_orphan_bytes = mib * 1048576"));
+        // Existing missing fields stay upgrade-compatible; the new-profile fallback is on.
+        assert!(CONFIG_PAGE.contains("roaming: { enabled: true, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }"));
         assert!(CONFIG_PAGE.contains("roaming: { enabled: false, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }"));
-        assert!(CONFIG_PAGE.contains("Requires a server binary built with"));
+        assert!(CONFIG_PAGE.contains("New profiles enable it by default"));
     }
 }

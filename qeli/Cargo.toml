@@ -48,9 +48,12 @@ default = ["server", "client"]
 # Server side pulls the only MIPS-incompatible deps (rustls/ring via rcgen) plus
 # the web stack. A client-only build (`--no-default-features --features client-bin`)
 # excludes all of these and cross-compiles to mipsel/aarch64.
-server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile"]
+# Every server build includes session roaming: shipped profiles and Quick Start enable it.
+server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile", "experimental-roaming"]
 client = []
-client-bin = ["client"]
+# Standard standalone and FFI clients carry the same roaming state machine. Runtime
+# capability negotiation still falls back safely on unsupported platforms and peers.
+client-bin = ["client", "experimental-roaming"]
 # Swap the server binary's global allocator to jemalloc. Opt-in + OFF by default:
 # only the Linux server/deb release build enables it (`--features jemalloc`). The
 # cross-platform FFI cdylib (Win/Mac/Android) and the MIPS/musl router client never
@@ -76,11 +79,10 @@ ffi-cdylib = []
 # Experimental whole-client control-plane ABI. It deliberately implies the existing
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
-transport-core-ffi = ["ffi-cdylib", "client"]
-# Stages 0-1 wire/path contracts and the Stage 2 TCP lifecycle/client/server slices. Off by
-# default. Handover is authenticated and additionally requires a platform adapter to advertise
-# the complete transactional ROAMING_PATH contract; current production adapters do not, so
-# normal builds, legacy peers and the active production data plane remain unchanged.
+transport-core-ffi = ["ffi-cdylib", "client", "experimental-roaming"]
+# Internal compile-time gate retained for minimal/core experiments. All supported server,
+# standalone-client and FFI build entry points above include it. Handover is authenticated and
+# still requires the platform adapter and peer to negotiate the complete ROAMING_PATH contract.
 experimental-roaming = []
 
 [dependencies]

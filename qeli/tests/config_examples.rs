@@ -98,7 +98,7 @@ fn shipped_server_examples_have_no_unread_keys() {
 }
 
 #[test]
-fn every_shipped_server_profile_spells_out_safe_roaming_rollout_defaults() {
+fn every_shipped_server_profile_enables_roaming_explicitly() {
     for (name, text) in [
         ("server.conf", include_str!("../config/server.conf")),
         (
@@ -128,7 +128,7 @@ fn every_shipped_server_profile_spells_out_safe_roaming_rollout_defaults() {
                 .map(|(key, value)| (key.as_str(), value.as_str()))
                 .collect();
             for (key, expected) in [
-                ("roaming.enabled", "false"),
+                ("roaming.enabled", "true"),
                 ("roaming.grace_secs", "30"),
                 ("roaming.max_orphaned", "256"),
                 ("roaming.max_orphan_bytes", "67108864"),
@@ -136,7 +136,7 @@ fn every_shipped_server_profile_spells_out_safe_roaming_rollout_defaults() {
                 assert_eq!(
                     entries.get(key).copied(),
                     Some(expected),
-                    "{name} {} must spell out safe {key}",
+                    "{name} {} must spell out the shipped {key}",
                     profile.header()
                 );
             }

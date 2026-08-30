@@ -53,11 +53,11 @@ fn default_roaming_max_orphan_bytes() -> usize {
     64 * 1024 * 1024
 }
 
-/// Profile-scoped server policy for the experimental roaming protocol.
+/// Profile-scoped server policy for authenticated session roaming.
 ///
-/// The data plane is additionally compile-time gated. Keeping `enabled` false by default means
-/// an experimental binary can be deployed for compatibility testing without advertising a wire
-/// capability until an operator enables one canary profile explicitly.
+/// A missing key remains false for upgrade compatibility: installing a new binary must not
+/// silently opt an existing sparse config into a new wire capability. New profiles and every
+/// shipped server template explicitly set it to true through [`ProfileConfig::new_profile`].
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RoamingConfig {
     #[serde(default = "default_false")]
@@ -151,12 +151,11 @@ impl Default for ProfileConfig {
 }
 
 impl ProfileConfig {
-    /// A profile with every per-field serde default applied — the canonical
-    /// "new profile" template. The nested objects are spelled out so serde runs
+    /// A profile with every per-field serde default applied — the canonical sparse-config
+    /// parser baseline. The nested objects are spelled out so serde runs
     /// the `default_*` functions rather than the derived `Default` (which would
-    /// give "" / 0 / false for sub-tables). The web UI fetches this via
-    /// `GET /api/config/defaults` so the form never hard-codes (and drifts from)
-    /// the schema. Keep the skeleton in sync with the struct's sub-tables.
+    /// give "" / 0 / false for sub-tables). Keep the skeleton in sync with the
+    /// struct's sub-tables. Use [`Self::new_profile`] for an operator-created profile.
     pub fn baseline() -> Self {
         const SKELETON: &str = r#"{
             "bind":{},"tun":{},"pool":{"ipv6":{}},
@@ -170,6 +169,15 @@ impl ProfileConfig {
             "roaming":{}
         }"#;
         serde_json::from_str(SKELETON).expect("baseline profile skeleton is valid")
+    }
+
+    /// Defaults for a newly installed or operator-created profile. This is intentionally
+    /// separate from [`Self::baseline`]: old configs that omit `roaming.enabled` stay off,
+    /// while every new profile opts into negotiated roaming explicitly.
+    pub fn new_profile() -> Self {
+        let mut profile = Self::baseline();
+        profile.roaming.enabled = true;
+        profile
     }
 }
 

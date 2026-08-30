@@ -52,9 +52,9 @@ use std::collections::HashMap;
 
 // ---------- serde baselines (real defaults live in #[serde(default)] fns) ----
 
-/// A `ProfileConfig` with every per-field serde default applied. Single source
-/// of truth lives in [`ProfileConfig::baseline`] (also served to the web UI via
-/// `/api/config/defaults`), so the INI codec and the panel never drift.
+/// A `ProfileConfig` with every per-field serde default applied. This is deliberately the
+/// upgrade-compatible parser baseline; the panel uses [`ProfileConfig::new_profile`] so new
+/// profiles can adopt newer safe defaults without changing sparse existing configs.
 fn baseline_profile() -> ProfileConfig {
     ProfileConfig::baseline()
 }
@@ -1503,7 +1503,7 @@ route = 2001:db8:400::/48 gateway=fd71:e1:1234:1::1 metric=20
     }
 
     #[test]
-    fn roaming_profile_policy_is_default_off() {
+    fn omitted_roaming_switch_stays_off_for_upgrade_compatibility() {
         let cfg = crate::config::parse_server_config(
             "[profile:edge]\n\
              bind.transport = udp\n\

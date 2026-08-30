@@ -305,6 +305,7 @@ mod tests {
         assert_eq!(got_down, down);
     }
 
+    #[cfg(feature = "server")]
     #[tokio::test]
     async fn round_trip_over_handrolled_reality_tls() {
         use crate::crypto::{reality, Keypair, StaticKeypair};

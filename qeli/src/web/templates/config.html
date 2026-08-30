@@ -571,7 +571,7 @@
         <div id="sec-roaming" class="card p-5 space-y-4 cfg-anchor">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <div class="section-hdr">Session Roaming <span class="text-amber-500">(experimental)</span></div>
+              <div class="section-hdr">Session Roaming</div>
               <p class="field-desc mt-1 max-w-3xl">Keep one authenticated session and TUN interface while the client changes network or repairs a dead NAT mapping. The same policy applies to TCP and every UDP camouflage mode.</p>
             </div>
             <label class="flex items-center gap-2 cursor-pointer" @click="[cfg.profiles[activeTab].roaming.enabled = !cfg.profiles[activeTab].roaming.enabled, markDirty()]">
@@ -579,11 +579,11 @@
                 <div class="toggle-dot" :class="cfg.profiles[activeTab].roaming.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
               </div>
               <span class="text-xs" :class="cfg.profiles[activeTab].roaming.enabled ? 'text-emerald-400' : 'text-slate-500'"
-                x-text="cfg.profiles[activeTab].roaming.enabled ? 'Enabled' : 'Disabled (default)'"></span>
+                x-text="cfg.profiles[activeTab].roaming.enabled ? 'Enabled' : 'Disabled'"></span>
             </label>
           </div>
-          <div x-show="cfg.profiles[activeTab].roaming.enabled" class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            Requires a server binary built with <span class="font-mono">experimental-roaming</span>. A default binary rejects this profile instead of silently falling back.
+          <div x-show="cfg.profiles[activeTab].roaming.enabled" class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+            Standard server and client builds include roaming. New profiles enable it by default; unsupported or legacy clients negotiate normal reconnect instead.
           </div>
           <div class="grid grid-cols-3 gap-4">
             <div>
@@ -2186,7 +2186,7 @@ function configPage() {
       const n = (this.cfg.profiles || []).length;
       const base = this.defaultProfile
         ? JSON.parse(JSON.stringify(this.defaultProfile))
-        : { name: '', bind: {}, roaming: { enabled: false, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }, tun: { ip_mode: 'ipv4' }, pool: { ipv6: { exclude: [], static_reservations: {} } }, routing: { nat: {}, ipv6: { mode: 'off', interface: '' } }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, recordizer: { policy: 'prefer', batch: { delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 }, record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 }, fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 } }, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
+        : { name: '', bind: {}, roaming: { enabled: true, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }, tun: { ip_mode: 'ipv4' }, pool: { ipv6: { exclude: [], static_reservations: {} } }, routing: { nat: {}, ipv6: { mode: 'off', interface: '' } }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, recordizer: { policy: 'prefer', batch: { delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 }, record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 }, fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 } }, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
       base.name = 'profile-' + (n + 1);
       base.enabled = true;
       base.bind.address = '0.0.0.0';

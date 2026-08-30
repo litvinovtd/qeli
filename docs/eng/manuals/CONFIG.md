@@ -1132,10 +1132,13 @@ profiles = tcp
 
 The check runs after password verification, on both TCP and UDP.
 
-## Experimental roaming rollout (`roaming.*`)
+## Session roaming (`roaming.*`)
 
-Roaming is enabled separately for each server profile and is **off by default**. It is
-available only in a binary built with the `experimental-roaming` feature.
+Roaming is enabled separately for each server profile. Every standard 0.8.0 server,
+standalone-client and FFI build includes the implementation; every shipped server template,
+new installation, panel-created profile and Quick Start profile explicitly sets
+`roaming.enabled = true`. If the key is absent from an older sparse config, it remains
+`false`: installing a new binary does not silently enable a new wire capability.
 
 ```ini
 [profile:mobile-udp]
@@ -1147,7 +1150,7 @@ roaming.max_orphan_bytes = 67108864
 
 | Key | Default | Valid range | Purpose |
 |---|---:|---:|---|
-| `roaming.enabled` | `false` | boolean | advertise and accept authenticated TCP/UDP roaming for this profile |
+| `roaming.enabled` | `false` when omitted; `true` in new templates | boolean | advertise and accept authenticated TCP/UDP roaming for this profile |
 | `roaming.grace_secs` | `30` | `1..3600` | how long an unexpectedly detached TCP session may wait for authenticated resume |
 | `roaming.max_orphaned` | `256` | `1..65536` | profile-wide cap on detached TCP sessions retained for resume |
 | `roaming.max_orphan_bytes` | `67108864` | `4194304..1073741824` | profile-wide memory cap for retained TCP sessions; the 4 MiB minimum matches one fixed encrypted-record pool |
@@ -1156,6 +1159,13 @@ With `roaming.enabled = false`, the server masks every roaming capability for th
 profile while retaining unrelated authenticated-extension and UDP-fragmentation bits;
 legacy reconnect behavior is unchanged. Setting it to `true` on a binary without the
 build feature is rejected by `check-config` instead of being silently ignored.
+
+A live session migrates only when the client policy is `auto` or `required`, client and server
+negotiate the transport-specific capability, and the platform adapter supplies the complete
+transactional `ROAMING_PATH` contract. Explicit client `local` or non-zero `lport` values pin
+the carrier socket: `auto` uses a normal reconnect while `required` is rejected during config
+validation. If prepare/bind/proof/commit fails, `auto` also falls back safely to reconnect;
+`required` fails closed.
 
 The grace and orphan limits govern TCP hard-resume. UDP uses the same profile opt-in and
 authenticated capability negotiation for every UDP camouflage mode, but keeps its own
