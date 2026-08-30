@@ -28,6 +28,18 @@ SYNC_EXT = (
 SYNC_FILES = {"gradlew"}
 SKIP_DIRS = {"build", ".gradle", ".kotlin", "dist", ".idea", "jniLibs"}
 SKIP_FILES = {"local.properties"}
+# These source trees must be mirrors of the checkout. Merely overwriting files
+# leaves deleted Kotlin classes/tests behind on the persistent Android builder,
+# allowing stale code from an older branch to enter the APK or fail its tests.
+# Keep jniLibs outside the list: step 1 installs the independently reproduced
+# native cores there, and the lab's signing/local configuration lives elsewhere.
+MIRRORED_SOURCE_TREES = (
+    "app/src/androidTest",
+    "app/src/main/kotlin",
+    "app/src/main/res",
+    "app/src/test",
+)
+
 DIST = os.path.join(LOCAL, "dist")
 if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--release"):
     raise SystemExit("usage: rebuild_apk.py [--release]")
@@ -56,6 +68,12 @@ for abi in ("arm64-v8a", "x86_64"):
 # the same fixtures as Rust/C#/Swift; leaving the lab's old copies behind can make a release
 # fail or, worse, certify vectors from a different commit.
 print("=== 2. sync sources + shared conformance (preserving jniLibs) ===")
+for relative in MIRRORED_SOURCE_TREES:
+    remote_tree = posixpath.join(REMOTE, relative)
+    clean_output, clean_rc = sh(c, f"rm -rf -- {shlex.quote(remote_tree)}")
+    if clean_rc != 0:
+        raise RuntimeError(f"remote source cleanup failed for {relative}:\n{clean_output}")
+
 sources = []
 remote_directories = set()
 for root, dirs, names in os.walk(LOCAL):

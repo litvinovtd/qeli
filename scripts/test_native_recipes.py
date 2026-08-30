@@ -96,6 +96,13 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('CONFORMANCE = REPO_ROOT / "conformance"', source)
         self.assertIn('CONFORMANCE.glob("*.json")', source)
         self.assertIn('REMOTE, "conformance", fixture.name', source)
+        for tree in (
+            "app/src/androidTest",
+            "app/src/main/kotlin",
+            "app/src/main/res",
+            "app/src/test",
+        ):
+            self.assertIn(f'"{tree}"', source)
         self.assertIn("shutil.copy2(cur, prev)", source)
         self.assertNotIn("os.replace(cur, prev)", source)
         self.assertNotIn("AutoAddPolicy", source)
