@@ -26,7 +26,7 @@
   "primitive": "replay-window",
   "generator": "qeli/src/gen_conformance_main.rs",
   "window_size": 2048,
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
     {
       "name": "monotonic",

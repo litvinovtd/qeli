@@ -151,7 +151,7 @@ fn build_prp_nonce() -> String {
   ],
   "primitive": "prp-nonce",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -341,7 +341,7 @@ fn build_packet_decode() -> String {
   ],
   "primitive": "packet-decode",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -502,7 +502,7 @@ fn build_replay_window() -> String {
   "primitive": "replay-window",
   "generator": "qeli/src/gen_conformance_main.rs",
   "window_size": 2048,
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -652,7 +652,7 @@ fn build_hkdf() -> String {
   ],
   "primitive": "hkdf",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -839,7 +839,7 @@ fn build_quic() -> String {
   ],
   "primitive": "quic",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "wrap": [
 "#,
     );
@@ -986,7 +986,9 @@ fn build_udp_frag() -> String {
     s.push_str(&format!(
         "{MAX_CHUNK},\n  \"max_chunk_accept\": {MAX_CHUNK_ACCEPT},\n  \"max_frags\": {MAX_FRAGS},\n  \"msg_auth_ok\": {MSG_AUTH_OK},\n"
     ));
-    s.push_str("  \"platforms\": [\"rust\", \"csharp\", \"swift\"],\n  \"fragment\": [\n");
+    s.push_str(
+        "  \"platforms\": [\"rust\", \"kotlin\", \"csharp\", \"swift\"],\n  \"fragment\": [\n",
+    );
 
     struct FragCase {
         name: &'static str,

@@ -58,7 +58,7 @@
   "max_chunk_accept": 1200,
   "max_frags": 24,
   "msg_auth_ok": 6,
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "fragment": [
     {
       "name": "single-fragment",

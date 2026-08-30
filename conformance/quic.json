@@ -31,7 +31,7 @@
   ],
   "primitive": "quic",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "wrap": [
     {
       "name": "short-header-simple",

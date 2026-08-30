@@ -93,9 +93,25 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("from native_lab import connect_lab", source)
         self.assertIn("apksigner} verify", source)
         self.assertIn("pull_verified_artifact", source)
+        self.assertIn('CONFORMANCE = REPO_ROOT / "conformance"', source)
+        self.assertIn('CONFORMANCE.glob("*.json")', source)
+        self.assertIn('REMOTE, "conformance", fixture.name', source)
         self.assertIn("shutil.copy2(cur, prev)", source)
         self.assertNotIn("os.replace(cur, prev)", source)
         self.assertNotIn("AutoAddPolicy", source)
+
+        root = Path(__file__).resolve().parents[1]
+        kotlin_fixtures = (
+            "hkdf.json",
+            "packet-decode.json",
+            "prp-nonce.json",
+            "quic.json",
+            "replay-window.json",
+            "udp-frag.json",
+        )
+        for name in kotlin_fixtures:
+            fixture = (root / "conformance" / name).read_text(encoding="utf-8")
+            self.assertIn('"kotlin"', fixture, f"{name} omits its Kotlin consumer")
 
     def test_macos_packaging_uses_checked_shared_lab_connection(self):
         source = (Path(__file__).parent / "build_mac_universal.py").read_text(

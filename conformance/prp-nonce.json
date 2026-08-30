@@ -37,7 +37,7 @@
   ],
   "primitive": "prp-nonce",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "swift"],
+  "platforms": ["rust", "kotlin", "csharp", "swift"],
   "cases": [
     {
       "name": "counter-zero",
