@@ -235,6 +235,51 @@ enum UdpRoamingIngressPath {
 }
 
 #[cfg(feature = "experimental-roaming")]
+#[derive(Debug, PartialEq, Eq)]
+enum UdpRoamingPmtuAction {
+    NotProbe,
+    Drop,
+    Ack(Vec<u8>),
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn classify_udp_roaming_uplink_probe(
+    payload: &[u8],
+    ingress_path: UdpRoamingIngressPath,
+) -> UdpRoamingPmtuAction {
+    if !crate::protocol::udp_frag::is_fragment(payload) {
+        return UdpRoamingPmtuAction::NotProbe;
+    }
+    match payload[3] {
+        crate::protocol::udp_frag::MSG_MTU_PROBE_V2 => {
+            if ingress_path != UdpRoamingIngressPath::Committed {
+                return UdpRoamingPmtuAction::Drop;
+            }
+            crate::protocol::udp_frag::parse_mtu_probe_v2_request(payload)
+                .map(|(token, size)| {
+                    UdpRoamingPmtuAction::Ack(crate::protocol::udp_frag::mtu_probe_v2_ack_datagram(
+                        token, size,
+                    ))
+                })
+                .unwrap_or(UdpRoamingPmtuAction::Drop)
+        }
+        crate::protocol::udp_frag::MSG_MTU_PROBE => {
+            if ingress_path != UdpRoamingIngressPath::Committed {
+                return UdpRoamingPmtuAction::Drop;
+            }
+            crate::protocol::udp_frag::parse_mtu_probe_request(payload)
+                .map(|(id, size)| {
+                    UdpRoamingPmtuAction::Ack(crate::protocol::udp_frag::mtu_probe_ack_datagram(
+                        id, size,
+                    ))
+                })
+                .unwrap_or(UdpRoamingPmtuAction::Drop)
+        }
+        _ => UdpRoamingPmtuAction::NotProbe,
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
 struct UdpEgressCommit {
     expected_epoch: u64,
     expected_peer: SocketAddr,
@@ -2577,37 +2622,35 @@ async fn handle_udp_roaming_ingress(
         if crate::protocol::udp_frag::is_mtu_probe_ack(roaming_payload) {
             return;
         }
-        if crate::protocol::udp_frag::is_mtu_probe(roaming_payload) {
-            if ingress_path != UdpRoamingIngressPath::Committed {
+        let roaming_pmtu_ack =
+            match classify_udp_roaming_uplink_probe(roaming_payload, ingress_path) {
+                UdpRoamingPmtuAction::NotProbe => None,
+                UdpRoamingPmtuAction::Drop => return,
+                UdpRoamingPmtuAction::Ack(ack) => Some(ack),
+            };
+        if let Some(ack) = roaming_pmtu_ack {
+            let egress = active_egress.snapshot();
+            // Classification above pins the exact receiving path. Recheck the immutable
+            // snapshot used to build/send the ACK so a future refactor cannot combine a
+            // current CID with another socket or peer.
+            if egress.path_epoch != lookup.path_epoch()
+                || egress.peer != received_path.peer()
+                || !Arc::ptr_eq(&egress.socket, &envelope.socket)
+            {
                 return;
             }
-            if let Some((id, size)) =
-                crate::protocol::udp_frag::parse_mtu_probe_request(roaming_payload)
-            {
-                let egress = active_egress.snapshot();
-                // Classification above pins the exact receiving path. Recheck the immutable
-                // snapshot used to build/send the ACK so a future refactor cannot combine a
-                // current CID with another socket or peer.
-                if egress.path_epoch != lookup.path_epoch()
-                    || egress.peer != received_path.peer()
-                    || !Arc::ptr_eq(&egress.socket, &envelope.socket)
-                {
-                    return;
-                }
-                let packet_number = client
-                    .packet_counter
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let ack = crate::protocol::udp_frag::mtu_probe_ack_datagram(id, size);
-                let mut wrapped = Vec::with_capacity(egress.framing.wrapper_len() + ack.len());
-                let packet = egress.framing.wrap_into(&ack, packet_number, &mut wrapped);
-                if let Err(error) = egress.socket.try_send_to(packet, egress.peer) {
-                    log::trace!(
-                        "UDP roaming PMTU probe ACK send failed on profile '{}' to {}: {}",
-                        profile.name,
-                        egress.peer,
-                        error
-                    );
-                }
+            let packet_number = client
+                .packet_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut wrapped = Vec::with_capacity(egress.framing.wrapper_len() + ack.len());
+            let packet = egress.framing.wrap_into(&ack, packet_number, &mut wrapped);
+            if let Err(error) = egress.socket.try_send_to(packet, egress.peer) {
+                log::trace!(
+                    "UDP roaming PMTU probe ACK send failed on profile '{}' to {}: {}",
+                    profile.name,
+                    egress.peer,
+                    error
+                );
             }
             return;
         }
@@ -5288,9 +5331,9 @@ mod tests {
     };
     #[cfg(feature = "experimental-roaming")]
     use super::{
-        decrypt_udp_roaming_record, encrypt_udp_roaming_control, UdpActiveEgress, UdpEgressCommit,
-        UdpEgressCommitError, UdpEgressPublishError, UdpRoamingControlError, UdpRoamingIngressPath,
-        UdpRoamingOwnerIndex,
+        classify_udp_roaming_uplink_probe, decrypt_udp_roaming_record, encrypt_udp_roaming_control,
+        UdpActiveEgress, UdpEgressCommit, UdpEgressCommitError, UdpEgressPublishError,
+        UdpRoamingControlError, UdpRoamingIngressPath, UdpRoamingOwnerIndex, UdpRoamingPmtuAction,
     };
     use crate::protocol::udp_frag;
     use std::time::Duration;
@@ -5311,6 +5354,56 @@ mod tests {
         .pop()
         .unwrap();
         codec.encrypt_packet(&frame, &[]).unwrap()
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn udp_roaming_pmtu_ingress_echoes_v2_only_on_committed_path() {
+        let token = 0x0123456789abcdef_fedcba9876543210u128;
+        let probe = udp_frag::mtu_probe_v2_datagram(token, 1400).expect("V2 probe");
+
+        let action = classify_udp_roaming_uplink_probe(&probe, UdpRoamingIngressPath::Committed);
+        let UdpRoamingPmtuAction::Ack(ack) = action else {
+            panic!("committed V2 probe was not acknowledged: {action:?}");
+        };
+        assert_eq!(udp_frag::parse_mtu_probe_v2_ack(&ack), Some((token, 1400)));
+
+        for path in [
+            UdpRoamingIngressPath::Candidate,
+            UdpRoamingIngressPath::Draining,
+        ] {
+            assert_eq!(
+                classify_udp_roaming_uplink_probe(&probe, path),
+                UdpRoamingPmtuAction::Drop,
+                "non-committed path must not receive a PMTU ACK"
+            );
+        }
+
+        let mut malformed = probe.clone();
+        malformed.truncate(udp_frag::FRAG_HDR_LEN + udp_frag::PROBE_V2_BODY_LEN);
+        assert_eq!(
+            classify_udp_roaming_uplink_probe(&malformed, UdpRoamingIngressPath::Committed,),
+            UdpRoamingPmtuAction::Drop,
+            "declared and received V2 probe sizes must match"
+        );
+
+        let legacy = udp_frag::mtu_probe_datagram(0xBEEF, 1200).expect("legacy probe");
+        let legacy_action =
+            classify_udp_roaming_uplink_probe(&legacy, UdpRoamingIngressPath::Committed);
+        let UdpRoamingPmtuAction::Ack(legacy_ack) = legacy_action else {
+            panic!("committed legacy probe was not acknowledged: {legacy_action:?}");
+        };
+        assert_eq!(
+            udp_frag::parse_mtu_probe_ack(&legacy_ack),
+            Some((0xBEEF, 1200))
+        );
+        assert_eq!(
+            classify_udp_roaming_uplink_probe(
+                b"PacketCodec record",
+                UdpRoamingIngressPath::Committed,
+            ),
+            UdpRoamingPmtuAction::NotProbe
+        );
     }
 
     #[cfg(feature = "experimental-roaming")]
