@@ -16,6 +16,12 @@
 - Standalone fuzz harnesses снова компилируются после переименования library crate в `qeli_core`;
   release gate теперь защищён отдельной regression-проверкой от возврата старых импортов `qeli::`.
 
+- OpenWrt/Keenetic client-only recipes больше не пытаются попутно линковать ненужные FFI
+  `cdylib/staticlib` для MIPS: на время cross-build manifest безопасно ограничивается `rlib` и
+  восстанавливается в `finally`. Частичная матрица архитектур теперь возвращает ненулевой exit code.
+- Router cross-build теперь принудительно использует проектный pin `cargo-zigbuild 0.23.0` и
+  больше не обновляет его случайно через неподдерживаемый `cargo zigbuild --version`.
+
 
 
 ### Исправления по аудиту маршрутизации и роуминга

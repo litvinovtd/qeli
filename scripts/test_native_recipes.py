@@ -635,6 +635,22 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertIn("Path(__file__).resolve().parents[1]", source, name)
             self.assertNotIn("C:" + "\\Users\\" + "litvi", source, name)
 
+
+    def test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed(self):
+        root = Path(__file__).resolve().parents[1]
+        recipes = (
+            root / "scripts/build_keenetic.py",
+            root / "qeli-openwrt/build/build_openwrt.py",
+        )
+        for recipe in recipes:
+            source = recipe.read_text(encoding="utf-8")
+            self.assertIn('crate-type = [\\"rlib\\"]', source, recipe.name)
+            self.assertIn("restore_router_manifest(c)", source, recipe.name)
+            self.assertIn("raise SystemExit(1)", source, recipe.name)
+            self.assertIn('PINNED_CARGO_ZIGBUILD = "0.23.0"', source, recipe.name)
+            self.assertIn("cargo install --list", source, recipe.name)
+            self.assertNotIn("cargo zigbuild --version", source, recipe.name)
+
     def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
         root = Path(__file__).parent.parent
         retired = [

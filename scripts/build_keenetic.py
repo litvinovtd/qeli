@@ -29,6 +29,8 @@ REMOTE_ROOT = "/opt/qeli-src"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_SRC = REPO_ROOT / "qeli"
 LOCAL_OUT = REPO_ROOT / "release" / "keenetic"
+ROUTER_MANIFEST_BACKUP = f"{REMOTE_ROOT}/Cargo.toml.router-backup"
+PINNED_CARGO_ZIGBUILD = "0.23.0"
 TARGETS = {
     "aarch64": "aarch64-unknown-linux-musl",
     "mipsel": "mipsel-unknown-linux-musl",
@@ -48,6 +50,32 @@ def run(c, cmd, t=120):
 
 def tail(s, n=25):
     return "\n".join(s.splitlines()[-n:])
+
+def restrict_router_crate_types(c):
+    """Build only the rlib dependency needed by qeli-client.
+
+    The persistent checkout is restored in ``finally`` by main. MIPS Zig cannot
+    link the desktop/mobile cdylib and must never be asked to build that unused
+    artifact as a side effect of a client-only binary.
+    """
+    restore_router_manifest(c)
+    command = (
+        f"cp {REMOTE_ROOT}/Cargo.toml {ROUTER_MANIFEST_BACKUP} && "
+        f"sed -i 's/^crate-type = \\[\"rlib\", \"cdylib\", \"staticlib\"\\]$/"
+        f"crate-type = [\"rlib\"]/' {REMOTE_ROOT}/Cargo.toml && "
+        f"grep -qxF 'crate-type = [\"rlib\"]' {REMOTE_ROOT}/Cargo.toml"
+    )
+    rc, output = run(c, command, t=30)
+    if rc != 0:
+        restore_router_manifest(c)
+        raise RuntimeError(f"cannot restrict router crate types:\n{output}")
+
+
+def restore_router_manifest(c):
+    rc, output = run(c, f"test ! -f {ROUTER_MANIFEST_BACKUP} || mv -f {ROUTER_MANIFEST_BACKUP} {REMOTE_ROOT}/Cargo.toml", t=30)
+    if rc != 0:
+        raise RuntimeError(f"cannot restore router Cargo.toml:\n{output}")
+
 
 
 def sync_tree(c):
@@ -99,13 +127,18 @@ def ensure_toolchain(c):
     _, o = run(c, "rustup target add aarch64-unknown-linux-musl 2>&1 | tail -1", t=300)
     print("  aarch64-musl target:", o or "ok")
     # cargo-zigbuild (zig как линкер для обеих арок)
-    _, zb = run(c, "cargo zigbuild --version 2>/dev/null || echo none")
-    if "zigbuild" not in zb:
+    _, zb = run(c, "cargo install --list | sed -n '/^cargo-zigbuild v/p'")
+    if f"cargo-zigbuild v{PINNED_CARGO_ZIGBUILD}:" not in zb:
         print("  ставлю cargo-zigbuild...")
-        _, o = run(c, "cargo install cargo-zigbuild --locked 2>&1 | tail -3", t=1200)
+        rc, o = run(c, f"cargo install cargo-zigbuild --version {PINNED_CARGO_ZIGBUILD} --locked --force 2>&1", t=1200)
         print(o)
+        if rc != 0:
+            raise RuntimeError(f"pinned cargo-zigbuild install failed:\n{o}")
     else:
         print("  cargo-zigbuild уже есть:", zb)
+    _, verified = run(c, "cargo install --list | sed -n '/^cargo-zigbuild v/p'")
+    if f"cargo-zigbuild v{PINNED_CARGO_ZIGBUILD}:" not in verified:
+        raise RuntimeError(f"cargo-zigbuild pin mismatch: {verified}")
     _, zv = run(c, "zig version")
     print("  zig:", zv)
     print()
@@ -173,15 +206,22 @@ def main():
         print(f"Синхронизировано {n} файлов в {REMOTE_ROOT}\n")
     ensure_toolchain(c)
     results = {}
-    for arch, target in targets.items():
-        results[arch] = build(c, arch, target)
-        if results[arch] == 0:
-            pull(c, arch, target)
-    c.close()
+    try:
+        restrict_router_crate_types(c)
+        for arch, target in targets.items():
+            results[arch] = build(c, arch, target)
+            if results[arch] == 0:
+                pull(c, arch, target)
+    finally:
+        restore_router_manifest(c)
+        c.close()
     print("\n===== ИТОГ =====")
     for arch in targets:
         print(f"  {arch}: {'OK' if results.get(arch) == 0 else 'FAIL'}")
-    print("KEENETIC_BUILD:", "PASS" if all(v == 0 for v in results.values()) else "PARTIAL/FAIL")
+    passed = all(v == 0 for v in results.values())
+    print("KEENETIC_BUILD:", "PASS" if passed else "PARTIAL/FAIL")
+    if not passed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
