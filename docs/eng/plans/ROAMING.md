@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v45-tiered-resource-soak -->
+<!-- normative-sync: roaming-v46-tiered-soak-accepted -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -850,8 +850,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   Code audit found the lifecycle cause: two or three completed Tokio task handles for every retired
   carrier remained in the generation registry until full tunnel teardown. Registering the next
   carrier now removes only `is_finished()` handles, while active and still-closing tasks remain
-  available to teardown. An async regression pins the bounded registry; a full 10k retest of the
-  fixed release+jemalloc binary remains mandatory.
+  available to teardown. An async regression pins the bounded registry; the full 10k live gate of
+  the fixed release+jemalloc binary now passes as well.
   The TCP/UDP soak server-resource probe has also been corrected. The old
   `ip netns pids ... | head -n1` selected the `qeli server` supervisor, while the real data-plane
   fd, sockets, and RSS belong to its `qeli _worker` child. A live audit saw 10 fd, 3 sockets, and
@@ -859,12 +859,19 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   the worker. The shared probe now requires exactly one PID with the same canonical executable,
   `_worker` role, and exact current `-c/--config` argument. TCP and UDP also pin client and worker
   `/proc/<pid>/stat` start ticks, so disappearance, ambiguity, or PID reuse fails closed. The Linux
-  contract matrix passes 4/4, the helper and both soak cases pass ShellCheck, and isolated one-cycle
-  live smokes on fixed SHA-256
-  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` pass TCP 15/15 and UDP QUIC
-  15/15 while reporting the exact worker PID, 16 fd, 6 sockets, and worker RSS. The already-started
-  10k run remains valid functional/client-resource evidence, but its server-resource result is not
-  accepted; the corrected harness must repeat the full 10k gate.
+  contract matrix passes 4/4, and the helper plus both soak cases pass ShellCheck. On fixed SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc`, the corrected representative
+  TCP fake-TLS 10k passes 15/15 with client/server fd 13/16, sockets 4/6, sampled RSS
+  47,284/57,764 KiB, and zero orphan state. Corrected representative UDP QUIC 10k passes 15/15 with
+  fd 14/16, sockets 5/6, sampled RSS 37,176/70,896 KiB, zero candidates, and three CID aliases.
+  All 20,000 representative commits retain the original client/server worker PIDs, TUN, and one
+  authenticated session without reconnect; the SHA remains exact after both gates.
+
+  The tiered UDP adapter matrix on the same SHA is also complete: fake-TLS, obfs, and obfs+AWG each
+  pass 1,000/1,000 commits and 15/15 checks. Their final client/server sampled RSS values are
+  43,388/66,596, 45,316/68,412, and 35,844/78,288 KiB respectively; fd remain 14/16, sockets 5/6,
+  candidates zero, and CID aliases three. The common `CORRECTED_WORKER_UDP_SHORT_ALL_PASS` marker is
+  present, the background PID exits, and all test network namespaces are removed.
   A dedicated TCP performance gate now reuses the exact same netns runner and binary for an
   `off` baseline and a negotiated `required` sample. It takes configurable odd-count medians for
   upload, download, and combined qeli client/server CPU, and fails any relative regression beyond

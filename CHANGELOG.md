@@ -141,12 +141,16 @@
   PID с тем же canonical executable, ролью `_worker` и точным аргументом `-c/--config` текущего
   server.conf. TCP и UDP дополнительно фиксируют `/proc/<pid>/stat` start ticks клиента и worker,
   поэтому исчезновение, неоднозначность или PID reuse завершают gate fail-closed. Linux contract
-  matrix прошла 4/4, общий helper и оба soak case прошли ShellCheck, а изолированные одноцикловые
-  live smoke на фиксированном SHA-256
-  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` закрыли TCP 15/15 и UDP QUIC
-  15/15 с явным `server_worker_pid`, fd 16, sockets 6 и worker RSS. Ранее запущенный 10k остаётся
-  пригодным как functional/client-resource evidence, но его server-resource часть не засчитывается;
-  полный 10k должен быть повторён исправленным harness.
+  matrix прошла 4/4, общий helper и оба soak case прошли ShellCheck. На фиксированном SHA-256
+  `b8add83126dd1b6c608fa6288b7d227bf377ff3d27ce577db2dab5e114b265dc` исправленные representative
+  TCP fake-TLS и UDP QUIC прошли по 10 000 commit и 15/15 проверок с точным server worker PID.
+  TCP сохранил fd 13/16, sockets 4/6, sampled RSS 47 284/57 764 KiB и нулевой orphan state; QUIC —
+  fd 14/16, sockets 5/6, sampled RSS 37 176/70 896 KiB, ноль candidates и три CID aliases. Все
+  20 000 commit сохранили исходные worker PID, TUN и одну AUTH без reconnect; SHA после gate совпал.
+- Tiered UDP adapter matrix завершена на том же SHA: fake-TLS, obfs и obfs+AWG прошли по 1000/1000
+  commit и 15/15 проверок. Финальные client/server sampled RSS: 43 388/66 596, 45 316/68 412 и
+  35 844/78 288 KiB; fd остались 14/16, sockets 5/6, candidates — 0, CID aliases — 3. Общий
+  `CORRECTED_WORKER_UDP_SHORT_ALL_PASS` получен, процесс завершился, тестовые namespaces удалены.
 - Добавлен воспроизводимый TCP performance gate для роуминга. Новый `perf` case переиспользует
   тот же netns runner и один бинарник, а wrapper последовательно измеряет медианы upload/download
   и суммарный CPU процессов qeli сначала при `roaming=off`, затем при согласованном
