@@ -151,6 +151,10 @@
   commit и 15/15 проверок. Финальные client/server sampled RSS: 43 388/66 596, 45 316/68 412 и
   35 844/78 288 KiB; fd остались 14/16, sockets 5/6, candidates — 0, CID aliases — 3. Общий
   `CORRECTED_WORKER_UDP_SHORT_ALL_PASS` получен, процесс завершился, тестовые namespaces удалены.
+- Уточнён нормативный RU/EN статус после завершения soak: устаревшие утверждения об открытом full
+  10k удалены, deliberate DATA_FRAG-loss явно отмечен как закрытый Linux gate 25/25. Открытыми
+  остаются только отдельно перечисленные physical-device/platform PMTU, NAT-rebinding, race,
+  per-app, sleep и soak gates.
 - Добавлен воспроизводимый TCP performance gate для роуминга. Новый `perf` case переиспользует
   тот же netns runner и один бинарник, а wrapper последовательно измеряет медианы upload/download
   и суммарный CPU процессов qeli сначала при `roaming=off`, затем при согласованном

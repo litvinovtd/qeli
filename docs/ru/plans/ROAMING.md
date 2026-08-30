@@ -1,5 +1,5 @@
 # Роуминг клиента: план полной реализации
-<!-- normative-sync: roaming-v46-tiered-soak-accepted -->
+<!-- normative-sync: roaming-v47-platform-gates-only -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
 > под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
@@ -1063,8 +1063,9 @@ Current-server/legacy-client и legacy-server/current-`auto` создают TUN,
 повторных попытках остаётся до TUN и полной AUTH. Репрезентативный Linux TAP gate прошёл TCP
 fake-TLS 17/17 и UDP QUIC 19/19 с сохранением того же TAP, процесса и authenticated session;
 повторный default-TUN gate прошёл те же 17/17 и 19/19. Harness сверяет фактический kernel kind,
-а оба типа устройства используют одну TCP/UDP roaming state machine. Открытыми остаются полный
-10k и платформенные gates.
+а оба типа устройства используют одну TCP/UDP roaming state machine. Representative TCP fake-TLS
+и UDP QUIC 10k gates закрыты на исправленном worker probe; открытыми остаются только перечисленные
+ниже physical-device/platform gates.
 TCP harness дополнительно закрывает `max_streams=1`, fixed и adaptive bonding. Live regression
 воспроизвёл black-hole: после переноса slot 0 старые secondary writers продолжали принимать
 flow-pinned пакеты на исчезнувшем пути. COMMIT теперь закрывает весь старый carrier set, а общий
@@ -1104,7 +1105,8 @@ suite прошёл 973 теста при трёх ignored, strict feature/defaul
 - asymmetric C2S/S2C PMTU — ✅ Linux IPv4 netns; outer-family round-trip — ✅ Linux netns;
 - fragments в момент drain — ✅ Linux IPv4 netns, оба направления;
 - reorder/duplicate — ✅ Linux IPv4 netns; conflict/expiry — ✅ bounded core unit;
-  deliberate DATA_FRAG loss и device/soak gates остаются;
+- deliberate DATA_FRAG loss — ✅ Linux IPv4 netns, 25/25;
+- physical-device PMTU/soak gates остаются открытыми;
 - неизменный inner TUN MTU при DATA_FRAG_V1.
 
 ### End-to-end матрица
@@ -1150,8 +1152,8 @@ attempts/commits, одну session, ноль failures/candidates и три CID a
 Ни сами CID, ни locator/proof через этот интерфейс не раскрываются. UDP all-modes wrapper передаёт
 один выбранный case, включая `soak`, через QUIC, fake-TLS, obfs и obfs+AWG. Smoke на 100 TCP-миграций и
 по 100 миграций во всех четырёх UDP wire modes прошли с сохранением одной аутентифицированной
-сессии, исходных PID/TUN, точных client/server commit и fd 14/10; полный 10k и platform gates
-остаются открытыми.
+сессии, исходных PID/TUN, точных client/server commit и fd 14/10. Последующие representative TCP/UDP
+10k gates, описанные ниже, закрыты; открытыми остаются только physical-device/platform gates.
 Старый диагностический TCP 10k прошёл все functional/fd проверки, но превысил RSS budget 32 MiB.
 Кодовый аудит нашёл lifecycle-причину: 2–3 завершённых Tokio task handles каждого заменённого
 carrier оставались в generation registry до полного teardown туннеля. Регистрация следующего

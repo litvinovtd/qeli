@@ -1,5 +1,5 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v46-tiered-soak-accepted -->
+<!-- normative-sync: roaming-v47-platform-gates-only -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
@@ -844,8 +844,9 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   QUIC, fake-TLS, obfs, and obfs+AWG. A live
   0.8.0↔0.7.14 binary matrix passes 24/24 TCP/UDP checks: current server with legacy client and
   legacy server with current `auto` carry traffic after one full AUTH without entering roaming,
-  while current `required` remains pre-TUN and pre-full-AUTH across retries. The full 10k and
-  platform gates remain open.
+  while current `required` remains pre-TUN and pre-full-AUTH across retries. The corrected
+  representative TCP fake-TLS and UDP QUIC 10k gates described below now pass; only the explicitly
+  listed physical-device/platform gates remain open.
   An older diagnostic TCP 10k passed every functional/fd check but exceeded the 32 MiB RSS budget.
   Code audit found the lifecycle cause: two or three completed Tokio task handles for every retired
   carrier remained in the generation registry until full tunnel teardown. Registering the next
