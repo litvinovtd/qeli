@@ -36,6 +36,17 @@
   `setUnderlyingNetworks()` уже изменил сеть ОС, а локальное обновление или JNI ACK завершились
   ошибкой. Сервер ждёт client commit 60 секунд — на 15 секунд дольше клиентского platform ACK
   timeout; fault-injection тест фиксирует late-ACK сценарий.
+- ABI transport core повышен до 1.14 и различает безопасный отказ path-команды и неопределённое
+  состояние платформы после неудачного внутреннего rollback. Linux передаёт типизированный отказ
+  восстановления FIB, macOS сохраняет его через route/policy транзакции, а managed/iOS adapters
+  больше не превращают такой COMMIT в обычный отрицательный ACK. Ядро немедленно завершает
+  generation, удаляет queued candidate и не выдаёт stale `ABORT_PATH`; fault-injection тест
+  фиксирует этот fail-closed контракт. Клиенты со старым native core отключают path transactions
+  и используют полный reconnect.
+- Клиентский startup и live uplink PMTU probe переведены с 16-битного id на существующий V2
+  challenge с независимым 128-битным token. Текущий сервер эхо-подтверждает точные `token + size`
+  только для известной сессии; legacy probe старых клиентов по-прежнему обслуживается, а новый
+  клиент со старым сервером сохраняет консервативный UDP budget без небезопасного widening.
 - PMTU probe API и wire-комментарии теперь явно называют записываемый размер длиной payload до
   QUIC/obfs/UDP/IP-обёрток; расчёт фактических MTU-бюджетов не изменён.
 - Двухфазный TCP wire-контракт получил отдельную версию: magic изменён на `QELIRSM2`, версия и

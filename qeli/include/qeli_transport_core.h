@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000d)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000e)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -31,6 +31,15 @@ enum qeli_client_result {
     QELI_CLIENT_UNSUPPORTED = -9,
     QELI_CLIENT_PLATFORM_REJECTED = -10,
     QELI_CLIENT_STALE_REQUEST = -11
+};
+
+/* ABI 1.14 path-command execution outcomes. REJECTED promises that the platform made no
+ * externally visible change or restored it completely. PLATFORM_STATE_UNKNOWN means an
+ * attempted rollback failed and the current generation must terminate without stale ABORT. */
+enum qeli_path_command_result {
+    QELI_PATH_COMMAND_ACCEPTED = 0,
+    QELI_PATH_COMMAND_REJECTED = 1,
+    QELI_PATH_COMMAND_PLATFORM_STATE_UNKNOWN = 2
 };
 
 enum qeli_client_state {
@@ -60,7 +69,8 @@ enum qeli_client_payload_format {
 };
 
 /* ABI 1.11 adds the dual-family platform capability contract. ABI 1.12 adds opt-in path
- * transactions and exact candidate socket binding. ABI 1.13 adds a same-path snapshot request.
+ * transactions and exact candidate socket binding. ABI 1.13 adds a same-path snapshot request;
+ * ABI 1.14 adds fail-closed path-command outcome classification.
  * Unknown bits must be ignored; no bit may be advertised before the platform implements its
  * complete fail-closed contract. */
 enum qeli_client_platform_capability {
@@ -295,9 +305,11 @@ int32_t qeli_client_network_plan_result(uint64_t handle,
  * path object and optional socket_fd/reason. socket_fd is a borrowed signed 64-bit integer:
  * a Unix file descriptor or a Windows SOCKET value. Actions are "prepare_path", "bind_socket",
  * "commit_path" and "abort_path". Every command must be acknowledged with all three
- * correlation values below. Rejecting PREPARE/BIND/COMMIT produces ABORT; rejecting ABORT is
- * a platform error requiring a full reconnect and increments the reconnect-fallback counter.
- * The adapter must tear down any temporary candidate state before reconnecting.
+ * correlation values below. QELI_PATH_COMMAND_REJECTED promises a clean rollback boundary:
+ * rejecting PREPARE/BIND/COMMIT produces ABORT, while rejecting ABORT is a platform error
+ * requiring a full reconnect. QELI_PATH_COMMAND_PLATFORM_STATE_UNKNOWN means an internal
+ * platform rollback already failed; the core terminates the generation without issuing ABORT.
+ * The adapter must tear down any remaining candidate state before reconnecting.
  *
  * The library advertises QELI_CORE_PATH_TRANSACTIONS only in an experimental-roaming build.
  * A handle must advertise both QELI_PLATFORM_PATH_TRANSACTIONS and

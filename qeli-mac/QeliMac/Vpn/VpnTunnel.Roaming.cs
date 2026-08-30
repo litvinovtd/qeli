@@ -156,8 +156,9 @@ public sealed partial class VpnTunnel
             if (rollbackFailures.Count != 0)
             {
                 rollbackFailures.Insert(0, setupError);
-                throw new AggregateException(
-                    "macOS roaming PREPARE and rollback both failed", rollbackFailures);
+                throw new NativeRoamingPlatformStateUnknownException(
+                    "macOS roaming PREPARE and rollback both failed",
+                    new AggregateException(rollbackFailures));
             }
             throw;
         }
@@ -199,9 +200,9 @@ public sealed partial class VpnTunnel
             try { SetCandidatePolicy(candidate, candidate.UnionCarriers); }
             catch (Exception policyError)
             {
-                throw new AggregateException(
+                throw new NativeRoamingPlatformStateUnknownException(
                     "macOS roaming route commit and policy rollback both failed",
-                    routeError, policyError);
+                    new AggregateException(routeError, policyError));
             }
             throw;
         }

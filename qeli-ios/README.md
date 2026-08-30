@@ -54,7 +54,7 @@ every other client, not because a build of it was released.
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
 The production Packet Tunnel uses the same versioned Rust transport ABI as Linux, Android,
-Windows and macOS: ABI 1.11 remains the compatible base, while ABI 1.12/1.13 activates the
+Windows and macOS: ABI 1.11 remains the compatible base, while ABI 1.12-1.14 activates the
 optional path-command and path-refresh contracts. Ordinary TCP and every UDP camouflage mode
 use that one Rust roaming policy. Explicit `local`/non-zero `lport`, a default or older core,
 and an unsupported peer retain the previous full-reconnect fallback. Swift applies

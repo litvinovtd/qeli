@@ -70,9 +70,17 @@ struct QeliTransportStats: Sendable {
 
 /// Thin owner of the whole-client C ABI. Rust owns the transport and every wire byte; this
 /// object only moves lifecycle events and bounded packet batches across NetworkExtension.
+enum QeliPathCommandOutcome: Int32, Sendable {
+    case accepted = 0
+    case rejected = 1
+    case platformStateUnknown = 2
+}
+
 final class QeliNativeTransport: @unchecked Sendable {
     static let abiVersion: UInt32 = 0x0001_000b
-    static let pathTransactionsABIVersion: UInt32 = 0x0001_000c
+    // ABI 1.14 is the first path-transaction revision that can report an incomplete platform
+    // rollback separately from a clean rejection. Older cores stay on full reconnect.
+    static let pathTransactionsABIVersion: UInt32 = 0x0001_000e
     static let pathRefreshABIVersion: UInt32 = 0x0001_000d
     static let platformRoutes: UInt64 = 1 << 0
     static let platformDNS: UInt64 = 1 << 1
@@ -257,7 +265,7 @@ final class QeliNativeTransport: @unchecked Sendable {
     func pathCommandResult(
         event: QeliTransportEvent,
         command: QeliPathCommand,
-        accepted: Bool,
+        outcome: QeliPathCommandOutcome,
         reason: String = ""
     ) throws {
         guard event.kind == QeliRoamingPath.pathCommandEvent,
@@ -268,7 +276,7 @@ final class QeliNativeTransport: @unchecked Sendable {
         try resultWithReason(reason) { pointer, length in
             qeli_client_path_command_result(
                 handle, command.generation, command.candidateID, event.sequence,
-                accepted ? 0 : -1, pointer, length
+                outcome.rawValue, pointer, length
             )
         }
     }

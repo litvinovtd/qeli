@@ -3060,9 +3060,37 @@ async fn handle_udp_datagram(
         }
         return;
     }
-    // Legacy ACKs remain valid for the client-driven uplink ladder, but their 16-bit id is
-    // not sufficient proof for widening the opposite direction. Drop them as carrier frames.
+    // Legacy ACKs from older client-driven uplink ladders are never sufficient proof for
+    // widening the opposite direction. Drop them as carrier frames.
     if crate::protocol::udp_frag::is_mtu_probe_ack(payload) {
+        return;
+    }
+
+    // Current client-to-server PMTU probe. Echo the exact 128-bit token and size only for an
+    // authenticated session, preventing a blind source-spoofing attacker from certifying an
+    // oversized uplink budget by guessing the former 16-bit id.
+    if crate::protocol::udp_frag::is_mtu_probe_v2(payload) {
+        if let Some((token, size)) = crate::protocol::udp_frag::parse_mtu_probe_v2_request(payload)
+        {
+            let wrap = {
+                let guard = sessions.read().await;
+                guard.get(&addr).map(|client| {
+                    let packet_number = client
+                        .packet_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    (client.quic_enabled, client.connection_id, packet_number)
+                })
+            };
+            if let Some((quic, cid, packet_number)) = wrap {
+                let ack = crate::protocol::udp_frag::mtu_probe_v2_ack_datagram(token, size);
+                let packet = if quic {
+                    wrap_quic_short(&ack, &cid, packet_number)
+                } else {
+                    ack
+                };
+                let _ = socket.send_to(&packet, addr).await;
+            }
+        }
         return;
     }
 

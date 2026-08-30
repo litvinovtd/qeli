@@ -10,11 +10,12 @@
 //! adds the dual-family NetworkPlan representation while retaining the legacy IPv4 projection;
 //! ABI 1.12 adds the experimental generation-scoped path transaction contract and telemetry;
 //! ABI 1.13 lets the core request a same-network path snapshot without moving retry policy into
-//! platform clients.
+//! platform clients. ABI 1.14 distinguishes a reversible path-command rejection from an
+//! incomplete platform rollback that must terminate the generation.
 
 use self::path::{
-    PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathUpdate,
-    PreparedPathCandidate, QueuedPathCandidate,
+    PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathCommandFailure,
+    PathCommandOutcome, PathUpdate, PreparedPathCandidate, QueuedPathCandidate,
 };
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -116,7 +117,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 13;
+pub const ABI_VERSION_MINOR: u16 = 14;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -868,7 +869,8 @@ pub struct ClientCore {
     pending_plan: Option<u64>,
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
-    pending_path_command: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
+    pending_path_command:
+        BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), PathCommandFailure>>>,
     last_plan_generation: u64,
     path_candidate: Option<PathCandidate>,
     queued_path_candidate: Option<QueuedPathCandidate>,
@@ -2024,7 +2026,13 @@ impl ClientCore {
         generation: u64,
         candidate_id: u64,
         fd: i64,
-    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+    ) -> Result<
+        (
+            u64,
+            tokio::sync::oneshot::Receiver<Result<(), PathCommandFailure>>,
+        ),
+        CoreError,
+    > {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         if fd < 0 {
@@ -2067,7 +2075,13 @@ impl ClientCore {
         &mut self,
         generation: u64,
         candidate_id: u64,
-    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+    ) -> Result<
+        (
+            u64,
+            tokio::sync::oneshot::Receiver<Result<(), PathCommandFailure>>,
+        ),
+        CoreError,
+    > {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         let candidate = self
@@ -2104,7 +2118,13 @@ impl ClientCore {
         generation: u64,
         candidate_id: u64,
         reason: &str,
-    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+    ) -> Result<
+        (
+            u64,
+            tokio::sync::oneshot::Receiver<Result<(), PathCommandFailure>>,
+        ),
+        CoreError,
+    > {
         self.ensure_path_transactions_enabled()?;
         self.validate_active_path_generation(generation)?;
         let candidate = self
@@ -2147,7 +2167,7 @@ impl ClientCore {
         generation: u64,
         candidate_id: u64,
         request_sequence: u64,
-        accepted: bool,
+        outcome: PathCommandOutcome,
         reason: Option<&str>,
     ) -> Result<(), CoreError> {
         self.ensure_path_transactions_enabled()?;
@@ -2167,12 +2187,14 @@ impl ClientCore {
             });
         }
         let phase = candidate.phase;
+        let accepted = outcome == PathCommandOutcome::Accepted;
         let starts_queued = matches!(
             phase,
             PathCandidatePhase::Committing | PathCandidatePhase::Aborting
         ) && accepted
             && self.queued_path_candidate.is_some();
-        let schedules_abort = !accepted && phase != PathCandidatePhase::Aborting;
+        let schedules_abort =
+            outcome == PathCommandOutcome::Rejected && phase != PathCandidatePhase::Aborting;
         self.require_event_slots(usize::from(starts_queued || schedules_abort))?;
 
         let pending_result = self.pending_path_command.remove(&request_sequence);
@@ -2226,7 +2248,14 @@ impl ClientCore {
             .take(MAX_PLATFORM_ERROR_CHARS)
             .collect();
         if let Some(sender) = pending_result {
-            let _ = sender.send(Err(reason.clone()));
+            let failure = match outcome {
+                PathCommandOutcome::Rejected => PathCommandFailure::Rejected(reason.clone()),
+                PathCommandOutcome::PlatformStateUnknown => {
+                    PathCommandFailure::PlatformStateUnknown(reason.clone())
+                }
+                PathCommandOutcome::Accepted => unreachable!("accepted outcome returned above"),
+            };
+            let _ = sender.send(Err(failure));
         }
         if phase == PathCandidatePhase::Aborting {
             self.record_path_failure();
@@ -2235,6 +2264,17 @@ impl ClientCore {
             self.queued_path_candidate = None;
             return Err(CoreError::Platform(format!(
                 "candidate path rollback failed: {reason}"
+            )));
+        }
+
+        if outcome == PathCommandOutcome::PlatformStateUnknown {
+            self.record_path_failure();
+            self.roam_reconnect_fallbacks = self.roam_reconnect_fallbacks.saturating_add(1);
+            self.path_candidate = None;
+            self.queued_path_candidate = None;
+            self.discard_queued_path_events();
+            return Err(CoreError::Platform(format!(
+                "path command left platform state unknown: {reason}"
             )));
         }
 
@@ -3309,7 +3349,11 @@ mod tests {
             command.generation,
             command.candidate_id,
             event.sequence,
-            accepted,
+            if accepted {
+                PathCommandOutcome::Accepted
+            } else {
+                PathCommandOutcome::Rejected
+            },
             reason,
         )
     }
@@ -3638,7 +3682,10 @@ mod tests {
             .unwrap();
         let bind = path_command(&mut rejected, PathCommandAction::BindSocket);
         acknowledge_path_event(&mut rejected, &bind, false, Some("network vanished")).unwrap();
-        assert_eq!(binding.try_recv(), Ok(Err("network vanished".into())));
+        assert_eq!(
+            binding.try_recv(),
+            Ok(Err(PathCommandFailure::Rejected("network vanished".into())))
+        );
         let rollback = path_command(&mut rejected, PathCommandAction::AbortPath);
         acknowledge_path_event(&mut rejected, &rollback, true, None).unwrap();
 
@@ -3666,6 +3713,58 @@ mod tests {
         );
         acknowledge_path_event(&mut aborted, &abort, true, None).unwrap();
         assert_eq!(abort_result.try_recv(), Ok(Ok(())));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn platform_state_unknown_commit_is_terminal_without_stale_abort() {
+        let mut core = running_path_core(18);
+        let candidate = core
+            .submit_path_update(&path_update(18, 1, "wifi-unsafe"))
+            .unwrap();
+        let prepare = path_command(&mut core, PathCommandAction::PreparePath);
+        acknowledge_path_event(&mut core, &prepare, true, None).unwrap();
+        let _binding = core
+            .request_candidate_socket_binding(18, candidate, 29)
+            .unwrap();
+        let bind = path_command(&mut core, PathCommandAction::BindSocket);
+        acknowledge_path_event(&mut core, &bind, true, None).unwrap();
+
+        let (_, mut commit_result) = core.candidate_path_validated(18, candidate).unwrap();
+        let queued = core
+            .submit_path_update(&path_update(18, 2, "wifi-next"))
+            .unwrap();
+        assert_ne!(candidate, queued);
+        let commit = path_command(&mut core, PathCommandAction::CommitPath);
+        let command = commit.path_command.as_ref().unwrap();
+        let outcome = core.ack_path_command(
+            command.generation,
+            command.candidate_id,
+            commit.sequence,
+            PathCommandOutcome::PlatformStateUnknown,
+            Some("route commit and rollback both failed"),
+        );
+        assert!(matches!(
+            outcome,
+            Err(CoreError::Platform(ref message))
+                if message.contains("platform state unknown")
+        ));
+
+        assert_eq!(
+            commit_result.try_recv(),
+            Ok(Err(PathCommandFailure::PlatformStateUnknown(
+                "route commit and rollback both failed".into()
+            )))
+        );
+        assert!(
+            core.poll_event().is_none(),
+            "unsafe COMMIT must not enqueue ABORT"
+        );
+        let stats = core.stats();
+        assert_eq!(stats.roam_successes, 0);
+        assert_eq!(stats.roam_failures, 1);
+        assert_eq!(stats.roam_reconnect_fallbacks, 1);
+        assert_eq!(stats.roam_candidates, 0);
     }
 
     #[cfg(feature = "experimental-roaming")]

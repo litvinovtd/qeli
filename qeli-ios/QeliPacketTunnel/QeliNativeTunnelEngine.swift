@@ -509,21 +509,27 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     try acceptServerIdentity(event, transport: transport)
                 case QeliRoamingPath.pathCommandEvent:
                     let command = try QeliRoamingPath.decodeCommand(event)
-                    var accepted = false
+                    var outcome = QeliPathCommandOutcome.rejected
                     var reason = ""
                     do {
                         try await roamingController.apply(command: command, transport: transport)
-                        accepted = true
+                        outcome = .accepted
                     } catch {
                         reason = error.localizedDescription
+                        if let roamingError = error as? IOSRoamingError,
+                           case .platformStateUnknown = roamingError {
+                            outcome = .platformStateUnknown
+                        }
+                        let disposition = outcome == .platformStateUnknown
+                            ? "left platform state unknown" : "rejected"
                         sharedStore.appendLog(
                             "WARN: iOS roaming \(command.action) candidate "
-                                + "\(command.candidateID) rejected: \(reason)"
+                                + "\(command.candidateID) \(disposition): \(reason)"
                         )
                     }
                     try transport.pathCommandResult(
-                        event: event, command: command, accepted: accepted, reason: reason)
-                    if !accepted && command.action == "abort_path" {
+                        event: event, command: command, outcome: outcome, reason: reason)
+                    if outcome != .accepted && command.action == "abort_path" {
                         throw NativeTunnelError.transportStopped(
                             "iOS roaming rollback failed: \(reason)")
                     }

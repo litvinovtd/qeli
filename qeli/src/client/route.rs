@@ -385,6 +385,18 @@ fn restore_retired_carrier_routes(retired: &[RetiredCarrierRoute]) -> Vec<String
 }
 
 #[cfg(feature = "experimental-roaming")]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub(crate) struct RouteCommitStateUnknown(String);
+
+#[cfg(feature = "experimental-roaming")]
+impl RouteCommitStateUnknown {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
 impl LinuxPreparedPathRoutes {
     /// Atomically from qeli's ownership perspective: all conflicts are rejected before mutation,
     /// every applied route is verified through the ordinary (unforced) FIB, and any later failure
@@ -476,10 +488,11 @@ impl LinuxPreparedPathRoutes {
                 if rollback_errors.is_empty() {
                     return Err(error);
                 }
-                anyhow::bail!(
+                return Err(RouteCommitStateUnknown::new(format!(
                     "{error}; candidate route rollback failed: {}",
                     rollback_errors.join("; ")
-                );
+                ))
+                .into());
             }
             applied.push(step);
 
@@ -499,6 +512,7 @@ impl LinuxPreparedPathRoutes {
                 if !rollback_errors.is_empty() {
                     message.push_str("; candidate route rollback failed: ");
                     message.push_str(&rollback_errors.join("; "));
+                    return Err(RouteCommitStateUnknown::new(message).into());
                 }
                 anyhow::bail!(message);
             }
@@ -525,10 +539,11 @@ impl LinuxPreparedPathRoutes {
                     if rollback_errors.is_empty() {
                         anyhow::bail!(error);
                     }
-                    anyhow::bail!(
+                    return Err(RouteCommitStateUnknown::new(format!(
                         "{error}; route rollback failed: {}",
                         rollback_errors.join("; ")
-                    );
+                    ))
+                    .into());
                 }
                 Err(error) => {
                     let mut rollback_errors = restore_retired_carrier_routes(&retired);
@@ -536,10 +551,11 @@ impl LinuxPreparedPathRoutes {
                     if rollback_errors.is_empty() {
                         anyhow::bail!("could not retire previous carrier route: {error}");
                     }
-                    anyhow::bail!(
+                    return Err(RouteCommitStateUnknown::new(format!(
                         "could not retire previous carrier route: {error}; route rollback failed: {}",
                         rollback_errors.join("; ")
-                    );
+                    ))
+                    .into());
                 }
             }
         }

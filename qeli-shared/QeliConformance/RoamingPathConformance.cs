@@ -104,11 +104,21 @@ internal static class RoamingPathConformance
         bool invalidAckRejected;
         try
         {
-            NativeTransportCore.PathCommandResult(0, request with { Sequence = 0 }, decoded, false);
+            NativeTransportCore.PathCommandResult(0, request with { Sequence = 0 }, decoded,
+                NativeTransportCore.PathCommandOutcome.Rejected);
             invalidAckRejected = false;
         }
         catch (InvalidDataException) { invalidAckRejected = true; }
         check("roaming-path: invalid acknowledgement envelope is rejected", invalidAckRejected);
+        check("roaming-path: ABI 1.14 preserves rollback-safe and state-unknown outcomes",
+            (int)NativeTransportCore.PathCommandOutcome.Accepted == 0
+            && (int)NativeTransportCore.PathCommandOutcome.Rejected == 1
+            && (int)NativeTransportCore.PathCommandOutcome.PlatformStateUnknown == 2
+            && VpnTunnelBase.PathCommandOutcomeForError(new InvalidOperationException())
+                == NativeTransportCore.PathCommandOutcome.Rejected
+            && VpnTunnelBase.PathCommandOutcomeForError(
+                new NativeRoamingPlatformStateUnknownException("unsafe", new IOException()))
+                == NativeTransportCore.PathCommandOutcome.PlatformStateUnknown);
 
         bool incompatibleRejected;
         try

@@ -45,9 +45,11 @@ type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
+#[cfg(feature = "experimental-roaming")]
+use crate::transport_core::path::PathCommandFailure;
 use crate::transport_core::path::PreparedPathCandidate;
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-use crate::transport_core::path::{PathCommand, PathCommandAction};
+use crate::transport_core::path::{PathCommand, PathCommandAction, PathCommandOutcome};
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, TcpAuthentication,
@@ -107,7 +109,7 @@ const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 #[derive(Debug, Clone, Copy)]
 struct UdpMtuChallenge {
     candidate: i32,
-    id: u16,
+    token: u128,
     probe_payload_size: u16,
     sends: u8,
     deadline: tokio::time::Instant,
@@ -138,14 +140,14 @@ impl LiveUdpMtuProbe {
     }
 
     /// Return the next challenge that must be sent. A candidate gets two sends with one
-    /// correlation id; a certified candidate then needs three independently random ids.
-    fn next_send(&mut self, now: tokio::time::Instant) -> Option<(u16, i32)> {
+    /// correlation token; a certified candidate then needs three independently random tokens.
+    fn next_send(&mut self, now: tokio::time::Instant) -> Option<(u128, i32)> {
         loop {
             if self.challenge.is_none() {
                 let candidate = self.candidates.pop_front()?;
                 self.challenge = Some(UdpMtuChallenge {
                     candidate,
-                    id: rand::random(),
+                    token: rand::random(),
                     probe_payload_size: u16::try_from(
                         candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
                     )
@@ -166,15 +168,15 @@ impl LiveUdpMtuProbe {
             }
             challenge.sends += 1;
             challenge.deadline = now + UDP_MTU_REPROBE_REPLY_TIMEOUT;
-            return Some((challenge.id, challenge.candidate));
+            return Some((challenge.token, challenge.candidate));
         }
     }
 
-    /// Accept only an exact id+size echo. `Some(candidate)` means the third independent
+    /// Accept only an exact token+size echo. `Some(candidate)` means the third independent
     /// confirmation completed and the live data-plane budget may be widened.
-    fn acknowledge(&mut self, id: u16, probe_payload_size: u16) -> Option<i32> {
+    fn acknowledge(&mut self, token: u128, probe_payload_size: u16) -> Option<i32> {
         let challenge = self.challenge?;
-        if challenge.id != id || challenge.probe_payload_size != probe_payload_size {
+        if challenge.token != token || challenge.probe_payload_size != probe_payload_size {
             return None;
         }
         self.confirmations = self.confirmations.saturating_add(1);
@@ -183,7 +185,7 @@ impl LiveUdpMtuProbe {
             return Some(challenge.candidate);
         }
         self.challenge = Some(UdpMtuChallenge {
-            id: rand::random(),
+            token: rand::random(),
             sends: 0,
             deadline: tokio::time::Instant::now(),
             ..challenge
@@ -590,6 +592,11 @@ enum PathAckFailure {
         action: &'static str,
         reason: String,
     },
+    #[error("{action} left platform network state unknown: {reason}")]
+    PlatformStateUnknown {
+        action: &'static str,
+        reason: String,
+    },
     #[error("{action} acknowledgement was cancelled")]
     Cancelled { action: &'static str },
 }
@@ -604,13 +611,18 @@ fn path_ack_is_explicit_rejection(error: &anyhow::Error) -> bool {
 
 #[cfg(feature = "experimental-roaming")]
 fn path_ack_future(
-    receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    receiver: tokio::sync::oneshot::Receiver<Result<(), PathCommandFailure>>,
     action: &'static str,
 ) -> PathAckFuture {
     Box::pin(async move {
         match receiver.await {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(reason)) => Err(PathAckFailure::Rejected { action, reason }.into()),
+            Ok(Err(PathCommandFailure::Rejected(reason))) => {
+                Err(PathAckFailure::Rejected { action, reason }.into())
+            }
+            Ok(Err(PathCommandFailure::PlatformStateUnknown(reason))) => {
+                Err(PathAckFailure::PlatformStateUnknown { action, reason }.into())
+            }
             Err(_) => Err(PathAckFailure::Cancelled { action }.into()),
         }
     })
@@ -686,6 +698,21 @@ impl CorePathController {
 
 /// Linux OS executor for the shared PathUpdate transaction. It owns only prepared route facts;
 /// phase/order/idempotency and every ACK waiter remain in `ClientCore`/`CorePathController`.
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+fn linux_path_command_outcome(execution: &anyhow::Result<()>) -> PathCommandOutcome {
+    match execution {
+        Ok(()) => PathCommandOutcome::Accepted,
+        Err(error)
+            if error
+                .downcast_ref::<route::RouteCommitStateUnknown>()
+                .is_some() =>
+        {
+            PathCommandOutcome::PlatformStateUnknown
+        }
+        Err(_) => PathCommandOutcome::Rejected,
+    }
+}
+
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
 pub(crate) struct LinuxPathController {
     core: Arc<std::sync::Mutex<ClientCore>>,
@@ -853,17 +880,20 @@ impl LinuxPathController {
 
         let execution = self.execute_command(&command);
         let rejection = execution.as_ref().err().map(ToString::to_string);
+        let outcome = linux_path_command_outcome(&execution);
         self.with_core(|core| {
             core.ack_path_command(
                 command.generation,
                 command.candidate_id,
                 event.sequence,
-                execution.is_ok(),
+                outcome,
                 rejection.as_deref(),
             )
         })?;
 
-        if rejection.is_some() && expected_action != PathCommandAction::AbortPath {
+        if outcome == PathCommandOutcome::Rejected
+            && expected_action != PathCommandAction::AbortPath
+        {
             self.dispatch_pending(PathCommandAction::AbortPath, expected_candidate)?;
         }
         Ok(rejection)
@@ -2213,6 +2243,28 @@ mod linux_candidate_dialer_tests {
         PathResolution, PathUpdate, PathUpdateFlags, PathUpdateReason,
     };
 
+    #[test]
+    fn rollback_incomplete_is_not_classified_as_reversible_rejection() {
+        let accepted = Ok(());
+        assert_eq!(
+            linux_path_command_outcome(&accepted),
+            PathCommandOutcome::Accepted
+        );
+        let rejected = Err(anyhow::anyhow!("route was not changed"));
+        assert_eq!(
+            linux_path_command_outcome(&rejected),
+            PathCommandOutcome::Rejected
+        );
+        let unsafe_result = Err(route::RouteCommitStateUnknown::new(
+            "route commit and rollback both failed",
+        )
+        .into());
+        assert_eq!(
+            linux_path_command_outcome(&unsafe_result),
+            PathCommandOutcome::PlatformStateUnknown
+        );
+    }
+
     struct RecordingPathController {
         bound: Arc<AtomicBool>,
     }
@@ -2790,8 +2842,8 @@ mod tcp_resume_client_tests {
         decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, path_ack_future,
         path_ack_is_explicit_rejection, publish_tcp_path_handover, register_tcp_stream_task,
         should_defer_tcp_resume_for_handover, tcp_handover_failure_action, ClientStreamSender,
-        TcpActiveSlots, TcpHandoverCommitPhase, TcpHandoverFailureAction, TcpResumeContext,
-        TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
+        PathCommandFailure, TcpActiveSlots, TcpHandoverCommitPhase, TcpHandoverFailureAction,
+        TcpResumeContext, TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::{sync::Arc, time::Duration};
@@ -2986,12 +3038,27 @@ mod tcp_resume_client_tests {
         assert!(sender.send(Ok(())).is_err(), "late ACK lost its receiver");
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        sender.send(Err("route rejected".into())).unwrap();
+        sender
+            .send(Err(PathCommandFailure::Rejected("route rejected".into())))
+            .unwrap();
         let rejection = path_ack_future(receiver, "COMMIT_PATH").await.unwrap_err();
         assert!(path_ack_is_explicit_rejection(&rejection));
         assert_eq!(
             tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, true),
             TcpHandoverFailureAction::RollbackCandidate
+        );
+
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        sender
+            .send(Err(PathCommandFailure::PlatformStateUnknown(
+                "route rollback failed".into(),
+            )))
+            .unwrap();
+        let uncertain = path_ack_future(receiver, "COMMIT_PATH").await.unwrap_err();
+        assert!(!path_ack_is_explicit_rejection(&uncertain));
+        assert_eq!(
+            tcp_handover_failure_action(TcpHandoverCommitPhase::CommitIssued, false),
+            TcpHandoverFailureAction::ReconnectGeneration
         );
     }
 
@@ -5913,7 +5980,7 @@ async fn probe_udp_mtu(
     ceiling: i32,
     keep_df_after_success: bool,
 ) -> Option<i32> {
-    use crate::protocol::udp_frag::{mtu_probe_datagram, parse_mtu_probe_ack};
+    use crate::protocol::udp_frag::{mtu_probe_v2_datagram, parse_mtu_probe_v2_ack};
     use std::time::Duration;
     if !begin_mtu_probe(socket) {
         return None;
@@ -5936,19 +6003,19 @@ async fn probe_udp_mtu(
     let ladder = mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6());
 
     let mut buf = vec![0u8; 2048];
-    // Every challenge gets an independent id. A random start followed by predictable +1
-    // still let one lucky off-path guess predict all later rungs.
+    // Every challenge gets an independent 128-bit token. A random start followed by a
+    // predictable increment would let one observed response predict later rungs.
 
-    // One rung: send up to twice, accept only an ACK echoing this id AND this size.
+    // One rung: send up to twice, accept only an ACK echoing this token AND this size.
     //
     // Requiring the echoed SIZE as well as the id is what stops a stale or forged ACK for a
     // different rung from pinning the client to an MTU the path cannot carry.
     macro_rules! try_mtu {
         ($m:expr) => {{
             let m: i32 = $m;
-            let probe_id: u16 = rand::rng().random();
+            let probe_token: u128 = rand::rng().random();
             let probe_size = (m as usize + UDP_RECORD_PROBE_OVERHEAD) as u16;
-            match mtu_probe_datagram(probe_id, m as usize + UDP_RECORD_PROBE_OVERHEAD) {
+            match mtu_probe_v2_datagram(probe_token, m as usize + UDP_RECORD_PROBE_OVERHEAD) {
                 None => false,
                 Some(probe) => {
                     let mut wrapped = Vec::new();
@@ -5973,7 +6040,8 @@ async fn probe_udp_mtu(
                             match tokio::time::timeout_at(deadline, socket.recv(&mut buf)).await {
                                 Ok(Ok(n)) if n > 0 => {
                                     let payload = framing.unwrap(&buf[..n]).unwrap_or_default();
-                                    if parse_mtu_probe_ack(payload) == Some((probe_id, probe_size))
+                                    if parse_mtu_probe_v2_ack(payload)
+                                        == Some((probe_token, probe_size))
                                     {
                                         ok = true;
                                         break;
@@ -6034,12 +6102,10 @@ async fn probe_udp_mtu(
         found = Some(lo);
     }
 
-    // V1 has only a 16-bit correlation id for compatibility with old servers. Do not let a
-    // single lucky off-path guess certify the session's final budget: require two additional,
-    // independently random exact echoes after the search converges. Together with the probe
-    // that selected the candidate this raises blind-forgery work from 2^16 to roughly 2^48,
-    // without changing the wire format. If confirmation is lost/blocked, fail closed to the
-    // existing conservative DATA_FRAG budget (or the legacy IP-fragmentation fallback).
+    // Keep two independent confirmations after the search converges. The V2 128-bit token makes
+    // blind source-spoofed ACKs infeasible; repeated confirmation additionally protects the
+    // widening decision from stale/reordered carrier frames. If confirmation is lost or blocked,
+    // fail closed to the conservative DATA_FRAG budget (or legacy IP-fragmentation fallback).
     if let Some(candidate) = found {
         if !try_mtu!(candidate) || !try_mtu!(candidate) {
             log::warn!(
@@ -6358,7 +6424,7 @@ mod mtu_ladder_tests {
             assert_eq!(
                 probe.acknowledge(id.wrapping_add(1), size),
                 None,
-                "wrong id must not advance confirmation"
+                "wrong token must not advance confirmation"
             );
             let result = probe.acknowledge(id, size);
             if confirmation < 2 {
@@ -8960,11 +9026,11 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             _ = live_mtu_tick.tick(), if live_mtu_reprobe_enabled && live_mtu_probe.is_active() => {
-                if let Some((probe_id, candidate)) =
+                if let Some((probe_token, candidate)) =
                     live_mtu_probe.next_send(tokio::time::Instant::now())
                 {
-                    if let Some(probe) = crate::protocol::udp_frag::mtu_probe_datagram(
-                        probe_id,
+                    if let Some(probe) = crate::protocol::udp_frag::mtu_probe_v2_datagram(
+                        probe_token,
                         candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
                     ) {
                         let send_data =
@@ -9615,19 +9681,20 @@ pub(crate) async fn run_udp_tunnel(
                 // The periodic uplink PMTU state machine shares this receive loop. Consume
                 // only an exact echo of its current challenge; stale/foreign ACKs continue
                 // through the normal authenticated packet path and are rejected there.
-                if let Some((probe_id, probe_size)) =
-                    crate::protocol::udp_frag::parse_mtu_probe_ack(payload)
+                if let Some((probe_token, probe_size)) =
+                    crate::protocol::udp_frag::parse_mtu_probe_v2_ack(payload)
                 {
                     let matches_live_challenge = live_mtu_probe
                         .challenge
                         .filter(|_| !receive_is_draining)
                         .map(|challenge| {
-                            challenge.id == probe_id && challenge.probe_payload_size == probe_size
+                            challenge.token == probe_token
+                                && challenge.probe_payload_size == probe_size
                         })
                         .unwrap_or(false);
                     if matches_live_challenge {
                         if let Some(candidate) =
-                            live_mtu_probe.acknowledge(probe_id, probe_size)
+                            live_mtu_probe.acknowledge(probe_token, probe_size)
                         {
                             let new_payload_budget = udp_payload_budget_for_probe(
                                 candidate,

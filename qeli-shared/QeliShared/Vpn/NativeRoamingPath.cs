@@ -86,7 +86,7 @@ public sealed class NativePathCommand
     public string? Reason { get; set; }
 }
 
-/// <summary>Strict managed view of the ABI 1.12/1.13 roaming JSON contract.</summary>
+/// <summary>Strict managed view of the ABI 1.12-1.14 roaming JSON contract.</summary>
 internal static class NativeRoamingPath
 {
     private const int MaxPayloadBytes = 64 * 1024;

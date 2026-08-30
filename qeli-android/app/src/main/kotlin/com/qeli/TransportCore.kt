@@ -304,6 +304,7 @@ internal class TransportCore private constructor(
         const val STATE_CONNECTING = 1
 
         private const val ABI_VERSION = 0x0001000b
+        private const val PATH_TRANSACTION_ABI_VERSION = 0x0001000e
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
@@ -353,7 +354,8 @@ internal class TransportCore private constructor(
             try {
                 requireSuccess(nativeSetDeviceId(nativeHandle, deviceId), "setDeviceId")
                 val pathTransactionsEnabled =
-                    capabilities and CORE_PATH_TRANSACTIONS != 0L &&
+                    libraryVersion >= PATH_TRANSACTION_ABI_VERSION &&
+                        capabilities and CORE_PATH_TRANSACTIONS != 0L &&
                         platformCapabilities and PLATFORM_ROAMING_PATH == PLATFORM_ROAMING_PATH
                 return TransportCore(nativeHandle, pathTransactionsEnabled)
             } catch (error: Throwable) {
@@ -365,10 +367,12 @@ internal class TransportCore private constructor(
         fun abiVersion(): Int = nativeAbiVersion()
 
         fun supportsPathTransactions(): Boolean =
-            nativeCoreCapabilities() and CORE_PATH_TRANSACTIONS != 0L
+            nativeAbiVersion() >= PATH_TRANSACTION_ABI_VERSION &&
+                nativeCoreCapabilities() and CORE_PATH_TRANSACTIONS != 0L
 
         fun supportsPathRefreshRequests(): Boolean =
-            nativeCoreCapabilities() and CORE_PATH_REFRESH_EVENTS != 0L
+            supportsPathTransactions() &&
+                nativeCoreCapabilities() and CORE_PATH_REFRESH_EVENTS != 0L
 
         /**
          * Send the shared Rust UDP ClientHello first flight and return milliseconds to any

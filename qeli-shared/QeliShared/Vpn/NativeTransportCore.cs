@@ -14,6 +14,13 @@ internal static unsafe class NativeTransportCore
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
     internal const int StaleRequest = -11;
+
+    internal enum PathCommandOutcome
+    {
+        Accepted = 0,
+        Rejected = 1,
+        PlatformStateUnknown = 2,
+    }
     internal const uint PayloadNone = 0;
     internal const uint PayloadJson = 1;
     internal const uint PayloadUtf8 = 2;
@@ -194,7 +201,7 @@ internal static unsafe class NativeTransportCore
     internal static bool SupportsPathTransactions()
     {
         uint actual = qeli_client_abi_version();
-        return (actual >> 16) == 1 && (actual & 0xffff) >= 12
+        return (actual >> 16) == 1 && (actual & 0xffff) >= 14
             && (qeli_client_core_capabilities() & CorePathTransactions) != 0;
     }
 
@@ -291,15 +298,17 @@ internal static unsafe class NativeTransportCore
     }
 
     internal static void PathCommandResult(ulong handle, NativeEvent request,
-        NativePathCommand command, bool accepted, string? reason = null)
+        NativePathCommand command, PathCommandOutcome outcome, string? reason = null)
     {
         if (request.Kind != EventPathCommand || request.PayloadFormat != PayloadJson
             || request.Sequence == 0 || request.PlanGeneration == 0
             || command.Generation != request.PlanGeneration || command.CandidateId == 0)
             throw new InvalidDataException("invalid native path-command acknowledgement");
+        if (!Enum.IsDefined(outcome))
+            throw new ArgumentOutOfRangeException(nameof(outcome));
         ResultWithReason((pointer, length) =>
             qeli_client_path_command_result(handle, request.PlanGeneration, command.CandidateId,
-                request.Sequence, accepted ? 0 : -1, pointer, length), reason,
+                request.Sequence, (int)outcome, pointer, length), reason,
             "qeli_client_path_command_result");
     }
 

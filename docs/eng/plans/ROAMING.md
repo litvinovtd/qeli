@@ -86,7 +86,7 @@
 > The shared feature core is Windows socket-handle ready: `PATH_COMMAND` carries a borrowed signed
 > 64-bit Unix descriptor or Windows `SOCKET`, while native TCP candidate dialing and the common UDP
 > migration actor both compile on Windows. The shared C# adapter implements the optional ABI
-> 1.12/1.13 path-update/result bindings and a strict bounded JSON contract for correlated
+> 1.12-1.14 path-update/result bindings and a strict bounded JSON contract for correlated
 > PREPARE/BIND/COMMIT/ABORT and no-payload PATH_REFRESH events. Conformance tests reject unknown
 > fields, stale generations and incompatible address families, and preserve Windows socket values
 > wider than `Int32`.

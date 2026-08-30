@@ -148,7 +148,7 @@ pub const PROBE_BODY_LEN: usize = 4;
 /// it and retain the conservative downlink budget, while current clients echo its token.
 pub const MSG_MTU_PROBE_V2: u8 = 7;
 /// ACK for [`MSG_MTU_PROBE_V2`]. Only this strong form may widen a current server's
-/// server-to-client payload budget. Legacy ACKs remain supported for uplink probing.
+/// server-to-client payload budget. Legacy ACKs remain supported for older uplink clients.
 pub const MSG_MTU_PROBE_ACK_V2: u8 = 8;
 /// V2 reverse-probe body: `token(16 LE) + probe_payload_size(2 LE)`.
 pub const PROBE_V2_BODY_LEN: usize = 18;
@@ -318,8 +318,8 @@ pub fn parse_mtu_probe_v2_ack(d: &[u8]) -> Option<(u128, u16)> {
     parse_mtu_probe_v2(d)
 }
 
-/// Build a reverse probe with the same pre-wrapper payload-size contract as
-/// [`mtu_probe_datagram`].
+/// Build a strong directional probe with the same pre-wrapper payload-size contract as
+/// [`mtu_probe_datagram`]. Both current uplink and downlink PMTU state machines use this form.
 pub fn mtu_probe_v2_datagram(token: u128, probe_payload_size: usize) -> Option<Vec<u8>> {
     use rand::prelude::*;
     let min = FRAG_HDR_LEN + PROBE_V2_BODY_LEN;

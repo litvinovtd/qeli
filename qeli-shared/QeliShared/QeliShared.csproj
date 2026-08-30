@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Shared, platform-neutral production adapter/model library for qeli-win and qeli-mac.
-       The baseline is ABI 1.11; optional roaming bindings follow the additive ABI 1.13 contract.
+       The baseline is ABI 1.11; optional roaming bindings follow the additive ABI 1.14 contract.
        Managed wire codecs and their
        BouncyCastle dependency are compiled only by the sibling QeliConformance project.
        NO OS/UI dependencies: net10.0 (not -windows). -->

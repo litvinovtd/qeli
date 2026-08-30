@@ -28,7 +28,7 @@
 - Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- The production Packet Tunnel uses the compatible ABI 1.11 base and optional ABI 1.12/1.13
+- The production Packet Tunnel uses the compatible ABI 1.11 base and optional ABI 1.12-1.14
   path contracts over the common Rust whole-client core used by Linux, Android, Windows and
   macOS. Rust owns DNS/connect, plain and
   hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,

@@ -88,7 +88,7 @@
 > неизменные PID/TUN и tunnel ping 5/5 до и после commit.
 > Общий feature core готов к Windows socket handle: `PATH_COMMAND` передаёт заимствованный signed
 > 64-bit Unix descriptor или Windows `SOCKET`, а native TCP candidate dialer и единый UDP migration
-> actor компилируются на Windows. Общий C#-адаптер реализует optional ABI 1.12/1.13 bindings для
+> actor компилируются на Windows. Общий C#-адаптер реализует optional ABI 1.12-1.14 bindings для
 > path update/result и строгий ограниченный JSON-контракт коррелированных
 > PREPARE/BIND/COMMIT/ABORT и событий PATH_REFRESH без payload. Conformance-тесты отклоняют
 > неизвестные поля, stale generation и несовместимые семейства адресов, сохраняя Windows socket

@@ -82,7 +82,7 @@ public abstract class VpnTunnelBase
     // ABI 1.7+ native whole-transport generation. Kept as a signed slot solely so
     // Interlocked can publish/clear it while Stop() interrupts qeli_client_run.
     private long _nativeHandle;
-    // Optional ABI 1.12/1.13 roaming state. The handle/generation pair is published only
+    // Optional ABI 1.12-1.14 roaming state. The handle/generation pair is published only
     // after the authenticated NetworkPlan is applied; callbacks therefore cannot submit a
     // PathUpdate into a half-configured native generation.
     private readonly object _nativeRoamingGate = new();
@@ -573,10 +573,20 @@ public abstract class VpnTunnelBase
         }
     }
 
+    internal static NativeTransportCore.PathCommandOutcome PathCommandOutcomeForError(
+        Exception? error) => error switch
+    {
+        null => NativeTransportCore.PathCommandOutcome.Accepted,
+        NativeRoamingPlatformStateUnknownException =>
+            NativeTransportCore.PathCommandOutcome.PlatformStateUnknown,
+        _ => NativeTransportCore.PathCommandOutcome.Rejected,
+    };
+
     private void HandleNativePathCommand(ulong handle, NativeTransportCore.NativeEvent request)
     {
         NativePathCommand command = NativeRoamingPath.DecodeCommand(request);
-        bool accepted = false;
+        NativeTransportCore.PathCommandOutcome outcome =
+            NativeTransportCore.PathCommandOutcome.Rejected;
         string? reason = null;
         try
         {
@@ -594,19 +604,24 @@ public abstract class VpnTunnelBase
                         .ToArray();
                 }
             }
-            accepted = true;
+            outcome = NativeTransportCore.PathCommandOutcome.Accepted;
         }
         catch (Exception error)
         {
             reason = error.Message;
-            Log($"WARN: native roaming {command.Action} candidate {command.CandidateId} rejected: "
-                + reason);
+            outcome = PathCommandOutcomeForError(error);
+            string disposition = outcome == NativeTransportCore.PathCommandOutcome.PlatformStateUnknown
+                ? "left platform state unknown" : "rejected";
+            Log($"WARN: native roaming {command.Action} candidate {command.CandidateId} "
+                + $"{disposition}: {reason}");
         }
-        NativeTransportCore.PathCommandResult(handle, request, command, accepted, reason);
-        if (accepted && command.Action == "commit_path")
+        NativeTransportCore.PathCommandResult(handle, request, command, outcome, reason);
+        if (outcome == NativeTransportCore.PathCommandOutcome.Accepted
+            && command.Action == "commit_path")
             Log($"Native roaming committed candidate {command.CandidateId} on "
                 + command.Path.PlatformPathId);
-        if (!accepted && command.Action == "abort_path")
+        if (outcome != NativeTransportCore.PathCommandOutcome.Accepted
+            && command.Action == "abort_path")
             throw new IOException("native roaming rollback failed: " + reason);
     }
 

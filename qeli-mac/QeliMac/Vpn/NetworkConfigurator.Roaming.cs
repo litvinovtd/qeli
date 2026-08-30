@@ -235,8 +235,9 @@ public sealed partial class NetworkConfigurator
             if (rollbackFailures.Count != 0)
             {
                 rollbackFailures.Insert(0, prepareError);
-                throw new AggregateException(
-                    "macOS roaming route PREPARE and rollback both failed", rollbackFailures);
+                throw new NativeRoamingPlatformStateUnknownException(
+                    "macOS roaming route PREPARE and rollback both failed",
+                    new AggregateException(rollbackFailures));
             }
             throw;
         }
@@ -294,8 +295,9 @@ public sealed partial class NetworkConfigurator
                 catch (Exception rollbackError) { failures.Add(rollbackError); }
             }
             if (failures.Count > 1)
-                throw new AggregateException(
-                    "macOS roaming server-route commit and rollback both failed", failures);
+                throw new NativeRoamingPlatformStateUnknownException(
+                    "macOS roaming server-route commit and rollback both failed",
+                    new AggregateException(failures));
             throw;
         }
         _log($"Committed {transitions.Count} ordinary roaming server route(s)");
@@ -343,8 +345,9 @@ public sealed partial class NetworkConfigurator
             }
             catch (Exception restoreError) { failures.Add(restoreError); }
             if (failures.Count > 1)
-                throw new AggregateException(
-                    $"server route {state.Address} move and rollback both failed", failures);
+                throw new NativeRoamingPlatformStateUnknownException(
+                    $"server route {state.Address} move and rollback both failed",
+                    new AggregateException(failures));
             throw;
         }
         state.CurrentNextHop = nextHop;

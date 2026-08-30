@@ -7,9 +7,11 @@
 //! Windows core own the Wintun session and packet rings. ABI 1.10 appends UDP buffer/drop
 //! telemetry while preserving the complete 64-byte stats V1 prefix. ABI 1.11 adds the
 //! dual-family NetworkPlan; ABI 1.12 adds generation-scoped path commands and separate roam
-//! telemetry, while ABI 1.13 adds a generation-scoped no-payload path-refresh event. Both fixed
-//! ABI prefixes remain unchanged.
+//! telemetry, ABI 1.13 adds a generation-scoped no-payload path-refresh event, and ABI 1.14
+//! distinguishes reversible path rejection from incomplete platform rollback. Both fixed ABI
+//! prefixes remain unchanged.
 
+use super::path::PathCommandOutcome;
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
     ABI_VERSION, DEFAULT_EVENT_CAPACITY,
@@ -21,6 +23,9 @@ use zeroize::Zeroize;
 
 pub(crate) const OK: i32 = 0;
 pub(crate) const NO_EVENT: i32 = 1;
+const PATH_COMMAND_ACCEPTED: i32 = 0;
+const PATH_COMMAND_REJECTED: i32 = 1;
+const PATH_COMMAND_PLATFORM_STATE_UNKNOWN: i32 = 2;
 const PAYLOAD_NONE: u32 = 0;
 const PAYLOAD_JSON: u32 = 1;
 const PAYLOAD_UTF8: u32 = 2;
@@ -413,8 +418,11 @@ pub unsafe extern "C" fn qeli_client_path_update(
 
 /// Acknowledge one `PathCommand` event using all three correlation dimensions.
 ///
-/// `result_code == 0` accepts the command. Rejecting PREPARE/BIND/COMMIT schedules a mandatory
-/// ABORT; rejecting ABORT returns `PlatformRejected` and records a reconnect fallback.
+/// `QELI_PATH_COMMAND_ACCEPTED` accepts the command. `QELI_PATH_COMMAND_REJECTED` is a
+/// rollback-safe rejection and schedules mandatory ABORT for PREPARE/BIND/COMMIT.
+/// `QELI_PATH_COMMAND_PLATFORM_STATE_UNKNOWN` reports an incomplete internal rollback and
+/// terminates the generation without issuing a stale ABORT. Rejecting ABORT returns
+/// `PlatformRejected` and records a reconnect fallback.
 ///
 /// # Safety
 /// A non-empty `reason` must address `reason_len` readable UTF-8 bytes.
@@ -433,14 +441,14 @@ pub unsafe extern "C" fn qeli_client_path_command_result(
             Ok(reason) => reason,
             Err(code) => return code as i32,
         };
+        let outcome = match result_code {
+            PATH_COMMAND_ACCEPTED => PathCommandOutcome::Accepted,
+            PATH_COMMAND_PLATFORM_STATE_UNKNOWN => PathCommandOutcome::PlatformStateUnknown,
+            PATH_COMMAND_REJECTED | -1 => PathCommandOutcome::Rejected,
+            _ => return ErrorCode::InvalidArgument as i32,
+        };
         match CLIENTS.try_with(handle, |core| {
-            core.ack_path_command(
-                generation,
-                candidate_id,
-                request_sequence,
-                result_code == 0,
-                reason,
-            )
+            core.ack_path_command(generation, candidate_id, request_sequence, outcome, reason)
         }) {
             Ok(Ok(())) => OK,
             Ok(Err(error)) => error.code() as i32,
@@ -1041,7 +1049,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V3_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000d)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000e)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -1050,6 +1058,8 @@ mod tests {
         assert!(header.contains("QELI_CLIENT_STATS_V3_SIZE UINT32_C(144)"));
         assert!(header.contains("QELI_CLIENT_PATH_COMMAND = 6"));
         assert!(header.contains("QELI_CLIENT_PATH_REFRESH = 7"));
+        assert!(header.contains("QELI_PATH_COMMAND_REJECTED = 1"));
+        assert!(header.contains("QELI_PATH_COMMAND_PLATFORM_STATE_UNKNOWN = 2"));
         assert!(header.contains("QELI_CORE_PATH_TRANSACTIONS"));
         assert!(header.contains("QELI_PLATFORM_PATH_SOCKET_BINDING"));
         assert!(header.contains("QELI_CORE_PATH_REFRESH_EVENTS"));
@@ -1721,7 +1731,21 @@ mod tests {
                     7,
                     candidate_id,
                     prepare.sequence,
+                    99,
+                    std::ptr::null(),
                     0,
+                )
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_path_command_result(
+                    handle,
+                    7,
+                    candidate_id,
+                    prepare.sequence,
+                    PATH_COMMAND_ACCEPTED,
                     std::ptr::null(),
                     0,
                 )

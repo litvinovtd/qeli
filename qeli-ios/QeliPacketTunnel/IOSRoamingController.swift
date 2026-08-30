@@ -2,14 +2,16 @@ import Darwin
 import Foundation
 import Network
 
-private enum IOSRoamingError: LocalizedError {
+enum IOSRoamingError: LocalizedError {
     case unavailable(String)
     case invalidState(String)
+    case platformStateUnknown(String)
     case systemCall(String, Int32)
 
     var errorDescription: String? {
         switch self {
-        case .unavailable(let message), .invalidState(let message): return message
+        case .unavailable(let message), .invalidState(let message),
+             .platformStateUnknown(let message): return message
         case .systemCall(let call, let code):
             return "\(call) failed: \(String(cString: strerror(code))) (\(code))"
         }
@@ -511,7 +513,7 @@ actor IOSRoamingController {
                 candidates.removeValue(forKey: command.candidateID)
                 rolledBack[command.candidateID] = command.path
             } catch let rollbackError {
-                throw IOSRoamingError.invalidState(
+                throw IOSRoamingError.platformStateUnknown(
                     "iOS PREPARE failed (\(error.localizedDescription)); rollback failed "
                         + "(\(rollbackError.localizedDescription))")
             }
@@ -551,7 +553,7 @@ actor IOSRoamingController {
                 try await requireEngine().applyRoamingCarrierExclusions(
                     candidate.unionCarriers, transport: transport, generation: command.generation)
             } catch let rollbackError {
-                throw IOSRoamingError.invalidState(
+                throw IOSRoamingError.platformStateUnknown(
                     "iOS COMMIT failed (\(error.localizedDescription)); policy rollback failed "
                         + "(\(rollbackError.localizedDescription))")
             }
