@@ -3,7 +3,7 @@
 //! header-byte, connection-id and packet-number slicing must reject a malformed
 //! packet with an error, never panic or over-read.
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::unwrap_quic;
+use qeli_core::protocol::unwrap_quic;
 
 fuzz_target!(|data: &[u8]| {
     let _ = unwrap_quic(data);

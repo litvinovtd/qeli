@@ -3,7 +3,7 @@
 //! TCP resume-proof, and PATH_* control round trips from the same input.
 
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::roaming::{
+use qeli_core::protocol::roaming::{
     decode_udp_short, derive_udp_cid, PathControl, ResumeProofInput, TcpResumeJoin, UdpShortHeader,
     PATH_CHALLENGE_LEN, RESUME_PROOF_LEN, SESSION_LOCATOR_LEN, TCP_RESUME_JOIN_LEN,
 };

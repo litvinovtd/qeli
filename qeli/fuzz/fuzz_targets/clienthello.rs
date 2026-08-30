@@ -3,7 +3,7 @@
 //! with fully attacker-controlled bytes from a hostile network. None of these
 //! must panic, over-read, or hang on any input.
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::FakeTlsHandshake;
+use qeli_core::protocol::FakeTlsHandshake;
 
 fuzz_target!(|data: &[u8]| {
     // Plain ClientHello key-share extraction.

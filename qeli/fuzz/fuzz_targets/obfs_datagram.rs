@@ -3,7 +3,7 @@
 //! ChaCha20 keystream framing must reject any malformed datagram with `None`, never
 //! panic or over-read. The key is fixed — we exercise the framing, not the cipher.
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::obfs::obfs_datagram_open;
+use qeli_core::protocol::obfs::obfs_datagram_open;
 
 fuzz_target!(|data: &[u8]| {
     let key = [0x42u8; 32];

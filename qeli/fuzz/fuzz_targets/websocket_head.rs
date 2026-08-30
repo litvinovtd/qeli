@@ -5,5 +5,5 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     let key = [0x5au8; 32];
-    let _ = qeli::protocol::obfs::ws::build_response(data, &key);
+    let _ = qeli_core::protocol::obfs::ws::build_response(data, &key);
 });

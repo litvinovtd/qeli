@@ -5,7 +5,7 @@
 //! the cipher itself. decrypt_packet must reject any malformed input with an
 //! error, never panic or over-read.
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::PacketCodec;
+use qeli_core::protocol::PacketCodec;
 
 fuzz_target!(|data: &[u8]| {
     let key = [0x42u8; 32];

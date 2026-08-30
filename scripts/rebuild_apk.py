@@ -107,8 +107,9 @@ assemble_task = "assembleRelease" if RELEASE else "assembleDebug"
 print(f"=== 3. ./gradlew testDebugUnitTest {assemble_task} --offline ===")
 sh(c, "pkill -9 -f GradleDaemon 2>/dev/null; rm -rf /root/.gradle/caches/journal-1 2>/dev/null; true")
 out, rc = sh(c, f"cd {REMOTE} && chmod +x gradlew && ./gradlew clean testDebugUnitTest {assemble_task} --offline --no-daemon "
-                f"-Dorg.gradle.vfs.watch=false 2>&1", t=1200)
-print("\n".join(out.splitlines()[-15:]))
+                f"--max-workers=1 -Dorg.gradle.vfs.watch=false "
+                f"'-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8' 2>&1", t=1200)
+print("\n".join(out.splitlines()[-80:]))
 if rc != 0 or "BUILD SUCCESSFUL" not in out:
     print(f"[build] FAILED (rc={rc})"); c.close(); sys.exit(1)
 

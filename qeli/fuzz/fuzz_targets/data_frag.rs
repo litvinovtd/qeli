@@ -4,7 +4,7 @@
 //! drive reorder, duplicate, completion, and conflicting-record state transitions.
 
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::data_frag::{fragment_record, is_data_fragment, DataReassembler};
+use qeli_core::protocol::data_frag::{fragment_record, is_data_fragment, DataReassembler};
 
 const MAX_GENERATED_RECORD: usize = 16 * 1024;
 

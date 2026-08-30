@@ -4,7 +4,7 @@
 //! accounting must reject any malformed fragment with an error, never panic or
 //! over-allocate.
 use libfuzzer_sys::fuzz_target;
-use qeli::protocol::udp_frag::{is_fragment, Reassembler};
+use qeli_core::protocol::udp_frag::{is_fragment, Reassembler};
 
 fuzz_target!(|data: &[u8]| {
     let _ = is_fragment(data);

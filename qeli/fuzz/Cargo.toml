@@ -13,7 +13,8 @@ libfuzzer-sys = "0.4"
 # Only the cross-platform parser core (config/crypto/protocol/util) is needed —
 # default-features off drops the Linux-only server/client/tun/web stack, so the
 # fuzz crate builds fast and targets exactly the untrusted-input parsers.
-[dependencies.qeli]
+[dependencies.qeli_core]
+package = "qeli"
 path = ".."
 default-features = false
 
