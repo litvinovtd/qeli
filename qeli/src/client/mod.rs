@@ -986,7 +986,7 @@ pub(crate) trait PathController: Send + Sync {
         anyhow::bail!("same-network NAT recovery is unavailable on this platform")
     }
     // Native FFI and Linux connectors consume BIND_SOCKET while opening the candidate; the
-    // default-off capability keeps adapters without this exact binding contract on reconnect.
+    // Capability masking keeps adapters without this exact binding contract on reconnect.
     #[cfg_attr(not(feature = "transport-core-ffi"), allow(dead_code))]
     fn bind_candidate_socket(
         &self,
@@ -2768,11 +2768,12 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 mod tcp_resume_client_tests {
     use super::{
         decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, publish_tcp_path_handover,
-        register_tcp_stream_task, should_defer_tcp_resume_for_handover, ClientStreamSender,
-        TcpActiveSlots, TcpResumeContext, TcpSecondaryAttach, TCP_HANDOVER_PREPARE_GRACE,
+        register_tcp_stream_task, should_defer_tcp_resume_for_handover,
+        tcp_handover_failure_action, ClientStreamSender, TcpActiveSlots, TcpHandoverFailureAction,
+        TcpResumeContext, TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     #[test]
     fn resume_attach_binds_original_secret_transcript_epoch_and_slot() {
@@ -2922,6 +2923,21 @@ mod tcp_resume_client_tests {
             true,
             just_orphaned
         ));
+    }
+
+    #[test]
+    fn post_platform_commit_failure_is_terminal_and_server_wait_has_margin() {
+        assert_eq!(
+            tcp_handover_failure_action(false),
+            TcpHandoverFailureAction::RollbackCandidate
+        );
+        assert_eq!(
+            tcp_handover_failure_action(true),
+            TcpHandoverFailureAction::ReconnectGeneration
+        );
+        let server_wait =
+            Duration::from_secs(crate::protocol::roaming::TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS);
+        assert!(server_wait >= PATH_ACK_TIMEOUT + Duration::from_secs(10));
     }
 
     #[test]
@@ -3164,6 +3180,22 @@ fn mark_tcp_slot_stopped(active_slots: &TcpActiveSlots, logical_slot_id: u32) {
     };
     if remove {
         active.remove(&logical_slot_id);
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TcpHandoverFailureAction {
+    RollbackCandidate,
+    ReconnectGeneration,
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn tcp_handover_failure_action(platform_committed: bool) -> TcpHandoverFailureAction {
+    if platform_committed {
+        TcpHandoverFailureAction::ReconnectGeneration
+    } else {
+        TcpHandoverFailureAction::RollbackCandidate
     }
 }
 
@@ -3866,15 +3898,15 @@ where
     } = ok;
     #[cfg(feature = "experimental-roaming")]
     let tcp_resume: Option<Arc<TcpResumeContext>> = if client_capabilities.is_some_and(|client| {
-        client.core_bits & crate::protocol::capabilities::client_capability::TCP_RESUME_V1 != 0
+        client.core_bits & crate::protocol::capabilities::client_capability::TCP_RESUME_V2 != 0
     }) && server_capabilities.is_some_and(
-        |server| server.contains(crate::protocol::capabilities::server_capability::TCP_RESUME_V1),
+        |server| server.contains(crate::protocol::capabilities::server_capability::TCP_RESUME_V2),
     ) {
         let session_locator =
             decode_hex_array::<{ crate::protocol::roaming::SESSION_LOCATOR_LEN }>(&session_token)
                 .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "server negotiated TCP_RESUME_V1 but returned an invalid session locator"
+                    "server negotiated TCP_RESUME_V2 but returned an invalid session locator"
                 )
             })?;
         log::info!("TCP hard-resume negotiated; preserving NetworkPlan during carrier loss");
@@ -3898,12 +3930,12 @@ where
     #[cfg(feature = "experimental-roaming")]
     let tcp_handover_enabled = path_controller.is_some()
         && client_capabilities.is_some_and(|client| {
-            client.core_bits & crate::protocol::capabilities::client_capability::TCP_HANDOVER_V1
+            client.core_bits & crate::protocol::capabilities::client_capability::TCP_HANDOVER_V2
                 != 0
         })
         && tcp_resume.is_some()
         && server_capabilities.is_some_and(|server| {
-            server.contains(crate::protocol::capabilities::server_capability::TCP_HANDOVER_V1)
+            server.contains(crate::protocol::capabilities::server_capability::TCP_HANDOVER_V2)
         })
         && platform_capabilities & crate::transport_core::platform_capability::ROAMING_PATH
             == crate::transport_core::platform_capability::ROAMING_PATH;
@@ -4669,7 +4701,7 @@ where
                 };
                 if !handover_enabled {
                     match path_controller
-                        .abort_candidate_path(&candidate, "peer did not negotiate TCP_HANDOVER_V1")
+                        .abort_candidate_path(&candidate, "peer did not negotiate TCP_HANDOVER_V2")
                     {
                         Ok(rollback) => {
                             match tokio::time::timeout(PATH_ACK_TIMEOUT, rollback).await {
@@ -4704,6 +4736,7 @@ where
                     continue;
                 }
 
+                let mut platform_committed = false;
                 let attempt = async {
                     let resume = resume_h.as_deref().ok_or_else(|| {
                         anyhow::anyhow!("handover requires negotiated TCP resume")
@@ -4728,6 +4761,7 @@ where
                     tokio::time::timeout(PATH_ACK_TIMEOUT, commit)
                         .await
                         .map_err(|_| anyhow::anyhow!("COMMIT_PATH acknowledgement timed out"))??;
+                    platform_committed = true;
                     let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
                         finish_tcp_secondary_handshake(&mut stream, pending),
@@ -4771,6 +4805,20 @@ where
                         );
                     }
                     Err(error) => {
+                        if tcp_handover_failure_action(platform_committed)
+                            == TcpHandoverFailureAction::ReconnectGeneration
+                        {
+                            log::error!(
+                                "TCP handover candidate {} failed after irreversible platform commit; terminating this generation for immediate reconnect: {}",
+                                candidate.candidate_id,
+                                error
+                            );
+                            let _ = dead_h.try_send(());
+                            joining_h.store(false, Ordering::Release);
+                            break;
+                        }
+                        // Before COMMIT_PATH ACK the candidate is still reversible and the
+                        // platform must remove every prepared route/filter/socket binding.
                         let reason = format!("TCP handover failed: {error}");
                         match path_controller.abort_candidate_path(&candidate, &reason) {
                             Ok(rollback) => {

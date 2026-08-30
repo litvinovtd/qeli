@@ -1,21 +1,10 @@
-# Build flags for the qeli crate.
+# Cross-target Cargo policy for the qeli crate.
 #
-# These live under [build], NOT under [target.x86_64-unknown-linux-gnu] (Audit
-# 2026-07-27, G3). The published .deb is built with
-# `cargo zigbuild --target x86_64-unknown-linux-gnu.2.28` (qeli/debian/Makefile), and a
-# per-triple key is matched against whatever triple cargo is finally invoked with — so
-# the release could silently be compiled with a different flag set from every local and
-# CI build, with nothing detecting the divergence. [build] applies to every target,
-# including the cross-compiled router clients, so there is only one answer now.
+# Keep this file free of global linker arguments: they are forwarded to every target,
+# including Windows MSVC, Android and router cross-builds. Release artifacts are stripped
+# portably by `strip = true` in Cargo.toml's [profile.release]. Target-specific flags, when
+# unavoidable, belong in the explicit build recipe for that target.
 #
-# `-C target-feature=+aes` USED TO BE HERE AND WAS REMOVED. It told the compiler AES-NI
-# is unconditionally available, which lets AES instructions be emitted anywhere in the
-# crate — and the resulting binary then dies with SIGILL on any x86-64 CPU without
-# AES-NI (VPS with masked CPU flags, older Atom/Opteron). A `Depends:` line cannot
-# express a CPU-feature requirement, so apt would install it without a word — the same
-# shape of failure as the GLIBC_2.39 releases. It bought almost nothing: RustCrypto's
-# `aes` crate already selects the AES-NI backend at RUNTIME via `cpufeatures`, so the
-# fast path is taken on capable CPUs either way. `make check-abi` now fails the build
-# if the flag comes back (it checks that the runtime detection is still present).
-[build]
-rustflags = ["-C", "link-arg=-s"]
+# `-C target-feature=+aes` must not be added here. RustCrypto selects AES-NI at runtime via
+# `cpufeatures`; forcing AES globally can produce SIGILL on x86-64 hosts where AES-NI is absent
+# or masked. `make check-abi` verifies that runtime feature detection remains in use.

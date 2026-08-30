@@ -1164,8 +1164,11 @@ A live session migrates only when the client policy is `auto` or `required`, cli
 negotiate the transport-specific capability, and the platform adapter supplies the complete
 transactional `ROAMING_PATH` contract. Explicit client `local` or non-zero `lport` values pin
 the carrier socket: `auto` uses a normal reconnect while `required` is rejected during config
-validation. If prepare/bind/proof/commit fails, `auto` also falls back safely to reconnect;
-`required` fails closed.
+validation. Before a platform `COMMIT_PATH` acknowledgement, prepare/bind/proof/commit failures
+roll back the exact candidate. Once that acknowledgement makes the platform change irreversible,
+a later `JOINCOMMIT` or final-ACK failure does not issue a stale abort: it terminates the current
+generation and immediately starts a full reconnect. `required` fails closed instead of silently
+continuing on an unverified path.
 
 The grace and orphan limits govern TCP hard-resume. UDP uses the same profile opt-in and
 authenticated capability negotiation for every UDP camouflage mode, but keeps its own

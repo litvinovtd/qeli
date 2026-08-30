@@ -31,7 +31,14 @@ pub mod server_capability {
     pub const UDP_ROAM_V1: u64 = 1 << 6;
     pub const TCP_RESUME_V1: u64 = 1 << 7;
     pub const TCP_HANDOVER_V1: u64 = 1 << 8;
-    pub const ROAMING_RESERVED: u64 = CONTROL_V2 | UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1;
+    pub const TCP_RESUME_V2: u64 = 1 << 9;
+    pub const TCP_HANDOVER_V2: u64 = 1 << 10;
+    pub const ROAMING_RESERVED: u64 = CONTROL_V2
+        | UDP_ROAM_V1
+        | TCP_RESUME_V1
+        | TCP_HANDOVER_V1
+        | TCP_RESUME_V2
+        | TCP_HANDOVER_V2;
 }
 
 /// Features implemented by the client core. Platform operations are advertised separately.
@@ -46,7 +53,14 @@ pub mod client_capability {
     pub const UDP_ROAM_V1: u64 = 1 << 5;
     pub const TCP_RESUME_V1: u64 = 1 << 6;
     pub const TCP_HANDOVER_V1: u64 = 1 << 7;
-    pub const ROAMING_RESERVED: u64 = CONTROL_V2 | UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1;
+    pub const TCP_RESUME_V2: u64 = 1 << 8;
+    pub const TCP_HANDOVER_V2: u64 = 1 << 9;
+    pub const ROAMING_RESERVED: u64 = CONTROL_V2
+        | UDP_ROAM_V1
+        | TCP_RESUME_V1
+        | TCP_HANDOVER_V1
+        | TCP_RESUME_V2
+        | TCP_HANDOVER_V2;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,12 +103,12 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
     #[cfg(feature = "experimental-roaming")]
     let bits = bits
         | server_capability::CONTROL_V2
-        | server_capability::TCP_RESUME_V1
-        | server_capability::TCP_HANDOVER_V1;
+        | server_capability::TCP_RESUME_V2
+        | server_capability::TCP_HANDOVER_V2;
     ServerCapabilities { bits }
 }
 
-/// Apply the profile's default-off rollout policy to TCP/server-generic capabilities.
+/// Apply the profile's explicit rollout policy to TCP/server-generic capabilities.
 pub const fn server_capabilities_for_profile(roaming_enabled: bool) -> ServerCapabilities {
     let mut capabilities = implemented_server_capabilities();
     if !roaming_enabled {
@@ -161,18 +175,18 @@ pub fn udp_roaming_negotiated(
 pub fn tcp_resume_supported(client: Option<ClientCapabilities>) -> bool {
     cfg!(feature = "experimental-roaming")
         && client.is_some_and(|capabilities| {
-            capabilities.core_bits & client_capability::TCP_RESUME_V1 != 0
+            capabilities.core_bits & client_capability::TCP_RESUME_V2 != 0
         })
 }
 
 /// Make-before-break is negotiated separately from ordinary TCP resume. A client that only
-/// opts in to `TCP_RESUME_V1` may replace a missing path, but cannot temporarily exceed the
+/// opts in to `TCP_RESUME_V2` may replace a missing path, but cannot temporarily exceed the
 /// stream cap or drain a still-active transport.
 pub fn tcp_handover_supported(client: Option<ClientCapabilities>) -> bool {
     cfg!(feature = "experimental-roaming")
         && client.is_some_and(|capabilities| {
             let required_core =
-                client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1;
+                client_capability::TCP_RESUME_V2 | client_capability::TCP_HANDOVER_V2;
             let required_platform = crate::transport_core::platform_capability::ROAMING_PATH;
             capabilities.core_bits & required_core == required_core
                 && capabilities.platform_bits & required_platform == required_platform
@@ -195,8 +209,8 @@ pub const fn implemented_client_core_capabilities() -> u64 {
     let bits = bits
         | client_capability::CONTROL_V2
         | client_capability::UDP_ROAM_V1
-        | client_capability::TCP_RESUME_V1
-        | client_capability::TCP_HANDOVER_V1;
+        | client_capability::TCP_RESUME_V2
+        | client_capability::TCP_HANDOVER_V2;
     bits
 }
 
@@ -289,12 +303,12 @@ pub fn negotiate_client_capabilities(
     if platform_bits & roaming_path != roaming_path {
         // A handover proof permits replacing a still-live carrier. Never advertise that wire
         // authority unless the adapter can transactionally prepare and bind the exact path.
-        core_bits &= !client_capability::TCP_HANDOVER_V1;
+        core_bits &= !client_capability::TCP_HANDOVER_V2;
     }
     match config.server.protocol.as_str() {
         "tcp" => core_bits &= !client_capability::UDP_ROAM_V1,
         "udp" => {
-            core_bits &= !(client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1)
+            core_bits &= !(client_capability::TCP_RESUME_V2 | client_capability::TCP_HANDOVER_V2)
         }
         _ => core_bits &= !client_capability::ROAMING_RESERVED,
     }
@@ -324,11 +338,11 @@ pub fn negotiate_client_capabilities(
         let (required_server, required_core) = match config.server.protocol.as_str() {
             "tcp" => (
                 server_capability::CONTROL_V2
-                    | server_capability::TCP_RESUME_V1
-                    | server_capability::TCP_HANDOVER_V1,
+                    | server_capability::TCP_RESUME_V2
+                    | server_capability::TCP_HANDOVER_V2,
                 client_capability::CONTROL_V2
-                    | client_capability::TCP_RESUME_V1
-                    | client_capability::TCP_HANDOVER_V1,
+                    | client_capability::TCP_RESUME_V2
+                    | client_capability::TCP_HANDOVER_V2,
             ),
             "udp" => (
                 server_capability::CONTROL_V2
@@ -894,11 +908,11 @@ mod tests {
         assert_eq!(
             tcp.core_bits
                 & (client_capability::CONTROL_V2
-                    | client_capability::TCP_RESUME_V1
-                    | client_capability::TCP_HANDOVER_V1),
+                    | client_capability::TCP_RESUME_V2
+                    | client_capability::TCP_HANDOVER_V2),
             client_capability::CONTROL_V2
-                | client_capability::TCP_RESUME_V1
-                | client_capability::TCP_HANDOVER_V1
+                | client_capability::TCP_RESUME_V2
+                | client_capability::TCP_HANDOVER_V2
         );
 
         config.server.protocol = "udp".to_string();
@@ -910,7 +924,7 @@ mod tests {
         .unwrap()
         .expect("capability extension");
         assert_eq!(
-            udp.core_bits & (client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1),
+            udp.core_bits & (client_capability::TCP_RESUME_V2 | client_capability::TCP_HANDOVER_V2),
             0
         );
         assert_ne!(udp.core_bits & client_capability::UDP_ROAM_V1, 0);
@@ -931,7 +945,7 @@ mod tests {
 
         config.server.protocol = "tcp".to_string();
         let server_without_handover = ServerCapabilities {
-            bits: implemented_server_capabilities().bits & !server_capability::TCP_HANDOVER_V1,
+            bits: implemented_server_capabilities().bits & !server_capability::TCP_HANDOVER_V2,
         };
         let error = negotiate_client_capabilities(&config, Some(server_without_handover), platform)
             .unwrap_err();
@@ -975,7 +989,7 @@ mod tests {
             .unwrap()
             .expect("authenticated capability extension");
         assert_eq!(
-            without_path.core_bits & client_capability::TCP_HANDOVER_V1,
+            without_path.core_bits & client_capability::TCP_HANDOVER_V2,
             0
         );
 
@@ -987,7 +1001,7 @@ mod tests {
         .unwrap()
         .expect("authenticated capability extension");
         assert_eq!(
-            transactions_only.core_bits & client_capability::TCP_HANDOVER_V1,
+            transactions_only.core_bits & client_capability::TCP_HANDOVER_V2,
             0
         );
 
@@ -998,7 +1012,7 @@ mod tests {
         )
         .unwrap()
         .expect("authenticated capability extension");
-        assert_ne!(complete.core_bits & client_capability::TCP_HANDOVER_V1, 0);
+        assert_ne!(complete.core_bits & client_capability::TCP_HANDOVER_V2, 0);
     }
 
     #[test]
@@ -1007,9 +1021,13 @@ mod tests {
         #[cfg(feature = "experimental-roaming")]
         assert!(server.contains(
             server_capability::CONTROL_V2
-                | server_capability::TCP_RESUME_V1
-                | server_capability::TCP_HANDOVER_V1
+                | server_capability::TCP_RESUME_V2
+                | server_capability::TCP_HANDOVER_V2
         ));
+        assert_eq!(
+            server.bits & (server_capability::TCP_RESUME_V1 | server_capability::TCP_HANDOVER_V1),
+            0
+        );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server.bits & server_capability::ROAMING_RESERVED, 0);
 
@@ -1020,8 +1038,8 @@ mod tests {
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             client_capability::CONTROL_V2
                 | client_capability::UDP_ROAM_V1
-                | client_capability::TCP_RESUME_V1
-                | client_capability::TCP_HANDOVER_V1
+                | client_capability::TCP_RESUME_V2
+                | client_capability::TCP_HANDOVER_V2
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(
@@ -1029,8 +1047,15 @@ mod tests {
             0
         );
         assert!(!tcp_resume_supported(None));
+        let legacy_v1 = Some(ClientCapabilities {
+            core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+            platform_bits: crate::transport_core::platform_capability::ROAMING_PATH,
+            ..ClientCapabilities::default()
+        });
+        assert!(!tcp_resume_supported(legacy_v1));
+        assert!(!tcp_handover_supported(legacy_v1));
         let opted_in = Some(ClientCapabilities {
-            core_bits: client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V1,
+            core_bits: client_capability::CONTROL_V2 | client_capability::TCP_RESUME_V2,
             ..ClientCapabilities::default()
         });
         #[cfg(feature = "experimental-roaming")]
@@ -1039,12 +1064,12 @@ mod tests {
             assert!(tcp_resume_supported(opted_in));
             assert!(!tcp_handover_supported(opted_in));
             let handover_without_path = Some(ClientCapabilities {
-                core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+                core_bits: client_capability::TCP_RESUME_V2 | client_capability::TCP_HANDOVER_V2,
                 ..ClientCapabilities::default()
             });
             assert!(!tcp_handover_supported(handover_without_path));
             let handover = Some(ClientCapabilities {
-                core_bits: client_capability::TCP_RESUME_V1 | client_capability::TCP_HANDOVER_V1,
+                core_bits: client_capability::TCP_RESUME_V2 | client_capability::TCP_HANDOVER_V2,
                 platform_bits: crate::transport_core::platform_capability::ROAMING_PATH,
                 ..ClientCapabilities::default()
             });

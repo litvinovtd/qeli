@@ -14,10 +14,10 @@
 //!
 //! Usage: replay_probe <host:port> <reality_pub_hex> <short_id_hex> <sni>
 
-use qeli_core as qeli;
 use qeli::crypto::reality::{seal_session_id, short_id_from_hex};
 use qeli::crypto::{Keypair, PublicKey};
 use qeli::protocol::FakeTlsHandshake;
+use qeli_core as qeli;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;

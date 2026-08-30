@@ -1,9 +1,9 @@
 //! Wire contracts shared by future TCP resume and UDP path migration.
 //!
-//! UDP remains a protocol-only contract. Under the default-off `experimental-roaming` feature,
-//! the Linux server and common client supervisor consume authenticated TCP resume/handover
-//! messages. Negotiation strips handover authority unless a platform adapter advertises the
-//! complete transactional ROAMING_PATH contract. Ordinary production builds advertise no bits.
+//! UDP remains a protocol-only contract. Supported server, standalone-client and FFI builds
+//! include the shared roaming implementation, while authenticated capability negotiation still
+//! strips handover authority unless the profile, peer and platform adapter advertise the complete
+//! transactional ROAMING_PATH contract.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -27,9 +27,11 @@ pub const UDP_SHORT_FLAGS: u8 = 0x43;
 pub const UDP_SHORT_HEADER_LEN: usize = 1 + CID_LEN + 4;
 
 const CID_LABEL: &[u8] = b"qeli-udp-cid-v1";
-const RESUME_PROOF_LABEL: &[u8] = b"qeli-tcp-resume-proof-v1";
-pub const TCP_RESUME_MAGIC: [u8; 8] = *b"QELIRSM1";
-pub const TCP_RESUME_VERSION: u8 = 1;
+const RESUME_PROOF_LABEL: &[u8] = b"qeli-tcp-resume-proof-v2";
+pub const TCP_RESUME_MAGIC: [u8; 8] = *b"QELIRSM2";
+pub const TCP_RESUME_VERSION: u8 = 2;
+/// Server wait after JOINOK. This exceeds the client's 45-second platform COMMIT_PATH window.
+pub const TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS: u64 = 60;
 pub const TCP_RESUME_FLAG_HANDOVER: u8 = 1 << 0;
 const TCP_RESUME_KNOWN_FLAGS: u8 = TCP_RESUME_FLAG_HANDOVER;
 /// magic(8) + version(1) + flags(1) + locator(16) + epoch(8) + slot(4) +
@@ -392,8 +394,8 @@ mod tests {
         assert_eq!(
             server_roaming,
             server_capability::CONTROL_V2
-                | server_capability::TCP_RESUME_V1
-                | server_capability::TCP_HANDOVER_V1
+                | server_capability::TCP_RESUME_V2
+                | server_capability::TCP_HANDOVER_V2
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
@@ -407,8 +409,8 @@ mod tests {
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
             client_capability::CONTROL_V2
                 | client_capability::UDP_ROAM_V1
-                | client_capability::TCP_RESUME_V1
-                | client_capability::TCP_HANDOVER_V1
+                | client_capability::TCP_RESUME_V2
+                | client_capability::TCP_HANDOVER_V2
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(
@@ -431,7 +433,7 @@ mod tests {
         let proof = make_resume_proof(&[0x22; 32], &input);
         assert_eq!(
             hex(&proof),
-            "c8f4708335b6611c0e6c871dc86a6004d969238052a93258585f0ed688588fe2"
+            "060c0cc268fbe0dff899db625e4126310713e84296a65f5b0377080d6982bc3b"
         );
         assert!(verify_resume_proof(&[0x22; 32], &input, &proof));
     }
@@ -459,6 +461,15 @@ mod tests {
         let wire = TcpResumeJoin::new(input, &secret).encode();
         assert_eq!(wire.len(), TCP_RESUME_JOIN_LEN);
         assert_eq!(&wire[..8], &TCP_RESUME_MAGIC);
+        assert_eq!(wire[8], TCP_RESUME_VERSION);
+        let mut legacy_v1 = wire;
+        legacy_v1[..8].copy_from_slice(b"QELIRSM1");
+        legacy_v1[8] = 1;
+        assert_eq!(
+            TcpResumeJoin::decode(&legacy_v1).err(),
+            Some(RoamingWireError::Unsupported)
+        );
+        let wire = TcpResumeJoin::new(input, &secret).encode();
         let parsed = TcpResumeJoin::decode(&wire).unwrap();
         assert!(parsed.verify(&secret));
         let mut changed = wire;

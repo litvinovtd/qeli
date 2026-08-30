@@ -460,17 +460,18 @@ development implementation, а не релиз.
 
 ### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, Linux live-срез готов)
 
-**Нормативный план: [ROAMING.md](ROAMING.md).** Default-сборки и неподдерживаемые платформы при
-смене Wi-Fi↔LTE/IP выполняют быстрый reconnect с новым handshake и Argon2. Общий TCP/UDP core и
-path executors Linux/OpenWrt, Android, Windows, macOS и iOS source-complete под
-`experimental-roaming`; Linux TCP/UDP+QUIC и Android TCP/UDP имеют частичную live-приёмку с
+**Нормативный план: [ROAMING.md](ROAMING.md).** Поддерживаемые сборки включают общий TCP/UDP roaming
+core под внутренним compile gate. Выключенные профили, legacy peers и неподдерживаемые adapters при
+смене Wi-Fi↔LTE/IP выполняют быстрый reconnect с новым handshake и Argon2. Path executors
+Linux/OpenWrt, Android, Windows, macOS и iOS source-complete; Linux TCP/UDP+QUIC и Android TCP/UDP имеют частичную live-приёмку с
 сохранением session id, внутренних IPv4/IPv6, NetworkPlan, TUN/TAP, маршрутов и квоты.
-На сервере реализован профильный default-off rollout. Клиентская политика `off|auto|required`,
+На сервере реализован профильный rollout: новые профили включают роуминг, а sparse старые
+профили остаются выключенными для совместимости. Клиентская политика `off|auto|required`,
 её flat-INI/`qeli://` round-trip и общие transport-specific gates source-complete во всех клиентах.
-Панель, явные GUI controls, полная platform/race/soak matrix и поэтапный rollout остаются в этапах 5–6.
+Панель и явные GUI controls реализованы; оставшаяся platform/race/soak matrix и поэтапный rollout относятся к этапу 6.
 
-- Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
-  `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; generation-scoped динамический
+- Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V2` и
+  `TCP_HANDOVER_V2`; domain-separated resume/CID secrets; generation-scoped динамический
   PathUpdate ABI и транзакция PREPARE/COMMIT/ABORT.
 - **UDP с UDP_ROAM_V1 + DATA_FRAG_V1:** единый directional восьмибайтовый CID envelope для
   fake-TLS, QUIC masking, obfs и AWG, profile-wide registry между всеми workers/listeners,
@@ -487,8 +488,8 @@ path executors Linux/OpenWrt, Android, Windows, macOS и iOS source-complete п�
   physical DNS и точный bind/protect candidate socket; после validation/JOIN выполняются
   commit, drain и cleanup. Без этого capability не объявляется.
 - Пользовательская настройка остаётся flat INI: серверные `roaming.*` внутри профиля,
-  клиентский `[qeli] roaming = off|auto|required`. Первый rollout: server default off,
-  client default auto, rolling upgrade через capability negotiation.
+  клиентский `[qeli] roaming = off|auto|required`. Новые серверные профили включены по умолчанию,
+  клиенты используют `auto`; sparse старые профили и legacy peers сохраняют reconnect.
 
 Порядок: спецификация/KDF/control → dynamic path ABI → TCP lifecycle/supervisor → UDP
 registry/validation/PMTU → Android/Windows/macOS/iOS/Linux/OpenWrt → конфиги/панель/docs →

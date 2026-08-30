@@ -27,6 +27,21 @@
   macOS и iOS сборочных рецептах; regression-test также проверяет это соответствие.
   Синхронизация исходников на лабу теперь включает `examples`, необходимые для строгого
   `cargo clippy --all-targets` после переименования crate.
+- Закрыт post-commit blackhole TCP handover: после подтверждённого платформой `COMMIT_PATH`
+  ошибка `JOINCOMMIT` или финального ACK больше не вызывает stale `ABORT_PATH`. Текущая generation
+  немедленно завершается и запускает полный reconnect. До необратимого commit точный candidate
+  по-прежнему откатывается. Сервер ждёт client commit 60 секунд — на 15 секунд дольше клиентского
+  platform ACK timeout.
+- Двухфазный TCP wire-контракт получил отдельную версию: magic изменён на `QELIRSM2`, версия и
+  proof domain — на V2, а согласование использует новые `TCP_RESUME_V2`/`TCP_HANDOVER_V2` bits.
+  Старые V1 bits оставлены зарезервированными и не рекламируются; смешанные версии безопасно
+  переходят на обычный reconnect вместо ложного согласования несовместимого handover.
+- Устранён гарантированный `cargo fmt --check` blocker в probe examples. Глобальный Linux linker
+  argument `-s` удалён из Cargo config, поэтому он больше не передаётся MSVC, Android и router
+  cross-builds; переносимый stripping выполняет `strip = true` в release profile и защищён тестом.
+  EN/RU CONFIG, ROADMAP и нормативный ROAMING синхронизированы с новым wire-контрактом,
+  post-commit recovery и фактическими defaults новых/существующих профилей.
+
 
 ### Документация
 
@@ -99,7 +114,7 @@
 
 - В форме серверного профиля web-панели добавлена отдельная секция Session Roaming: единый
   профильный переключатель для TCP и всех UDP camouflage modes, grace period, лимит ожидающих
-  сессий и лимит памяти в MiB. Старые/неполные JSON-профили сохраняют совместимый выключенный
+  сессий и лимит памяти в MiB. Старые sparse серверные INI-профили сохраняют совместимый выключенный
   переключатель, а новые профили панели получают включённый роуминг из канонического Rust-шаблона.
 
 - Сервер публикует безопасную worker-lifetime телеметрию роуминга через read-only control/API
@@ -412,8 +427,8 @@
   использует уже аутентифицированный закреплённый IP сервера без повторного DNS через возможный
   сломанный туннель. Linux объявляет полный `ROAMING_PATH` только в сборке
   `experimental-roaming`, без явного `server.local_address`: для TCP и всех UDP-режимов.
-  Fixed-source и default-сборка не объявляют path capability и сохраняют reconnect-
-  поведение.
+  Fixed-source, выключенный профиль или legacy peer не согласуют path capability и сохраняют
+  reconnect-поведение.
 - Двухмаршрутный Linux netns e2e прошёл 15/15: lower-metric default подготовил candidate на
   втором интерфейсе, сервер принял fresh-KE handover JOIN с нового source IP, COMMIT перенёс
   qeli-owned carrier `/32`, старый интерфейс был выключен, но PID клиента, TUN ifindex и
@@ -569,13 +584,13 @@
   PREPARE/BIND/COMMIT/ABORT, корреляцию ACK, supersede и roaming-телеметрию, что FFI-клиенты,
   вместо отдельной реализации протокола. Системные route/socket операции будут выполняться
   после освобождения core-lock; сам по себе этот рефакторинг capability ещё не включал.
-- Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1` и
-  `TCP_HANDOVER_V1`. Feature-клиент умеет объявить TCP resume/handover, но negotiation удаляет
+- Зарезервированы capability-биты `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V2` и
+  `TCP_HANDOVER_V2`. Клиент умеет объявить TCP resume/handover, но negotiation удаляет
   handover-bit без полного platform `ROAMING_PATH` (`PATH_TRANSACTIONS + PATH_SOCKET_BINDING`).
-  Полный контракт под feature gate объявляют Linux/OpenWrt, Android, Windows, macOS и iOS,
+  Полный контракт объявляют Linux/OpenWrt, Android, Windows, macOS и iOS,
   если platform adapter и загруженное ядро подтверждают `ROAMING_PATH`; явные `local`/`lport`
-  и старые cores сохраняют reconnect fallback. Feature-сервер предлагает roaming capability
-  только на профиле с `roaming.enabled = true`, а обычные сборки не меняют поведение.
+  и старые cores сохраняют reconnect fallback. Сервер предлагает roaming capability
+  только на профиле с `roaming.enabled = true`.
   Добавлены строгий
   формат `CONTROL_V2` с ограниченной фрагментацией и дедупликацией, UDP CID-заголовок,
   path challenge/response и аутентифицированный TCP resume proof.
@@ -583,8 +598,8 @@
   secrets с zeroization. Known-answer тесты подтверждают новые labels для classic, hybrid и
   static-bound режимов и одновременно фиксируют неизменность существующих data keys.
 - TCP hard-resume и единый для всех camouflage modes UDP roaming data plane активируются
-  только при профильном server opt-in и authenticated client negotiation. Default-сборки,
-  выключенные профили и non-negotiated соединения сохраняют прежнее поведение.
+  только при профильном server opt-in и authenticated client negotiation. Выключенные профили,
+  legacy cores и non-negotiated соединения сохраняют прежнее поведение.
 - Source ABI 1.12 добавляет под `experimental-roaming` ограниченный generation-scoped
   `PathUpdate` и транзакцию `PREPARE/BIND/COMMIT/ABORT`. Вход строго ограничен по размеру,
   адресам, TTL и идентификаторам; stale/duplicate update не создаёт работу, а superseding
@@ -603,7 +618,7 @@
   Platform FFI `clippy -D warnings` также больше не компилирует Linux-only reconnect jitter
   helper и не считает test-only константу stats V2 частью production-кода.
 
-- Stage 2A добавляет под тем же default-off feature общий TCP lifecycle
+- Stage 2A добавляет общий TCP lifecycle
   `Active → Orphaned → Resuming → Active/Closing/Revoked`. Resume proof проверяется
   одновременно против fresh-handshake transcript, locator, монотонного `u64` epoch и
   стабильного logical slot. Orphan ownership ограничивается числом сессий и retained bytes
@@ -611,8 +626,8 @@
   а повторный revoke/reap не уменьшает счётчики дважды. JOIN reservation атомарна, epoch
   сгорает до JOINOK, make-before-break держит старый transport в Draining до точного
   generation-ACK. Race/security unit-тесты добавлены.
-- Stage 2B подключает lifecycle к Linux TCP handler и общему client supervisor под
-  default-off feature. Resume secret исходной сессии выводится для всех handshake KDF modes
+- Stage 2B подключает lifecycle к Linux TCP handler и общему client supervisor.
+  Resume secret исходной сессии выводится для всех handshake KDF modes
   и хранится с zeroization; каждый resume JOIN выполняет свежий KE и proof, связанный с
   transcript/locator/монотонным epoch/stable slot. При потере последнего carrier клиент до
   30 секунд сохраняет прежние TUN и NetworkPlan, раз в секунду восстанавливает тот же slot,
@@ -627,7 +642,7 @@
   на refcount. Поэтому краткое перекрытие старого и нового carrier не делает слот ложным
   «отсутствующим», когда первым завершается draining carrier. Сервер принимает handover
   только если authenticated client capabilities одновременно подтверждают
-  `TCP_RESUME_V1 + TCP_HANDOVER_V1` и полный platform `ROAMING_PATH`; один core-bit без
+  `TCP_RESUME_V2 + TCP_HANDOVER_V2` и полный platform `ROAMING_PATH`; один core-bit без
   транзакций и exact socket binding больше не даёт права вытеснить живой transport.
 - PathUpdate-driven TCP make-before-break подключён к общему client supervisor. Transport
   получает только ACK-подтверждённый PREPARE candidate, создаёт отдельный unbound socket,
@@ -637,7 +652,7 @@
   сохраняет слот, пока старый carrier завершается. BIND/COMMIT/ABORT возвращают oneshot-результат
   с 45-секундным пределом ожидания, а supersede/stop закрывает waiter без утечки. После commit
   новый список carrier-адресов используется для восстановления остальных bonded slots.
-- Если peer не согласовал `TCP_HANDOVER_V1`, candidate сначала проходит ACK-подтверждённый
+- Если peer не согласовал `TCP_HANDOVER_V2`, candidate сначала проходит ACK-подтверждённый
   `ABORT_PATH`, затем supervisor выполняет обычный full reconnect. Ошибка candidate connect/JOIN
   также откатывает временные platform-правила. Отказ COMMIT остаётся fail-closed: сервер уже
   аутентифицировал и переключил carrier, поэтому клиент восстанавливается существующим hard
@@ -651,7 +666,7 @@
   CID rotation сначала атомарно проверяет коллизии, затем переключает active path; PMTU generation
   сбрасывается к safe payload budget, stale probe не может изменить новый путь, cleanup удаляет все
   aliases и candidate state. Реестр пока не владеет sockets/codecs и не подключён к UDP hot path:
-  production data plane и default-сборка не изменены. Девять unit-тестов, включая 32 последовательные
+  production data plane на этом этапе не изменён. Девять unit-тестов, включая 32 последовательные
   ротации и stale/collision/anti-amplification случаи, прошли на лабе.
 - До подключения UDP hot path устранено противоречие wire design: roaming short header больше не
   имеет постоянного `D1 52` marker, который создавал бы отдельный DPI-отпечаток. Negotiated форма
@@ -803,7 +818,7 @@
   default/feature Clippy, default suite 870 passed/1 ignored и feature suite 947 passed/3 ignored.
   Первичная реализация согласовывала `UDP_ROAM_V1` для UDP+QUIC при совпадающем server bit и полном
   platform `ROAMING_PATH`; текущая реализация использует тот же roaming-контракт для всех UDP-
-  режимов. Fixed-source, legacy peer и default-сборки сохраняют прежний reconnect. Первый Linux
+  режимов. Fixed-source, выключенные профили и legacy peers сохраняют прежний reconnect. Первый Linux
   live e2e 17/17 выполнен на QUIC; rollback/adversarial race и soak остаются release gates.
 - Незавершённая UDP path validation теперь имеет фиксированный TTL 10 секунд, отдельный
   profile-wide cap `min(max_clients, 1024)` и скользящий admission limit 64 новых candidates в

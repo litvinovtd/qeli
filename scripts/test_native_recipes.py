@@ -55,6 +55,16 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("server_build=", keenetic_gate)
 
 
+    def test_release_stripping_is_cross_target_safe(self):
+        root = Path(__file__).resolve().parents[1]
+        cargo_config = (root / "qeli/.cargo/config.toml").read_text(encoding="utf-8")
+        manifest = (root / "qeli/Cargo.toml").read_text(encoding="utf-8")
+
+        self.assertNotIn("link-arg=-s", cargo_config)
+        release_profile = manifest.split("[profile.release]", 1)[1]
+        self.assertIn("strip = true", release_profile)
+
+
     def test_macos_install_name_does_not_contain_build_pass_path(self):
         flags = desktop.macos_rust_flags()
         self.assertIn("-install_name,@rpath/libqeli.dylib", flags)

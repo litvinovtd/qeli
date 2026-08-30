@@ -2,9 +2,10 @@
 <!-- normative-sync: roaming-v47-platform-gates-only -->
 
 > Статус: проектирование завершено; этапы 0–2A и общий TCP handover этапа 2B реализованы
-> под `experimental-roaming`. Linux in-process и Android feature adapters объявляют полный
+> под внутренним compile gate `experimental-roaming`, который включён во все поддерживаемые
+> серверные и клиентские сборки. Linux in-process и Android adapters объявляют полный
 > `ROAMING_PATH` для TCP и всех поддерживаемых UDP camouflage modes только при наличии реализации
-> в ядре; default-сборки и unsupported platforms сохраняют обычный reconnect. Linux TCP прошёл live e2e 15/15, hard resume и
+> в ядре; выключенные профили, legacy peers и unsupported platforms сохраняют обычный reconnect. Linux TCP прошёл live e2e 15/15, hard resume и
 > explicit close. Android API 34 emulator прошёл Wi-Fi → cellular (198/200 ping), cellular →
 > Wi-Fi (200/200) и sleep/wake на неизменном пути (160/160): сохранились PID, TUN и NetworkPlan,
 > полная AUTH выполнилась один раз, underlying Network сменился атомарно, DNS после переходов
@@ -20,8 +21,8 @@
 > ждёт точный platform COMMIT ACK и атомарно переключает socket, receive pump, CID framing и
 > консервативный PMTU budget. Ошибка после peer PATH_COMMIT приводит к fail-closed reconnect.
 > В feature-сборке Linux UDP согласует `UDP_ROAM_V1` для fake-TLS, QUIC masking, obfs и AWG только
-> при полном platform `ROAMING_PATH` и аутентифицированном `DATA_FRAG_V1`; fixed-source и
-> default-сборки бит не получают.
+> при полном platform `ROAMING_PATH` и аутентифицированном `DATA_FRAG_V1`; fixed-source,
+> выключенные профили и legacy peers бит не получают.
 > Двухмаршрутный UDP netns live e2e прошёл 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT перенёс
 > authenticated session, carrier `/32`, socket и receive pump до выключения старого интерфейса,
 > сохранив PID, TUN и отсутствие top-level reconnect. Отдельный rollback-сценарий прошёл 20/20:
@@ -207,8 +208,8 @@ trailer. Нужны раздельные биты:
 
 - CONTROL_V2 — двунаправленный versioned control channel;
 - UDP_ROAM_V1 — CID routing и проверка нового UDP-пути;
-- TCP_RESUME_V1 — authenticated JOIN существующей сессии;
-- TCP_HANDOVER_V1 — замена логического потока make-before-break.
+- TCP_RESUME_V2 — двухфазный authenticated JOIN существующей сессии;
+- TCP_HANDOVER_V2 — двухфазная замена логического потока make-before-break.
 
 Сервер объявляет только возможности, реально доступные конкретному профилю. UDP_ROAM_V1 требует
 DATA_FRAG_V1, но не требует включённого legacy-параметра `quic`: после взаимного аутентифицированного
@@ -598,7 +599,7 @@ anti-amplification и PMTU reset.
 - CONTROL_V2 и лимиты reassembly;
 - TCP JOIN transcript/proof;
 - UDP short header/CID/path messages;
-- feature flags с default off.
+- внутренний compile gate для поддерживаемых сборок.
 
 Результат: спецификация и тестовые векторы, но feature недоступна пользователю.
 
@@ -620,20 +621,20 @@ reconnect fallback.
 
 ### Этап 2A. TCP lifecycle — ✅ исходники
 
-Общее default-off ядро реализует состояния Active/Orphaned/Resuming/Closing/Revoked,
+Общее ядро реализует состояния Active/Orphaned/Resuming/Closing/Revoked,
 двойной лимит orphan-сессий и retained bytes, generation-tagged reaper ownership,
 монотонное потребление resume epoch, стабильные logical slots, атомарную JOIN reservation
 и make-before-break drain. Unit-тесты покрывают stale proof/transcript/epoch/locator,
 гонки JOIN/reaper и revoke/JOIN, исчерпание лимитов, abort, exact-once release и поздний
-drain ACK. Интеграция state machine с сервером описана в этапе 2B; обычные сессии и
-production-сборка без feature gate сохраняют прежний data plane.
+drain ACK. Интеграция state machine с сервером описана в этапе 2B; выключенные профили и
+non-negotiated сессии сохраняют прежний data plane.
 
 ### Этап 2B. TCP resume и handover — 🟡 Linux и Android feature live приняты
 
-Linux handler и общий client supervisor под default-off feature выводят и обнуляют resume
+Linux handler и общий client supervisor выводят и обнуляют resume
 secret исходной сессии, строго разбирают authenticated resume JOIN и резервируют lifecycle/slot
 до JOINOK. Каждый attach выполняет свежий KE и получает свежие per-carrier data keys.
-Feature-клиент умеет объявить `CONTROL_V2`, `TCP_RESUME_V1` и `TCP_HANDOVER_V1`, но negotiation
+Клиент умеет объявить `CONTROL_V2`, `TCP_RESUME_V2` и `TCP_HANDOVER_V2`, но negotiation
 требует полный platform `ROAMING_PATH`. Linux объявляет его только для feature TCP без fixed source;
 Android — только для TCP и только когда загруженное feature-ядро подтверждает path transaction ABI.
 Потеря последнего carrier до 30 секунд сохраняет прежние TUN
@@ -747,7 +748,7 @@ transport/family/NAT64/per-app/race/soak matrix.
 
 ### Этап 3. UDP migration
 
-Статус 3A–3D: под default-off feature готовы registry/migration, server egress и client validation основы.
+Статус 3A–3D: готовы registry/migration, server egress и client validation основы.
 Profile-wide bounded-модель владеет
 generation-tagged сессиями, не более чем тремя deterministic CID aliases, directional zeroized
 secrets, одним authenticated candidate, точной привязкой PATH_CHALLENGE/RESPONSE к path/epoch/token,
@@ -913,8 +914,8 @@ feature Clippy, default suite 871 passed/1 ignored и feature suite 952 passed/3
 рекламирует тот же бит, аутентифицирован `DATA_FRAG_V1`, а платформа даёт полный `ROAMING_PATH`.
 Linux и Android больше не имеют отдельного QUIC-only platform gate. Live-матрица
 QUIC/fake-TLS/obfs/obfs+AWG прошла 4/4 режима и 68/68 проверок, сохранив PID, TUN и authenticated
-session без top-level reconnect. Fixed-source, legacy peers и default-сборки сохраняют прежний
-reconnect. Исходный двухмаршрутный Linux UDP+QUIC
+session без top-level reconnect. Fixed-source, выключенные профили, unsupported adapters и legacy peers
+сохраняют прежний reconnect. Исходный двухмаршрутный Linux UDP+QUIC
 netns e2e прошёл 17/17 с выключением старого пути без замены PID/TUN или top-level reconnect;
 парный rollback-сценарий прошёл 20/20 с blackhole только candidate-пути B, bounded expiry,
 exact platform ABORT, сохранением carrier `/32` на A, PID/TUN и трафика без reconnect.
@@ -1042,11 +1043,12 @@ Flat-INI defaults/validation, все Rust/Kotlin/C#/Swift модели, non-defa
 и основной RU/EN config reference реализованы. Общий fixture фиксирует `required` round-trip
 и отказ от неизвестного значения. Все четыре редактора Windows/macOS/Android/iOS явно предлагают
 `Автоматически / Обязательно / Отключено`, сохраняют выбор через общую платформенную модель и
-отклоняют `required` при скрытом source pin. Серверная панель/API показывает профильный
-default-off rollout switch, grace period и ограниченные бюджеты ожидающих сессий/памяти. Read-only
+отклоняют `required` при скрытом source pin. Серверная панель/API показывает профильный rollout
+switch, включает роуминг для новых профилей и сохраняет выключенное состояние sparse старых
+профилей для совместимости, а также показывает grace period и ограниченные бюджеты ожидающих сессий/памяти. Read-only
 control/status и transport-aware dashboard показывают worker-lifetime попытки, commit, финальные
 ошибки, TCP grace expiry и ожидающие пути без идентификаторов/секретов. Каждый поставляемый
-серверный профиль явно сохраняет безопасные default-off бюджеты, а каждый клиентский шаблон
+серверный профиль явно включает роуминг с безопасными бюджетами, а каждый клиентский шаблон
 явно выбирает `auto`, включая installer multiprofile, Reality release, Keenetic и OpkgTun.
 
 ### Этап 6. Лаба, soak и rollout
@@ -1234,8 +1236,8 @@ Release запрещён, если хотя бы одна поддерживае
 
 ## 17. Rollout
 
-1. Серверный default off, клиентский auto.
-2. Capability negotiation допускает rolling upgrade.
+1. Новые серверные профили включают роуминг, клиенты используют `auto`; sparse старые профили остаются выключенными.
+2. Capability negotiation допускает rolling upgrade и reconnect legacy peers.
 3. Сначала canary TCP и UDP профили с отдельными метриками.
 4. Затем по одной платформе после её полной lab-матрицы.
 5. При любой неподдерживаемой или ошибочной ситуации — обычный full reconnect.

@@ -37,7 +37,8 @@ type HandshakeResumeSecret = ();
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 #[cfg(feature = "experimental-roaming")]
-const TCP_RESUME_COMMIT_TIMEOUT: Duration = Duration::from_secs(45);
+const TCP_RESUME_COMMIT_TIMEOUT: Duration =
+    Duration::from_secs(crate::protocol::roaming::TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS);
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.

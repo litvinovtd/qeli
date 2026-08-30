@@ -490,17 +490,18 @@ flat INI; internal wire/FFI messages are not JSON configuration.
 
 ### Roaming — seamless network change (after IPv6; target 0.8.x, initial Linux live slice complete)
 
-**Normative plan: [ROAMING.md](ROAMING.md).** Default builds and unsupported platforms still use
-a fast reconnect with a new handshake and Argon2 on Wi-Fi↔LTE/IP changes. The shared TCP/UDP core
-and path executors for Linux/OpenWrt, Android, Windows, macOS and iOS are source-complete behind
-`experimental-roaming`; Linux TCP/UDP+QUIC and Android TCP/UDP have partial live acceptance while
+**Normative plan: [ROAMING.md](ROAMING.md).** Supported builds include the shared TCP/UDP roaming
+core under an internal compile gate. Disabled profiles, legacy peers and unsupported adapters use
+a fast reconnect with a new handshake and Argon2 on Wi-Fi↔LTE/IP changes. Path executors for
+Linux/OpenWrt, Android, Windows, macOS and iOS are source-complete; Linux TCP/UDP+QUIC and Android TCP/UDP have partial live acceptance while
 preserving session id, inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP, routes and quota state.
-The server now has profile-scoped default-off rollout configuration. Client `off|auto|required`
+The server has profile-scoped rollout configuration: new profiles enable roaming, while sparse
+existing profiles remain disabled for compatibility. Client `off|auto|required`
 policy, its flat-INI/`qeli://` round-trip, and shared transport-specific gates are source-complete
-across all clients. Panel exposure, explicit GUI controls, the full platform/race/soak matrix, and staged rollout remain in Stages 5–6.
+across all clients. Panel and GUI controls are implemented; the remaining platform/race/soak matrix and staged rollout remain in Stage 6.
 
-- Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V1`, and
-  `TCP_HANDOVER_V1`; domain-separated resume/CID secrets; and a generation-scoped
+- Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V2`, and
+  `TCP_HANDOVER_V2`; domain-separated resume/CID secrets; and a generation-scoped
   PathUpdate transaction with PREPARE/COMMIT/ABORT.
 - **UDP with UDP_ROAM_V1 + DATA_FRAG_V1:** one directional eight-byte-CID envelope for
   fake-TLS, QUIC masking, obfs, and AWG; a profile-wide registry shared by workers/listeners,
@@ -518,8 +519,8 @@ across all clients. Panel exposure, explicit GUI controls, the full platform/rac
   commit, drain, and cleanup. A platform that cannot guarantee rollback advertises no
   roaming capability.
 - User configuration remains flat INI: server `roaming.*` keys live inside a profile,
-  and client `[qeli] roaming = off|auto|required`. Initial rollout is server-default-off,
-  client-default-auto, with rolling upgrades through capability negotiation.
+  and client `[qeli] roaming = off|auto|required`. New server profiles default to enabled and
+  clients default to `auto`; sparse existing profiles and legacy peers retain reconnect behavior.
 
 Order: specification/KDF/control → dynamic path ABI → TCP lifecycle/supervisor → UDP
 registry/validation/PMTU → Android/Windows/macOS/iOS/Linux/OpenWrt → config/panel/docs →

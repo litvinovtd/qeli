@@ -1148,8 +1148,10 @@ reconnect не меняется. `true` на бинарнике без feature �
 или `required`, сервер и клиент согласовали transport-specific capability, а адаптер платформы
 предоставил полный транзакционный контракт `ROAMING_PATH`. Явные клиентские `local` или
 ненулевой `lport` закрепляют carrier-сокет: `auto` использует обычный reconnect, а `required`
-отклоняется при валидации. При ошибке prepare/bind/proof/commit политика `auto` также безопасно
-возвращается к reconnect; `required` завершается fail-closed.
+отклоняется при валидации. До подтверждения платформой `COMMIT_PATH` ошибки prepare/bind/proof/commit
+откатывают точный candidate. После этого необратимого подтверждения ошибка `JOINCOMMIT` или финального
+ACK уже не запускает stale abort: текущая generation завершается и немедленно запускается полный
+reconnect. `required` завершается fail-closed вместо продолжения работы на неподтверждённом пути.
 
 Grace и orphan-лимиты управляют TCP hard-resume. UDP использует тот же профильный opt-in
 и аутентифицированное согласование capability для всех UDP-режимов маскировки, но имеет

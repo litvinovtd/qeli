@@ -2,9 +2,10 @@
 <!-- normative-sync: roaming-v47-platform-gates-only -->
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
-> implemented behind `experimental-roaming`. The Linux in-process and Android feature adapters
+> implemented under the internal `experimental-roaming` compile gate, which is included in all
+> supported server and client builds. The Linux in-process and Android adapters
 > advertise complete `ROAMING_PATH` for TCP and every supported UDP camouflage mode when the core
-> implements it; default builds and unsupported platforms retain normal reconnect. Linux TCP passed
+> implements it; disabled profiles, legacy peers and unsupported platforms retain normal reconnect. Linux TCP passed
 > live e2e 15/15, hard resume, and explicit
 > close. An Android API 34 emulator passed Wi-Fi → cellular (198/200 probes), cellular → Wi-Fi
 > (200/200), and sleep/wake on the unchanged path (160/160): PID, TUN, and NetworkPlan survived,
@@ -21,7 +22,7 @@
 > conservative PMTU budget. A failure after peer PATH_COMMIT triggers a fail-closed reconnect.
 > A feature-enabled Linux UDP session now advertises and negotiates `UDP_ROAM_V1` for fake-TLS,
 > QUIC masking, obfs, and AWG only with a complete platform `ROAMING_PATH` and authenticated
-> `DATA_FRAG_V1`; fixed-source and default builds do not.
+> `DATA_FRAG_V1`; fixed-source configurations, disabled profiles and legacy peers do not.
 > An isolated two-path UDP netns live e2e passed 17/17: PATH_INIT/CHALLENGE/RESPONSE/COMMIT moved the
 > authenticated session, carrier `/32`, socket, and receive pump before the old interface was disabled,
 > preserving PID, TUN, and the absence of top-level reconnect. A separate rollback scenario passed
@@ -406,14 +407,14 @@ No production stage may expose roaming without authenticated JOIN proof, path va
 anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 
 - **Phase 0 — ✅ source complete:** capabilities, CONTROL_V2, KDF labels, proofs, wire
-  limits, and KATs are frozen behind the default-off feature gate.
+  limits, and KATs are frozen behind the internal compile gate used by supported builds.
 - **Phase 1 — ✅ source complete:** ABI 1.12 provides bounded generation-scoped
   PathUpdate plus PREPARE/BIND/COMMIT/ABORT, V3 roaming telemetry, strict correlation,
   lifecycle cleanup, and mock fault injection. ABI 1.13 adds the capability-gated same-path
   refresh request without changing the fixed event/stats prefixes. Linux handles it in-process;
   Android returns a snapshot of the unchanged `Network`. Other native adapters do not advertise
   the bit and retain reconnect fallback.
-- **Phase 2A — ✅ lifecycle source complete:** the default-off shared core owns the
+- **Phase 2A — ✅ lifecycle source complete:** the shared core owns the
   Active/Orphaned/Resuming/Closing/Revoked state machine, dual orphan session/byte limits,
   generation-tagged reaper ownership, monotonic resume-epoch consumption, stable logical
   slots, atomic JOIN reservation, and make-before-break draining. Unit tests cover stale
@@ -423,7 +424,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   and shared client supervisor derive and zeroize the original-session resume secret, strictly
   parse authenticated resume JOIN, reserve before JOINOK, and use a fresh KE plus fresh
   per-carrier data keys on every attach. The feature client core can advertise `CONTROL_V2`,
-  `TCP_RESUME_V1`, and `TCP_HANDOVER_V1`, but negotiation requires the complete platform contract.
+  `TCP_RESUME_V2`, and `TCP_HANDOVER_V2`, but negotiation requires the complete platform contract.
   Linux advertises it only for feature TCP without a fixed source; Android advertises it only for
   TCP when the loaded feature core reports the path-transaction ABI.
   Loss of the last carrier preserves the same TUN and NetworkPlan for a 30-second grace and
@@ -531,7 +532,7 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   Real devices, platform-specific same-network NAT rebinding, Windows/macOS/iOS device/race
   acceptance, iOS Xcode/NetworkExtension compilation, and the broader
   transport/family/NAT64/per-app/race/soak matrix remain.
-- **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a default-off,
+- **Phase 3 — 🟡 registry/migration, server egress, and client validation foundations source-complete:** a
   profile-wide bounded table now owns generation-tagged sessions, up to three deterministic CID
   aliases, directional zeroized secrets, one authenticated candidate, exact path challenge/response,
   3× anti-amplification accounting, atomic collision-safe CID rotation, generation-tagged PMTU reset,
@@ -701,8 +702,8 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   server advertises the same bit, authenticated `DATA_FRAG_V1` is present, and the platform provides
   complete `ROAMING_PATH`. Linux and Android no longer duplicate a QUIC-only platform gate; a
   live four-mode matrix passed QUIC, fake-TLS, obfs, and obfs+AWG: 4/4 modes and 68/68 checks
-  retained PID, TUN, and the authenticated session without top-level reconnect. Fixed-source,
-  legacy peers, and default builds retain reconnect behavior. The
+  retained PID, TUN, and the authenticated session without top-level reconnect. Fixed-source configurations,
+  disabled profiles, unsupported adapters, and legacy peers retain reconnect behavior. The
   original isolated two-path Linux UDP+QUIC netns e2e passed 17/17 with old-path removal and no PID/TUN replacement or top-level reconnect;
   its paired rollback case passed 20/20 with a path-B-only blackhole, bounded expiry, exact platform
   ABORT, and the carrier `/32`, PID/TUN, and traffic retained on path A without reconnect. A three-path
@@ -809,12 +810,13 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
 - **Phase 5 — 🟢 source-complete:** flat-INI, non-default `qeli://` sharing,
   and all four client models/editors are complete. Windows/macOS/Android/iOS expose
   `Auto / Required / Off`, persist it through their shared platform model, and reject `required`
-  with a hidden source pin. The server panel/API exposes the profile-scoped default-off rollout
-  switch, grace period, and bounded orphan session/memory budgets. Read-only control/status and
+  with a hidden source pin. The server panel/API exposes the profile-scoped rollout switch,
+  defaults new profiles to enabled, and leaves sparse existing profiles disabled for compatibility;
+  it also exposes the grace period and bounded orphan session/memory budgets. Read-only control/status and
   the transport-aware dashboard expose worker-lifetime attempts, commits, final failures, TCP grace
   expiry, and pending paths without identifiers or secrets. Control status also exposes only the
   aggregate active UDP CID-alias count for leak detection, never CID values, locators, or proofs.
-  Every shipped server profile explicitly retains the safe default-off budgets, and every client
+  Every shipped server profile explicitly enables roaming with safe budgets, and every client
   template explicitly selects `auto`, including the multiprofile installer source, Reality release
   files, Keenetic, and OpkgTun.
 - **Phase 6:** full lab matrix, soak, canary profiles, staged rollout, and legacy fallback. A
