@@ -207,7 +207,7 @@ def build_pass(
     print(f"[win/{pass_name}] rc={return_code} in {time.time() - started:.0f}s")
     if return_code != 0:
         raise RuntimeError(f"Windows build pass {pass_name} failed")
-    built_win = f"{target_dir}/{WIN_TARGET}/release/qeli.dll"
+    built_win = f"{target_dir}/{WIN_TARGET}/release/qeli_core.dll"
     client.checked(
         f"cp {shlex.quote(built_win)} {shlex.quote(artifact_path(pass_name, WIN_TARGET, 'qeli.dll'))} "
         f"&& rm -rf {shlex.quote(f'{target_dir}/{WIN_TARGET}')}",
@@ -227,7 +227,7 @@ def build_pass(
     print(f"[mac/{pass_name}] rc={return_code} in {time.time() - started:.0f}s")
     if return_code != 0:
         raise RuntimeError(f"macOS build pass {pass_name} failed")
-    built_mac = f"{target_dir}/{MAC_TARGET}/release/libqeli.dylib"
+    built_mac = f"{target_dir}/{MAC_TARGET}/release/libqeli_core.dylib"
     normalize_and_sign_macos(client, built_mac, pass_name)
     client.checked(
         f"cp {shlex.quote(built_mac)} "

@@ -145,6 +145,13 @@ def build_pass(
     print(f"[android/{pass_name}] rc={return_code}")
     if return_code != 0:
         raise RuntimeError(f"Android build pass {pass_name} failed")
+    for abi in ABIS:
+        built = f"{output_dir(pass_name)}/{abi}/libqeli_core.so"
+        public = artifact_path(pass_name, abi)
+        client.checked(
+            f"mv -f {shlex.quote(built)} {shlex.quote(public)}",
+            f"publish stable libqeli.so ABI filename for {abi} pass {pass_name}",
+        )
     client.checked(
         f"rm -rf {shlex.quote(target_dir)}",
         f"release Android pass {pass_name} cache",

@@ -181,7 +181,15 @@ pub(crate) fn build_network_plan(
     let pushed_routes = routes.iter().map(|route| route.cidr.clone()).collect();
     for cidr in &config.routing.include {
         if !route_family_is_active(cidr, network.addresses)? {
-            continue;
+            let family = if NumericCidr::parse(cidr)?.bits == 32 {
+                "IPv4"
+            } else {
+                "IPv6"
+            };
+            anyhow::bail!(
+                "include route '{}' requires an active {family} tunnel address; refusing to leak explicitly included traffic through the physical network",
+                cidr
+            );
         }
         routes.push(NetworkRoute {
             cidr: NumericCidr::parse(cidr)?.render(),
@@ -1285,6 +1293,59 @@ mod tests {
         };
         let plan = build_network_plan(&config, 7, &network).unwrap();
         assert!(plan.routes.iter().all(|route| !route.cidr.contains('.')));
+    }
+
+    #[test]
+    fn explicit_include_requires_an_active_tunnel_address_of_the_same_family() {
+        let ipv4_addresses = ipv4_addresses();
+        let ipv4_network = HandshakeNetwork {
+            family_mode: NetworkFamilyMode::Ipv4,
+            addresses: &ipv4_addresses,
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "",
+            dns_port: "53",
+            dns_servers: &[],
+            routes_json: "[]",
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        let mut ipv6_include = ClientConfig::default();
+        ipv6_include.routing.include.push("2001:db8::/32".into());
+        let error = build_network_plan(&ipv6_include, 8, &ipv4_network).unwrap_err();
+        assert!(
+            error.to_string().contains("active IPv6 tunnel address"),
+            "{error}"
+        );
+
+        let ipv6_addresses = vec![NetworkAddress {
+            family: NetworkAddressFamily::Ipv6,
+            address: "fd71:e1::2".into(),
+            prefix_len: 128,
+            on_link_prefix_len: 64,
+            gateway: Some("fd71:e1::1".into()),
+        }];
+        let ipv6_network = HandshakeNetwork {
+            family_mode: NetworkFamilyMode::Ipv6,
+            addresses: &ipv6_addresses,
+            client_ip: "fd71:e1::2",
+            prefix: 128,
+            tunnel_gateway: "fd71:e1::1",
+            dns_ip: "",
+            dns_port: "53",
+            dns_servers: &[],
+            routes_json: "[]",
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        let mut ipv4_include = ClientConfig::default();
+        ipv4_include.routing.include.push("192.0.2.0/24".into());
+        let error = build_network_plan(&ipv4_include, 9, &ipv6_network).unwrap_err();
+        assert!(
+            error.to_string().contains("active IPv4 tunnel address"),
+            "{error}"
+        );
     }
 
     #[test]

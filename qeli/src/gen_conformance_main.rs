@@ -21,6 +21,7 @@
 //! `**/bin/`, which would silently keep this file out of git (same reason as
 //! `src/client_main.rs`).
 
+use qeli_core as qeli;
 use std::path::{Path, PathBuf};
 
 /// Repo-root-relative output directory for every fixture.

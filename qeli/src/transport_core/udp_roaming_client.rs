@@ -413,6 +413,12 @@ impl UdpClientRoaming {
             .map(|candidate| candidate.candidate_id)
     }
 
+    pub fn candidate_receive_cid(&self) -> Option<&UdpClientCid> {
+        self.candidate
+            .as_ref()
+            .map(|candidate| &candidate.receive_cid)
+    }
+
     pub fn candidate_epoch(&self) -> Option<u64> {
         self.candidate.as_ref().map(|candidate| candidate.epoch)
     }

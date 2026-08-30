@@ -16,6 +16,7 @@
 compile_error!("qeli-client is Linux-only (it creates a TUN device via /dev/net/tun)");
 
 use clap::Parser;
+use qeli_core as qeli;
 use std::path::PathBuf;
 
 #[derive(Parser)]

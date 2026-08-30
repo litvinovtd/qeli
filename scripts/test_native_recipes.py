@@ -527,6 +527,37 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("core.strip() != EXPECTED_CLIENT_EXPORTS", source)
         self.assertIn("jni.strip() != EXPECTED_JNI_EXPORTS", source)
 
+    def test_native_library_target_avoids_qeli_executable_pdb_collision(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = (root / "qeli/Cargo.toml").read_text(encoding="utf-8")
+        desktop_source = (root / "scripts/build_native_libs_p4.py").read_text(
+            encoding="utf-8"
+        )
+        android_sources = [
+            (root / "scripts/build_android_so_11.py").read_text(encoding="utf-8"),
+            (root / "scripts/build_so_aes.py").read_text(encoding="utf-8"),
+        ]
+        mac_standalone = (root / "qeli-mac/build_dylib.sh").read_text(encoding="utf-8")
+        ios_standalone = (root / "qeli-ios/build_native.sh").read_text(
+            encoding="utf-8"
+        )
+
+        library = manifest.split("[lib]", 1)[1].split("[[bin]]", 1)[0]
+        self.assertIn('name = "qeli_core"', library)
+        self.assertIn('name = "qeli"', manifest.split("[[bin]]", 1)[1])
+        self.assertIn("qeli_core.dll", desktop_source)
+        self.assertIn("libqeli_core.dylib", desktop_source)
+        self.assertIn("qeli.dll", desktop_source)
+        self.assertIn("libqeli.dylib", desktop_source)
+        for source in android_sources:
+            self.assertIn("libqeli_core.so", source)
+            self.assertIn("libqeli.so", source)
+        self.assertIn("release/libqeli_core.dylib", mac_standalone)
+        self.assertIn('"$DEST/libqeli.dylib"', mac_standalone)
+        self.assertIn("release/libqeli_core.a", ios_standalone)
+        self.assertIn('"$BUILD/device/libqeli.a"', ios_standalone)
+        self.assertIn('"$BUILD/simulator/libqeli.a"', ios_standalone)
+
     def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
         source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")
         self.assertIn('"tests"', source)

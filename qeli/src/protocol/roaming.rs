@@ -35,6 +35,12 @@ const TCP_RESUME_KNOWN_FLAGS: u8 = TCP_RESUME_FLAG_HANDOVER;
 /// magic(8) + version(1) + flags(1) + locator(16) + epoch(8) + slot(4) +
 /// fresh-handshake transcript hash(32) + proof(32).
 pub const TCP_RESUME_JOIN_LEN: usize = 102;
+/// The server accepted the candidate but has not replaced the old carrier yet.
+pub const TCP_RESUME_PREPARED_ACK: &[u8] = b"JOINOK";
+/// Sent only after the client platform committed the exact candidate path.
+pub const TCP_RESUME_COMMIT: &[u8] = b"JOINCOMMIT";
+/// The server committed the new carrier and retired the previous carrier.
+pub const TCP_RESUME_COMMIT_ACK: &[u8] = b"JOINCOMMITOK";
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum RoamingWireError {

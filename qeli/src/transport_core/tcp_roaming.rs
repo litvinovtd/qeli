@@ -772,6 +772,24 @@ mod tests {
     }
 
     #[test]
+    fn aborting_prepared_handover_preserves_the_ready_transport() {
+        let mut session = lifecycle(41, 410);
+        let transcript = [0x41; 32];
+        let reservation = session
+            .begin_resume(&join(transcript, 1, 0, true), &transcript, &SECRET)
+            .unwrap();
+
+        assert!(reservation.is_handover());
+        assert_eq!(session.ready_transport(0), Some(410));
+        session.abort_resume(reservation).unwrap();
+
+        assert_eq!(session.state(), LifecycleState::Active);
+        assert_eq!(session.ready_transport(0), Some(410));
+        assert_eq!(session.draining_transport(0), None);
+        assert_eq!(session.ready_streams(), 1);
+    }
+
+    #[test]
     fn abort_returns_to_orphan_but_burns_epoch() {
         let now = Instant::now();
         let mut limiter = OrphanLimiter::new(2, 1024);

@@ -36,6 +36,8 @@ type HandshakeResumeSecret = ();
 
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
+#[cfg(feature = "experimental-roaming")]
+const TCP_RESUME_COMMIT_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
@@ -2112,41 +2114,13 @@ async fn run_stream<R, W>(
         }
     }
 
-    #[cfg(feature = "experimental-roaming")]
-    if let StreamAttach::Resume { reservation } = stream_attach {
-        let Some(roaming) = &session.tcp_roaming else {
-            profile.tcp_roaming_metrics.note_failure();
-            session.remove_stream(stream_id);
-            return;
-        };
-        match roaming.commit_resume(reservation, stream_id) {
-            Ok(outcome) => {
-                session.activate_resume_stream(stream_id, outcome);
-                profile.tcp_roaming_metrics.note_commit();
-                log::info!(
-                    "ROAMING transport=tcp event=commit profile='{}' user='{}' peer={}",
-                    profile.name,
-                    crate::util::log_identity(&session.username),
-                    addr
-                );
-            }
-            Err(error) => {
-                profile.tcp_roaming_metrics.note_failure();
-                session.remove_stream(stream_id);
-                roaming.abort_resume(reservation);
-                log::warn!(
-                    "Authenticated JOIN for '{}' lost its reservation before commit: {}",
-                    crate::util::log_identity(&session.username),
-                    error
-                );
-                return;
-            }
-        }
-    }
+    // Keep the receive codec here until a resume transaction has completed its second phase.
+    // A candidate occupies a non-ready overflow slot while the old carrier remains schedulable.
+    let mut server_rx = server_rx;
 
-    // A JOIN is acknowledged only after its StreamHandle occupies a real slot. Previously
-    // JOINOK was sent before try_add_stream, so two concurrent JOINs could both be told they
-    // succeeded even though one was then dropped at the cap.
+    // A JOIN is prepared only after its StreamHandle occupies a real slot. For authenticated
+    // resume this acknowledgement is deliberately not the commit point: the client must first
+    // commit its exact platform path and prove that fact over this fresh carrier.
     let join_slot = match stream_attach {
         StreamAttach::Primary => None,
         StreamAttach::LegacyJoin { logical_slot_id } => Some(logical_slot_id),
@@ -2156,7 +2130,7 @@ async fn run_stream<R, W>(
     if let Some(stream_index) = join_slot {
         let ack = {
             let mut codec = lock_or_recover(&server_tx, "handler::join_ack");
-            codec.encrypt_packet(b"JOINOK", &[])
+            codec.encrypt_packet(crate::protocol::roaming::TCP_RESUME_PREPARED_ACK, &[])
         };
         let ack_result = match ack {
             Ok(bytes) => write_half
@@ -2174,9 +2148,101 @@ async fn run_stream<R, W>(
                 addr,
                 error
             );
+            #[cfg(feature = "experimental-roaming")]
+            if let StreamAttach::Resume { reservation } = stream_attach {
+                profile.tcp_roaming_metrics.note_failure();
+                session.remove_stream(stream_id);
+                if let Some(roaming) = &session.tcp_roaming {
+                    roaming.abort_resume(reservation);
+                }
+                return;
+            }
             detach_stream(&profile, &session, stream_id, addr).await;
             return;
         }
+
+        #[cfg(feature = "experimental-roaming")]
+        if let StreamAttach::Resume { reservation } = stream_attach {
+            let client_commit = async {
+                let record = tokio::time::timeout(
+                    TCP_RESUME_COMMIT_TIMEOUT,
+                    read_record(&mut read_half, framing),
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("client commit confirmation timed out"))??;
+                let plaintext = server_rx.decrypt_packet(&record)?;
+                if plaintext != crate::protocol::roaming::TCP_RESUME_COMMIT {
+                    anyhow::bail!("unexpected TCP resume commit confirmation");
+                }
+                Ok::<(), anyhow::Error>(())
+            }
+            .await;
+            if let Err(error) = client_commit {
+                profile.tcp_roaming_metrics.note_failure();
+                session.remove_stream(stream_id);
+                if let Some(roaming) = &session.tcp_roaming {
+                    roaming.abort_resume(reservation);
+                }
+                log::warn!(
+                    "TCP resume candidate for '{}' aborted before commit; old carrier remains active: {}",
+                    crate::util::log_identity(&session.username),
+                    error
+                );
+                return;
+            }
+
+            let Some(roaming) = &session.tcp_roaming else {
+                profile.tcp_roaming_metrics.note_failure();
+                session.remove_stream(stream_id);
+                return;
+            };
+            let outcome = match roaming.commit_resume(reservation, stream_id) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    profile.tcp_roaming_metrics.note_failure();
+                    session.remove_stream(stream_id);
+                    roaming.abort_resume(reservation);
+                    log::warn!(
+                        "Authenticated JOIN for '{}' lost its reservation before commit: {}",
+                        crate::util::log_identity(&session.username),
+                        error
+                    );
+                    return;
+                }
+            };
+            // This is the only point that retires the old carrier: the new socket completed its
+            // handshake, JOINOK reached the client, and COMMIT_PATH succeeded on the platform.
+            session.activate_resume_stream(stream_id, outcome);
+            let commit_ack = {
+                let mut codec = lock_or_recover(&server_tx, "handler::join_commit_ack");
+                codec.encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT_ACK, &[])
+            };
+            let commit_ack_result = match commit_ack {
+                Ok(bytes) => write_half
+                    .write_all(&bytes)
+                    .await
+                    .map_err(anyhow::Error::from),
+                Err(error) => Err(anyhow::Error::from(error)),
+            };
+            if let Err(error) = commit_ack_result {
+                profile.tcp_roaming_metrics.note_failure();
+                log::warn!(
+                    "TCP resume for '{}' committed but its final acknowledgement failed: {}",
+                    crate::util::log_identity(&session.username),
+                    error
+                );
+                detach_stream(&profile, &session, stream_id, addr).await;
+                return;
+            }
+            profile.tcp_roaming_metrics.note_commit();
+            log::info!(
+                "ROAMING transport=tcp event=commit profile='{}' user='{}' peer={}",
+                profile.name,
+                crate::util::log_identity(&session.username),
+                addr
+            );
+        }
+
         log::info!(
             "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
             stream_index,
@@ -2193,7 +2259,6 @@ async fn run_stream<R, W>(
     let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
 
     {
-        let mut server_rx = server_rx;
         let tun_tx = tun_tx.clone();
         let profile_r = profile.clone();
         let bytes_recv = session.bytes_recv.clone();

@@ -37,15 +37,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   cargo build --release --no-default-features --features transport-core-ffi --lib --target aarch64-apple-darwin
   cargo build --release --no-default-features --features transport-core-ffi --lib --target x86_64-apple-darwin
   lipo -create -output "$DEST/libqeli.dylib" \
-    "target/aarch64-apple-darwin/release/libqeli.dylib" \
-    "target/x86_64-apple-darwin/release/libqeli.dylib"
+    "target/aarch64-apple-darwin/release/libqeli_core.dylib" \
+    "target/x86_64-apple-darwin/release/libqeli_core.dylib"
 else
   echo "==> Cross build from Linux (cargo-zigbuild → universal2)…"
   command -v cargo-zigbuild >/dev/null || { echo "need cargo-zigbuild: cargo install cargo-zigbuild"; exit 1; }
   command -v zig >/dev/null            || { echo "need zig on PATH (https://ziglang.org/download/)"; exit 1; }
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
   cargo zigbuild --release --no-default-features --features transport-core-ffi --lib --target universal2-apple-darwin
-  cp "target/universal2-apple-darwin/release/libqeli.dylib" "$DEST/libqeli.dylib"
+  cp "target/universal2-apple-darwin/release/libqeli_core.dylib" "$DEST/libqeli.dylib"
 fi
 
 echo "==> Wrote $DEST/libqeli.dylib"

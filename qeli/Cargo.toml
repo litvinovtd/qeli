@@ -6,7 +6,10 @@ description = "Quick Easy Link IP"
 authors = ["qeli"]
 
 [lib]
-name = "qeli"
+# Keep the Rust library target distinct from the `qeli` executable: MSVC emits one PDB per
+# target name, so identical names collide at qeli.pdb. Release recipes rename only the final
+# native cdylib back to the stable public qeli.dll/libqeli.{so,dylib} ABI filenames.
+name = "qeli_core"
 path = "src/lib.rs"
 # rlib for the binary/tests; cdylib/staticlib for the realtls FFI on Android/Windows.
 crate-type = ["rlib", "cdylib", "staticlib"]

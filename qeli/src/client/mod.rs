@@ -4710,9 +4710,9 @@ where
                     })?;
                     let mut stream =
                         conn_h(StreamConnectRequest::for_path(candidate.clone())).await?;
-                    let (rx, tx) = tokio::time::timeout(
+                    let pending = tokio::time::timeout(
                         Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
-                        tcp_attach_handshake(
+                        tcp_prepare_attach_handshake(
                             &mut stream,
                             &cfg_h,
                             &token_h,
@@ -4728,6 +4728,12 @@ where
                     tokio::time::timeout(PATH_ACK_TIMEOUT, commit)
                         .await
                         .map_err(|_| anyhow::anyhow!("COMMIT_PATH acknowledgement timed out"))??;
+                    let (rx, tx) = tokio::time::timeout(
+                        Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
+                        finish_tcp_secondary_handshake(&mut stream, pending),
+                    )
+                    .await
+                    .map_err(|_| anyhow::anyhow!("TCP handover peer commit timed out"))??;
                     Ok::<_, anyhow::Error>((stream, rx, tx))
                 }
                 .await;
@@ -5025,6 +5031,13 @@ enum TcpSecondaryAttach<'a> {
     },
 }
 
+struct TcpSecondaryHandshake {
+    rx: PacketCodec,
+    tx: PacketCodec,
+    framing: Framing,
+    resume_pending: bool,
+}
+
 impl TcpSecondaryAttach<'_> {
     fn logical_slot_id(self) -> u32 {
         match self {
@@ -5071,7 +5084,7 @@ impl TcpSecondaryAttach<'_> {
     }
 }
 
-async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+async fn tcp_prepare_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
     token: &[u8],
@@ -5079,7 +5092,7 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     resume: Option<&TcpResumeContext>,
     handover: bool,
     identity_verifier: IdentityVerifier,
-) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+) -> anyhow::Result<TcpSecondaryHandshake> {
     #[cfg(feature = "experimental-roaming")]
     if let Some(context) = resume {
         let resume_epoch = context.next_epoch()?;
@@ -5112,6 +5125,49 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     .await
 }
 
+async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+    token: &[u8],
+    logical_slot_id: u32,
+    resume: Option<&TcpResumeContext>,
+    handover: bool,
+    identity_verifier: IdentityVerifier,
+) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+    let pending = tcp_prepare_attach_handshake(
+        stream,
+        config,
+        token,
+        logical_slot_id,
+        resume,
+        handover,
+        identity_verifier,
+    )
+    .await?;
+    finish_tcp_secondary_handshake(stream, pending).await
+}
+
+async fn finish_tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    mut pending: TcpSecondaryHandshake,
+) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+    if !pending.resume_pending {
+        return Ok((pending.rx, pending.tx));
+    }
+    let commit = pending
+        .tx
+        .encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT, &[])?;
+    stream.write_all(&commit).await?;
+    let ack_record = read_record(stream, pending.framing)
+        .await
+        .map_err(|error| anyhow::anyhow!("TCP resume commit acknowledgement: {error}"))?;
+    let ack = pending.rx.decrypt_packet(&ack_record)?;
+    if ack != crate::protocol::roaming::TCP_RESUME_COMMIT_ACK {
+        anyhow::bail!("TCP resume commit rejected by server");
+    }
+    Ok((pending.rx, pending.tx))
+}
+
 /// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
 /// same key exchange and server-identity verification as the primary, but with
 /// an authenticated resume proof (or the legacy JOIN token when not negotiated)
@@ -5121,8 +5177,12 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     config: &crate::config::client::ClientConfig,
     attach: TcpSecondaryAttach<'_>,
     identity_verifier: IdentityVerifier,
-) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+) -> anyhow::Result<TcpSecondaryHandshake> {
     let client_kp = Keypair::generate();
+    #[cfg(feature = "experimental-roaming")]
+    let resume_pending = matches!(attach, TcpSecondaryAttach::Resume { .. });
+    #[cfg(not(feature = "experimental-roaming"))]
+    let resume_pending = false;
 
     // Plain uses raw framing directly; current reality-tls uses it privately
     // inside genuine HTTP/2. Both perform the raw X25519 exchange, then present
@@ -5165,14 +5225,19 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             .await
             .map_err(|e| anyhow::anyhow!("JOIN(plain): ack: {}", e))?;
         let ack = client_rx.decrypt_packet(&ack_record)?;
-        if ack != b"JOINOK" {
+        if ack != crate::protocol::roaming::TCP_RESUME_PREPARED_ACK {
             return Err(anyhow::anyhow!("JOIN(plain) rejected by server"));
         }
         log::info!(
             "TCP stream slot {} attached (plain)",
             attach.logical_slot_id()
         );
-        return Ok((client_rx, client_tx));
+        return Ok(TcpSecondaryHandshake {
+            rx: client_rx,
+            tx: client_tx,
+            framing: Framing::Raw,
+            resume_pending,
+        });
     }
 
     let server_name = config.effective_fake_tls_sni();
@@ -5272,11 +5337,16 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ack: {}", e))?;
     let ack = client_rx.decrypt_packet(&ack_record)?;
-    if ack != b"JOINOK" {
+    if ack != crate::protocol::roaming::TCP_RESUME_PREPARED_ACK {
         return Err(anyhow::anyhow!("JOIN rejected by server"));
     }
     log::info!("TCP stream slot {} attached", attach.logical_slot_id());
-    Ok((client_rx, client_tx))
+    Ok(TcpSecondaryHandshake {
+        rx: client_rx,
+        tx: client_tx,
+        framing: Framing::Tls,
+        resume_pending,
+    })
 }
 
 /// Decode a lowercase-hex string to bytes (for the session token).
@@ -6874,9 +6944,28 @@ fn classify_client_udp_receive_path(
     }
 }
 
-#[cfg(all(test, feature = "experimental-roaming"))]
+#[cfg(all(test, feature = "experimental-roaming", any(unix, windows)))]
 mod udp_receive_path_tests {
-    use super::{classify_client_udp_receive_path, ClientUdpReceivePath};
+    use super::{
+        classify_client_udp_receive_path, ClientUdpEarlyDataQueue, ClientUdpReceivePath,
+        ClientUdpReceivedDatagram, UDP_EARLY_CANDIDATE_MAX_BYTES,
+    };
+    use bytes::BytesMut;
+
+    fn received(
+        path_epoch: u64,
+        wire: &[u8],
+        authenticated_plaintext: Option<Vec<u8>>,
+    ) -> ClientUdpReceivedDatagram {
+        let (recycler, _receiver) = tokio::sync::mpsc::channel(1);
+        let mut bytes = BytesMut::with_capacity(wire.len());
+        bytes.extend_from_slice(wire);
+        ClientUdpReceivedDatagram {
+            path_epoch,
+            datagram: crate::transport_core::udp_receive::PooledUdpDatagram::new(bytes, recycler),
+            authenticated_plaintext,
+        }
+    }
 
     #[test]
     fn candidate_becomes_active_only_after_epoch_publication() {
@@ -6897,6 +6986,35 @@ mod udp_receive_path_tests {
             ClientUdpReceivePath::Stale
         );
     }
+
+    #[test]
+    fn candidate_data_is_bounded_epoch_scoped_and_published_in_order() {
+        let mut queue = ClientUdpEarlyDataQueue::default();
+        queue.begin(7);
+
+        assert!(queue.push(received(7, b"wire-data", Some(b"plain-data".to_vec()))));
+        assert!(queue.push(received(7, b"wire-fragment", None)));
+        assert!(!queue.push(received(8, b"wrong-epoch", None)));
+
+        let mut committed = queue.take_committed(7).unwrap();
+        let first = committed.pop_front().unwrap();
+        assert_eq!(first.path_epoch, 7);
+        assert_eq!(
+            first.authenticated_plaintext.as_deref(),
+            Some(b"plain-data".as_slice())
+        );
+        assert_eq!(&*committed.pop_front().unwrap().datagram, b"wire-fragment");
+        assert!(committed.is_empty());
+        assert!(queue.take_committed(7).is_none());
+
+        queue.begin(9);
+        assert!(!queue.push(received(
+            9,
+            b"x",
+            Some(vec![0; UDP_EARLY_CANDIDATE_MAX_BYTES]),
+        )));
+        assert!(queue.take_committed(9).unwrap().is_empty());
+    }
 }
 
 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
@@ -6914,6 +7032,183 @@ struct UdpClientDrainingPath {
 struct ClientUdpReceivedDatagram {
     path_epoch: u64,
     datagram: crate::transport_core::udp_receive::PooledUdpDatagram,
+    /// Candidate DATA is authenticated before PATH_COMMIT can be recognized. Retain that
+    /// plaintext exactly once so commit can publish it without replaying the AEAD counter.
+    authenticated_plaintext: Option<Vec<u8>>,
+}
+
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+const UDP_EARLY_CANDIDATE_MAX_ITEMS: usize = 128;
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+const UDP_EARLY_CANDIDATE_MAX_BYTES: usize = 512 * 1024;
+
+/// Bounded reorder window for candidate DATA/DATA_FRAG that arrives before PATH_COMMIT.
+/// Holding the pooled datagram also bounds socket-pool ownership; the byte cap includes both
+/// wire bytes and cached authenticated plaintext.
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+#[derive(Default)]
+struct ClientUdpEarlyDataQueue {
+    epoch: Option<u64>,
+    retained_bytes: usize,
+    items: std::collections::VecDeque<ClientUdpReceivedDatagram>,
+}
+
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+impl ClientUdpEarlyDataQueue {
+    fn begin(&mut self, epoch: u64) {
+        self.clear();
+        self.epoch = Some(epoch);
+    }
+
+    fn push(&mut self, item: ClientUdpReceivedDatagram) -> bool {
+        let retained = item.datagram.len().saturating_add(
+            item.authenticated_plaintext
+                .as_ref()
+                .map(Vec::len)
+                .unwrap_or(0),
+        );
+        let Some(next_bytes) = self.retained_bytes.checked_add(retained) else {
+            return false;
+        };
+        if self.epoch != Some(item.path_epoch)
+            || self.items.len() >= UDP_EARLY_CANDIDATE_MAX_ITEMS
+            || next_bytes > UDP_EARLY_CANDIDATE_MAX_BYTES
+        {
+            return false;
+        }
+        self.retained_bytes = next_bytes;
+        self.items.push_back(item);
+        true
+    }
+
+    fn take_committed(
+        &mut self,
+        epoch: u64,
+    ) -> Option<std::collections::VecDeque<ClientUdpReceivedDatagram>> {
+        if self.epoch != Some(epoch) {
+            return None;
+        }
+        self.epoch = None;
+        self.retained_bytes = 0;
+        Some(std::mem::take(&mut self.items))
+    }
+
+    fn clear(&mut self) {
+        self.epoch = None;
+        self.retained_bytes = 0;
+        self.items.clear();
+    }
+}
+
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+#[allow(clippy::too_many_arguments)]
+fn deliver_buffered_udp_plaintext(
+    plaintext: Vec<u8>,
+    recordizer: &mut Option<crate::protocol::recordizer::Reassembler>,
+    tun_write_tx: &TunWriter,
+    family_mode: crate::transport_core::NetworkFamilyMode,
+    runtime: &RuntimeCounters,
+    udp_buffer: &UdpBufferController,
+    unsupported_inner_drops: &mut u64,
+) -> bool {
+    if let Some(reassembler) = recordizer.as_mut() {
+        if plaintext.is_empty() {
+            return true;
+        }
+        let mut first_packet = None;
+        let mut extra_packets = Vec::new();
+        let mut pool_exhausted_drops = 0_u64;
+        let mut oversize_drops = 0_u64;
+        let decode_result = reassembler.decode_with(&plaintext, |bytes| {
+            let Some(mut packet) = tun_write_tx.try_acquire() else {
+                pool_exhausted_drops = pool_exhausted_drops.saturating_add(1);
+                return;
+            };
+            if bytes.len() > packet.capacity() {
+                oversize_drops = oversize_drops.saturating_add(1);
+                return;
+            }
+            packet.as_vec_mut().extend_from_slice(bytes);
+            if first_packet.is_none() {
+                first_packet = Some(packet);
+            } else {
+                extra_packets.push(packet);
+            }
+        });
+        if let Err(error) = decode_result {
+            log::debug!("buffered UDP recordizer decode error: {error}");
+            return true;
+        }
+        for _ in 0..pool_exhausted_drops {
+            udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
+        }
+        for _ in 0..oversize_drops {
+            udp_buffer.note_internal_drop(InternalDrop::Oversize);
+        }
+        for packet in first_packet.into_iter().chain(extra_packets) {
+            if !is_supported_inner_packet(packet.as_ref(), family_mode) {
+                *unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+                udp_buffer.note_internal_drop(InternalDrop::Unsupported);
+                if unsupported_inner_drops.is_power_of_two() {
+                    log::debug!(
+                        "UDP client dropped invalid buffered mux packet (total {})",
+                        unsupported_inner_drops
+                    );
+                }
+                continue;
+            }
+            runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
+            runtime
+                .rx_bytes
+                .fetch_add(packet.len() as u64, Ordering::Relaxed);
+            trace::record(trace::Dir::Rx, "client.udp", packet.len(), 0);
+            match tun_write_tx.try_send(packet) {
+                Ok(()) => {}
+                Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                    udp_buffer.note_internal_drop(InternalDrop::QueueFull);
+                }
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
+            }
+        }
+        return true;
+    }
+
+    if plaintext.is_empty() {
+        return true;
+    }
+    if !is_supported_inner_packet(&plaintext, family_mode) {
+        *unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+        udp_buffer.note_internal_drop(InternalDrop::Unsupported);
+        if unsupported_inner_drops.is_power_of_two() {
+            log::debug!(
+                "UDP client dropped invalid buffered inner packet (total {})",
+                unsupported_inner_drops
+            );
+        }
+        return true;
+    }
+    let Some(mut packet) = tun_write_tx.try_acquire() else {
+        udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
+        return true;
+    };
+    if plaintext.len() > packet.capacity() {
+        udp_buffer.note_internal_drop(InternalDrop::Oversize);
+        return true;
+    }
+    packet.as_vec_mut().extend_from_slice(&plaintext);
+    runtime.rx_packets.fetch_add(1, Ordering::Relaxed);
+    runtime
+        .rx_bytes
+        .fetch_add(packet.len() as u64, Ordering::Relaxed);
+    trace::record(trace::Dir::Rx, "client.udp", packet.len(), 0);
+    match tun_write_tx.try_send(packet) {
+        Ok(()) => true,
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            udp_buffer.note_internal_drop(InternalDrop::QueueFull);
+            true
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+    }
 }
 
 impl std::ops::Deref for ClientUdpReceivedDatagram {
@@ -6959,6 +7254,7 @@ fn spawn_client_udp_receive_pump(
                         .send(ClientUdpReceivedDatagram {
                             path_epoch,
                             datagram,
+                            authenticated_plaintext: None,
                         })
                         .await
                         .is_err()
@@ -8181,6 +8477,10 @@ pub(crate) async fn run_udp_tunnel(
     #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut same_network_nat_recovery =
         crate::transport_core::udp_roaming_client::UdpClientNatRecoveryPolicy::default();
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+    let mut early_candidate_data = ClientUdpEarlyDataQueue::default();
+    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+    let mut committed_early_data = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
 
     let mut unsupported_inner_drops = 0u64;
     'udp: loop {
@@ -8330,6 +8630,9 @@ pub(crate) async fn run_udp_tunnel(
                         }));
                     }
                 }
+                if live_udp_candidate.is_none() {
+                    early_candidate_data.clear();
+                }
                 }
             }
 
@@ -8411,6 +8714,7 @@ pub(crate) async fn run_udp_tunnel(
                     .as_ref()
                     .and_then(|roaming| roaming.candidate_epoch())
                     .expect("begin_candidate publishes its epoch");
+                early_candidate_data.begin(epoch);
                 let receive_task = spawn_client_udp_receive_pump(
                     candidate_socket.clone(),
                     epoch,
@@ -8779,8 +9083,14 @@ pub(crate) async fn run_udp_tunnel(
                 }
             }
 
-            received = received_rx.recv() => {
-                let Some(recv_buf) = received else {
+            received = async {
+                if let Some(buffered) = committed_early_data.pop_front() {
+                    Some(buffered)
+                } else {
+                    received_rx.recv().await
+                }
+            } => {
+                let Some(mut recv_buf) = received else {
                     break;
                 };
                 #[cfg(feature = "experimental-roaming")]
@@ -8822,6 +9132,33 @@ pub(crate) async fn run_udp_tunnel(
                         continue;
                     }
                     let n = recv_buf.len();
+                    let (candidate_header, candidate_payload) =
+                        match crate::protocol::roaming::decode_udp_short(&recv_buf[..n]) {
+                            Ok(decoded) => decoded,
+                            Err(error) => {
+                                log::debug!("UDP candidate outer header rejected: {error}");
+                                continue;
+                            }
+                        };
+                    let candidate_cid_matches = udp_roaming.as_ref().is_some_and(|roaming| {
+                        roaming.candidate_receive_cid()
+                            == Some(candidate_header.destination_cid())
+                    });
+                    if !candidate_cid_matches {
+                        continue;
+                    }
+                    if crate::protocol::data_frag::is_data_fragment(candidate_payload) {
+                        if !data_frag_enabled {
+                            continue;
+                        }
+                        if !early_candidate_data.push(recv_buf) {
+                            log::error!(
+                                "UDP candidate DATA_FRAG reorder window exceeded; reconnecting"
+                            );
+                            break 'udp;
+                        }
+                        continue;
+                    }
                     let packet = match crate::transport_core::udp_roaming_client::decrypt_authenticated_packet(
                         &mut client_rx,
                         &recv_buf[..n],
@@ -8835,8 +9172,15 @@ pub(crate) async fn run_udp_tunnel(
                     let control = match crate::transport_core::udp_roaming_client::decode_authenticated_path_control(&packet) {
                         Ok(Some(control)) => control,
                         Ok(None) => {
-                            // The server publishes only after PATH_COMMIT. Candidate data that
-                            // races before our platform commit is not active-path traffic yet.
+                            recv_buf.authenticated_plaintext = Some(packet.into_plaintext());
+                            if !early_candidate_data.push(recv_buf) {
+                                log::error!(
+                                    "UDP candidate DATA reorder window exceeded; reconnecting"
+                                );
+                                break 'udp;
+                            }
+                            // Publish only after the authenticated PATH_COMMIT and platform
+                            // COMMIT_PATH have made this candidate the active path.
                             continue;
                         }
                         Err(error) => {
@@ -9039,6 +9383,15 @@ pub(crate) async fn run_udp_tunnel(
                             });
                             socket = next_socket;
                             udp_framing = next_framing;
+                            let Some(mut buffered) =
+                                early_candidate_data.take_committed(commit.epoch())
+                            else {
+                                log::error!(
+                                    "UDP candidate reorder buffer epoch mismatch after commit"
+                                );
+                                break 'udp;
+                            };
+                            committed_early_data.append(&mut buffered);
                             udp_buffer = UdpBufferController::configure(
                                 socket.raw_socket(),
                                 UdpBufferPolicy {
@@ -9101,6 +9454,24 @@ pub(crate) async fn run_udp_tunnel(
                 });
                 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 if receive_path == ClientUdpReceivePath::Stale {
+                    continue;
+                }
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                if let Some(plaintext) = recv_buf.authenticated_plaintext.take() {
+                    udp_buffer.note_receive(recv_buf.len());
+                    last_activity = tokio::time::Instant::now();
+                    last_rx_inst = last_activity;
+                    if !deliver_buffered_udp_plaintext(
+                        plaintext,
+                        &mut udp_rx_recordizer,
+                        &tun_write_tx,
+                        negotiated_family_mode,
+                        runtime_counters.as_ref(),
+                        &udp_buffer,
+                        &mut unsupported_inner_drops,
+                    ) {
+                        break 'udp;
+                    }
                     continue;
                 }
                 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]

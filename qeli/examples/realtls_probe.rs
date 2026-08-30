@@ -9,6 +9,7 @@
 //!
 //! Usage: realtls_probe <host:port> <reality_pub_hex> <short_id_hex> <sni>
 
+use qeli_core as qeli;
 use qeli::crypto::reality::{seal_session_id, short_id_from_hex};
 use qeli::crypto::{Keypair, PublicKey};
 use qeli::protocol::realtls::clienthello::build_client_hello;

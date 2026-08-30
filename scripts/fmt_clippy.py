@@ -49,6 +49,7 @@ def tracked_build_inputs():
         "deny.toml",
         "src",
         "tests",
+        "examples",
         "config",
         "conformance",
         "include",

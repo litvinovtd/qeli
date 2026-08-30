@@ -4,6 +4,7 @@
 use qeli::config;
 #[cfg(target_os = "linux")]
 use qeli::{client, server};
+use qeli_core as qeli;
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("the qeli *binary* is Linux-only (the realtls FFI library is cross-platform)");
@@ -1670,7 +1671,7 @@ fn format_bytes(bytes: u64) -> String {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::{validate_service_unit, validate_service_user};
-    use qeli::config::set_section_keys;
+    use qeli_core::config::set_section_keys;
 
     fn ups() -> Vec<(&'static str, String)> {
         vec![

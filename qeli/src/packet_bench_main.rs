@@ -6,6 +6,7 @@
 //! remains available for trend analysis and lab work.
 
 use qeli::protocol::packet::PacketCodec;
+use qeli_core as qeli;
 use std::hint::black_box;
 use std::time::Instant;
 

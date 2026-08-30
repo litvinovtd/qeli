@@ -31,10 +31,10 @@ cargo build --locked --release --lib --no-default-features --features "$RUST_FEA
 cargo build --locked --release --lib --no-default-features --features "$RUST_FEATURES" --manifest-path "$RUST_MANIFEST" --target x86_64-apple-ios
 
 mkdir -p "$BUILD/device" "$BUILD/simulator"
-cp "$CARGO_TARGET_DIR/aarch64-apple-ios/release/libqeli.a" "$BUILD/device/libqeli.a"
+cp "$CARGO_TARGET_DIR/aarch64-apple-ios/release/libqeli_core.a" "$BUILD/device/libqeli.a"
 lipo -create \
-  "$CARGO_TARGET_DIR/aarch64-apple-ios-sim/release/libqeli.a" \
-  "$CARGO_TARGET_DIR/x86_64-apple-ios/release/libqeli.a" \
+  "$CARGO_TARGET_DIR/aarch64-apple-ios-sim/release/libqeli_core.a" \
+  "$CARGO_TARGET_DIR/x86_64-apple-ios/release/libqeli_core.a" \
   -output "$BUILD/simulator/libqeli.a"
 rm -rf "$OUT"
 xcodebuild -create-xcframework \

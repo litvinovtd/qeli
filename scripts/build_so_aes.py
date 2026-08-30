@@ -60,6 +60,10 @@ print("\n".join(out.splitlines()[-8:]))
 print(f"[build] rc={rc} in {time.time()-t0:.0f}s")
 if rc != 0:
     c.close(); sys.exit(1)
+for abi in ("arm64-v8a", "x86_64"):
+    _, rename_rc = sh(c, f"mv -f {JNILIBS}/{abi}/libqeli_core.so {JNILIBS}/{abi}/libqeli.so")
+    if rename_rc != 0:
+        c.close(); sys.exit(1)
 
 new, _ = sh(c, f"{OBJD} -d {JNILIBS}/arm64-v8a/libqeli.so 2>/dev/null | grep -cE '\\baese|\\baesmc|\\bpmull' || echo 0")
 print(f"[after] arm64 .so ARMv8-AES instructions: {new}  {'✅ HW-AES compiled in' if int(new) > int(old) and int(new) > 0 else '⚠️ check'}")

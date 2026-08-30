@@ -12,6 +12,7 @@ use qeli::config::format::IniDoc;
 #[cfg(target_os = "linux")]
 use qeli::config::server::ServerConfig;
 use qeli::config::users::UsersDb;
+use qeli_core as qeli;
 
 const VALID_TEST_PIN: &str = "0900000000000000000000000000000000000000000000000000000000000000";
 
