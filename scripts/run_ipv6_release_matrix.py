@@ -24,6 +24,10 @@ import release_certification
 ROOT = Path(__file__).resolve().parent.parent
 CASE_SCRIPT = ROOT / "scripts" / "ipv6_netns_case.sh"
 
+DNS_SCRIPT = ROOT / "scripts" / "ipv6_dns_pair.sh"
+DNS_CASE_ID = "linux.dns.ipv4-ipv6"
+MTU_SCRIPT = ROOT / "scripts" / "ipv6_mtu_pair.sh"
+MTU_CASE_ID = "linux.mtu.1280-pmtu-ptb"
 LEGACY_SCRIPT = ROOT / "scripts" / "ipv6_legacy_pair.sh"
 LEGACY_CASE_ID = "linux.legacy-peer"
 MATRIX_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -129,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-special",
         action="store_true",
-        help="also run special Linux cases such as live TAP NDP/RA",
+        help="also run live TAP, dual DNS and MTU/PMTU/PTB Linux cases",
     )
     parser.add_argument(
         "--record",
@@ -161,7 +165,9 @@ def main(argv: list[str] | None = None) -> int:
     results: list[dict[str, object]] = []
     passed: set[str] = set()
     selected_cases = MATRIX_CASES + (SPECIAL_CASES if args.include_special else ())
-    total_cases = len(selected_cases) + int(legacy_binary is not None)
+    total_cases = (
+        len(selected_cases) + 2 * int(args.include_special) + int(legacy_binary is not None)
+    )
     for index, (case_id, parameters) in enumerate(selected_cases, 1):
         print(f"[{index:02d}/{total_cases:02d}] {case_id}", flush=True)
         started = time.monotonic()
@@ -193,11 +199,74 @@ def main(argv: list[str] | None = None) -> int:
         if process.returncode != 0:
             print(f"FAIL: {case_id}", file=sys.stderr)
 
+    if args.include_special:
+        index = len(selected_cases) + 1
+        print(f"[{index:02d}/{total_cases:02d}] {DNS_CASE_ID}", flush=True)
+        started = time.monotonic()
+        process = subprocess.run(
+            ["bash", str(DNS_SCRIPT), str(binary)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=360,
+        )
+        duration = round(time.monotonic() - started, 3)
+        output = process.stdout + process.stderr
+        print(output.rstrip())
+        status = "passed" if process.returncode == 0 else "failed"
+        if process.returncode == 0:
+            passed.add(DNS_CASE_ID)
+        results.append(
+            {
+                "id": DNS_CASE_ID,
+                "parameters": ["dns4", "dns6"],
+                "status": status,
+                "exit_code": process.returncode,
+                "duration_seconds": duration,
+                "output": output,
+            }
+        )
+        if process.returncode != 0:
+            print(f"FAIL: {DNS_CASE_ID}", file=sys.stderr)
+
+        index += 1
+        print(f"[{index:02d}/{total_cases:02d}] {MTU_CASE_ID}", flush=True)
+        started = time.monotonic()
+        process = subprocess.run(
+            ["bash", str(MTU_SCRIPT), str(binary)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=360,
+        )
+        duration = round(time.monotonic() - started, 3)
+        output = process.stdout + process.stderr
+        print(output.rstrip())
+        status = "passed" if process.returncode == 0 else "failed"
+        if process.returncode == 0:
+            passed.add(MTU_CASE_ID)
+        results.append(
+            {
+                "id": MTU_CASE_ID,
+                "parameters": ["pmtu", "mtu"],
+                "status": status,
+                "exit_code": process.returncode,
+                "duration_seconds": duration,
+                "output": output,
+            }
+        )
+        if process.returncode != 0:
+            print(f"FAIL: {MTU_CASE_ID}", file=sys.stderr)
+
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True
     ).stdout.strip()
     if legacy_binary is not None:
-        index = len(selected_cases) + 1
+        index = len(selected_cases) + 2 * int(args.include_special) + 1
         print(f"[{index:02d}/{total_cases:02d}] {LEGACY_CASE_ID}", flush=True)
         started = time.monotonic()
         process = subprocess.run(

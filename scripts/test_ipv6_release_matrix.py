@@ -41,5 +41,17 @@ class Ipv6ReleaseMatrixContractTest(unittest.TestCase):
         self.assertNotIn(matrix.LEGACY_CASE_ID, matrix.case_ids())
         self.assertEqual(matrix.LEGACY_SCRIPT.name, "ipv6_legacy_pair.sh")
 
+    def test_dns_pair_is_a_required_distinct_gate(self):
+        self.assertEqual(matrix.DNS_CASE_ID, "linux.dns.ipv4-ipv6")
+        self.assertIn(matrix.DNS_CASE_ID, release_certification.REQUIRED_CASES)
+        self.assertNotIn(matrix.DNS_CASE_ID, matrix.case_ids())
+        self.assertEqual(matrix.DNS_SCRIPT.name, "ipv6_dns_pair.sh")
+
+    def test_mtu_pmtu_ptb_pair_is_a_required_distinct_gate(self):
+        self.assertEqual(matrix.MTU_CASE_ID, "linux.mtu.1280-pmtu-ptb")
+        self.assertIn(matrix.MTU_CASE_ID, release_certification.REQUIRED_CASES)
+        self.assertNotIn(matrix.MTU_CASE_ID, matrix.case_ids())
+        self.assertEqual(matrix.MTU_SCRIPT.name, "ipv6_mtu_pair.sh")
+
 if __name__ == "__main__":
     unittest.main()

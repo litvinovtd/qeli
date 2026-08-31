@@ -16,11 +16,12 @@ FLAVOR=${7:-base}
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 usage() {
-  echo "usage: $0 <qeli-binary> <outer:4|6> <inner:4|6|dual> <tcp|udp> <fake-tls|quic> <full|split> [base|tap|legacy]" >&2
+  echo "usage: $0 <qeli-binary> <outer:4|6> <inner:4|6|dual> <tcp|udp> <fake-tls|quic> <full|split> [base|tap|legacy|dns4|dns6|pmtu|mtu]" >&2
 }
 
 case "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" in
   [46]:4:tcp:fake-tls:full|[46]:6:tcp:fake-tls:full|\
+  [46]:dual:tcp:fake-tls:full|\
   [46]:4:udp:fake-tls:full|[46]:6:udp:fake-tls:full|\
   [46]:4:udp:quic:full|[46]:6:udp:quic:full|\
   [46]:dual:tcp:fake-tls:split|[46]:dual:udp:fake-tls:split) ;;
@@ -31,6 +32,9 @@ case "$FLAVOR" in
   base) ;;
   tap) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:6:tcp:fake-tls:full" ] || { usage; exit 2; } ;;
   legacy) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:4:tcp:fake-tls:full" ] || { usage; exit 2; } ;;
+  dns4|dns6) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:dual:tcp:fake-tls:full" ] || { usage; exit 2; } ;;
+  pmtu) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:6:udp:quic:full" ] || { usage; exit 2; } ;;
+  mtu) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:6:udp:quic:full" ] || { usage; exit 2; } ;;
   *) usage; exit 2 ;;
 esac
 
@@ -44,6 +48,15 @@ for command in ip iptables ip6tables ping python3; do
     exit 2
   }
 done
+if [ "$FLAVOR" = dns4 ] || [ "$FLAVOR" = dns6 ]; then
+  for command in mount unshare; do
+    command -v "$command" >/dev/null 2>&1 || { echo "required command is missing: $command" >&2; exit 2; }
+  done
+  if [ ! -r "$SCRIPT_DIR/dns_test_server.py" ]; then
+    echo "required DNS probe is missing: $SCRIPT_DIR/dns_test_server.py" >&2
+    exit 2
+  fi
+fi
 BIN=$(readlink -f "$BIN")
 SERVER_BIN=$(readlink -f "${QELI_SERVER_BIN:-$BIN}")
 CLIENT_BIN=$(readlink -f "${QELI_CLIENT_BIN:-$BIN}")
@@ -67,6 +80,7 @@ PORT=$(( 4600 + TAG % 200 ))
 WORK=/tmp/qeli-ipv6-${TAG}
 SERVER_PID=
 CLIENT_PID=
+DNS_PID=
 PASS=0
 FAIL=0
 
@@ -88,6 +102,7 @@ wait_for() {
   return 1
 }
 cleanup() {
+  if [ -n "$DNS_PID" ]; then kill -TERM "$DNS_PID" 2>/dev/null || true; fi
   for pid in "$CLIENT_PID" "$SERVER_PID"; do
     if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
   done
@@ -118,6 +133,10 @@ ip netns exec "$RTR_NS" ip link set "$RTR_C_IF" up
 ip netns exec "$RTR_NS" ip link set "$RTR_S_IF" up
 ip netns exec "$SRV_NS" ip link set "$SRV_IF" up
 
+if [ "$FLAVOR" = pmtu ] || [ "$FLAVOR" = mtu ]; then
+  ip netns exec "$CLI_NS" ip link set "$CLI_IF" mtu 1280
+  ip netns exec "$RTR_NS" ip link set "$RTR_C_IF" mtu 1280
+fi
 ip netns exec "$CLI_NS" ip addr add 10.46.1.2/24 dev "$CLI_IF"
 ip netns exec "$RTR_NS" ip addr add 10.46.1.1/24 dev "$RTR_C_IF"
 ip netns exec "$RTR_NS" ip addr add 10.46.2.1/24 dev "$RTR_S_IF"
@@ -144,6 +163,27 @@ if wait_for 50 "ip netns exec $CLI_NS ping -6 -c1 -W2 fd46:ffff::1"; then
   ok "direct IPv6 topology works before the VPN"
 else
   bad "direct IPv6 topology works before the VPN"
+fi
+
+DNS_UPSTREAM=
+DNS_UPSTREAM_FAMILY=
+if [ "$FLAVOR" = dns4 ]; then
+  DNS_UPSTREAM=10.46.2.1
+  DNS_UPSTREAM_FAMILY=4
+elif [ "$FLAVOR" = dns6 ]; then
+  DNS_UPSTREAM=fd46:2::1
+  DNS_UPSTREAM_FAMILY=6
+fi
+if [ -n "$DNS_UPSTREAM" ]; then
+  ip netns exec "$RTR_NS" python3 "$SCRIPT_DIR/dns_test_server.py" serve \
+    --address "$DNS_UPSTREAM" --log "$WORK/dns-upstream.log" &
+  DNS_PID=$!
+  if wait_for 50 "ip netns exec $RTR_NS ss -lnu | grep -q ':53'"; then
+    ok "deterministic IPv$DNS_UPSTREAM_FAMILY DNS upstream is listening"
+  else
+    bad "deterministic DNS upstream is listening"
+    exit 1
+  fi
 fi
 
 if [ "$OUTER" = 4 ]; then
@@ -173,6 +213,9 @@ TUN_CONFIG=
 CLIENT_IPV6=off
 USER_ARGS=(--static-ip 10.86.0.2)
 ACTIVE_CHECKS=4
+DNS_CONFIG="dns.enabled = false"
+CLIENT_DNS=off
+CLIENT_MTU=0
 case "$INNER" in
   4)
     TUN_CONFIG="tun.ip_mode = ipv4
@@ -219,6 +262,17 @@ pool.exclude = 10.86.0.1
 routing.nat.enabled = true
 routing.nat.interface = $SRV_IF"
 fi
+if [ -n "$DNS_UPSTREAM" ]; then
+  DNS_CONFIG="dns.enabled = true
+dns.listen = 10.86.0.1
+dns.listen_ipv6 = fd86::1
+dns.upstream = $DNS_UPSTREAM
+dns.upstream_protocol = udp"
+  CLIENT_DNS=tunnel
+fi
+if [ "$FLAVOR" = mtu ]; then
+  CLIENT_MTU=1280
+fi
 SERVER_ROAMING_LINE="roaming.enabled = true"
 SERVER_DEVICE_LINE="tun.device_type = $SERVER_DEVICE_TYPE"
 CLIENT_ROAMING_LINE="roaming = required"
@@ -263,7 +317,7 @@ $TUN_CONFIG
 routing.client_to_client = false
 routing.forward_private = true
 $ROUTES
-dns.enabled = false
+$DNS_CONFIG
 obf.mode = fake-tls
 obf.quic.enabled = $QUIC
 obf.quic.cid_length = 8
@@ -308,17 +362,38 @@ bind_static = false
 $CLIENT_DEVICE_LINE
 gateway = $GATEWAY
 $CLIENT_IPV6_LINE
-dns = off
-mtu = 0
+dns = $CLIENT_DNS
+mtu = $CLIENT_MTU
 $CLIENT_LEAK_LINES
 timeout = 8
 [logging]
 level = info
 EOF
 chmod 600 "$WORK/client.conf"
-ip netns exec "$CLI_NS" env QELI_KNOWN_HOSTS="$WORK/known-hosts" \
-  QELI_DEVICE_ID_FILE="$WORK/device-id" \
-  "$CLIENT_BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
+if [ -n "$DNS_UPSTREAM" ]; then
+  printf '%s\n' 'nameserver 127.0.0.53' >"$WORK/resolv.conf"
+  cat >"$WORK/resolvectl" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$WORK/resolvectl.log"
+exit 0
+EOF
+  cat >"$WORK/client-mount.sh" <<EOF
+#!/bin/sh
+set -eu
+mount --make-rprivate /
+mount --bind "$WORK/resolv.conf" /etc/resolv.conf
+exec env QELI_RESOLVECTL="$WORK/resolvectl" \
+  QELI_KNOWN_HOSTS="$WORK/known-hosts" QELI_DEVICE_ID_FILE="$WORK/device-id" \
+  "$CLIENT_BIN" client -c "$WORK/client.conf"
+EOF
+  chmod 700 "$WORK/resolvectl" "$WORK/client-mount.sh"
+  ip netns exec "$CLI_NS" unshare --mount --propagation private \
+    "$WORK/client-mount.sh" >"$WORK/client.log" 2>&1 &
+else
+  ip netns exec "$CLI_NS" env QELI_KNOWN_HOSTS="$WORK/known-hosts" \
+    QELI_DEVICE_ID_FILE="$WORK/device-id" \
+    "$CLIENT_BIN" client -c "$WORK/client.conf" >"$WORK/client.log" 2>&1 &
+fi
 CLIENT_PID=$!
 if wait_for 150 "ip netns exec $CLI_NS ip link show $TUN_IF"; then
   ok "client established inner $INNER TUN"
@@ -352,6 +427,67 @@ if [ "$ACTIVE_CHECKS" = 6 ] || [ "$ACTIVE_CHECKS" = dual ]; then
     "ip netns exec $CLI_NS ip -6 route get fd46:ffff::1 | grep -q 'dev $TUN_IF'"
   check "inner IPv6 traffic crosses the tunnel" \
     "ip netns exec $CLI_NS ping -6 -c3 -W2 fd46:ffff::1"
+fi
+if [ -n "$DNS_UPSTREAM" ]; then
+  check_eventually "dual DNS servers were applied to the tunnel link" \
+    "grep -Fxq 'dns $TUN_IF 10.86.0.1 fd86::1' $WORK/resolvectl.log"
+  check_eventually "tunnel DNS owns the catch-all routing domain" \
+    "grep -Fxq 'domain $TUN_IF ~.' $WORK/resolvectl.log"
+  if ip netns exec "$CLI_NS" python3 "$SCRIPT_DIR/dns_test_server.py" query \
+    --server 10.86.0.1 --name a-v4.release.test --type A --expect 192.0.2.80; then
+    ok "A query resolves through the IPv4 tunnel DNS listener"
+  else
+    bad "A query resolves through the IPv4 tunnel DNS listener"
+  fi
+  if ip netns exec "$CLI_NS" python3 "$SCRIPT_DIR/dns_test_server.py" query \
+    --server 10.86.0.1 --name aaaa-v4.release.test --type AAAA --expect 2001:db8::80; then
+    ok "AAAA query resolves through the IPv4 tunnel DNS listener"
+  else
+    bad "AAAA query resolves through the IPv4 tunnel DNS listener"
+  fi
+  if ip netns exec "$CLI_NS" python3 "$SCRIPT_DIR/dns_test_server.py" query \
+    --server fd86::1 --name a-v6.release.test --type A --expect 192.0.2.80; then
+    ok "A query resolves through the IPv6 tunnel DNS listener"
+  else
+    bad "A query resolves through the IPv6 tunnel DNS listener"
+  fi
+  if ip netns exec "$CLI_NS" python3 "$SCRIPT_DIR/dns_test_server.py" query \
+    --server fd86::1 --name aaaa-v6.release.test --type AAAA --expect 2001:db8::80; then
+    ok "AAAA query resolves through the IPv6 tunnel DNS listener"
+  else
+    bad "AAAA query resolves through the IPv6 tunnel DNS listener"
+  fi
+  check_eventually "the configured IPv$DNS_UPSTREAM_FAMILY upstream received A and AAAA" \
+    "grep -q 'qtype=A ' $WORK/dns-upstream.log && grep -q 'qtype=AAAA ' $WORK/dns-upstream.log"
+fi
+if [ "$FLAVOR" = pmtu ]; then
+  check_eventually "uplink PMTU certified the 1280-byte outer path" \
+    "grep -q 'UDP path probe: inner MTU 1400, uplink UDP payload budget' $WORK/client.log"
+  check_eventually "downlink PMTU certified the 1280-byte outer path" \
+    "grep -q 'reverse-probe certified UDP downlink budget.*(was 548)' $WORK/server.log"
+  UPLINK_BUDGET=$(sed -n 's/.*uplink UDP payload budget \([0-9][0-9]*\).*/\1/p' "$WORK/client.log" | tail -n1)
+  DOWNLINK_BUDGET=$(sed -n 's/.*reverse-probe certified UDP downlink budget \([0-9][0-9]*\).*/\1/p' "$WORK/server.log" | tail -n1)
+  check "uplink budget fits the 1280-byte carrier" \
+    "test -n '$UPLINK_BUDGET' && test '$UPLINK_BUDGET' -gt 548 && test '$UPLINK_BUDGET' -lt 1252"
+  check "downlink budget fits the 1280-byte carrier" \
+    "test -n '$DOWNLINK_BUDGET' && test '$DOWNLINK_BUDGET' -gt 548 && test '$DOWNLINK_BUDGET' -lt 1252"
+  check "auto MTU keeps the negotiated 1400-byte inner TUN" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/$TUN_IF/mtu)\" = 1400"
+  check "a 1400-byte inner IPv6 packet crosses the certified path via DATA_FRAG" \
+    "ip netns exec $CLI_NS ping -6 -M do -s 1352 -c3 -W2 fd46:ffff::1"
+fi
+if [ "$FLAVOR" = mtu ]; then
+  check "client TUN uses the IPv6 minimum MTU" \
+    "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/$TUN_IF/mtu)\" = 1280"
+  check "a full 1280-byte inner IPv6 packet crosses DATA_FRAG" \
+    "ip netns exec $CLI_NS ping -6 -M do -s 1232 -c3 -W2 fd46:ffff::1"
+  ip netns exec "$RTR_NS" ip -6 route replace fd86::/64 via fd46:2::2 dev "$RTR_S_IF"
+  ip netns exec "$RTR_NS" ping -6 -M do -s 1300 -c1 -W2 fd86::2 \
+    >"$WORK/ptb.log" 2>&1 || true
+  check "oversized downlink receives ICMPv6 Packet Too Big with MTU 1280" \
+    "grep -Eq 'Packet too big.*mtu.?=.?1280|mtu 1280' $WORK/ptb.log"
+  check "downlink succeeds at the advertised 1280-byte MTU" \
+    "ip netns exec $RTR_NS ping -6 -M do -s 1232 -c3 -W2 fd86::2"
 fi
 
   if [ "$FLAVOR" = tap ]; then
@@ -390,6 +526,12 @@ else
   bad "client stopped cleanly"
 fi
 CLIENT_PID=
+if [ -n "$DNS_UPSTREAM" ]; then
+  check_eventually "clean stop reverted per-link DNS" \
+    "grep -Fxq 'revert $TUN_IF' $WORK/resolvectl.log"
+  check "clean stop removed the resolver ownership marker" \
+    "test ! -e /var/lib/qeli/dns-resolvectl-$TUN_IF"
+fi
 check "clean stop removed the TUN" "! ip netns exec $CLI_NS ip link show $TUN_IF"
 check "clean stop restored direct IPv4 routing" \
   "ip netns exec $CLI_NS ping -4 -c1 -W2 198.18.46.1"
