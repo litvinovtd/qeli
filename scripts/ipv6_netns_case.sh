@@ -12,9 +12,11 @@ INNER=${3:-4}
 TRANSPORT=${4:-tcp}
 WIRE=${5:-fake-tls}
 ROUTING=${6:-full}
+FLAVOR=${7:-base}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 usage() {
-  echo "usage: $0 <qeli-binary> <outer:4|6> <inner:4|6|dual> <tcp|udp> <fake-tls|quic> <full|split>" >&2
+  echo "usage: $0 <qeli-binary> <outer:4|6> <inner:4|6|dual> <tcp|udp> <fake-tls|quic> <full|split> [base|tap]" >&2
 }
 
 case "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" in
@@ -25,11 +27,17 @@ case "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" in
   *) usage; exit 2 ;;
 esac
 
+case "$FLAVOR" in
+  base) ;;
+  tap) [ "$OUTER:$INNER:$TRANSPORT:$WIRE:$ROUTING" = "4:6:tcp:fake-tls:full" ] || { usage; exit 2; } ;;
+  *) usage; exit 2 ;;
+esac
+
 if [ "$(id -u)" -ne 0 ]; then
   echo "must run as root (network namespaces and TUN/NAT are required)" >&2
   exit 2
 fi
-for command in ip iptables ip6tables ping; do
+for command in ip iptables ip6tables ping python3; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "missing required command: $command" >&2
     exit 2
@@ -141,6 +149,14 @@ fi
 QUIC=false
 if [ "$WIRE" = quic ]; then QUIC=true; fi
 GATEWAY=false
+SERVER_DEVICE_TYPE=tun
+CLIENT_DEVICE_TYPE=tun
+CLIENT_IPV6_PREFIX=128
+if [ "$FLAVOR" = tap ]; then
+  SERVER_DEVICE_TYPE=tap
+  CLIENT_DEVICE_TYPE=tap
+  CLIENT_IPV6_PREFIX=64
+fi
 if [ "$ROUTING" = full ]; then GATEWAY=true; fi
 
 TUN_CONFIG=
@@ -209,6 +225,7 @@ bind.transport = $TRANSPORT
 roaming.enabled = true
 tun.name = ${TUN_IF}s
 tun.mtu = 1400
+tun.device_type = $SERVER_DEVICE_TYPE
 $TUN_CONFIG
 routing.client_to_client = false
 routing.forward_private = true
@@ -255,6 +272,7 @@ mode = fake-tls
 quic = $QUIC
 dev = $TUN_IF
 bind_static = false
+device_type = $CLIENT_DEVICE_TYPE
 gateway = $GATEWAY
 ipv6 = $CLIENT_IPV6
 dns = off
@@ -297,13 +315,24 @@ if [ "$ACTIVE_CHECKS" = 4 ] || [ "$ACTIVE_CHECKS" = dual ]; then
 fi
 if [ "$ACTIVE_CHECKS" = 6 ] || [ "$ACTIVE_CHECKS" = dual ]; then
   check "authenticated IPv6 address is installed" \
-    "ip netns exec $CLI_NS ip -6 addr show dev $TUN_IF | grep -q 'fd86::2/128'"
+    "ip netns exec $CLI_NS ip -6 addr show dev $TUN_IF | grep -q 'fd86::2/$CLIENT_IPV6_PREFIX'"
   check "IPv6 target route uses the tunnel" \
     "ip netns exec $CLI_NS ip -6 route get fd46:ffff::1 | grep -q 'dev $TUN_IF'"
   check "inner IPv6 traffic crosses the tunnel" \
     "ip netns exec $CLI_NS ping -6 -c3 -W2 fd46:ffff::1"
 fi
 
+  if [ "$FLAVOR" = tap ]; then
+    check "client interface is a real TAP device" \
+      "ip netns exec $CLI_NS ip tuntap show | grep -q '^$TUN_IF: tap'"
+    if ip netns exec "$CLI_NS" python3 "$SCRIPT_DIR/tap_ipv6_control_probe.py" \
+      "$TUN_IF" fd86::2 fd86::1 64 >"$WORK/tap-control.log" 2>&1; then
+      ok "TAP answers IPv6 NDP and Router Solicitation locally"
+    else
+      bad "TAP answers IPv6 NDP and Router Solicitation locally"
+      cat "$WORK/tap-control.log" >&2
+    fi
+  fi
 if [ "$ROUTING" = full ] && [ "$INNER" = 4 ]; then
   check "IPv6 cannot leak from an IPv4-only full tunnel" \
     "! ip netns exec $CLI_NS ping -6 -c1 -W1 fd46:ffff::1"

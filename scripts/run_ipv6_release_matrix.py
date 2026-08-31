@@ -53,6 +53,12 @@ MATRIX_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("linux.dual.udp.split", ("4", "dual", "udp", "fake-tls", "split")),
 )
 
+SPECIAL_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "linux.tap.ndp-ra",
+        ("4", "6", "tcp", "fake-tls", "full", "tap"),
+    ),
+)
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -81,7 +87,7 @@ def update_manifest(
     if not isinstance(rows, list):
         raise RuntimeError(f"{path}: cases must be an array")
     expected = set(case_ids())
-    if passed_ids == expected:
+    if expected.issubset(passed_ids):
         # Every full-tunnel cell independently verifies that the ungranted family cannot
         # use a still-reachable native path, so the aggregate leak case is earned only when
         # the whole family/transport matrix passed.
@@ -119,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         help="output JSON path (default: dated file under release/certification/evidence)",
     )
     parser.add_argument(
+        "--include-special",
+        action="store_true",
+        help="also run special Linux cases such as live TAP NDP/RA",
+    )
+    parser.add_argument(
         "--record",
         action="store_true",
         help="promote successful rows into the current-version certification manifest",
@@ -137,8 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     artifact = sha256(binary)
     results: list[dict[str, object]] = []
     passed: set[str] = set()
-    for index, (case_id, parameters) in enumerate(MATRIX_CASES, 1):
-        print(f"[{index:02d}/{len(MATRIX_CASES):02d}] {case_id}", flush=True)
+    selected_cases = MATRIX_CASES + (SPECIAL_CASES if args.include_special else ())
+    for index, (case_id, parameters) in enumerate(selected_cases, 1):
+        print(f"[{index:02d}/{len(selected_cases):02d}] {case_id}", flush=True)
         started = time.monotonic()
         process = subprocess.run(
             ["bash", str(CASE_SCRIPT), str(binary), *parameters],
@@ -180,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         "artifact_sha256": artifact,
         "environment": f"{platform.node()} | {platform.platform()}",
         "passed": len(passed),
-        "total": len(MATRIX_CASES),
+        "total": len(selected_cases),
         "results": results,
     }
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(f"evidence: {evidence_path}")
-    if len(passed) != len(MATRIX_CASES):
+    if len(passed) != len(selected_cases):
         return 1
     if args.record:
         source_digest = release_certification.repository_source_digest(ROOT)

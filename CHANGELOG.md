@@ -15,6 +15,10 @@
 - Добавлен воспроизводимый Linux netns-runner для outer IPv4/IPv6 × inner IPv4/IPv6/dual,
   TCP, UDP fake-TLS, UDP QUIC, full/split tunnel и leak/cleanup-проверок; результаты сохраняются
   в JSON и могут обновить сертификационный manifest только для чистого committed tree.
+- Специальный Linux TAP gate теперь поднимает реальные TAP-интерфейсы в netns и raw Ethernet
+  probe проверяет полный IPv6 control plane: Router Solicitation/Advertisement без неявного
+  default route, Neighbor Solicitation/Advertisement для аутентифицированного gateway, `/64`
+  адресацию, рабочий трафик, отсутствие cross-family leak и очистку сети.
 - IPv4/IPv6 packet parser включён в обязательные smoke/nightly fuzz-матрицы, а контракты
   release-certification и netns-runner выполняются отдельным CI gate.
 - Реальный HTTP/2 carrier теперь принимает только корректный streaming POST на выделенном пути

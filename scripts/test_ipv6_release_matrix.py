@@ -26,6 +26,14 @@ class Ipv6ReleaseMatrixContractTest(unittest.TestCase):
         self.assertIn(("4", "dual", "tcp", "fake-tls", "split"), parameters)
         self.assertIn(("4", "dual", "udp", "fake-tls", "split"), parameters)
 
+    def test_special_cases_are_required_but_do_not_weaken_base_matrix(self):
+        special_ids = [case_id for case_id, _ in matrix.SPECIAL_CASES]
+        self.assertEqual(special_ids, ["linux.tap.ndp-ra"])
+        self.assertTrue(set(special_ids).issubset(release_certification.REQUIRED_CASES))
+        self.assertNotIn("linux.tap.ndp-ra", matrix.case_ids())
+        self.assertEqual(
+            matrix.SPECIAL_CASES[0][1], ("4", "6", "tcp", "fake-tls", "full", "tap")
+        )
 
 if __name__ == "__main__":
     unittest.main()
