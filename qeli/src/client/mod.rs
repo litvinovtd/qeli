@@ -1617,27 +1617,63 @@ struct ServerKickError {
     reconnect_allowed: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ManagementConsume {
+    consumed: bool,
+    ack_message_id: Option<u32>,
+}
+
+fn queue_client_management_ack(
+    sender: &mpsc::Sender<ClientTerminalControl>,
+    message_id: u32,
+) -> bool {
+    let (written, _receipt) = tokio::sync::oneshot::channel();
+    sender
+        .try_send(ClientTerminalControl {
+            packet: crate::protocol::control_v2::ack(message_id),
+            written,
+        })
+        .is_ok()
+}
+
 fn consume_authenticated_management(
     bytes: &[u8],
     negotiated: bool,
     reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
     sender: &tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
-) -> bool {
+    terminal_sender: Option<&mpsc::Sender<ClientTerminalControl>>,
+) -> ManagementConsume {
     if !crate::protocol::control_v2::is_control_v2(bytes) {
-        return false;
+        return ManagementConsume::default();
     }
     if !negotiated {
         log::warn!("dropping unnegotiated server CONTROL_V2 management frame");
-        return true;
+        return ManagementConsume {
+            consumed: true,
+            ack_message_id: None,
+        };
     }
+    let mut requested_ack = None;
     let outcome = crate::protocol::control_v2::decode(bytes).and_then(|frame| {
+        requested_ack = (frame.flags & crate::protocol::control_v2::FLAG_ACK_REQUIRED != 0)
+            .then_some(frame.message_id);
         crate::util::lock_or_recover(reassembler, "client::management_reassembler")
             .push(std::time::Instant::now(), frame)
     });
+    let mut ack_message_id = None;
     match outcome {
         Ok(crate::protocol::control_v2::ReassemblyOutcome::Complete(message)) => {
             match crate::protocol::control_v2::decode_management(&message) {
                 Ok(Some(event)) => {
+                    ack_message_id = requested_ack;
+                    // Queue the ACK before publishing a terminal KICK. The supervisor may tear
+                    // this generation down as soon as it observes the watch value.
+                    if let (Some(message_id), Some(terminal_sender)) =
+                        (ack_message_id, terminal_sender)
+                    {
+                        let _ = queue_client_management_ack(terminal_sender, message_id);
+                        ack_message_id = None;
+                    }
                     sender.send_if_modified(|pending| {
                         // A bounded watch slot deliberately coalesces advisory notices, but a
                         // terminal KICK must never be overwritten by a later NOTICE arriving on
@@ -1662,13 +1698,22 @@ fn consume_authenticated_management(
                 Err(error) => log::warn!("rejecting invalid server management message: {error}"),
             }
         }
-        Ok(
-            crate::protocol::control_v2::ReassemblyOutcome::Pending
-            | crate::protocol::control_v2::ReassemblyOutcome::Duplicate,
-        ) => {}
+        Ok(crate::protocol::control_v2::ReassemblyOutcome::Duplicate) => {
+            // A duplicate valid KICK is a retransmission after a possibly lost ACK.
+            ack_message_id = requested_ack;
+        }
+        Ok(crate::protocol::control_v2::ReassemblyOutcome::Pending) => {}
         Err(error) => log::warn!("rejecting malformed server CONTROL_V2 frame: {error}"),
     }
-    true
+    if let (Some(message_id), Some(terminal_sender)) = (ack_message_id, terminal_sender) {
+        // Repeated UDP KICKs must be ACKed repeatedly: the first ACK may be the datagram lost.
+        let _ = queue_client_management_ack(terminal_sender, message_id);
+        ack_message_id = None;
+    }
+    ManagementConsume {
+        consumed: true,
+        ack_message_id,
+    }
 }
 
 /// Desynchronise clients that lose the same server/carrier at once. Jitter only shortens the
@@ -2041,9 +2086,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod management_event_tests {
-    use super::consume_authenticated_management;
+    use super::{consume_authenticated_management, ClientTerminalControl};
     use crate::protocol::control_v2::{
-        Kick, KickReason, ManagementEvent, Notice, NoticeKind, NoticeSeverity, Reassembler,
+        Frame, Kick, KickReason, ManagementEvent, Notice, NoticeKind, NoticeSeverity, Reassembler,
+        FLAG_ACK, FLAG_ACK_REQUIRED, TYPE_ACK, TYPE_KICK,
     };
 
     #[test]
@@ -2071,18 +2117,18 @@ mod management_event_tests {
             .unwrap()
             .pop()
             .unwrap();
-        assert!(consume_authenticated_management(
-            &kick_frame,
-            true,
-            &reassembler,
-            &sender,
-        ));
-        assert!(consume_authenticated_management(
-            &notice_frame,
-            true,
-            &reassembler,
-            &sender,
-        ));
+        let kick_result =
+            consume_authenticated_management(&kick_frame, true, &reassembler, &sender, None);
+        assert!(kick_result.consumed);
+        assert_eq!(kick_result.ack_message_id, Some(1));
+        let notice_result =
+            consume_authenticated_management(&notice_frame, true, &reassembler, &sender, None);
+        assert!(notice_result.consumed);
+        assert_eq!(notice_result.ack_message_id, None);
+        let repeated_kick =
+            consume_authenticated_management(&kick_frame, true, &reassembler, &sender, None);
+        assert!(repeated_kick.consumed);
+        assert_eq!(repeated_kick.ack_message_id, Some(1));
         assert!(matches!(
             receiver.borrow().as_ref(),
             Some(ManagementEvent::Kick(Kick {
@@ -2090,6 +2136,62 @@ mod management_event_tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn valid_kick_queues_exact_ack_but_invalid_payload_is_never_acknowledged() {
+        let reassembler = std::sync::Mutex::new(Reassembler::new());
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let (terminal_sender, mut terminal_receiver) =
+            tokio::sync::mpsc::channel::<ClientTerminalControl>(1);
+        let kick = ManagementEvent::Kick(Kick {
+            reason: KickReason::QuotaExceeded,
+            message: "Quota exceeded".to_string(),
+            reconnect_allowed: false,
+        });
+        let kick_frame = crate::protocol::control_v2::management_frames(&kick, 17)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let result = consume_authenticated_management(
+            &kick_frame,
+            true,
+            &reassembler,
+            &sender,
+            Some(&terminal_sender),
+        );
+        assert!(result.consumed);
+        assert_eq!(result.ack_message_id, None);
+        let queued = terminal_receiver.try_recv().unwrap();
+        let ack = crate::protocol::control_v2::decode(&queued.packet).unwrap();
+        assert_eq!(ack.message_type, TYPE_ACK);
+        assert_eq!(ack.flags, FLAG_ACK);
+        assert_eq!(ack.message_id, 17);
+        assert!(matches!(
+            receiver.borrow().as_ref(),
+            Some(ManagementEvent::Kick(_))
+        ));
+
+        let malformed = Frame {
+            message_type: TYPE_KICK,
+            flags: FLAG_ACK_REQUIRED,
+            message_id: 18,
+            part_index: 0,
+            part_count: 1,
+            payload: b"{}",
+        }
+        .encode()
+        .unwrap();
+        let malformed_result = consume_authenticated_management(
+            &malformed,
+            true,
+            &reassembler,
+            &sender,
+            Some(&terminal_sender),
+        );
+        assert!(malformed_result.consumed);
+        assert_eq!(malformed_result.ack_message_id, None);
+        assert!(terminal_receiver.try_recv().is_err());
     }
 }
 
@@ -2887,17 +2989,18 @@ struct StreamPump {
 enum ClientUplink {
     Tun(TunPacket),
     Owned(Vec<u8>),
-    #[cfg(feature = "experimental-roaming")]
-    TerminalControl {
-        packet: Vec<u8>,
-        written: tokio::sync::oneshot::Sender<()>,
-    },
+}
+
+struct ClientTerminalControl {
+    packet: Vec<u8>,
+    written: tokio::sync::oneshot::Sender<()>,
 }
 
 #[derive(Clone)]
 struct ClientStreamSender {
     logical_slot_id: u32,
     sender: mpsc::Sender<ClientUplink>,
+    terminal_sender: mpsc::Sender<ClientTerminalControl>,
 }
 
 impl ClientStreamSender {
@@ -2916,10 +3019,11 @@ impl ClientStreamSender {
     fn try_send_terminal_control(
         &self,
         packet: Vec<u8>,
-    ) -> Result<tokio::sync::oneshot::Receiver<()>, mpsc::error::TrySendError<ClientUplink>> {
+    ) -> Result<tokio::sync::oneshot::Receiver<()>, mpsc::error::TrySendError<ClientTerminalControl>>
+    {
         let (written, receipt) = tokio::sync::oneshot::channel();
-        self.sender
-            .try_send(ClientUplink::TerminalControl { packet, written })?;
+        self.terminal_sender
+            .try_send(ClientTerminalControl { packet, written })?;
         Ok(receipt)
     }
 }
@@ -3251,8 +3355,6 @@ impl AsRef<[u8]> for ClientUplink {
         match self {
             Self::Tun(packet) => packet,
             Self::Owned(packet) => packet,
-            #[cfg(feature = "experimental-roaming")]
-            Self::TerminalControl { packet, .. } => packet,
         }
     }
 }
@@ -3349,6 +3451,7 @@ struct ClientManagementRx<'a> {
     negotiated: bool,
     reassembler: &'a std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
     sender: &'a tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
+    terminal_sender: &'a mpsc::Sender<ClientTerminalControl>,
 }
 
 fn deliver_client_tcp_plaintext(
@@ -3363,6 +3466,20 @@ fn deliver_client_tcp_plaintext(
         .last_rx
         .store(metrics.base.elapsed().as_millis() as u64, Ordering::Relaxed);
     if record.is_empty() {
+        return true;
+    }
+    // Terminal management bypasses the recordizer's morphology queue. Consume that direct,
+    // authenticated record before asking the mux decoder to interpret it as PACKET_MUX_V1.
+    // Recordized NOTICE/legacy management is still handled inside the decoded packet loop.
+    if consume_authenticated_management(
+        record.as_ref(),
+        management.negotiated,
+        management.reassembler,
+        management.sender,
+        Some(management.terminal_sender),
+    )
+    .consumed
+    {
         return true;
     }
 
@@ -3381,7 +3498,10 @@ fn deliver_client_tcp_plaintext(
                 management.negotiated,
                 management.reassembler,
                 management.sender,
-            ) {
+                Some(management.terminal_sender),
+            )
+            .consumed
+            {
                 continue;
             }
             if !is_supported_inner_packet(&bytes, family_mode) {
@@ -3416,14 +3536,6 @@ fn deliver_client_tcp_plaintext(
         return true;
     }
 
-    if consume_authenticated_management(
-        record.as_ref(),
-        management.negotiated,
-        management.reassembler,
-        management.sender,
-    ) {
-        return true;
-    }
     if !is_supported_inner_packet(record.as_ref(), family_mode) {
         *metrics.unsupported_drops = metrics.unsupported_drops.saturating_add(1);
         if metrics.unsupported_drops.is_power_of_two() {
@@ -3608,9 +3720,11 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let (out_tx, mut out_rx) = mpsc::channel::<ClientUplink>(4096);
+    let (terminal_tx, mut terminal_rx) = mpsc::channel::<ClientTerminalControl>(4);
     let stream_sender = ClientStreamSender {
         logical_slot_id,
         sender: out_tx,
+        terminal_sender: terminal_tx.clone(),
     };
     let base = tokio::time::Instant::now();
     let last_rx = Arc::new(AtomicU64::new(0));
@@ -3661,6 +3775,7 @@ where
         let management_v1 = cfg.management_v1;
         let management_reassembler = cfg.management_reassembler.clone();
         let management_tx = cfg.management_tx.clone();
+        let management_terminal_tx = terminal_tx.clone();
 
         // Where the reader sends each framed record. `Inline` decrypts in this
         // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
@@ -3690,6 +3805,7 @@ where
                 .map(crate::protocol::recordizer::Reassembler::new);
             let inner_management_reassembler = management_reassembler.clone();
             let inner_management_tx = management_tx.clone();
+            let inner_management_terminal_tx = management_terminal_tx.clone();
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
@@ -3708,6 +3824,7 @@ where
                                     negotiated: management_v1,
                                     reassembler: &inner_management_reassembler,
                                     sender: &inner_management_tx,
+                                    terminal_sender: &inner_management_terminal_tx,
                                 },
                                 ClientTcpRxMetrics {
                                     last_rx: &inner_last_rx,
@@ -3762,6 +3879,7 @@ where
                                                 negotiated: management_v1,
                                                 reassembler: &management_reassembler,
                                                 sender: &management_tx,
+                                                terminal_sender: &management_terminal_tx,
                                             },
                                             ClientTcpRxMetrics {
                                                 last_rx: &last_rx,
@@ -3883,81 +4001,43 @@ where
                 tokio::select! {
                     biased;
 
+                    terminal = terminal_rx.recv() => {
+                        let Some(terminal) = terminal else { break };
+                        let data_len = terminal.packet.len();
+                        let delivered = encrypt_client_payload(
+                            &mut tx,
+                            &terminal.packet,
+                            crate::protocol::packet::MAX_TUNNEL_MTU,
+                            &cfg,
+                            &mut wire_record,
+                            &mut padding,
+                        ) && write_client_wire_record(
+                            &mut write_half,
+                            &mut tx,
+                            &mut shaper,
+                            &wire_record,
+                            &mut cover_record,
+                            &mut padding,
+                        )
+                        .await;
+                        if delivered {
+                            total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
+                            last_tx_ms = base.elapsed().as_millis() as u64;
+                            heartbeat_deadline = tokio::time::Instant::now()
+                                + crate::protocol::randomized_heartbeat_delay(
+                                    cfg.heartbeat_interval,
+                                    Duration::from_millis(cfg.hb_jitter),
+                                );
+                            let _ = terminal.written.send(());
+                            continue;
+                        }
+                        break 'writer;
+                    }
+
                     _ = stream_stop_rx.changed() => break,
 
                     pt = out_rx.recv() => {
                         let Some(pt) = pt else { break };
-                        #[cfg(feature = "experimental-roaming")]
-                        let pt = match pt {
-                            ClientUplink::TerminalControl { packet, written } => {
-                                let data_len = packet.len();
-                                let payload_budget = if recordizer.is_some() {
-                                    crate::protocol::packet::MAX_TUNNEL_MTU
-                                } else {
-                                    cfg.tun_mtu
-                                };
-                                let payloads = if let Some(mux) = recordizer.as_mut() {
-                                    match mux.push(&packet, std::time::Instant::now()) {
-                                        Ok(mut payloads) => {
-                                            // A terminal control frame must not wait behind the
-                                            // recordizer's morphology delay: the supervisor is
-                                            // about to tear this generation down.
-                                            if let Some(payload) = mux.flush() {
-                                                payloads.push(payload);
-                                            }
-                                            Some(payloads)
-                                        }
-                                        Err(error) => {
-                                            log::debug!(
-                                                "TCP recordizer rejected CLOSE_SESSION: {error}"
-                                            );
-                                            None
-                                        }
-                                    }
-                                } else {
-                                    Some(vec![packet])
-                                };
-                                let Some(payloads) = payloads else {
-                                    continue;
-                                };
-                                let mut delivered = true;
-                                for payload in payloads {
-                                    if !encrypt_client_payload(
-                                        &mut tx,
-                                        &payload,
-                                        payload_budget,
-                                        &cfg,
-                                        &mut wire_record,
-                                        &mut padding,
-                                    ) || !write_client_wire_record(
-                                        &mut write_half,
-                                        &mut tx,
-                                        &mut shaper,
-                                        &wire_record,
-                                        &mut cover_record,
-                                        &mut padding,
-                                    )
-                                    .await
-                                    {
-                                        delivered = false;
-                                        break;
-                                    }
-                                    last_tx_ms = base.elapsed().as_millis() as u64;
-                                    heartbeat_deadline = tokio::time::Instant::now()
-                                        + crate::protocol::randomized_heartbeat_delay(
-                                            cfg.heartbeat_interval,
-                                            Duration::from_millis(cfg.hb_jitter),
-                                        );
-                                }
-                                if delivered {
-                                    total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
-                                    let _ = written.send(());
-                                    continue;
-                                }
-                                break 'writer;
-                            }
-                            packet => packet,
-                        };
                         let data_len = pt.as_ref().len();
                         if let Some(mux) = recordizer.as_mut() {
                             let ready = mux.push(pt.as_ref(), std::time::Instant::now());
@@ -6219,13 +6299,20 @@ async fn probe_udp_mtu(
     socket: &crate::protocol::obfs::ObfsUdp,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
+    client_rx: &mut PacketCodec,
+    client_tx: &mut PacketCodec,
+    management_v1: bool,
+    management_reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
+    management_sender: &tokio::sync::watch::Sender<
+        Option<crate::protocol::control_v2::ManagementEvent>,
+    >,
     ceiling: i32,
     keep_df_after_success: bool,
-) -> Option<i32> {
+) -> anyhow::Result<Option<i32>> {
     use crate::protocol::udp_frag::{mtu_probe_v2_datagram, parse_mtu_probe_v2_ack};
     use std::time::Duration;
     if !begin_mtu_probe(socket) {
-        return None;
+        return Ok(None);
     }
     // How many bytes of the PATH a probe for tunnel-MTU `m` occupies beyond `m` itself:
     // our record overhead, the obfs seal, the QUIC short header, and the UDP + IP headers.
@@ -6245,6 +6332,8 @@ async fn probe_udp_mtu(
     let ladder = mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6());
 
     let mut buf = vec![0u8; 2048];
+    let mut terminal_wire_record = Vec::new();
+    let mut terminal_carrier_record = Vec::new();
     // Every challenge gets an independent 128-bit token. A random start followed by a
     // predictable increment would let one observed response predict later rungs.
 
@@ -6287,6 +6376,54 @@ async fn probe_udp_mtu(
                                     {
                                         ok = true;
                                         break;
+                                    }
+                                    // KICK is terminal even while startup PMTU owns the UDP
+                                    // receive socket. Previously this loop discarded every
+                                    // authenticated non-PMTU datagram, so the server could close
+                                    // the session while the client missed the reason and retried.
+                                    if crate::protocol::udp_frag::is_fragment(payload) {
+                                        continue;
+                                    }
+                                    let mut management_record = payload.to_vec();
+                                    if client_rx
+                                        .decrypt_packet_in_place(&mut management_record)
+                                        .is_err()
+                                    {
+                                        continue;
+                                    }
+                                    let management = consume_authenticated_management(
+                                        &management_record,
+                                        management_v1,
+                                        management_reassembler,
+                                        management_sender,
+                                        None,
+                                    );
+                                    if let Some(message_id) = management.ack_message_id {
+                                        let _ = send_client_udp_terminal_control(
+                                            &crate::protocol::control_v2::ack(message_id),
+                                            client_tx,
+                                            socket,
+                                            framing,
+                                            quic_pn,
+                                            &mut terminal_wire_record,
+                                            &mut terminal_carrier_record,
+                                        )
+                                        .await;
+                                    }
+                                    if management.consumed {
+                                        if let Some(
+                                            crate::protocol::control_v2::ManagementEvent::Kick(
+                                                kick,
+                                            ),
+                                        ) = management_sender.borrow().clone()
+                                        {
+                                            finish_mtu_probe(socket, false);
+                                            return Err(ServerKickError {
+                                                message: kick.message,
+                                                reconnect_allowed: kick.reconnect_allowed,
+                                            }
+                                            .into());
+                                        }
                                     }
                                 }
                                 Ok(Ok(_)) => continue,
@@ -6361,7 +6498,7 @@ async fn probe_udp_mtu(
     // restore fragmentation even after a successful probe or an IPv6-minimum inner packet
     // (1280 bytes plus framing) can still exceed the outer path and fail with EMSGSIZE.
     finish_mtu_probe(socket, found.is_some() && keep_df_after_success);
-    found
+    Ok(found)
 }
 
 /// Select the inner MTU after a successful UDP path probe.
@@ -6721,10 +6858,17 @@ async fn probe_udp_mtu(
     _socket: &crate::protocol::obfs::ObfsUdp,
     _framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     _quic_pn: &mut u32,
+    _client_rx: &mut PacketCodec,
+    _client_tx: &mut PacketCodec,
+    _management_v1: bool,
+    _management_reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
+    _management_sender: &tokio::sync::watch::Sender<
+        Option<crate::protocol::control_v2::ManagementEvent>,
+    >,
     _ceiling: i32,
     _keep_df_after_success: bool,
-) -> Option<i32> {
-    None // no kernel DF control off Linux → keep the pushed/effective MTU
+) -> anyhow::Result<Option<i32>> {
+    Ok(None) // no kernel DF control off Linux → keep the pushed/effective MTU
 }
 
 #[cfg(target_os = "linux")]
@@ -7366,6 +7510,37 @@ fn prepare_client_udp_control_payloads(
         payloads.push(payload);
     }
     Ok(payloads)
+}
+
+async fn send_client_udp_terminal_control(
+    frame: &[u8],
+    client_tx: &mut PacketCodec,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
+    quic_pn: &mut u32,
+    wire_record: &mut Vec<u8>,
+    carrier_record: &mut Vec<u8>,
+) -> bool {
+    wire_record.clear();
+    if client_tx
+        .encrypt_packet_into(frame, &[], wire_record)
+        .is_err()
+    {
+        return false;
+    }
+    let packet = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+        framing,
+        wire_record,
+        quic_pn,
+        carrier_record,
+    );
+    match socket.send(packet).await {
+        Ok(_) => true,
+        Err(error) => {
+            log::debug!("could not send UDP terminal control: {error}");
+            false
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -8563,6 +8738,9 @@ pub(crate) async fn run_udp_tunnel(
     // The client data plane is not running yet, but the server may already emit cover or a
     // heartbeat after AuthOK. The probe receive loop ignores unrelated datagrams until each
     // fixed deadline. Falls back to the pushed/effective MTU on any miss.
+    let management_reassembler =
+        std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
+    let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
     let mut uplink_udp_payload_budget =
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
@@ -8572,10 +8750,15 @@ pub(crate) async fn run_udp_tunnel(
             &socket,
             udp_framing,
             &mut quic_pn,
+            &mut client_rx,
+            &mut client_tx,
+            management_v1,
+            &management_reassembler,
+            &management_tx,
             base_mtu,
             data_frag_enabled,
         )
-        .await
+        .await?
         {
             Some(m) => {
                 keep_df_after_live_probe = data_frag_enabled;
@@ -8878,9 +9061,6 @@ pub(crate) async fn run_udp_tunnel(
         })?;
     let mut tx_record_id: u64 = rand::random();
     let mut data_reassembler = crate::protocol::data_frag::DataReassembler::new();
-    let management_reassembler =
-        std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
-    let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -10238,21 +10418,50 @@ pub(crate) async fn run_udp_tunnel(
                         // carrier datagrams suppress reconnect indefinitely.
                         last_activity = tokio::time::Instant::now();
                         last_rx_inst = last_activity;
+                        let direct_management = consume_authenticated_management(
+                            record.as_ref(),
+                            management_v1,
+                            &management_reassembler,
+                            &management_tx,
+                            None,
+                        );
+                        if direct_management.consumed {
+                            drop(record);
+                            if let Some(message_id) = direct_management.ack_message_id {
+                                let _ = send_client_udp_terminal_control(
+                                    &crate::protocol::control_v2::ack(message_id),
+                                    &mut client_tx,
+                                    &socket,
+                                    udp_framing,
+                                    &mut quic_pn,
+                                    &mut wire_record,
+                                    &mut quic_record,
+                                )
+                                .await;
+                            }
+                            continue;
+                        }
                         if let Some(reassembler) = udp_rx_recordizer.as_mut() {
                             if record.is_empty() {
                                 continue;
                             }
                             let mut first_packet = None;
                             let mut extra_packets = Vec::new();
+                            let mut management_ack_ids = Vec::new();
                             let mut pool_exhausted_drops = 0_u64;
                             let mut oversize_drops = 0_u64;
                             let decode_result = reassembler.decode_with(&record, |bytes| {
-                                if consume_authenticated_management(
+                                let management = consume_authenticated_management(
                                     bytes,
                                     management_v1,
                                     &management_reassembler,
                                     &management_tx,
-                                ) {
+                                    None,
+                                );
+                                if management.consumed {
+                                    if let Some(message_id) = management.ack_message_id {
+                                        management_ack_ids.push(message_id);
+                                    }
                                     return;
                                 }
                                 let Some(mut packet) = tun_write_tx.try_acquire() else {
@@ -10275,6 +10484,18 @@ pub(crate) async fn run_udp_tunnel(
                             if let Err(error) = decode_result {
                                 log::debug!("UDP recordizer decode error: {error}");
                                 continue;
+                            }
+                            for message_id in management_ack_ids {
+                                let _ = send_client_udp_terminal_control(
+                                    &crate::protocol::control_v2::ack(message_id),
+                                    &mut client_tx,
+                                    &socket,
+                                    udp_framing,
+                                    &mut quic_pn,
+                                    &mut wire_record,
+                                    &mut quic_record,
+                                )
+                                .await;
                             }
                             for _ in 0..pool_exhausted_drops {
                                 udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
@@ -10325,14 +10546,6 @@ pub(crate) async fn run_udp_tunnel(
                                     }
                                 }
                             }
-                            continue;
-                        }
-                        if consume_authenticated_management(
-                            record.as_ref(),
-                            management_v1,
-                            &management_reassembler,
-                            &management_tx,
-                        ) {
                             continue;
                         }
                         if !record.is_empty()

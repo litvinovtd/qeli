@@ -164,6 +164,14 @@ impl RateBucket {
 /// (plaintext writer-channel, shared bounded pool) selected for an outgoing flow.
 pub(crate) type StreamPick = (mpsc::Sender<PooledBuffer>, BufferPool);
 
+#[cfg(feature = "experimental-roaming")]
+pub(crate) struct TerminalManagementWrite {
+    pub(crate) frames: Vec<Vec<u8>>,
+    pub(crate) repetitions: usize,
+    /// Completes only after the writer attempted every frame on the live carrier.
+    pub(crate) sent: tokio::sync::oneshot::Sender<bool>,
+}
+
 /// One bonded connection within a [`SessionShared`]. Each stream has its own
 /// independent crypto (its connection did its own key exchange) and its own write
 /// channel; outgoing packets are striped across streams round-robin.
@@ -177,6 +185,9 @@ pub struct StreamHandle {
     pub stream_id: u64,
     pub codec: Arc<std::sync::Mutex<PacketCodec>>,
     pub(crate) writer: mpsc::Sender<PooledBuffer>,
+    /// Priority lane for terminal management. It cannot be trapped behind data backlog.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) terminal_management: mpsc::Sender<TerminalManagementWrite>,
     pub kick_tx: mpsc::Sender<()>,
     /// Stops the READER half. `kick_tx` only reaches the writer, so a kicked or
     /// superseded client kept uploading into the TUN until it chose to close the
@@ -426,6 +437,10 @@ pub struct SessionShared {
     /// lets the bounded client reassembler deduplicate them while avoiding a lost UDP KICK.
     #[cfg(feature = "experimental-roaming")]
     pub(crate) management_datagram: bool,
+    /// End-to-end receipts for terminal KICK messages. A local writer send is not delivery.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) management_acks:
+        std::sync::Mutex<std::collections::HashMap<u32, tokio::sync::oneshot::Sender<()>>>,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
@@ -593,9 +608,10 @@ impl SessionShared {
     }
 
     /// Queue one authenticated management event on every live carrier. CONTROL_V2 frames
-    /// enter the same bounded plaintext queues as data, so TCP ordering is preserved and UDP
-    /// uses the session's current committed egress/CID. A false return means the peer is legacy
-    /// or no live writer accepted the event; callers must still enforce their local decision.
+    /// use the ordinary bounded queue for advisory NOTICE, while terminal KICK uses a priority
+    /// lane and waits for an authenticated client ACK. A false return means the peer is legacy,
+    /// no live writer sent the event, or the peer did not acknowledge it before the deadline;
+    /// callers must still enforce their local revocation decision.
     #[cfg(feature = "experimental-roaming")]
     pub async fn send_management(
         &self,
@@ -604,13 +620,74 @@ impl SessionShared {
         if !self.management_v1 || self.is_revoked() {
             return false;
         }
-        let frames = match crate::protocol::control_v2::management_frames(event, rand::random()) {
+        let message_id: u32 = rand::random();
+        let frames = match crate::protocol::control_v2::management_frames(event, message_id) {
             Ok(frames) => frames,
             Err(error) => {
                 log::error!("refusing invalid outbound CONTROL_V2 management event: {error}");
                 return false;
             }
         };
+        if matches!(event, crate::protocol::control_v2::ManagementEvent::Kick(_)) {
+            let (ack_sender, ack_receiver) = tokio::sync::oneshot::channel();
+            {
+                let mut pending = lock_or_recover(&self.management_acks, "send_management_acks");
+                // A random collision must not replace an in-flight terminal receipt.
+                if pending.contains_key(&message_id) {
+                    log::warn!("terminal management message-id collision; refusing delivery");
+                    return false;
+                }
+                pending.insert(message_id, ack_sender);
+            }
+            let writers = lock_or_recover(&self.streams, "send_terminal_management")
+                .iter()
+                .filter(|stream| stream.ready)
+                .map(|stream| stream.terminal_management.clone())
+                .collect::<Vec<_>>();
+            let repetitions = if self.management_datagram { 3 } else { 1 };
+            let mut receipts = Vec::with_capacity(writers.len());
+            for writer in writers {
+                let (sent, receipt) = tokio::sync::oneshot::channel();
+                let write = TerminalManagementWrite {
+                    frames: frames.clone(),
+                    repetitions,
+                    sent,
+                };
+                if writer.try_send(write).is_ok() {
+                    receipts.push(receipt);
+                }
+            }
+            if receipts.is_empty() {
+                lock_or_recover(&self.management_acks, "send_management_acks").remove(&message_id);
+                return false;
+            }
+            let write_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            let mut written = false;
+            for receipt in receipts {
+                if matches!(
+                    tokio::time::timeout_at(write_deadline, receipt).await,
+                    Ok(Ok(true))
+                ) {
+                    written = true;
+                }
+            }
+            if !written {
+                lock_or_recover(&self.management_acks, "send_management_acks").remove(&message_id);
+                return false;
+            }
+            let acknowledged = matches!(
+                tokio::time::timeout(Duration::from_secs(2), ack_receiver).await,
+                Ok(Ok(()))
+            );
+            lock_or_recover(&self.management_acks, "send_management_acks").remove(&message_id);
+            if !acknowledged {
+                log::warn!(
+                    "terminal management event for '{}' was written but not acknowledged",
+                    crate::util::log_identity(&self.username)
+                );
+            }
+            return acknowledged;
+        }
         let writers = lock_or_recover(&self.streams, "send_management")
             .iter()
             .filter(|stream| stream.ready)
@@ -643,6 +720,18 @@ impl SessionShared {
             }
         }
         accepted
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) fn acknowledge_management(&self, message_id: u32) -> bool {
+        let sender =
+            lock_or_recover(&self.management_acks, "acknowledge_management").remove(&message_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+            true
+        } else {
+            false
+        }
     }
 
     /// All streams' kick channels (used by control-plane kick / supersede).
@@ -1349,6 +1438,8 @@ where
                 ),
                 #[cfg(feature = "experimental-roaming")]
                 management_datagram: false,
+                #[cfg(feature = "experimental-roaming")]
+                management_acks: std::sync::Mutex::new(std::collections::HashMap::new()),
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -1881,6 +1972,12 @@ mod tcp_resume_handler_tests {
 
     #[test]
     fn control_v2_dispatch_accepts_only_the_strict_terminal_close_shape() {
+        let ack = crate::protocol::control_v2::ack(11);
+        assert_eq!(
+            classify_control_v2(&ack),
+            ControlV2Disposition::ManagementAck(11)
+        );
+
         let close = crate::protocol::control_v2::close_session(7);
         assert_eq!(
             classify_control_v2(&close),
@@ -1952,6 +2049,7 @@ pub fn device_key(username: &str, device_id: Option<[u8; DEVICE_ID_LEN]>) -> Str
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlV2Disposition {
     Ignore,
+    ManagementAck(u32),
     CloseSession,
     ProtocolViolation,
 }
@@ -1959,6 +2057,9 @@ enum ControlV2Disposition {
 #[cfg(feature = "experimental-roaming")]
 fn classify_control_v2(bytes: &[u8]) -> ControlV2Disposition {
     match crate::protocol::control_v2::decode(bytes) {
+        Ok(frame) if frame.message_type == crate::protocol::control_v2::TYPE_ACK => {
+            ControlV2Disposition::ManagementAck(frame.message_id)
+        }
         Ok(frame) if crate::protocol::control_v2::is_close_session(frame) => {
             ControlV2Disposition::CloseSession
         }
@@ -1996,6 +2097,12 @@ fn handle_server_control(
                 );
                 session.close_all();
                 Some(false)
+            }
+            ControlV2Disposition::ManagementAck(message_id) => {
+                if !session.acknowledge_management(message_id) {
+                    log::debug!("ignoring stale management ACK {message_id} from {}", _peer);
+                }
+                Some(true)
             }
             ControlV2Disposition::Ignore => Some(true),
             ControlV2Disposition::ProtocolViolation => {
@@ -2145,6 +2252,8 @@ async fn run_stream<R, W>(
     let idle_timeout = Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
 
     let (tx, mut rx) = mpsc::channel::<PooledBuffer>(session.wire_pool.buffer_count());
+    #[cfg(feature = "experimental-roaming")]
+    let (terminal_management_tx, mut terminal_management_rx) = mpsc::channel(1);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     if !session.try_add_stream(
@@ -2156,6 +2265,8 @@ async fn run_stream<R, W>(
             stream_id,
             codec: server_tx.clone(),
             writer: tx,
+            #[cfg(feature = "experimental-roaming")]
+            terminal_management: terminal_management_tx,
             kick_tx,
             shutdown_tx: shutdown_tx.clone(),
         },
@@ -2389,6 +2500,18 @@ async fn run_stream<R, W>(
                                 // undecryptable traffic must not keep a dead session
                                 // (and its pool IP) alive past the rx-dead reaper.
                                 last_rx.store(now, Ordering::Relaxed);
+                                // Priority terminal controls bypass PACKET_MUX_V1. Recognize a
+                                // direct authenticated ACK/CLOSE before the recordizer; ordinary
+                                // recordized controls are still consumed by
+                                // forward_server_uplink_packet after mux decode.
+                                if let Some(keep_reading) =
+                                    handle_server_control(&plaintext, &session_r, addr_r)
+                                {
+                                    if keep_reading {
+                                        continue;
+                                    }
+                                    break 'reader;
+                                }
                                 if let Some(reassembler) = mux_rx.as_mut() {
                                     if plaintext.is_empty() {
                                         continue;
@@ -2420,21 +2543,6 @@ async fn run_stream<R, W>(
                                         }
                                     }
                                     continue;
-                                }
-                                // In-tunnel control frame, not a packet: authenticated by
-                                // the AEAD above and bound to THIS session, which is why the
-                                // MTU report rides here rather than as a bare datagram next
-                                // to the UDP probes (those are keyed only by source address,
-                                // so anyone able to guess a session's IP:port could shrink
-                                // its MTU). Handled before the packet path so it never
-                                // reaches the ACLs or the TUN. (Audit 2026-07-30, #13.)
-                                if let Some(keep_reading) =
-                                    handle_server_control(&plaintext, &session_r, addr_r)
-                                {
-                                    if keep_reading {
-                                        continue;
-                                    }
-                                    break 'reader;
                                 }
                                 if !plaintext.is_empty() {
                                     // Destination ACL (`allowed_networks`). Checked AFTER
@@ -2578,6 +2686,41 @@ async fn run_stream<R, W>(
             .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
         tokio::select! {
             biased;
+
+            #[cfg(feature = "experimental-roaming")]
+            terminal = terminal_management_rx.recv() => {
+                let Some(terminal) = terminal else { break };
+                let mut delivered = true;
+                'terminal: for _ in 0..terminal.repetitions {
+                    for frame in &terminal.frames {
+                        if !encrypt_server_stream_payload(
+                            &server_tx,
+                            frame,
+                            crate::protocol::packet::MAX_TUNNEL_MTU,
+                            pcfg,
+                            &mut wire_record,
+                            &mut padding,
+                        ) || write_half.write_all(&wire_record).await.is_err()
+                        {
+                            delivered = false;
+                            break 'terminal;
+                        }
+                        session
+                            .bytes_sent
+                            .fetch_add(frame.len() as u64, Ordering::Relaxed);
+                        last_tx_ms = base.elapsed().as_millis() as u64;
+                        heartbeat_deadline = tokio::time::Instant::now()
+                            + crate::protocol::randomized_heartbeat_delay(
+                                heartbeat_interval,
+                                Duration::from_millis(hb_config.jitter_ms),
+                            );
+                    }
+                }
+                let _ = terminal.sent.send(delivered);
+                if !delivered {
+                    break 'writer;
+                }
+            }
 
             _ = kick_rx.recv() => { break; }
             _ = dead_rx.recv() => { break; }

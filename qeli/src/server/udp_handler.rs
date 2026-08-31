@@ -967,6 +967,33 @@ async fn forward_udp_uplink_packet(
     recv_ctr: &Arc<std::sync::atomic::AtomicU64>,
     client_dropped: &Arc<std::sync::atomic::AtomicU64>,
 ) {
+    #[cfg(feature = "experimental-roaming")]
+    if crate::protocol::control_v2::is_control_v2(&packet) {
+        if let Ok(frame) = crate::protocol::control_v2::decode(&packet) {
+            if frame.message_type == crate::protocol::control_v2::TYPE_ACK {
+                let session = {
+                    profile
+                        .sessions
+                        .read()
+                        .await
+                        .by_ip
+                        .values()
+                        .find(|session| session.session_id == session_id)
+                        .cloned()
+                };
+                if let Some(session) = session {
+                    if !session.acknowledge_management(frame.message_id) {
+                        log::debug!(
+                            "ignoring stale UDP management ACK {} from {}",
+                            frame.message_id,
+                            addr
+                        );
+                    }
+                }
+            }
+        }
+        return;
+    }
     if crate::protocol::ctrl::is_ctrl(&packet) {
         if let (Some(cell), Some(mtu)) = (
             path_mtu.as_ref(),
@@ -2209,9 +2236,14 @@ enum UdpRoamingControlError {
 }
 
 #[cfg(feature = "experimental-roaming")]
-struct UdpRoamingControlIngress {
-    message_id: u32,
-    message: crate::protocol::roaming::PathControl,
+enum UdpRoamingControlIngress {
+    Path {
+        message_id: u32,
+        message: crate::protocol::roaming::PathControl,
+    },
+    ManagementAck {
+        message_id: u32,
+    },
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -2242,6 +2274,11 @@ fn decrypt_udp_roaming_record(
     }
     let frame = crate::protocol::control_v2::decode(record)
         .map_err(|_| UdpRoamingControlError::BadControl)?;
+    if frame.message_type == crate::protocol::control_v2::TYPE_ACK {
+        return Ok(Some(UdpRoamingControlIngress::ManagementAck {
+            message_id: frame.message_id,
+        }));
+    }
     if frame.flags != 0 || frame.part_index != 0 || frame.part_count != 1 {
         return Err(UdpRoamingControlError::FragmentedControl);
     }
@@ -2254,7 +2291,7 @@ fn decrypt_udp_roaming_record(
     ) {
         return Err(UdpRoamingControlError::UnexpectedDirection);
     }
-    Ok(Some(UdpRoamingControlIngress {
+    Ok(Some(UdpRoamingControlIngress::Path {
         message_id: frame.message_id,
         message,
     }))
@@ -2729,7 +2766,34 @@ async fn handle_udp_roaming_ingress(
             return;
         }
     };
-    match control.message {
+    let (message_id, message) = match control {
+        UdpRoamingControlIngress::ManagementAck { message_id } => {
+            if ingress_path != UdpRoamingIngressPath::Committed {
+                return;
+            }
+            let session = {
+                profile
+                    .sessions
+                    .read()
+                    .await
+                    .by_ip
+                    .values()
+                    .find(|session| session.session_id == lookup.session_id())
+                    .cloned()
+            };
+            if let Some(session) = session {
+                if !session.acknowledge_management(message_id) {
+                    log::debug!("ignoring stale roaming management ACK {message_id}");
+                }
+            }
+            return;
+        }
+        UdpRoamingControlIngress::Path {
+            message_id,
+            message,
+        } => (message_id, message),
+    };
+    match message {
         crate::protocol::roaming::PathControl::Init { cid, epoch } => {
             let challenge = match profile
                 .udp_roaming_registry
@@ -2771,7 +2835,7 @@ async fn handle_udp_roaming_ingress(
                     &client.tx_codec,
                     &client.packet_counter,
                     cid,
-                    control.message_id,
+                    message_id,
                     &response,
                 )
             };
@@ -2829,7 +2893,7 @@ async fn handle_udp_roaming_ingress(
                 profile.name,
                 received_path.peer(),
                 epoch,
-                control.message_id,
+                message_id,
                 outer_packet_number
             );
         }
@@ -2907,7 +2971,7 @@ async fn handle_udp_roaming_ingress(
                                             &tx_codec,
                                             &packet_counter,
                                             *outcome.transmit_cid(),
-                                            control.message_id,
+                                            message_id,
                                             &response,
                                         )?;
                                         socket.try_send_to(&wire, peer)?;
@@ -2957,7 +3021,7 @@ async fn handle_udp_roaming_ingress(
                         &tx_codec,
                         &packet_counter,
                         *outcome.transmit_cid(),
-                        control.message_id,
+                        message_id,
                         &response,
                     )
                     .and_then(|wire| {
@@ -3000,7 +3064,7 @@ async fn handle_udp_roaming_ingress(
                 profile.name,
                 new_peer,
                 epoch,
-                control.message_id,
+                message_id,
                 outer_packet_number
             );
         }
@@ -3383,7 +3447,12 @@ async fn handle_udp_datagram(
                     return;
                 }
             }
-            let recordizer_active = !is_awaiting_auth && client.rx_recordizer.is_some();
+            #[cfg(feature = "experimental-roaming")]
+            let direct_control = crate::protocol::control_v2::is_control_v2(&plaintext);
+            #[cfg(not(feature = "experimental-roaming"))]
+            let direct_control = false;
+            let recordizer_active =
+                !is_awaiting_auth && client.rx_recordizer.is_some() && !direct_control;
             let mut decoded_first = None;
             let mut decoded_extra = Vec::new();
             if recordizer_active && !plaintext.is_empty() {
@@ -4608,6 +4677,8 @@ async fn handle_udp_auth(
     // once `max_clients` has admitted this client — see the send below the capacity check.
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<PooledBuffer>(wire_pool.buffer_count());
+    #[cfg(feature = "experimental-roaming")]
+    let (terminal_management_tx, mut terminal_management_rx) = mpsc::channel(1);
     let writer_egress = active_egress;
     let initial_writer_egress = writer_egress.snapshot();
     let initial_udp_payload_budget = initial_writer_egress.safe_payload_budget();
@@ -4667,6 +4738,8 @@ async fn handle_udp_auth(
             stream_id: session_id,
             codec: writer_codec,
             writer: writer_tx,
+            #[cfg(feature = "experimental-roaming")]
+            terminal_management: terminal_management_tx,
             kick_tx,
             // UDP has no long-lived reader task to stop: every inbound datagram is
             // re-matched against the sessions map, so removing the session already
@@ -4689,6 +4762,8 @@ async fn handle_udp_auth(
         ),
         #[cfg(feature = "experimental-roaming")]
         management_datagram: true,
+        #[cfg(feature = "experimental-roaming")]
+        management_acks: std::sync::Mutex::new(std::collections::HashMap::new()),
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,
@@ -4912,6 +4987,59 @@ async fn handle_udp_auth(
                 });
             let (payloads, priority_control) = tokio::select! {
                 biased;
+                #[cfg(feature = "experimental-roaming")]
+                terminal = terminal_management_rx.recv() => {
+                    let Some(terminal) = terminal else { break 'writer };
+                    let mut delivered = true;
+                    'terminal: for _ in 0..terminal.repetitions {
+                        for frame in &terminal.frames {
+                            encrypted_record.clear();
+                            let encrypted = lock_or_recover(
+                                &writer_task_codec,
+                                "udp::terminal_management_encrypt",
+                            )
+                            .encrypt_packet_into(frame, &[], &mut encrypted_record)
+                            .is_ok();
+                            if !encrypted {
+                                delivered = false;
+                                break 'terminal;
+                            }
+                            let egress = writer_egress.snapshot();
+                            let packet_number = if egress.framing.uses_packet_number() {
+                                writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            } else {
+                                0
+                            };
+                            let packet = egress.framing.wrap_into(
+                                &encrypted_record,
+                                packet_number,
+                                &mut quic_record,
+                            );
+                            match egress.socket.send_to(packet, egress.peer).await {
+                                Ok(sent) => {
+                                    writer_session.bytes_sent.fetch_add(
+                                        sent as u64,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    );
+                                }
+                                Err(error) => {
+                                    log::debug!(
+                                        "UDP terminal management send to {} failed: {}",
+                                        egress.peer,
+                                        error
+                                    );
+                                    delivered = false;
+                                    break 'terminal;
+                                }
+                            }
+                        }
+                    }
+                    let _ = terminal.sent.send(delivered);
+                    if !delivered {
+                        break 'writer;
+                    }
+                    continue;
+                }
                 _ = kick_rx.recv() => {
                     let peer = writer_egress.snapshot().peer;
                     log::info!("UDP writer for {} kicked on profile '{}'", peer, profile_name);

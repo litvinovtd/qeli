@@ -271,8 +271,6 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         .await;
     }
     #[cfg(feature = "experimental-roaming")]
-    let mut management_queued = false;
-    #[cfg(feature = "experimental-roaming")]
     for session in &kicked {
         let event =
             crate::protocol::control_v2::ManagementEvent::Kick(crate::protocol::control_v2::Kick {
@@ -280,11 +278,7 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
                 message: "Disconnected by the server administrator".to_string(),
                 reconnect_allowed: false,
             });
-        management_queued |= session.send_management(&event).await;
-    }
-    #[cfg(feature = "experimental-roaming")]
-    if management_queued {
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let _ = session.send_management(&event).await;
     }
     for s in &kicked {
         s.kick_all();

@@ -328,26 +328,33 @@ pub fn management_frames(
     event: &ManagementEvent,
     message_id: u32,
 ) -> Result<Vec<Vec<u8>>, ControlV2Error> {
-    let (message_type, payload) = match event {
+    let (message_type, flags, payload) = match event {
         ManagementEvent::Notice(notice) => {
             validate_management_text(&notice.message)?;
-            (TYPE_NOTICE, serde_json::to_vec(notice))
+            (TYPE_NOTICE, 0, serde_json::to_vec(notice))
         }
         ManagementEvent::Kick(kick) => {
             validate_management_text(&kick.message)?;
-            (TYPE_KICK, serde_json::to_vec(kick))
+            // KICK is terminal and changes the supervisor's reconnect policy. Unlike an
+            // advisory NOTICE it therefore needs an authenticated end-to-end receipt.
+            (TYPE_KICK, FLAG_ACK_REQUIRED, serde_json::to_vec(kick))
         }
     };
     let payload =
         payload.map_err(|error| ControlV2Error::InvalidManagementPayload(error.to_string()))?;
-    fragment_message(message_type, 0, message_id, &payload)
+    fragment_message(message_type, flags, message_id, &payload)
 }
 
 pub fn decode_management(message: &Message) -> Result<Option<ManagementEvent>, ControlV2Error> {
-    if message.flags != 0 {
+    let valid_flags = match message.message_type {
+        TYPE_NOTICE => message.flags == 0,
+        TYPE_KICK => matches!(message.flags, 0 | FLAG_ACK_REQUIRED),
+        _ => true,
+    };
+    if !valid_flags {
         return if matches!(message.message_type, TYPE_NOTICE | TYPE_KICK) {
             Err(ControlV2Error::InvalidManagementPayload(
-                "management messages must not carry CONTROL_V2 flags".to_string(),
+                "management message carries invalid CONTROL_V2 flags".to_string(),
             ))
         } else {
             Ok(None)
@@ -674,14 +681,16 @@ mod tests {
             reconnect_allowed: false,
         });
         let kick_wire = management_frames(&kick, 7).unwrap();
+        let kick_frame = decode(&kick_wire[0]).unwrap();
+        assert_eq!(kick_frame.message_type, TYPE_KICK);
+        assert_eq!(kick_frame.flags, FLAG_ACK_REQUIRED);
         let mut kick_reassembler = Reassembler::new();
-        let ReassemblyOutcome::Complete(message) = kick_reassembler
-            .push(now, decode(&kick_wire[0]).unwrap())
-            .unwrap()
+        let ReassemblyOutcome::Complete(message) = kick_reassembler.push(now, kick_frame).unwrap()
         else {
             panic!("single-part KICK must complete")
         };
         assert_eq!(decode_management(&message).unwrap(), Some(kick));
+        assert_eq!(message.flags, FLAG_ACK_REQUIRED);
     }
 
     #[test]
@@ -699,17 +708,17 @@ mod tests {
         ));
 
         let message = Message {
-            message_type: TYPE_KICK,
+            message_type: TYPE_NOTICE,
             flags: FLAG_ACK_REQUIRED,
             message_id: 2,
-            payload: br#"{"reason":"administrative","message":"stop","reconnect_allowed":false}"#
-                .to_vec(),
+            payload: br#"{"kind":"administrative","severity":"info","message":"stop","value":null,"deadline_unix":null}"#.to_vec(),
         };
         assert!(matches!(
             decode_management(&message),
             Err(ControlV2Error::InvalidManagementPayload(_))
         ));
         let message = Message {
+            message_type: TYPE_KICK,
             flags: 0,
             payload: br#"{"reason":"administrative","message":"stop","reconnect_allowed":false,"extra":1}"#.to_vec(),
             ..message

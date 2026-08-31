@@ -533,6 +533,8 @@ mod client_route_tests {
             management_v1: false,
             #[cfg(feature = "experimental-roaming")]
             management_datagram: false,
+            #[cfg(feature = "experimental-roaming")]
+            management_acks: Mutex::new(HashMap::new()),
             connected_at: std::time::Instant::now(),
             bytes_sent: Arc::new(AtomicU64::new(0)),
             bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -3670,8 +3672,6 @@ async fn usage_sweep(state: Arc<ServerState>) {
         }
 
         #[cfg(feature = "experimental-roaming")]
-        let mut management_queued = false;
-        #[cfg(feature = "experimental-roaming")]
         for (pname, ip, session_id, over, expired) in &to_kick {
             let profile = { state.profiles.read().await.get(pname).cloned() };
             if let Some(session) = profile
@@ -3708,12 +3708,8 @@ async fn usage_sweep(state: Arc<ServerState>) {
                         reconnect_allowed: false,
                     },
                 );
-                management_queued |= session.send_management(&event).await;
+                let _ = session.send_management(&event).await;
             }
-        }
-        #[cfg(feature = "experimental-roaming")]
-        if management_queued {
-            tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
         for (pname, ip, session_id, _over, _expired) in to_kick {
