@@ -1,5 +1,5 @@
 import XCTest
-@testable import QeliIOS
+@testable import Qeli
 
 final class RoamingPolicyTests: XCTestCase {
     func testOrdinaryTCPAndEveryUDPCamouflageModeShareEligibility() {

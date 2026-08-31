@@ -341,6 +341,13 @@ class NativeRecipeTests(unittest.TestCase):
                 source.name,
             )
 
+        tests_dir = root / "qeli-ios/QeliIOSTests"
+        for source in tests_dir.glob("*.swift"):
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("@testable import QeliIOS", source_text, source.name)
+            if "@testable import" in source_text:
+                self.assertIn("@testable import Qeli", source_text, source.name)
+
     def test_mobile_update_requests_cannot_migrate_to_the_physical_network(self):
         root = Path(__file__).parent.parent
         android_checker = (
