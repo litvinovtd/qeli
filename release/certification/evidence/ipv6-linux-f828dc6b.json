@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "kind": "qeli-ipv6-linux-netns-matrix",
+  "executed_at": "2026-08-31T12:19:43.546574Z",
+  "git_head": "",
+  "artifact": "/tmp/qeli-release-matrix/qeli",
+  "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
+  "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+  "passed": 16,
+  "total": 16,
+  "legacy_artifact": "/tmp/qeli-release-matrix/qeli-0.7.16",
+  "legacy_artifact_sha256": "364680702fb314b90d0bbb61978d644d963eb52a0aa8d5984af65f3859567010",
+  "results": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "parameters": [
+        "4",
+        "4",
+        "tcp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.585,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "parameters": [
+        "4",
+        "6",
+        "tcp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.597,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "parameters": [
+        "6",
+        "4",
+        "tcp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.602,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "parameters": [
+        "6",
+        "6",
+        "tcp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.536,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "parameters": [
+        "4",
+        "4",
+        "udp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.6,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "parameters": [
+        "4",
+        "6",
+        "udp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.568,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "parameters": [
+        "6",
+        "4",
+        "udp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.596,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "parameters": [
+        "6",
+        "6",
+        "udp",
+        "fake-tls",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.577,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "parameters": [
+        "4",
+        "4",
+        "udp",
+        "quic",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.592,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "parameters": [
+        "4",
+        "6",
+        "udp",
+        "quic",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.574,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "parameters": [
+        "6",
+        "4",
+        "udp",
+        "quic",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.633,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "parameters": [
+        "6",
+        "6",
+        "udp",
+        "quic",
+        "full"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.604,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "parameters": [
+        "4",
+        "dual",
+        "tcp",
+        "fake-tls",
+        "split"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.722,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  unrelated IPv4 remains outside a split tunnel\n  PASS  unrelated IPv6 remains outside a split tunnel\n  PASS  unrelated split IPv4 remains reachable\n  PASS  unrelated split IPv6 remains reachable\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=split: 19 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "parameters": [
+        "4",
+        "dual",
+        "udp",
+        "fake-tls",
+        "split"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.644,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  unrelated IPv4 remains outside a split tunnel\n  PASS  unrelated IPv6 remains outside a split tunnel\n  PASS  unrelated split IPv4 remains reachable\n  PASS  unrelated split IPv6 remains reachable\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=udp wire=fake-tls routing=split: 19 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "parameters": [
+        "4",
+        "6",
+        "tcp",
+        "fake-tls",
+        "full",
+        "tap"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.762,
+      "output": "  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  client interface is a real TAP device\n  PASS  TAP answers IPv6 NDP and Router Solicitation locally\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=tcp wire=fake-tls routing=full: 15 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "parameters": [
+        "/tmp/qeli-release-matrix/qeli-0.7.16"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 11.143,
+      "output": "new_version=qeli 0.8.0\nnew_sha256=da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2\nlegacy_version=qeli 0.7.16\nlegacy_sha256=364680702fb314b90d0bbb61978d644d963eb52a0aa8d5984af65f3859567010\n=== new server -> 0.7.16 client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== 0.7.16 server -> new client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== RESULT legacy peer: both directions passed ===\n"
+    }
+  ]
+}
