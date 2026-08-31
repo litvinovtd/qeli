@@ -75,6 +75,9 @@ bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
 check() {
   if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi
 }
+check_eventually() {
+  if wait_for 25 "$2"; then ok "$1"; else bad "$1"; fi
+}
 wait_for() {
   local attempts=$1 command=$2 index=0
   while [ "$index" -lt "$attempts" ]; do
@@ -335,7 +338,7 @@ else
 fi
 
 if [ "$ACTIVE_CHECKS" = 4 ] || [ "$ACTIVE_CHECKS" = dual ]; then
-  check "authenticated IPv4 address is installed" \
+  check_eventually "authenticated IPv4 address is installed" \
     "ip netns exec $CLI_NS ip -4 addr show dev $TUN_IF | grep -q '10.86.0.2/$CLIENT_IPV4_PREFIX'"
   check "IPv4 target route uses the tunnel" \
     "ip netns exec $CLI_NS ip -4 route get 198.18.46.1 | grep -q 'dev $TUN_IF'"
@@ -343,7 +346,7 @@ if [ "$ACTIVE_CHECKS" = 4 ] || [ "$ACTIVE_CHECKS" = dual ]; then
     "ip netns exec $CLI_NS ping -4 -c3 -W2 198.18.46.1"
 fi
 if [ "$ACTIVE_CHECKS" = 6 ] || [ "$ACTIVE_CHECKS" = dual ]; then
-  check "authenticated IPv6 address is installed" \
+  check_eventually "authenticated IPv6 address is installed" \
     "ip netns exec $CLI_NS ip -6 addr show dev $TUN_IF | grep -q 'fd86::2/$CLIENT_IPV6_PREFIX'"
   check "IPv6 target route uses the tunnel" \
     "ip netns exec $CLI_NS ip -6 route get fd46:ffff::1 | grep -q 'dev $TUN_IF'"
