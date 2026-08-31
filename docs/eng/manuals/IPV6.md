@@ -137,6 +137,94 @@ routing.ipv6.interface =
 interface is valid for a LAN-only route deployment: qeli follows kernel routes and does not
 require a public default uplink.
 
+#### Public client IPv6 addresses without NAT66
+
+`route` can assign a real global unicast IPv6 address (GUA) to every client, preserve that
+address on egress, and accept connections initiated from the Internet. The provider must
+route a **separate prefix** to the qeli server's WAN address. A typical layout is:
+
+```text
+qeli server WAN:                  2001:db8:100::10/64
+Prefix routed to the server:     2001:db8:1200:10::/64
+Provider route:                  2001:db8:1200:10::/64 via 2001:db8:100::10
+Server TUN address:              2001:db8:1200:10::1
+Client alice address:            2001:db8:1200:10::100
+```
+
+The `2001:db8::/32` addresses above are documentation-only. Use the real GUA space assigned
+by the provider. When a `/56` or `/48` is delegated, allocate a separate `/64` to each
+profile.
+
+Add the routed prefix to the server profile:
+
+```ini
+[profile:public-v6]
+tun.ip_mode = dual
+tun.name = vpn-public
+tun.ipv6_address = 2001:db8:1200:10::1
+pool.ipv6.cidr = 2001:db8:1200:10::/64
+
+# Preserve the client's IPv6 source; do not create MASQUERADE.
+routing.ipv6.mode = route
+routing.ipv6.interface = ens3
+```
+
+In a dual-stack profile, `routing.nat.enabled = true` may independently keep NAT44 enabled
+for IPv4. That key does not enable NAT66 or alter routed IPv6.
+
+Dynamic addresses are allocated from the complete `pool.ipv6.cidr`. Assign a fixed address
+for stable public reachability, DNS records, or inbound services in `users.conf`:
+
+```ini
+[user:alice]
+static_ipv6 = 2001:db8:1200:10::100
+```
+
+The same value can be set under **Users / Static IPv6**, with
+`qeli add-client --static-ipv6 2001:db8:1200:10::100`, or through
+`pool.ipv6.reservation.alice`. It must be a unique address inside `pool.ipv6.cidr`. A fixed
+address is effectively single-session: a new session for that user evicts the previous
+holder.
+
+For a strict IPv6 full tunnel on the client:
+
+```ini
+ipv6 = required
+gateway = true
+```
+
+Verify the server and upstream before connecting a client:
+
+```bash
+# The provider/upstream must have a return route through the server WAN.
+ip -6 route show default
+
+# After startup the profile creates a connected route to the pool through its TUN.
+ip -6 route show 2001:db8:1200:10::/64
+
+# route must not create IPv6 MASQUERADE for this pool.
+ip6tables -t nat -S POSTROUTING
+
+# qeli enables forwarding and installs verified bidirectional FORWARD rules.
+sysctl net.ipv6.conf.all.forwarding
+ip6tables -S FORWARD
+```
+
+Then verify the client's egress address and inbound reachability of its fixed GUA from an
+external IPv6 host. A capture such as
+`tcpdump -ni ens3 'ip6 and host 2001:db8:1200:10::100'` must show the unchanged client
+source address.
+
+A normal WAN `/64` directly connected to `ens3` cannot also be used as `pool.ipv6.cidr`:
+that provider setup expects NDP for every address, while qeli does not implement an upstream
+NDP proxy on the WAN. Preflight also rejects a pool that overlaps an existing host address or
+route. Request a routed `/64` (or `/56`/`/48`), configure an explicit provider route through
+the server, or use `nat66`.
+
+A routed GUA makes the client directly addressable from the Internet. qeli permits
+bidirectional forwarding in `route` mode, so the cloud security group, server firewall, and
+client firewall must explicitly define which inbound protocols and ports are allowed.
+
 ### `off`
 
 Clients can still receive inner IPv6, but qeli fail-closed blocks forwarding outside the
