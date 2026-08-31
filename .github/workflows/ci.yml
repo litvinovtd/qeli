@@ -176,7 +176,7 @@ jobs:
         with:
           workspaces: qeli
       - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --locked
+        run: cargo install cargo-zigbuild --version 0.23.0 --locked
       # deb-portable itself runs check-abi (glibc floor + the AES-NI baseline check),
       # so a binary that outgrew either one fails right here.
       - name: Build the portable .deb (the exact release recipe)
@@ -604,9 +604,11 @@ jobs:
         with:
           workspaces: qeli
       - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --locked
+        run: cargo install cargo-zigbuild --version 0.23.0 --locked
       - name: Cross-build qeli-client (${{ matrix.arch }})
         run: |
+          sed -i 's/^crate-type = \["rlib", "cdylib", "staticlib"\]$/crate-type = ["rlib"]/' Cargo.toml
+          grep -qxF 'crate-type = ["rlib"]' Cargo.toml
           if [ "${{ matrix.arch }}" = "mipsel" ]; then
             RUSTFLAGS='-C link-arg=-msoft-float' cargo zigbuild --locked -Z build-std=std,panic_abort \
               --release --bin qeli-client --no-default-features --features client-bin \

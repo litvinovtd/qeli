@@ -56,7 +56,7 @@ jobs:
           workspaces: qeli
 
       - name: Install the portable glibc build driver
-        run: cargo install cargo-zigbuild --locked
+        run: cargo install cargo-zigbuild --version 0.23.0 --locked
 
       - name: Build the release .deb from this tag
         run: |

@@ -284,9 +284,9 @@ public sealed partial class NetworkConfigurator : IDisposable
     private static IPAddress? ParseRouteGateway(string literal)
     {
         literal = literal.Trim();
-        if (IPAddress.TryParse(literal, out var parsed)) return parsed;
         int zone = literal.IndexOf('%');
-        return zone > 0 && IPAddress.TryParse(literal[..zone], out parsed) ? parsed : null;
+        if (zone > 0) literal = literal[..zone];
+        return IPAddress.TryParse(literal, out var parsed) ? parsed : null;
     }
 
     private static string RouteGatewayArgument(IPAddress gateway, string? physicalInterface)

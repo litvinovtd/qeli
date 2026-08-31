@@ -24,6 +24,12 @@
 
 
 
+- CI release gates снова соответствуют production-рецептам: iOS roaming собирается без
+  затенения имён, macOS сохраняет named scope link-local IPv6 gateway, multiprofile DEB явно
+  задаёт `auth.users_file`, а строгий Clippy проходит на актуальном stable Rust.
+- GitHub router matrix использует тот же pin `cargo-zigbuild 0.23.0` и client-only `rlib`, что и
+  лабораторные OpenWrt/Keenetic recipes; MIPS больше не пытается линковать ненужный FFI `cdylib`.
+
 ### Исправления по аудиту маршрутизации и роуминга
 
 - `route_local` на Linux, Windows и macOS теперь действительно перехватывает напрямую

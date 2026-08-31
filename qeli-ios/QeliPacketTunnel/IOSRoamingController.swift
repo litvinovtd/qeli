@@ -230,7 +230,7 @@ enum IOSRoamingSocket {
         guard family == AF_INET || family == AF_INET6 else {
             throw IOSRoamingError.invalidState("candidate socket has unsupported family")
         }
-        let assigned = Set(localAddresses(interfaceName: interfaceName))
+        let assigned = Set(Self.localAddresses(interfaceName: interfaceName))
         guard let source = localAddresses.compactMap(canonicalUsableAddress).first(where: {
             assigned.contains($0) && (($0.contains(":")) == (family == AF_INET6))
         }) else {

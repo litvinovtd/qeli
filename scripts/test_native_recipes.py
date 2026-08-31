@@ -651,6 +651,15 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertIn("cargo install --list", source, recipe.name)
             self.assertNotIn("cargo zigbuild --version", source, recipe.name)
 
+        ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        attest = (root / ".github/workflows/release-attest.yml").read_text(encoding="utf-8")
+        for workflow in (ci, attest):
+            self.assertIn(
+                "cargo install cargo-zigbuild --version 0.23.0 --locked", workflow
+            )
+            self.assertNotIn("run: cargo install cargo-zigbuild --locked", workflow)
+        self.assertIn('crate-type = ["rlib"]', ci)
+
     def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
         root = Path(__file__).parent.parent
         retired = [

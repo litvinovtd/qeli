@@ -1776,7 +1776,7 @@ pub(crate) async fn run_udp_server(
                     // Needs a write lock to advance each client's cover deadline + budget.
                     let mut sessions_guard = sessions.write().await;
                     let mut out = Vec::new();
-                    for (_addr, client) in sessions_guard.iter_mut() {
+                    for client in sessions_guard.values_mut() {
                         // Authenticated is not enough: the AuthOK may still be in flight on the
                         // auth task. A cover packet reaching the client first is taken for the
                         // AuthOK, decrypts into nothing, and kills the connect. See
@@ -1841,7 +1841,7 @@ pub(crate) async fn run_udp_server(
                 } else {
                     let mut sessions_guard = sessions.write().await;
                     let mut out = Vec::new();
-                    for (_addr, client) in sessions_guard.iter_mut() {
+                    for client in sessions_guard.values_mut() {
                         // Only beacon AUTHENTICATED clients (a fresh AwaitingAuth entry
                         // is not a real session yet) whose AuthOK has actually gone out —
                         // this loop deliberately does NOT idle-gate (see below), so without
