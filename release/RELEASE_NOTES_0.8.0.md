@@ -101,12 +101,14 @@ client secret or qeli-link field is needed. The rollout policies are:
 Shipped profiles use `prefer`. Recordization reduces a transport-independent packet-boundary
 fingerprint, but it is not presented as making traffic undetectable.
 
-### Reality gets a genuine HTTP/2 carrier
+### Reality/TLS is rebuilt around a genuine HTTP/2 carrier
 
 The `reality-tls` mode now uses an actual TLS 1.3 connection with ALPN `h2`, standard HTTP/2 framing
 and one long-lived bidirectional POST stream. Random short batching is performed within real H2
 frames, while qeli PacketCodec AEAD remains as the authenticated payload layer. The redundant inner
 fake-TLS handshake and framing are removed.
+The wire stack is now **TCP → REALITY TLS 1.3 → genuine HTTP/2 →
+private qeli stream**; there is no second simulated TLS protocol inside the real one.
 
 This matters operationally as well as on the wire: the qeli heartbeat is unnecessary for this
 carrier, traffic shaping can operate on genuine H2 frames, and the transport has one clear framing
@@ -114,6 +116,32 @@ model instead of nested imitations. A 0.8.0 server still accepts the legacy Real
 new client is H2-only and does not downgrade. Therefore the server must be upgraded first. Reality/H2
 also requires transparent TCP pass-through to qeli; TLS termination, H2 conversion or HTTP routing
 by an intermediate reverse proxy breaks authentication.
+
+#### How to migrate and enable it
+
+The genuine H2 carrier is selected automatically by `mode = reality-tls`; there is no separate H2
+switch. To migrate an existing deployment:
+
+1. **Preserve the current credentials.** Back up the server profile, qeli identity key and
+   `short_ids`. Do not rotate them as part of this upgrade unless all client profiles will be reissued.
+2. **Update the server binary first.** The 0.8.0 server accepts both the legacy Reality carrier and
+   the new H2 carrier. The restart interrupts active sessions, but old clients can reconnect while the staged client rollout continues.
+3. **Normalize the server profile.** Use TCP, `obf.mode = reality-tls`,
+   `obf.tls.reality_proxy.enabled = true` and `obf.tls.reality_proxy.real_tls = true`. Keep one real DNS name consistent in
+   `obf.tls.server_name`, `obf.tls.reality_proxy.target` and the client `sni`; preserve the existing `short_ids`.
+   Disable heartbeat and per-packet padding, enable traffic shaping, and remove retired
+   `obf.http2_masking.*` keys.
+4. **Check the path and clocks.** Port 443 must reach qeli through transparent TCP pass-through, and
+   client/server time must remain within ±120 seconds when Reality short IDs are used.
+5. **Restart and test the server before clients.** Confirm that an old client still reaches `AUTH OK`,
+   then update every client application/native core. Client profiles keep `proto = tcp`,
+   `mode = reality-tls` and their existing `key`, `sni` and `reality_sid` values.
+6. **Verify the new carrier.** The client log should contain
+   `REALITY-TLS carrier: genuine HTTP/2 stream`, followed by `AUTH OK` and bidirectional traffic.
+   With debug logging enabled, the server also records `REALITY: genuine HTTP/2 carrier established`.
+
+Bare `fake-tls` is a different mode and does not become Reality/H2 automatically. Keep it on a
+separate legacy profile or port if it is still required.
 
 ### What this gives qeli
 
@@ -267,12 +295,14 @@ Recordizer может объединить несколько пакетов в 
 Поставляемые профили используют `prefer`. Recordizer снижает транспортно-независимый fingerprint по
 границам пакетов, но это не заявляется как полная неразличимость трафика.
 
-### Reality получает настоящий HTTP/2 carrier
+### Reality/TLS переработан вокруг настоящего HTTP/2 carrier
 
 Режим `reality-tls` теперь использует реальное TLS 1.3-соединение с ALPN `h2`, стандартный HTTP/2
 framing и один долгоживущий двусторонний POST stream. Короткий случайный batching выполняется внутри
 настоящих H2 frames, а PacketCodec AEAD qeli остаётся аутентифицированным слоем полезной нагрузки.
 Лишние внутренние fake-TLS handshake и framing удалены.
+Новый стек на проводе: **TCP → REALITY TLS 1.3 → настоящий HTTP/2 →
+приватный поток qeli**; второго имитируемого TLS-протокола внутри настоящего TLS больше нет.
 
 Это важно не только для вида трафика, но и для эксплуатации: собственный heartbeat qeli для этого
 carrier больше не нужен, shaping работает с настоящими H2 frames, а вместо вложенных имитаций остаётся
@@ -280,6 +310,33 @@ carrier больше не нужен, shaping работает с настоящ
 клиент работает только через H2 и не выполняет downgrade. Поэтому первым обязательно обновляется
 сервер. Reality/H2 также требует прозрачного TCP pass-through до qeli: TLS termination, H2 conversion
 или HTTP routing на промежуточном reverse proxy ломают аутентификацию.
+
+#### Как перейти на новую реализацию и включить её
+
+Настоящий H2 carrier включается автоматически через `mode = reality-tls`; отдельного H2-переключателя
+нет. Для миграции существующей установки:
+
+1. **Сохраните действующие credentials.** Сделайте резервную копию серверного профиля, identity key
+   qeli и `short_ids`. Не меняйте их вместе с обновлением, если не готовы переиздать все профили.
+2. **Сначала обновите серверный бинарник.** Сервер 0.8.0 принимает старый Reality carrier и новый H2.
+   Рестарт прерывает активные сессии, но старые клиенты переподключаются и могут обновляться постепенно.
+3. **Приведите серверный профиль к новой схеме.** Используйте TCP, `obf.mode = reality-tls`,
+   `obf.tls.reality_proxy.enabled = true` и `obf.tls.reality_proxy.real_tls = true`. Одно реальное DNS-имя должно совпадать
+   в `obf.tls.server_name`, `obf.tls.reality_proxy.target` и клиентском `sni`; сохраните прежние `short_ids`.
+   Отключите heartbeat и per-packet padding, включите traffic shaping и удалите устаревшие ключи
+   `obf.http2_masking.*`.
+4. **Проверьте сетевой путь и время.** Порт 443 должен доходить до qeli через прозрачный TCP
+   pass-through, а часы клиента и сервера при использовании Reality short ID — совпадать в пределах
+   ±120 секунд.
+5. **Перезапустите и сначала проверьте сервер.** Старый клиент должен по-прежнему получить `AUTH OK`.
+   После этого обновите приложения и native core на всех клиентах. В клиентском профиле сохраняются
+   `proto = tcp`, `mode = reality-tls` и прежние значения `key`, `sni`, `reality_sid`.
+6. **Проверьте новый carrier по логам.** Клиент должен вывести
+   `REALITY-TLS carrier: genuine HTTP/2 stream`, затем `AUTH OK` и двусторонний трафик.
+   При debug-логировании сервер также пишет `REALITY: genuine HTTP/2 carrier established`.
+
+Обычный `fake-tls` — отдельный режим и автоматически не превращается в Reality/H2. Если он ещё нужен,
+оставьте его на отдельном legacy-профиле или порту.
 
 ### Что это даёт qeli
 
