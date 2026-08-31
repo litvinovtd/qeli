@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = ROOT / "qeli" / "src" / "web" / "templates"
 I18N = ROOT / "qeli" / "src" / "web" / "assets" / "i18n.js"
+SELECT_CSS = ROOT / "qeli" / "web-assets" / "input.css"
 
 failures: list[str] = []
 
@@ -114,6 +115,20 @@ class TemplateAudit(HTMLParser):
 
         # login.html is a standalone, fully styled page with its own scoped input/select CSS.
         bespoke_login = self.path.name == "login.html"
+        if tag == "select":
+            inline_style = data.get("style") or ""
+            if re.search(r"(?:^|;)\s*(?:inline-size|width)\s*:", inline_style, re.IGNORECASE):
+                fail(
+                    self.path,
+                    self.line,
+                    "select width must be content-fitted or inherited, never fixed inline",
+                )
+            fixed_width_classes = sorted(
+                item for item in classes
+                if item.startswith("w-") and item not in {"w-auto", "w-full"}
+            )
+            if fixed_width_classes:
+                fail(self.path, self.line, f"select uses fixed width classes: {fixed_width_classes}")
         if not bespoke_login:
             if tag == "select" and "inp" not in classes:
                 fail(self.path, self.line, "select must use the shared .inp control")
@@ -185,6 +200,21 @@ for path in template_paths:
         parser.feed(source)
     except Exception as error:  # fail closed on malformed input/parser surprises
         fail(path, parser.line, f"HTML audit failed: {error}")
+
+# Selects must remain locale-independent: the shared CSS centres native values and
+# JavaScript fits compact controls to the longest translated/dynamic option.
+select_css = SELECT_CSS.read_text(encoding="utf-8")
+for marker in (
+    "text-align:center",
+    "text-align-last:center",
+    "select.inp.inp-fit",
+    "--qeli-select-fit-width",
+):
+    if marker not in select_css:
+        fail(SELECT_CSS, 1, f"shared select styling is missing {marker!r}")
+for marker in ("select.inp-fit, select[data-select-fit]", "--qeli-select-fit-width"):
+    if marker not in i18n_text:
+        fail(I18N, 1, f"localized select auto-fitting is missing {marker!r}")
 
 # Alpine evaluates x-text/x-title expressions as soon as its deferred script runs. qeliT must
 # already exist at that point or dynamic labels render empty until an unrelated state change.

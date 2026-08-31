@@ -25,7 +25,7 @@
     <input class="inp text-xs py-1.5 px-2 h-8" style="width:14rem" type="search"
            placeholder="Search users…" x-model="search"
            @input.debounce.200ms="[page = 1, refreshUserView()]">
-    <select class="inp text-xs py-1.5 px-2 h-8" style="width:9.5rem"
+    <select class="inp inp-compact inp-fit"
             x-model="statusFilter" @change="[page = 1, refreshUserView()]">
       <option value="">All statuses</option>
       <option value="online">Online</option>
@@ -33,7 +33,7 @@
       <option value="enabled">Enabled</option>
       <option value="disabled">Disabled</option>
     </select>
-    <select class="inp text-xs py-1.5 px-2 h-8" style="width:11rem"
+    <select class="inp inp-compact inp-fit"
             x-model="sortMode" @change="[page = 1, refreshUserView()]">
       <option value="online_desc">Online first</option>
       <option value="username_asc">Username A–Z</option>
@@ -42,7 +42,7 @@
       <option value="lastseen_desc">Recently seen</option>
       <option value="group_asc">Group A–Z</option>
     </select>
-    <select class="inp text-xs py-1.5 px-2 h-8" style="width:6rem"
+    <select class="inp inp-compact inp-fit"
             x-model.number="pageSize" @change="page = 1">
       <option value="25">25 rows</option>
       <option value="50">50 rows</option>

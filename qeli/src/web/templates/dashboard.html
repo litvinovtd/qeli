@@ -183,14 +183,14 @@
         <input class="inp text-xs py-1.5 px-2 h-8" style="width:12rem" type="search"
                placeholder="Search clients…" x-model="search"
                @input.debounce.200ms="[page = 1, refreshView()]">
-        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:11rem"
+        <select class="inp inp-compact inp-fit flex-shrink-0"
                 x-model="filterProfile" @change="[page = 1, refreshView()]">
           <option value="">All profiles</option>
           <template x-for="p in profiles" :key="p.name">
             <option data-i18n-skip :value="p.name" x-text="p.name"></option>
           </template>
         </select>
-        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:10.5rem"
+        <select class="inp inp-compact inp-fit flex-shrink-0"
                 x-model="sortMode" @change="[page = 1, refreshView()]">
           <option value="uptime_desc">Longest online</option>
           <option value="username_asc">Username A–Z</option>
@@ -198,7 +198,7 @@
           <option value="traffic_desc">Most traffic</option>
           <option value="drops_desc">Most drops</option>
         </select>
-        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:6rem"
+        <select class="inp inp-compact inp-fit flex-shrink-0"
                 x-model.number="pageSize" @change="page = 1">
           <option value="25">25 rows</option>
           <option value="50">50 rows</option>

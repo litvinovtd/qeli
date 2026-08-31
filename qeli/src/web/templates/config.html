@@ -757,7 +757,7 @@
                 <div class="text-sm font-medium text-white">IPv6 forwarding / NAT66</div>
                 <div class="text-xs text-slate-500">route preserves client source addresses; nat66 masquerades them on the selected IPv6 uplink</div>
               </div>
-              <select class="inp text-xs h-8 flex-shrink-0" style="width:7rem"
+              <select class="inp inp-compact inp-fit flex-shrink-0"
                 x-model="cfg.profiles[activeTab].routing.ipv6.mode" @change="markDirty()">
                 <option value="off">off</option>
                 <option value="route">route</option>
@@ -1377,7 +1377,7 @@
                 <div class="text-sm font-medium text-white">PACKET_MUX recordizer</div>
                 <div class="text-xs text-slate-500">Transport-independent packet/record boundary masking. The server pushes these values after authentication.</div>
               </div>
-              <select class="inp w-36" x-model="cfg.profiles[activeTab].obfuscation.recordizer.policy" @change="markDirty()">
+              <select class="inp inp-fit flex-shrink-0" x-model="cfg.profiles[activeTab].obfuscation.recordizer.policy" @change="markDirty()">
                 <option value="off">Off</option>
                 <option value="prefer">Prefer</option>
                 <option value="required">Required</option>

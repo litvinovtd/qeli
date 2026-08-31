@@ -166,13 +166,20 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 /* Normalise platform-native dropdown/search controls. Without appearance:none,
    Chromium on Windows paints its own white arrow/button over the dark panel. */
 select.inp{
-  -webkit-appearance:none; appearance:none; cursor:pointer; padding-right:2.25rem;
+  -webkit-appearance:none; appearance:none; cursor:pointer; box-sizing:border-box;
+  height:2.5rem; min-height:2.5rem; padding:0 2.25rem; line-height:1.25rem;
+  text-align:center; text-align-last:center;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
   background-repeat:no-repeat; background-position:right .7rem center; background-size:1rem;
 }
 select.inp::-ms-expand{ display:none; }
 select.inp option{ background-color:var(--bg-card-2); color:var(--txt); }
-select.inp.inp-compact{ height:30px; padding-top:3px; padding-bottom:3px; font-size:.8rem; }
+select.inp.inp-compact{ height:2rem; min-height:2rem; padding-top:0; padding-bottom:0; font-size:.8rem; }
+/* Compact filters opt into content fitting. i18n.js measures the longest rendered
+   option after translation and after Alpine adds dynamic options, so a locale is
+   never forced into a width chosen for English. Full-width form controls retain
+   the normal .inp width. */
+select.inp.inp-fit{ width:var(--qeli-select-fit-width,auto); max-width:100%; flex:0 0 auto; }
 .inp[type=search]{
   -webkit-appearance:none; appearance:none; padding-left:2.1rem;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6'/%3E%3Cpath d='m20 20-4.2-4.2'/%3E%3C/svg%3E");

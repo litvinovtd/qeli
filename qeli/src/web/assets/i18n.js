@@ -1484,6 +1484,40 @@
     if (root.nodeType === Node.ELEMENT_NODE) processAttrs(root);
   }
 
+  let selectMeasureContext = null;
+
+  function fitSelects(root) {
+    if (!root.querySelectorAll || typeof window.getComputedStyle !== 'function') return;
+    const selects = root.querySelectorAll('select.inp-fit, select[data-select-fit]');
+    if (!selects.length) return;
+    if (!selectMeasureContext) {
+      const canvas = document.createElement('canvas');
+      selectMeasureContext = canvas.getContext('2d');
+    }
+    if (!selectMeasureContext) return;
+
+    selects.forEach((select) => {
+      const style = window.getComputedStyle(select);
+      selectMeasureContext.font = style.font ||
+        [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily].join(' ');
+      const letterSpacing = Number.parseFloat(style.letterSpacing) || 0;
+      let longest = 0;
+      Array.from(select.options).forEach((option) => {
+        const text = (option.textContent || '').trim();
+        const measured = selectMeasureContext.measureText(text).width +
+          Math.max(0, text.length - 1) * letterSpacing;
+        if (measured > longest) longest = measured;
+      });
+      const chrome =
+        (Number.parseFloat(style.paddingLeft) || 0) +
+        (Number.parseFloat(style.paddingRight) || 0) +
+        (Number.parseFloat(style.borderLeftWidth) || 0) +
+        (Number.parseFloat(style.borderRightWidth) || 0);
+      const width = Math.ceil(longest + chrome + 2);
+      select.style.setProperty('--qeli-select-fit-width', String(width) + 'px');
+    });
+  }
+
   function apply() {
     if (!observer) return;
     // <title> lives in <head>, which the body walker never reaches — translate the
@@ -1495,7 +1529,10 @@
       if (document.title !== wantTitle) document.title = wantTitle;
     }
     observer.disconnect();
-    try { walk(document.body); } finally {
+    try {
+      walk(document.body);
+      fitSelects(document);
+    } finally {
       observer.observe(document.body, {
         childList: true, subtree: true, characterData: true,
         attributes: true, attributeFilter: ATTRS,
@@ -1561,6 +1598,9 @@
         apply();
         reveal();
       });
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => fitSelects(document));
+      }
     } else {
       reveal();
     }
