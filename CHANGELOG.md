@@ -8,6 +8,26 @@
 
 ### Сборка и проверка релиза
 
+- Release preflight теперь fail-closed проверяет машиночитаемую матрицу IPv6/roaming: каждый
+  обязательный automated/physical сценарий привязан к digest закоммиченного дерева, SHA-256
+  реально проверенного артефакта, окружению, времени и сохраняемому evidence. Незавершённая,
+  устаревшая или вручную урезанная матрица блокирует выпуск.
+- Добавлен воспроизводимый Linux netns-runner для outer IPv4/IPv6 × inner IPv4/IPv6/dual,
+  TCP, UDP fake-TLS, UDP QUIC, full/split tunnel и leak/cleanup-проверок; результаты сохраняются
+  в JSON и могут обновить сертификационный manifest только для чистого committed tree.
+- IPv4/IPv6 packet parser включён в обязательные smoke/nightly fuzz-матрицы, а контракты
+  release-certification и netns-runner выполняются отдельным CI gate.
+- Реальный HTTP/2 carrier теперь принимает только корректный streaming POST на выделенном пути
+  с gRPC media type и `TE: trailers`, возвращает осмысленные 400/404/405/415 ответы на
+  аутентифицированные malformed-запросы и покрыт lifecycle/flow-control/half-close тестами.
+- Lab source sync больше не загружает локальные `node_modules` и `target`: зависимости и
+  build-артефакты пересоздаются на Linux, поэтому лабораторный gate быстрее и не проверяет
+  случайный гибрид Windows/npm файлов; консольный helper принудительно использует UTF-8.
+- RU/EN документация синхронизирована с ABI 1.14, текущими native cores, результатами H2 и
+  UDP-бенчмарков, фактическим STATS_V3 и состоянием CONTROL_V2. Настоящий HTTP/3/MASQUE явно
+  перенесён в 0.9.x; для 0.8.0 остаются физическая сертификация, H2 profile/fingerprint
+  hardening и типизированные live-команды управления.
+
 - Android release-сборка теперь зеркально синхронизирует Kotlin-код, ресурсы и тесты с checkout,
   удаляя с постоянной лабы файлы от прежних веток, а также обновляет общие `conformance/*.json`
   перед unit tests. APK больше не может включить старый код или пройти проверку по чужим векторам.

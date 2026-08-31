@@ -13,6 +13,9 @@ import sys
 import paramiko
 import ssh_hostkey
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 HOSTS = {
     "server": ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", "")),
     "client": ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", "")),

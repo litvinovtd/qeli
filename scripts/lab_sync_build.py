@@ -74,7 +74,15 @@ def sync_tree(c):
         root = os.path.join(LOCAL_ROOT, subtree)
         if not os.path.isdir(root):
             continue
-        for dp, _dn, fn in os.walk(root):
+        for dp, directories, fn in os.walk(root):
+            # Dependencies and build outputs are recreated by the remote recipe. Uploading
+            # a local node_modules one file at a time makes a source sync take minutes and
+            # can also turn the lab into a Windows/npm hybrid tree.
+            directories[:] = [
+                name
+                for name in directories
+                if name not in {"node_modules", "target"}
+            ]
             for f in fn:
                 lp = os.path.join(dp, f)
                 rel = os.path.relpath(lp, LOCAL_ROOT).replace("\\", "/")

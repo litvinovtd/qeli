@@ -18,6 +18,8 @@ commits, but the local jemalloc gate stayed green and nobody looked at CI):
                  released and PKG_MIRROR_HASH must be a real sha256, not the
                  unmatchable placeholder (which makes the router package unbuildable).
                  Local-only; no network or lab needed.
+  4. Evidence  — every mandatory IPv6/roaming automated and physical case must be
+                 recorded against this source tree and an exact artifact SHA-256.
 
 Exit non-zero if any gate fails, so it can front a release script.
 
@@ -348,6 +350,25 @@ try:
 except OSError as e:
     failures.append(f"qeli-openwrt/Makefile unreadable: {e}")
     print(f"  ! {e}")
+
+# ── Gate 4: release certification evidence ──────────────────────────────────
+print("\n=== Gate 4: IPv6/roaming release certification ===")
+certification = subprocess.run(
+    [sys.executable, os.path.join(ROOT, "scripts", "release_certification.py"), "--quiet"],
+    cwd=ROOT,
+    capture_output=True,
+    text=True,
+    encoding="utf-8",
+    errors="replace",
+)
+if certification.stdout.strip():
+    print(certification.stdout.rstrip())
+if certification.stderr.strip():
+    print(certification.stderr.rstrip())
+if certification.returncode != 0:
+    failures.append(
+        "IPv6/roaming certification is incomplete or stale; see Gate 4 details above"
+    )
 
 # ── verdict ──────────────────────────────────────────────────────────────────
 print("\n===== PREFLIGHT =====")

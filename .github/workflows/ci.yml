@@ -288,6 +288,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: docs checks
         run: python3 scripts/check_docs.py
+      - name: release certification contracts
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_release_certification.py'
+          python3 -m unittest discover -s scripts -p 'test_ipv6_release_matrix.py'
+          bash -n scripts/ipv6_netns_case.sh
+
       - name: panel source checks
         run: python3 scripts/check_panel.py
       - name: embedded panel CSS is current
@@ -651,7 +657,7 @@ jobs:
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
-          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag roaming_wire; do
+          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag roaming_wire ip_packet; do
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
@@ -666,7 +672,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag, roaming_wire]
+        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag, roaming_wire, ip_packet]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
