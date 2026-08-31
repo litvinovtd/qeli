@@ -1,131 +1,225 @@
-# qeli 0.8.0 (development) — Reality/H2 and PACKET_MUX migration notes
+# qeli 0.8.0 (beta) — roaming, genuine Reality/H2 and PACKET_MUX
 
-Дата документа: 2026-08-26. Это описание текущей dev-ветки, а не объявление опубликованного релиза.
-Полный технический список изменений находится в [CHANGELOG](../CHANGELOG.md).
+> ⚠️ **Beta — may be unstable.** The **1.0** line will be the first stable one.
+>
+> ⚠️ **Бета — возможна нестабильность.** Стабильной станет линейка **1.0**.
 
-## Что изменилось
+**Release candidate prepared · Кандидат подготовлен:** 2026-08-31
 
-`reality-tls` после аутентифицированного TLS 1.3 теперь открывает настоящий HTTP/2 carrier:
-один долгоживущий двунаправленный `POST /v1/events/stream`, ALPN `h2`, стандартные H2
-SETTINGS/frames и случайный batching 2–8 мс. Прежнего второго fake-TLS handshake/framing внутри
-внешнего TLS больше нет. Внутренний PacketCodec AEAD сохранён как defence-in-depth.
+**Language · Язык:** [English](#english) · [Русский](#русский) ·
+[Artifacts](#artifacts--артефакты)
 
-Пользовательского параметра для включения H2 нет: он автоматически является carrier режима
-`reality-tls`. Старые `obf.http2_masking.*` выведены из эксплуатации и не должны добавляться в конфиг.
-
-Во всех TCP- и UDP-режимах появился общий, серверно-конфигурируемый `PACKET_MUX_V1` recordizer.
-После аутентификации он объединяет исходные IP-пакеты, меняет границы зашифрованных qeli-записей
-и при необходимости фрагментирует один пакет между несколькими внутренними записями. Это не новый
-transport mode и не H2-only функция: поверх него остаётся выбранный carrier — plain/fake-TLS,
-REALITY/H2, obfs/WebSocket, UDP QUIC-shape или AWG.
-
-Recordizer включается в каждом серверном профиле параметром:
-
-```ini
-obf.recordizer.policy = prefer
-```
-
-`prefer` согласует новую форму с обновлённым клиентом и оставляет legacy data-plane старому.
-`required` отклоняет старого клиента до выдачи lease, а `off` полностью сохраняет старую форму.
-Все параметры batch/record/fragment задаются на сервере и приходят клиенту в аутентифицированном
-push; менять qeli-ссылки или добавлять клиентские recordizer-ключи не нужно. Полный список и
-ограничения: [справочник конфигурации](../docs/ru/manuals/CONFIG.md); порядок слоёв, совместимость и
-профили тюнинга: [руководство по обфускации](../docs/ru/manuals/OBFUSCATION.md).
-
-## Как перейти
-
-1. Сначала обновите серверный бинарник. Сохраните identity, ключи, SNI/target и остальные
-   transport-параметры действующих профилей.
-2. Добавьте `obf.recordizer.policy = prefer` во все профили, где нужна общая морфология, и
-   перезапустите qeli. Остальные `obf.recordizer.*` можно не задавать: применятся defaults.
-3. Для Reality убедитесь, что серверный профиль использует `obf.mode = reality-tls` с
-   `obf.tls.reality_proxy.enabled = true` и `real_tls = true`; на клиенте используйте
-   `mode = reality-tls`, тот же `reality_sid` и публичный ключ сервера в `key`. Старое
-   серверное написание `obf.mode = fake-tls` с теми же Reality-флагами принимается для миграции.
-4. Проверьте подключение старого клиента: при `prefer` он должен продолжить работу на legacy
-   data-plane. Затем обновляйте клиентские бинарники/приложения. Новый сервер принимает и H2, и legacy
-   Reality carrier. Новый клиент использует только H2 и не делает downgrade, поэтому обратный
-   порядок может оставить его без связи со старым сервером.
-5. Переподключите сессии: recordizer согласуется один раз на AUTH. После обновления всего парка
-   при необходимости смените `prefer` на `required`; не делайте это раньше, если старые клиенты
-   ещё должны подключаться. Для rollback верните `off` и снова переподключите сессии.
-6. Bare `fake-tls` без Reality — отдельный carrier. Он получает тот же recordizer, но не получает
-   настоящий TLS/H2 или защиту Reality от active probe; при необходимости держите отдельный профиль/порт.
-
-Полные примеры: [сервер](reality-tls/server-reality.conf),
-[клиент](reality-tls/client-reality.conf) и [справочник конфигурации](../docs/ru/manuals/CONFIG.md).
-
-## Новые установки: dual-stack, ULA и NAT66
-
-Все поставляемые серверные шаблоны теперь явно включают dual-stack. Каждый профиль имеет
-IPv4-пул и отдельный IPv6 ULA `/64`, NAT44 + NAT66 и DNS-listener обоих семейств. Клиентские
-шаблоны явно используют `ipv6 = auto`.
-
-Используется локально назначаемый RFC4193 диапазон `fd00::/8`, а не `fe80::/10`: link-local
-не является маршрутизируемым пулом VPN. Статический `fd71:e1:8000::/48` в примерах — только
-маркер. Не разворачивайте его без замены на уникальный `/48` своей площадки.
-
-One-shot installer делает это автоматически:
-
-1. Находит интерфейс фактического IPv6 default route и исходный публичный GUA `2000::/3`.
-2. Проверяет команду и NAT-таблицу `ip6tables`.
-3. Генерирует 40 случайных бит RFC4193 Global ID, сохраняет отдельный `/64` выбранного режима
-   и включает NAT66/MASQUERADE через найденный WAN.
-4. Если хотя бы одной предпосылки нет, записывает рабочий IPv4-only активный профиль; NAT44
-   остаётся включённым. Файлы-примеры при этом остаются dual-stack.
-
-В Debian/Ubuntu `ip6tables` не требует отдельного пакета: его вместе с `iptables` даёт пакет
-`iptables`, который установщик ставит и проверяет. Если провайдер маршрутизирует выделенный
-GUA-префикс, вместо ULA/NAT66 настройте этот префикс и `routing.ipv6.mode = route`.
-
-Существующие конфиги автоматически не переписываются. Для перехода сохраните IPv4-поля,
-добавьте `tun.ip_mode = dual`, `tun.ipv6_address`, уникальный `pool.ipv6.cidr`,
-`routing.ipv6.mode = nat66` и совпадающий `dns.listen_ipv6`; на клиенте оставьте
-`ipv6 = auto`. Перед рестартом выполните `qeli check-config`, после — проверьте `ping -6`,
-внешний IPv6, DNS и `ip6tables`. Подробная процедура: [IPv6 guide](../docs/ru/manuals/IPV6.md).
-
-## Изменившиеся defaults и эксплуатация
-
-- В поставляемых серверных Reality/max-obfuscation шаблонах `obf.heartbeat.enabled = false` и
-  `obf.traffic_shaping.enabled = true`.
-- H2 carrier принудительно отключает qeli heartbeat независимо от старого локального или pushed
-  значения. Liveness обеспечивает транспорт; отдельные qeli heartbeat frames создавали бы телл.
-- Для других режимов heartbeat работает как раньше, но интервал после активности/отправки каждый
-  раз заново случайно выбирается в диапазоне `interval ± jitter` (шаблонный jitter — 5000 мс).
-- Промежуточный reverse proxy/LB должен делать прозрачный TCP pass-through. TLS termination,
-  H2 conversion или HTTP routing перед qeli ломают REALITY-аутентификацию и carrier.
-
-## Как проверить
-
-Ожидаемые маркеры:
-
-- клиент: `REALITY-TLS carrier: genuine HTTP/2 stream`;
-- сервер: `REALITY: genuine HTTP/2 carrier established`.
-
-Проверьте `Auth OK`, двусторонний IPv4/IPv6-трафик, реконнект и отсутствие повторяющегося qeli
-heartbeat в Reality/H2 capture. Для каждого TCP/UDP carrier отдельно проверьте, что при `prefer`
-новый клиент согласует `PACKET_MUX_V1`, а legacy-клиент остаётся рабочим; при `required` legacy
-клиент должен быть отвергнут до lease. Датированный lab PCAP завершил 6/6 H2-сессий; прежний classifier
-совпал в 0/6 при 0/6 false positives на controls. Это результат конкретного стенда и classifier,
-не проверка ещё не снятого общего recordizer по всем carriers, не обещание «0% обнаружения» и не
-full-speed benchmark. Новая общая логика требует отдельного повторного PCAP/DPI corpus.
-
-Отчёт: [Reality/H2 PCAP/DPI, 2026-08-26](dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
-Остаточные задачи: browser-family TLS/H2 profiles, target-specific H2 SETTINGS, hostile active probes,
-malformed/reconnect/long-lived сценарии, PCAP каждого recordizer/carrier сочетания, чистый
-throughput-прогон и настоящий H3.
+This document highlights the user- and operator-visible changes since `v0.7.16`. The canonical
+itemised history is [CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
-## English summary
+## English
 
-Development 0.8.0 replaces the legacy inner fake-TLS Reality carrier with one genuine,
-randomly batched H2 POST. Upgrade **server first**: a new server accepts both carriers, while a
-new client is H2-only and does not downgrade. H2 is automatic and has no config switch. Shipped
-Reality templates disable qeli heartbeat and enable shaping; the H2 path forcibly ignores an old
-heartbeat request. The same release adds authenticated `PACKET_MUX_V1` record morphology to every
-TCP/UDP mode. Put `obf.recordizer.policy = prefer` on the server for a staged rollout, update the
-shared native core on clients, reconnect, and use `required` only after the fleet is upgraded; no
-client recordizer keys are needed. Use transparent TCP pass-through in front of qeli. See the
-configuration guide, CHANGELOG, and dated PCAP report above; the 6/6 lab result covers the H2
-capture only and is not a universal detection probability.
+### Before upgrading
+
+- Upgrade the **server first**. A 0.8.0 server accepts the legacy and new Reality carriers, while
+  the new Reality client uses genuine HTTP/2 and does not downgrade to the old inner fake-TLS
+  carrier.
+- For a staged `PACKET_MUX_V1` rollout, set `obf.recordizer.policy = prefer`, reconnect clients,
+  and switch to `required` only after the fleet is upgraded. `off` keeps the legacy data plane.
+- Existing server profiles do not silently enable roaming: a missing `roaming.enabled` remains
+  `false`. Newly generated profiles enable it with bounded defaults; clients use `roaming = auto`.
+- Shipped server templates are dual-stack with IPv4 plus a unique IPv6 ULA/NAT66 plan. Existing
+  configurations are not rewritten automatically. Validate them with `qeli check-config` before
+  restarting and follow the [IPv6 guide](../docs/eng/manuals/IPV6.md) when migrating.
+- Reality/H2 must reach qeli through transparent TCP pass-through. TLS termination, H2 conversion
+  or HTTP routing in a reverse proxy breaks Reality authentication and the carrier.
+
+### Genuine Reality/H2 and common packet morphology
+
+- `reality-tls` now carries traffic in one authenticated, long-lived, bidirectional HTTP/2 POST
+  with ALPN `h2`, standard H2 framing and random 2–8 ms batching. The redundant inner fake-TLS
+  handshake/framing has been removed; qeli PacketCodec AEAD remains as defence in depth.
+- Authenticated `PACKET_MUX_V1` is available to every TCP and UDP camouflage mode. It batches IP
+  packets, changes encrypted record boundaries and fragments when required without changing the
+  selected outer carrier.
+- Recordizer limits are server-controlled and authenticated during negotiation; no new client key
+  or qeli-link field is required. `prefer` retains rolling compatibility with legacy clients.
+- Reality/H2 suppresses the redundant qeli heartbeat and shipped Reality templates enable traffic
+  shaping. Bare `fake-tls` remains a separate carrier and does not gain real TLS/H2 or Reality
+  active-probe protection.
+
+### Session roaming and recovery
+
+- The shared Rust transport core now implements negotiated roaming for ordinary TCP and all UDP
+  camouflage modes. Client policy is `off | auto | required`; `required` fails before credentials
+  and full authentication when the complete peer/platform contract is unavailable.
+- TCP make-before-break uses a two-phase commit. The old carrier remains live until the new
+  platform path is applied and acknowledged; ambiguous post-commit failures terminate the
+  generation and perform a clean reconnect instead of risking a black hole.
+- UDP path migration queues authenticated candidate-path data until commit, bounds that queue,
+  rejects stale epochs and handles same-network NAT rebinding without silently losing accepted
+  traffic.
+- Android and iOS integrate physical-network changes with the common generation state machine.
+  Windows, macOS and Linux use the same fail-closed path result contract; an unsupported or stale
+  native core falls back to reconnect instead of pretending that migration succeeded.
+- Startup and live uplink PMTU probing use an authenticated 128-bit challenge. Route application,
+  path refresh and include-family mismatches are fail-closed, while explicit exclusions keep
+  priority over local-route capture.
+
+### Clients, routing and administration
+
+- Windows per-app mode continues to route only selected processes through the tunnel; with
+  `gateway = false`, those processes receive only explicit/pushed routes and the connected tunnel
+  subnet. Other public IPv4 and native IPv6 remain direct. Fragmented IPv4 NAT checksums are now
+  updated safely.
+- Windows/macOS `route_local`, IPv6 scope handling, persistent TUN reuse, kill-switch recovery and
+  generation ownership were tightened. macOS uses an isolated PF anchor and release validation
+  loads the production ruleset through real `pfctl` syntax checks.
+- Mobile and desktop profile editors expose the same roaming policy and preserve supported INI
+  fields not represented by form controls. Invalid imports and incompatible `required` settings
+  are rejected before persistence.
+- The panel exposes bounded aggregate roaming/transport health counters without session IDs,
+  proofs or secrets. Configuration pushes, user ACLs, backup/restore dependencies and lifecycle
+  mutations are validated before publication.
+- Documentation is reorganised into manuals, references, plans, reports and archives with strict
+  English/Russian parity and recursive link checks.
+
+### Build and verification
+
+- Linux portable and Debian binaries passed formatting, strict Clippy, 984 Rust tests plus CLI and
+  config suites, fuzz/conformance, dependency policy, jemalloc and glibc 2.28 compatibility gates.
+- Android arm64-v8a/x86_64, Windows x64 and macOS universal2 native cores were rebuilt in two
+  independent passes and are byte-identical per platform/ABI. Their common source digest is
+  `f07f26cc98d5338605bc10edab017ab8c9fe4e77af1fcf99b6c986516e769d58`.
+- The signed Android APK is `versionCode 720` / `versionName 0.8.0`; clean offline unit tests,
+  lint-vital, R8 and signature verification passed. Windows passed self-test and packetbench.
+  The universal macOS bundle contains both architectures and all Mach-O objects are signed.
+- OpenWrt SDK 23.05.5 and Keenetic recipes produced four OpenWrt and two Keenetic clients. Matching
+  aarch64 and mipsel pairs are intentionally byte-identical.
+
+For configuration details see the [configuration reference](../docs/eng/manuals/CONFIG.md),
+[roaming plan and contract](../docs/eng/plans/ROAMING.md) and
+[transport-core reference](../docs/eng/reference/TRANSPORT-CORE.md).
+
+---
+
+## Русский
+
+### Перед обновлением
+
+- Сначала обновите **сервер**. Сервер 0.8.0 принимает старый и новый Reality carrier, а новый
+  Reality-клиент использует настоящий HTTP/2 и не откатывается к прежнему внутреннему fake-TLS.
+- Для поэтапного включения `PACKET_MUX_V1` задайте на сервере
+  `obf.recordizer.policy = prefer`, переподключите клиентов и переходите на `required` только после
+  обновления всего парка. `off` сохраняет прежний data plane.
+- Старые серверные профили не включают роуминг молча: отсутствие `roaming.enabled` означает
+  `false`. Новые профили создаются с включёнными ограниченными defaults, клиенты используют
+  `roaming = auto`.
+- Поставляемые серверные шаблоны стали dual-stack: IPv4 плюс уникальный IPv6 ULA/NAT66-план.
+  Существующие конфиги автоматически не переписываются. Перед рестартом выполните
+  `qeli check-config`, а для миграции используйте [руководство IPv6](../docs/ru/manuals/IPV6.md).
+- Reality/H2 требует прозрачного TCP pass-through до qeli. TLS termination, H2 conversion или HTTP
+  routing на промежуточном reverse proxy ломают Reality-аутентификацию и carrier.
+
+### Настоящий Reality/H2 и общая морфология пакетов
+
+- `reality-tls` теперь передаёт трафик через один аутентифицированный долгоживущий двусторонний
+  HTTP/2 POST с ALPN `h2`, стандартным H2 framing и случайным batching 2–8 мс. Лишний внутренний
+  fake-TLS handshake/framing удалён; PacketCodec AEAD сохранён как дополнительный слой защиты.
+- Аутентифицированный `PACKET_MUX_V1` работает во всех TCP- и UDP-режимах маскировки: объединяет
+  IP-пакеты, меняет границы зашифрованных записей и при необходимости фрагментирует данные, не
+  меняя выбранный внешний carrier.
+- Лимиты recordizer задаются сервером и приходят в аутентифицированном согласовании; новые ключи
+  на клиенте или в qeli-ссылке не нужны. `prefer` сохраняет rolling-совместимость со старыми
+  клиентами.
+- Reality/H2 отключает лишний qeli heartbeat, а поставляемые Reality-шаблоны включают shaping.
+  Обычный `fake-tls` остаётся отдельным carrier и не получает настоящий TLS/H2 или Reality-защиту
+  от active probe.
+
+### Роуминг сессии и восстановление
+
+- Общее Rust-ядро реализует согласованный роуминг для обычного TCP и всех UDP camouflage modes.
+  Политика клиента: `off | auto | required`; `required` отказывает до передачи credentials и полной
+  аутентификации, если peer или платформа не поддерживает весь контракт.
+- TCP make-before-break использует двухфазную фиксацию. Старый carrier живёт, пока новый путь не
+  применён и не подтверждён платформой; неоднозначная post-commit ошибка завершает generation и
+  запускает чистый reconnect вместо риска blackhole.
+- UDP удерживает аутентифицированные данные candidate path до commit, ограничивает очередь,
+  отклоняет stale epoch и обрабатывает same-network NAT rebinding без тихой потери уже принятых
+  пакетов.
+- Android и iOS связывают смену физической сети с общей generation state machine. Windows, macOS
+  и Linux используют тот же fail-closed контракт результата; старое или несовместимое native core
+  переходит к reconnect, а не изображает успешную миграцию.
+- Startup/live PMTU probe использует аутентифицированный 128-битный challenge. Ошибки семейства
+  маршрута, path refresh и явного `include` закрываются fail-closed; `exclude` сохраняет приоритет.
+
+### Клиенты, маршрутизация и администрирование
+
+- Windows per-app направляет в VPN только выбранные процессы; при `gateway = false` им доступны
+  только явные/pushed routes и связанная подсеть туннеля, а остальной public IPv4 и native IPv6
+  остаются прямыми. Исправлена безопасная коррекция checksum для фрагментированного IPv4 NAT.
+- На Windows/macOS усилены `route_local`, IPv6 scope, повторное использование persistent TUN,
+  восстановление kill switch и владение generation. macOS использует отдельный PF anchor, а
+  release gate проверяет production ruleset реальным синтаксисом `pfctl`.
+- Мобильные и desktop-редакторы показывают одинаковую политику роуминга и сохраняют поддерживаемые
+  INI-поля вне формы. Невалидный импорт и несовместимый `required` отклоняются до сохранения.
+- Панель показывает ограниченные агрегированные показатели роуминга/состояния транспорта без CID,
+  proof и секретов. Push-параметры, ACL пользователей, зависимости backup/restore и lifecycle
+  изменения валидируются до публикации состояния.
+- Документация распределена по manuals, reference, plans, reports и archive; проверяются
+  рекурсивные ссылки и строгий паритет английской и русской версий.
+
+### Сборка и проверка
+
+- Portable Linux и Debian-пакет прошли formatting, strict Clippy, 984 Rust-теста плюс CLI/config,
+  fuzz/conformance, dependency policy, jemalloc и проверку совместимости с glibc 2.28.
+- Native cores Android arm64-v8a/x86_64, Windows x64 и macOS universal2 собраны двумя независимыми
+  проходами и побайтово воспроизводимы для каждой платформы/ABI. Общий source digest:
+  `f07f26cc98d5338605bc10edab017ab8c9fe4e77af1fcf99b6c986516e769d58`.
+- Подписанный APK имеет `versionCode 720` / `versionName 0.8.0`; clean offline unit tests,
+  lint-vital, R8 и проверка подписи прошли. Windows прошёл self-test и packetbench. Universal
+  macOS bundle содержит обе архитектуры, все Mach-O подписаны.
+- OpenWrt SDK 23.05.5 и Keenetic recipes собрали четыре OpenWrt- и два Keenetic-клиента.
+  Соответствующие aarch64- и mipsel-пары намеренно побайтово совпадают.
+
+Подробности: [справочник конфигурации](../docs/ru/manuals/CONFIG.md),
+[план и контракт роуминга](../docs/ru/plans/ROAMING.md) и
+[описание transport core](../docs/ru/reference/TRANSPORT-CORE.md).
+
+---
+
+## Artifacts · Артефакты
+
+The local release candidate contains 17 publishable payloads. Every payload is covered by the
+accompanying `SHA256SUMS`. Локальный кандидат содержит 17 публикуемых файлов; каждый покрыт
+прилагаемым `SHA256SUMS`.
+
+| Artifact | Size | SHA-256 (first 16) |
+|---|---:|---|
+| `qeli-android-0.8.0.apk` | 9.6 MB | `2741450f4e55a84e` |
+| `qeli-linux-amd64` | 12.5 MB | `5b7d3a0ba3512516` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `4193d1ed182d8036` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `55690faa05f9839c` |
+| `QeliWin-net-required.exe` | 7.9 MB | `b5341871f7105124` |
+| `QeliWin-standalone.exe` | 72.7 MB | `23f33967dbc9ed6e` |
+| `qeli-client-keenetic-aarch64` | 3.9 MB | `0583c37c5e3f7d04` |
+| `qeli-client-keenetic-mipsel` | 5.6 MB | `8fc2bfe18038e4c6` |
+| `qeli-client-openwrt-aarch64` | 3.9 MB | `0583c37c5e3f7d04` |
+| `qeli-client-openwrt-armv7` | 4.1 MB | `82e02f0ffc9744d0` |
+| `qeli-client-openwrt-mipsel` | 5.6 MB | `8fc2bfe18038e4c6` |
+| `qeli-client-openwrt-x86_64` | 4.6 MB | `641a74ac938b8e8b` |
+| `qeli-openwrt-files.tar.gz` | 12.7 KB | `be01d128f7d0c241` |
+| `install-keenetic.sh` | 2.3 KB | `fa12354977d6a81e` |
+| `Wintun-LICENSE.txt` | 5.3 KB | `9aaf948856ce8845` |
+| `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
+| `WinDivert-NOTICE.txt` | 0.3 KB | `8018c935ccc84a54` |
+
+The Keenetic/OpenWrt aarch64 pair and the Keenetic/OpenWrt mipsel pair are intentionally
+byte-identical. Полностью совпадающие хеши этих пар являются ожидаемым результатом.
+
+### Install · Установка
+
+See the [README](https://github.com/litvinovtd/qeli/blob/main/README.md) for complete instructions.
+Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/main/README.md).
+
+- Linux DEB: `sudo dpkg -i qeli_0.8.0_amd64.deb`
+- Verify downloads · Проверить файлы: `sha256sum -c SHA256SUMS`
+- Android is signed with the existing project key and is intended to install over 0.7.16.
+- Android подписан существующим ключом проекта и предназначен для установки поверх 0.7.16.
