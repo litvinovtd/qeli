@@ -107,7 +107,7 @@ class NativeLabTests(unittest.TestCase):
             (root / "src" / "z.rs").write_text("z")
             (root / "src" / "a.rs").write_text("a")
             (root / "src" / "nested" / "b.rs").write_text("b")
-            (root / "src" / "ignored.txt").write_text("ignored")
+            (root / "src" / "asset.css").write_text("asset")
             (root / "Cargo.toml").write_text("manifest")
             (root / "Cargo.lock").write_text("lock")
             connection = FakeConnection()
@@ -115,12 +115,13 @@ class NativeLabTests(unittest.TestCase):
             count = native_lab.sync_qeli_source(
                 connection, sftp, root, "/opt/qeli-src"
             )
-            self.assertEqual(count, 3)
+            self.assertEqual(count, 4)
             self.assertIn("rm -rf /opt/qeli-src/src", connection.commands[0][0])
             self.assertEqual(
                 [remote for _local, remote in sftp.puts],
                 [
                     "/opt/qeli-src/src/a.rs",
+                    "/opt/qeli-src/src/asset.css",
                     "/opt/qeli-src/src/z.rs",
                     "/opt/qeli-src/src/nested/b.rs",
                     "/opt/qeli-src/Cargo.toml",

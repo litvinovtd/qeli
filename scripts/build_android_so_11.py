@@ -198,7 +198,7 @@ def main() -> int:
         sftp = client.open_sftp()
         try:
             count = sync_qeli_source(client, sftp, LOCAL_QELI, REMOTE_SOURCE)
-            print(f"[sync] {count} .rs files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
+            print(f"[sync] {count} source/assets files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
             pass_hashes = collect_reproducible_hashes(
                 ARTIFACTS,
                 lambda pass_name: build_pass(

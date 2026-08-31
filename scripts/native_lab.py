@@ -143,7 +143,7 @@ def sync_qeli_source(
     local_qeli: str | os.PathLike[str],
     remote_source: str,
 ) -> int:
-    """Replace remote Rust sources/manifests with the exact local native inputs."""
+    """Replace remote sources/assets/manifests with the exact local build inputs."""
     if not remote_source.startswith("/") or remote_source == "/" or ".." in remote_source.split("/"):
         raise ValueError(f"unsafe remote source root: {remote_source!r}")
     local_root = Path(local_qeli)
@@ -156,8 +156,6 @@ def sync_qeli_source(
     for root, directories, names in os.walk(local_root / "src"):
         directories.sort()
         for name in sorted(names):
-            if not name.endswith(".rs"):
-                continue
             local = Path(root) / name
             relative = local.relative_to(local_root).as_posix()
             remote = posixpath.join(remote_source, relative)
