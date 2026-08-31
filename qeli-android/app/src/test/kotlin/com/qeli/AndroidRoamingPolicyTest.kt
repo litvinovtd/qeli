@@ -61,4 +61,71 @@ class AndroidRoamingPolicyTest {
         assertFalse(AndroidRoamingPolicy.canSchedulePathUpdate(false, 7))
         assertFalse(AndroidRoamingPolicy.canSchedulePathUpdate(true, 0))
     }
+
+    @Test
+    fun lateReplacementAfterWifiLossIsStillARoamingPath() {
+        assertEquals(
+            AndroidRoamingPolicy.AvailableNetworkAction.ROAM,
+            AndroidRoamingPolicy.availableNetworkAction(
+                hadCurrentNetwork = false,
+                waitingForReplacement = true,
+                networkChanged = true,
+                enteringTrustedWifi = false,
+            ),
+        )
+    }
+
+    @Test
+    fun initialNetworkDoesNotLookLikeARoamingPath() {
+        assertEquals(
+            AndroidRoamingPolicy.AvailableNetworkAction.KEEP,
+            AndroidRoamingPolicy.availableNetworkAction(
+                hadCurrentNetwork = false,
+                waitingForReplacement = false,
+                networkChanged = true,
+                enteringTrustedWifi = false,
+            ),
+        )
+    }
+
+    @Test
+    fun trustedWifiKeepsPausePolicyInChargeDuringReplacement() {
+        assertEquals(
+            AndroidRoamingPolicy.AvailableNetworkAction.KEEP,
+            AndroidRoamingPolicy.availableNetworkAction(
+                hadCurrentNetwork = false,
+                waitingForReplacement = true,
+                networkChanged = true,
+                enteringTrustedWifi = true,
+            ),
+        )
+    }
+
+    @Test
+    fun currentNetworkLossWaitsOnlyInsideALiveGeneration() {
+        assertTrue(
+            AndroidRoamingPolicy.shouldWaitForReplacement(
+                connected = true,
+                generation = 9,
+                hasServiceScope = true,
+                replacementAvailable = false,
+            ),
+        )
+        assertFalse(
+            AndroidRoamingPolicy.shouldWaitForReplacement(
+                connected = true,
+                generation = 0,
+                hasServiceScope = true,
+                replacementAvailable = false,
+            ),
+        )
+        assertFalse(
+            AndroidRoamingPolicy.shouldWaitForReplacement(
+                connected = true,
+                generation = 9,
+                hasServiceScope = true,
+                replacementAvailable = true,
+            ),
+        )
+    }
 }

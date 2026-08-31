@@ -153,6 +153,7 @@ enum IOSRoamingSocket {
     static func signature(for path: NWPath) -> String? {
         guard let interface = physicalInterface(for: path) else { return nil }
         let addresses = localAddresses(interfaceName: interface.name)
+        guard !addresses.isEmpty else { return nil }
         return "\(interface.name):\(interface.index):\(addresses.joined(separator: ","))"
     }
 
@@ -303,6 +304,8 @@ actor IOSRoamingController {
     private var updateID: UInt64 = 0
     private var observationRevision: UInt64 = 0
     private var pendingUpdate: Task<Void, Never>?
+    private var waitingForReplacement = false
+    private static let carrierReplacementWaitNanoseconds: UInt64 = 5_000_000_000
     private var observations: [UInt64: QeliPathUpdate] = [:]
     private var candidates: [UInt64: Candidate] = [:]
     private var rolledBack: [UInt64: QeliPathUpdate] = [:]
@@ -325,6 +328,8 @@ actor IOSRoamingController {
     func stop() {
         pendingUpdate?.cancel()
         pendingUpdate = nil
+        waitingForReplacement = false
+        observationRevision &+= 1
         active = nil
         observations.removeAll()
         candidates.removeAll()
@@ -343,6 +348,8 @@ actor IOSRoamingController {
     ) {
         pendingUpdate?.cancel()
         pendingUpdate = nil
+        waitingForReplacement = false
+        observationRevision &+= 1
         active = Active(
             transport: transport, generation: generation,
             carrierAddresses: distinct(carrierAddresses))
@@ -358,6 +365,8 @@ actor IOSRoamingController {
         pendingUpdate?.cancel()
         pendingUpdate = nil
         active = nil
+        waitingForReplacement = false
+        observationRevision &+= 1
         observations.removeAll()
         candidates.removeAll()
         rolledBack.removeAll()
@@ -365,7 +374,31 @@ actor IOSRoamingController {
 
     private func observed(_ path: NWPath) {
         latestPath = path
-        guard active != nil, let signature = IOSRoamingSocket.signature(for: path) else { return }
+        guard active != nil else { return }
+        guard let signature = IOSRoamingSocket.signature(for: path) else {
+            // NWPathMonitor reports .unsatisfied before cellular is ready when Wi-Fi is
+            // disabled. Retain the authenticated generation and let the next satisfied path
+            // become a roaming candidate instead of reconnecting in this callback gap.
+            guard !waitingForReplacement else { return }
+            pendingUpdate?.cancel()
+            observationRevision &+= 1
+            let revision = observationRevision
+            waitingForReplacement = true
+            pendingUpdate = Task { [weak self] in
+                do {
+                    try await Task.sleep(
+                        nanoseconds: IOSRoamingController.carrierReplacementWaitNanoseconds)
+                } catch { return }
+                await self?.replacementWaitExpired(revision: revision)
+            }
+            engine?.roamingLog("iOS physical path lost — waiting for a replacement carrier")
+            return
+        }
+
+        // A usable path, even the same Wi-Fi returning, resolves the break-before-make gap.
+        waitingForReplacement = false
+        pendingUpdate?.cancel()
+        pendingUpdate = nil
         guard let previous = baselineSignature else {
             baselineSignature = signature
             return
@@ -374,7 +407,6 @@ actor IOSRoamingController {
         baselineSignature = signature
         observationRevision &+= 1
         let revision = observationRevision
-        pendingUpdate?.cancel()
         pendingUpdate = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
             guard let self else { return }
@@ -384,9 +416,26 @@ actor IOSRoamingController {
         }
     }
 
+    private func replacementWaitExpired(revision: UInt64) {
+        guard waitingForReplacement, revision == observationRevision,
+              let state = active,
+              latestPath.flatMap(IOSRoamingSocket.signature) == nil else { return }
+        waitingForReplacement = false
+        pendingUpdate = nil
+        engine?.requestRoamingReconnect(
+            transport: state.transport,
+            generation: state.generation,
+            reason: "No replacement physical path appeared within 5 seconds")
+    }
+
     func requestUpdate(
         reason: String, requiredGeneration: UInt64?, reconnectOnFailure: Bool
     ) async -> Bool {
+        if waitingForReplacement, let state = active,
+           requiredGeneration == nil || requiredGeneration == state.generation {
+            // The bounded observation task owns reconnect fallback during this carrier gap.
+            return true
+        }
         guard let path = latestPath else {
             if reconnectOnFailure, let state = active,
                requiredGeneration == nil || requiredGeneration == state.generation {

@@ -8,6 +8,11 @@ package com.qeli
  * exact session enable TCP resume or the post-auth UDP CID envelope.
  */
 internal object AndroidRoamingPolicy {
+    enum class AvailableNetworkAction {
+        KEEP,
+        ROAM,
+    }
+
     const val PLATFORM_PATH_TRANSACTIONS = 1L shl 12
     const val PLATFORM_PATH_SOCKET_BINDING = 1L shl 13
     const val PLATFORM_PATH_REFRESH = 1L shl 14
@@ -26,4 +31,26 @@ internal object AndroidRoamingPolicy {
 
     fun canSchedulePathUpdate(pathTransactionsEnabled: Boolean, generation: Long): Boolean =
         pathTransactionsEnabled && generation > 0
+
+    /** Android may report Wi-Fi loss before the cellular replacement becomes available.
+     * In that break-before-make ordering, the first later onAvailable is a handover even though
+     * there is no longer a previous Network object to compare with. */
+    fun availableNetworkAction(
+        hadCurrentNetwork: Boolean,
+        waitingForReplacement: Boolean,
+        networkChanged: Boolean,
+        enteringTrustedWifi: Boolean,
+    ): AvailableNetworkAction = when {
+        enteringTrustedWifi -> AvailableNetworkAction.KEEP
+        waitingForReplacement -> AvailableNetworkAction.ROAM
+        hadCurrentNetwork && networkChanged -> AvailableNetworkAction.ROAM
+        else -> AvailableNetworkAction.KEEP
+    }
+
+    fun shouldWaitForReplacement(
+        connected: Boolean,
+        generation: Long,
+        hasServiceScope: Boolean,
+        replacementAvailable: Boolean,
+    ): Boolean = connected && generation > 0 && hasServiceScope && !replacementAvailable
 }

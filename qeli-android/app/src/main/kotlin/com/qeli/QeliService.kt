@@ -49,6 +49,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class VpnServiceImpl : VpnService() {
@@ -78,6 +79,9 @@ class VpnServiceImpl : VpnService() {
     private var screenReceiver: BroadcastReceiver? = null
     private var wakeReconnectJob: Job? = null
     @Volatile private var roamingUpdateJob: Job? = null
+    @Volatile private var carrierReplacementJob: Job? = null
+    private val waitingForCarrierReplacement = AtomicBoolean(false)
+    private val carrierReplacementSequence = AtomicLong(0)
     @Volatile private var screenOffAt = 0L
     @Volatile
     private var currentNetwork: Network? = null
@@ -178,6 +182,7 @@ class VpnServiceImpl : VpnService() {
         private const val TRANSPORT_CORE_POLL_MIN_MS = 20L
         private const val TRANSPORT_CORE_POLL_MAX_MS = 250L
         private const val NATIVE_TEARDOWN_WARN_MS = 5_000L
+        private const val CARRIER_REPLACEMENT_WAIT_MS = 5_000L
 
         // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
         // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
@@ -936,6 +941,7 @@ class VpnServiceImpl : VpnService() {
         activeConfig = config
         roamingUpdateJob?.cancel()
         roamingUpdateJob = null
+        cancelCarrierReplacementWait()
         activePlanGeneration = 0L
         pathUpdateSequence.set(0)
         nativeFatalError = null
@@ -1531,6 +1537,7 @@ class VpnServiceImpl : VpnService() {
                 if (transportCore === core) {
                     roamingUpdateJob?.cancel()
                     roamingUpdateJob = null
+                    cancelCarrierReplacementWait()
                     activePlanGeneration = 0L
                 }
             }
@@ -1756,6 +1763,7 @@ class VpnServiceImpl : VpnService() {
 
         roamingUpdateJob?.cancel()
         roamingUpdateJob = null
+        cancelCarrierReplacementWait()
         activePlanGeneration = 0L
         pathUpdateSequence.set(0)
         val core = transportCore
@@ -1838,6 +1846,13 @@ class VpnServiceImpl : VpnService() {
             // request should already exclude it).
             val caps = cm.getNetworkCapabilities(network)
             if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+            if (!usableCarrierNetwork(cm, network)) return
+            val replacementAfterLoss = waitingForCarrierReplacement.getAndSet(false)
+            if (replacementAfterLoss) {
+                carrierReplacementSequence.incrementAndGet()
+                carrierReplacementJob?.cancel()
+                carrierReplacementJob = null
+            }
             val enteringTrustedWifi =
                 classifyNetwork(caps) == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
             networkSignatures[network] = physicalNetworkSignature(cm, network)
@@ -1846,7 +1861,13 @@ class VpnServiceImpl : VpnService() {
                 // Best-matching callback: every onAvailable IS a change of the best
                 // (non-VPN, internet-capable) network — i.e. of the link we ride on.
                 currentNetwork = network
-                if (prev != null && prev != network && !enteringTrustedWifi) {
+                if (AndroidRoamingPolicy.availableNetworkAction(
+                        hadCurrentNetwork = prev != null,
+                        waitingForReplacement = replacementAfterLoss,
+                        networkChanged = prev != network,
+                        enteringTrustedWifi = enteringTrustedWifi,
+                    ) == AndroidRoamingPolicy.AvailableNetworkAction.ROAM
+                ) {
                     switchedNetwork("Network changed")
                 }
                 reevaluateTrustedWifi(caps)
@@ -1858,13 +1879,28 @@ class VpnServiceImpl : VpnService() {
             underlyingNets.add(network)
             if (prev == null || !underlyingNets.contains(prev)) {
                 currentNetwork = network
-                if (prev != null && !enteringTrustedWifi) switchedNetwork("Network changed")
+                if (AndroidRoamingPolicy.availableNetworkAction(
+                        hadCurrentNetwork = prev != null,
+                        waitingForReplacement = replacementAfterLoss,
+                        networkChanged = prev != network,
+                        enteringTrustedWifi = enteringTrustedWifi,
+                    ) == AndroidRoamingPolicy.AvailableNetworkAction.ROAM
+                ) {
+                    switchedNetwork("Network changed")
+                }
             }
             if (network == currentNetwork) reevaluateTrustedWifi(caps)
         }
 
         fun handleCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+            if ((waitingForCarrierReplacement.get() ||
+                    (bestMatching && network != currentNetwork)) &&
+                usableCarrierNetwork(cm, network)
+            ) {
+                handleAvailable(network)
+                return
+            }
             if (!TrustedWifiPolicy.shouldEvaluateCallback(network == currentNetwork)) return
             val trustedKind = classifyNetwork(caps)
             reevaluateTrustedWifi(caps)
@@ -1873,6 +1909,13 @@ class VpnServiceImpl : VpnService() {
         }
 
         fun handleLinkPropertiesChanged(network: Network) {
+            if ((waitingForCarrierReplacement.get() ||
+                    (bestMatching && network != currentNetwork)) &&
+                usableCarrierNetwork(cm, network)
+            ) {
+                handleAvailable(network)
+                return
+            }
             underlyingNetworkStateChanged(cm, network, "Network link properties changed")
         }
 
@@ -1888,11 +1931,78 @@ class VpnServiceImpl : VpnService() {
             // its best-matching onAvailable callback is delivered. Adopt it synchronously so
             // the roaming core can make a candidate instead of forcing a full reconnect in
             // that callback gap.
-            currentNetwork = if (bestMatching) firstUsableCarrierNetwork(cm, excluding = network)
+            val replacement = if (bestMatching) firstUsableCarrierNetwork(cm, excluding = network)
                 else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
-            switchedNetwork("Network lost")
-            currentNetwork?.let { replacement ->
-                cm.getNetworkCapabilities(replacement)?.let(::reevaluateTrustedWifi)
+            currentNetwork = replacement
+            if (replacement != null) {
+                val replacementCaps = cm.getNetworkCapabilities(replacement)
+                val enteringTrustedWifi = replacementCaps?.let(::classifyNetwork) ==
+                    TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
+                if (!enteringTrustedWifi) switchedNetwork("Network lost")
+                replacementCaps?.let(::reevaluateTrustedWifi)
+            } else {
+                val waitScope = coroutineScope
+                val shouldWait = AndroidRoamingPolicy.shouldWaitForReplacement(
+                    connected = liveStatus == STATUS_CONNECTED,
+                    generation = activePlanGeneration,
+                    hasServiceScope = waitScope != null,
+                    replacementAvailable = false,
+                )
+                if (shouldWait && waitScope != null) {
+                    roamingUpdateJob?.cancel()
+                    roamingUpdateJob = null
+                    declareNoUnderlyingNetwork()
+                    carrierReplacementJob?.cancel()
+                    val waitSequence = carrierReplacementSequence.incrementAndGet()
+                    waitingForCarrierReplacement.set(true)
+                    carrierReplacementJob = waitScope.launch(Dispatchers.IO) {
+                        val deadline =
+                            SystemClock.elapsedRealtime() + CARRIER_REPLACEMENT_WAIT_MS
+                        while (currentCoroutineContext().isActive &&
+                            carrierReplacementSequence.get() == waitSequence &&
+                            waitingForCarrierReplacement.get()
+                        ) {
+                            val lateReplacement =
+                                firstUsableCarrierNetwork(cm, excluding = network)
+                            if (lateReplacement != null &&
+                                waitingForCarrierReplacement.compareAndSet(true, false)
+                            ) {
+                                carrierReplacementJob = null
+                                if (carrierReplacementSequence.get() != waitSequence) return@launch
+                                currentNetwork = lateReplacement
+                                networkSignatures[lateReplacement] =
+                                    physicalNetworkSignature(cm, lateReplacement)
+                                if (!bestMatching) underlyingNets.add(lateReplacement)
+                                val caps = cm.getNetworkCapabilities(lateReplacement)
+                                val enteringTrustedWifi = caps?.let(::classifyNetwork) ==
+                                    TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
+                                if (!enteringTrustedWifi) {
+                                    switchedNetwork("Replacement network discovered")
+                                }
+                                caps?.let(::reevaluateTrustedWifi)
+                                return@launch
+                            }
+                            if (SystemClock.elapsedRealtime() >= deadline) break
+                            delay(250)
+                        }
+                        if (carrierReplacementSequence.get() != waitSequence ||
+                            !waitingForCarrierReplacement.compareAndSet(true, false)
+                        ) {
+                            return@launch
+                        }
+                        carrierReplacementJob = null
+                        if (liveStatus == STATUS_CONNECTED) {
+                            broadcastLog(
+                                "Replacement network did not appear within " +
+                                    "${CARRIER_REPLACEMENT_WAIT_MS / 1000}s — using full reconnect"
+                            )
+                            forceReconnect()
+                        }
+                    }
+                    broadcastLog("Network lost — waiting for a replacement carrier")
+                } else {
+                    switchedNetwork("Network lost")
+                }
             }
         }
 
@@ -1990,9 +2100,16 @@ class VpnServiceImpl : VpnService() {
     /** A link we could actually reach the server over: not our own tun, and internet-capable. */
     private fun usableCarrierNetwork(cm: ConnectivityManager, network: Network): Boolean {
         val caps = try { cm.getNetworkCapabilities(network) } catch (_: Exception) { null }
+        val links = try { cm.getLinkProperties(network) } catch (_: Exception) { null }
+        val hasUsableAddress = links?.linkAddresses?.any { link ->
+            link.address is Inet4Address ||
+                (link.address is Inet6Address && !link.address.isLinkLocalAddress)
+        } == true
         return caps != null
             && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
             && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            && hasUsableAddress
     }
 
     /** Last-resort lookup when the tracked network is gone: prefer a validated link, but take
@@ -2332,7 +2449,15 @@ class VpnServiceImpl : VpnService() {
         )
     }
 
+    private fun cancelCarrierReplacementWait() {
+        waitingForCarrierReplacement.set(false)
+        carrierReplacementSequence.incrementAndGet()
+        carrierReplacementJob?.cancel()
+        carrierReplacementJob = null
+    }
+
     private fun unregisterNetworkCallback() {
+        cancelCarrierReplacementWait()
         val cb = netCallback
         netCallback = null
         underlyingNets.clear()
@@ -2356,6 +2481,7 @@ class VpnServiceImpl : VpnService() {
     /** Cancel the live native generation (not the TUN) so the retry loop reconnects. Does NOT set
      *  userRequestedDisconnect, so the reconnect proceeds. */
     private fun forceReconnect() {
+        cancelCarrierReplacementWait()
         // Debounce: a flapping default network (poor coverage, elevator, Wi-Fi<->LTE
         // bouncing) fires onAvailable repeatedly. Without this guard every callback
         // stopped the live generation and kicked another reconnect, and together with

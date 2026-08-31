@@ -157,6 +157,8 @@ public abstract class VpnTunnelBase
                 return false;
             }
             _userRequestedDisconnect = false;
+            Interlocked.Increment(ref _networkObservationRevision);
+            Interlocked.Exchange(ref _networkObservationPending, 0);
             // TestHandshake latches this and used to never clear it, so a GUI object that had
             // run the headless handshake test once connected forever after WITHOUT a TUN —
             // "connected", no traffic. Reset it with the rest of the per-run state.
@@ -285,6 +287,8 @@ public abstract class VpnTunnelBase
         lock (_lifecycleLock)
         {
             _userRequestedDisconnect = true;
+            Interlocked.Increment(ref _networkObservationRevision);
+            Interlocked.Exchange(ref _networkObservationPending, 0);
             try { _cts?.Cancel(); } catch { }
             // Phase 1 — SOCKETS ONLY (keepTun), to wake every blocking read. The TUN and the
             // platform network state must NOT be torn down yet: the connect thread can be deep
@@ -434,8 +438,12 @@ public abstract class VpnTunnelBase
     // afterwards a failure says nothing about the server — the network is simply not carrying
     // traffic yet. See the escalation site in ConnectWithRetry for what this suppresses.
     private const int SettlingWindowMs = 30_000;
+    private const int CarrierReplacementWaitMs = 5_000;
     private const int SettlingAttemptCap = 3;   // ≤ base·2² — 4 s at the default base of 1 s
     private long _settlingUntilTick;
+    // Invalidates an older settle task when a newer address event, Stop or Start wins.
+    private long _networkObservationRevision;
+    private int _networkObservationPending;
 
     /// <summary>Resume-from-sleep variant of <see cref="ForceReconnect"/>. The OS raises Resume
     /// while Wi-Fi is still reassociating and DHCP is pending, so cycling right then tears the
@@ -445,7 +453,8 @@ public abstract class VpnTunnelBase
     /// blind attempts. So wait off-thread for a physical interface to carry an IPv4 or IPv6 address
     /// again, bounded, and only then cycle. Fires anyway at the bound so a machine that resumes
     /// with no network at all still reconnects rather than waiting forever.</summary>
-    public void ForceReconnectWhenNetworkReady(string reason, int maxWaitMs = 15_000)
+    public void ForceReconnectWhenNetworkReady(
+        string reason, int maxWaitMs = 15_000, string pathReason = "wake")
     {
         // Arm the settling window on the OS event itself, BEFORE the `_wasConnected` guard
         // below can return: after a suspend the tunnel is usually already gone, and that is
@@ -453,27 +462,53 @@ public abstract class VpnTunnelBase
         // that the server is down. See NoteNetworkSettling.
         NoteNetworkSettling();
         if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
+        // The daemon polls once per second and GUI callbacks arrive in bursts. Keep one bounded
+        // settle operation so repeated empty/intermediate snapshots cannot restart its deadline.
+        if (Interlocked.CompareExchange(ref _networkObservationPending, 1, 0) != 0) return;
+        long observationRevision = Interlocked.Increment(ref _networkObservationRevision);
         Task.Run(async () =>
         {
-            long deadline = Environment.TickCount64 + maxWaitMs;
-            while (PhysicalNetSignature().Length == 0 && Environment.TickCount64 < deadline)
-                await Task.Delay(500).ConfigureAwait(false);
-            // Only cycle if the physical path actually CHANGED across the suspend. A laptop that
-            // wakes on the same Wi-Fi has a working tunnel, and tearing it down costs a full
-            // handshake for nothing; a path that died silently is caught by the RX-liveness
-            // watchdog within seconds instead. Same rule the Android client applies on wake.
-            string now = PhysicalNetSignature();
-            if (now.Length > 0 && now == _lastNetSig)
+            try
             {
-                Log($"{reason} — same network, keeping the tunnel");
-                return;
+                long deadline = Environment.TickCount64 + maxWaitMs;
+                string baseline = _lastNetSig;
+                string? attemptedSignature = null;
+                while (true)
+                {
+                    if (observationRevision != Interlocked.Read(ref _networkObservationRevision)
+                        || _userRequestedDisconnect || !IsRunning || !_wasConnected)
+                        return;
+                    string now = PhysicalNetSignature();
+                    if (now.Length > 0 && now == baseline)
+                    {
+                        Log($"{reason} — same network, keeping the tunnel");
+                        return;
+                    }
+                    if (now.Length > 0 && now != attemptedSignature)
+                    {
+                        attemptedSignature = now;
+                        if (TrySubmitNativePathUpdate(pathReason))
+                        {
+                            _lastNetSig = now;
+                            return;
+                        }
+                    }
+                    if (Environment.TickCount64 >= deadline)
+                    {
+                        _lastNetSig = now;
+                        ForceReconnect(reason, rebuildNetwork: true);
+                        return;
+                    }
+                    await Task.Delay(500).ConfigureAwait(false);
+                }
             }
-            // The resume path does not pass through OnNetworkChanged, so make the newly
-            // observed topology the comparison baseline before its forced rebuild begins.
-            _lastNetSig = now;
-            if (TrySubmitNativePathUpdate("wake"))
-                return;
-            ForceReconnect(reason, rebuildNetwork: true);
+            finally
+            {
+                // Stop/Start and a newer operation increment the revision; an old completion
+                // must never clear the pending bit owned by that newer generation.
+                if (observationRevision == Interlocked.Read(ref _networkObservationRevision))
+                    Interlocked.CompareExchange(ref _networkObservationPending, 0, 1);
+            }
         });
     }
 
@@ -530,10 +565,8 @@ public abstract class VpnTunnelBase
         if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
         var sig = PhysicalNetSignature();
         if (sig == _lastNetSig) return;   // our own TUN up/down, or noise — ignore
-        _lastNetSig = sig;
-        if (TrySubmitNativePathUpdate("network_changed"))
-            return;
-        ForceReconnect("Network changed", rebuildNetwork: true);
+        ForceReconnectWhenNetworkReady(
+            "Network changed", CarrierReplacementWaitMs, "network_changed");
     }
 
     /// <summary>Convert one platform observation into the shared generation-scoped path
