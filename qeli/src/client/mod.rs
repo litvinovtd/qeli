@@ -4210,7 +4210,10 @@ where
         }
     };
     let server_capabilities = handshake.server_capabilities;
+    #[cfg(feature = "experimental-roaming")]
     let client_capabilities = handshake.client_capabilities;
+    #[cfg(not(feature = "experimental-roaming"))]
+    let client_capabilities = None;
     #[cfg(feature = "experimental-roaming")]
     let tcp_control_v2 = client_capabilities.is_some_and(|client| {
         client.core_bits & crate::protocol::capabilities::client_capability::CONTROL_V2 != 0
@@ -7579,6 +7582,7 @@ struct ClientUdpReceivedDatagram {
     datagram: crate::transport_core::udp_receive::PooledUdpDatagram,
     /// Candidate DATA is authenticated before PATH_COMMIT can be recognized. Retain that
     /// plaintext exactly once so commit can publish it without replaying the AEAD counter.
+    #[cfg_attr(not(feature = "experimental-roaming"), allow(dead_code))]
     authenticated_plaintext: Option<Vec<u8>>,
 }
 
@@ -9020,7 +9024,6 @@ pub(crate) async fn run_udp_tunnel(
         crate::transport_core::udp_roaming_client::UdpClientNatRecoveryPolicy::default();
     #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut early_candidate_data = ClientUdpEarlyDataQueue::default();
-    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     let mut committed_early_data = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
 
     let mut unsupported_inner_drops = 0u64;
@@ -9644,6 +9647,10 @@ pub(crate) async fn run_udp_tunnel(
                     received_rx.recv().await
                 }
             } => {
+                #[cfg_attr(
+                    not(feature = "experimental-roaming"),
+                    allow(unused_mut)
+                )]
                 let Some(mut recv_buf) = received else {
                     break;
                 };
