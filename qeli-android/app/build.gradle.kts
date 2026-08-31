@@ -106,7 +106,7 @@ dependencies {
     // which is exactly what happened to the conformance test that reads
     // conformance/qeli-links.json. Test-only: the app itself uses the platform's real
     // implementation on-device.
-    testImplementation("org.json:json:20260719")
+    testImplementation("org.json:json:20260814")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }
