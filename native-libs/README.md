@@ -14,34 +14,34 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 1.89 МиБ | ABI 1.10 whole-client core + UDP diagnostic | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 2.16 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
-| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 3.25 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
-| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 7.97 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 3.13 МиБ | ABI 1.14 whole-client core + roaming | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 3.53 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.69 МиБ | ABI 1.14 whole-client core + REALITY C ABI | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
+| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.91 МиБ | ABI 1.14 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 | `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app packet capture | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
-> **Закоммиченный binary baseline:** все четыре first-party binaries собраны 2026-08-19
-> из clean commit `b1e220d` с ABI 1.10; его A/B evidence, `SHA256SUMS` и `PROVENANCE`
-> согласованы между собой. Текущее исходное дерево уже использует ABI 1.11 и 80-key
-> config contract, поэтому baseline закономерно считается stale относительно source.
-> Релиз 0.8.0 запрещён до повторной воспроизводимой сборки всех native cores, обновления
-> consumed-копий и успешных provenance/hash/ABI/platform gates.
+> **Закоммиченные first-party binaries:** все четыре библиотеки соответствуют ABI 1.14 и
+> source digest `342e61a4…`. Desktop и Android независимо прошли чистую byte-identical A/B
+> сборку; evidence, `SHA256SUMS`, canonical и consumed-копии согласованы. Коммиты сборочных
+> evidence различаются, но их полный digest Rust-источника одинаков. Команда
+> `python native-libs/provenance.py --check` сейчас сообщает `OK`. Повторная сборка ядра
+> обязательна только после изменения `qeli/src`, `qeli/Cargo.toml` или `qeli/Cargo.lock`;
+> изменения платформенного приложения всё равно требуют новой упаковки и её release-gates.
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs`, `src/transport_core/ffi.rs` и Android JNI adapter,
 кросс-скомпилированный под разные таргеты. Экспорты:
-`qeli_realtls_{new,recv,seal,open,free,buf_free}` (6 символов C ABI) и 20
-`qeli_client_*`; текущий исходный Android ABI требует 19
-`Java_com_qeli_TransportCore_*` (canonical `.so` получает их при обязательной пересборке ниже).
+`qeli_realtls_{new,recv,seal,open,free,buf_free}` (6 символов C ABI) и 22
+`qeli_client_*`; Android ABI требует 21 `Java_com_qeli_TransportCore_*`.
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия лежащих сейчас бинарников:** baseline собран 2026-08-19 из дерева разработки 0.7.16 с
-ABI 1.10 transport-core, включая два cancellable UDP-probe JNI exports и dependency baseline из
-`Cargo.lock` коммита `b1e220d`. Для текущего source `provenance.py --check` обязан сообщать stale до
-плановой пересборки 0.8.0; публикация требует platform/signing/E2E gates. Поверхность baseline включает
+**Версия лежащих сейчас бинарников:** ABI 1.14 transport-core с 81-key config contract,
+типизированными roaming path transactions, `PATH_REFRESH`, статистикой V3 и cancellable
+UDP-probe JNI. Для текущего Rust source `provenance.py --check` обязан сообщать `OK`;
+публикация приложений по-прежнему требует platform/signing/E2E gates. Поверхность включает
 поддержку обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
@@ -98,8 +98,8 @@ python scripts/build_android_so_11.py    # arm64-v8a + x86_64 libqeli.so
 4. дважды собирают `--locked` с `CARGO_INCREMENTAL=0`, `panic=unwind`, remap исходного пути
    и разными чистыми `CARGO_TARGET_DIR` (`a`/`b`); после сохранения конечного файла тяжёлый
    target-кэш прохода удаляется, чтобы A/B укладывался в свободное место лабы;
-5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 20 client;
-   Android дополнительно 19 JNI). Для macOS до ad-hoc подписи нормализуются случайный
+5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 22 client;
+   Android дополнительно 21 JNI). Для macOS до ad-hoc подписи нормализуются случайный
    `LC_UUID` и недопустимый нестабильный Zig 0.13 GOT-index, install name закреплён как
    `@rpath/libqeli.dylib`;
 6. только после этого атомарно заменяют canonical/consumed копии и создают
@@ -109,7 +109,7 @@ SSH/SFTP, ограниченный source-sync, проверка удалённ�
 один раз в `scripts/native_lab.py`; обязательные A/B-проходы — в `scripts/native_repro.py`.
 CI запускает 35 mock/unit-тестов этих контрактов, включая отказ до записи при несовпадении хеша,
 запрет destination вне репозитория, строгий toolchain и гарантию, что выполняются оба прохода
-`a` и `b`, а также точное совпадение 80 распознаваемых ключей конфигурации Rust/Android/
+`a` и `b`, а также точное совпадение 81 распознаваемого ключа конфигурации Rust/Android/
 Windows/macOS/iOS.
 
 Раньше desktop-скрипт не синхронизировал локальный source и не забирал результат: он мог
