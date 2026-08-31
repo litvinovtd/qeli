@@ -1,11 +1,14 @@
 # Full IPv6 support — implementation plan
 
 Status: source implementation complete; release certification is still in progress. Updated:
-2026-08-21.
+2026-08-31.
 
 The development runtime gate and authenticated capability negotiation are enabled. This is
-not yet a release-readiness claim: the physical/native and Linux network-namespace matrix in
-section 14 must still pass with freshly rebuilt native cores before a release is promoted.
+not yet a release-readiness claim. ABI 1.14 native cores have passed independent A/B builds
+and provenance. The automated Linux base matrix has passed 14/14 cases for outer IPv4/IPv6,
+inner IPv4/IPv6/dual, TCP/UDP/QUIC and full/split routing, including cross-family leak and
+cleanup checks. The special DNS/PMTU/PTB/TAP/legacy cases and the physical platform matrix in
+section 14 must still pass on the exact final candidate artifacts before release promotion.
 
 This document defines **full**, not partial, IPv6 support in Qeli. The work may be split
 into internal development stages, but no intermediate stage may be advertised as IPv6
@@ -423,6 +426,13 @@ source-tree copy.
 
 ### Linux network namespaces
 
+Current automated result (2026-08-31): **14/14 base cases passed** on the Linux lab. The
+runner covered all outer4/outer6 × inner4/inner6 combinations over TCP, UDP fake-TLS and
+UDP QUIC in full-tunnel mode, plus dual-stack TCP/UDP split-tunnel cases. It verified TUN
+addresses and routes, bidirectional traffic, split bypass, cross-family leak prevention and
+post-test restoration. This is recorded as base-matrix evidence, not as completion of the
+larger release matrix below.
+
 The matrix contains outer4/inner4, outer4/inner6, outer6/inner4, outer6/inner6, dual and
 IPv6-only physical networks; TCP/UDP/QUIC; every obfuscation/Quick Start mode; full/split;
 AAAA and IPv6 upstream DNS; ACL/isolation/`client_subnet`; routed/NAT66; MTU 1280;
@@ -461,7 +471,7 @@ be branded as “full”.
 14. ✅ Complete Windows/macOS per-app mode source adapters.
 15. ✅ Complete TAP/NDP/RA.
 16. ✅ Update panel, Quick Start, installer, `.deb`, Docker, examples, and documentation.
-17. ⏳ Pass the physical release matrix and rebuild/verify every native core.
+17. ⏳ Native cores and the 14-case Linux base matrix are verified; complete the special Linux and physical release cases.
 
 Stages 1–6 previously blocked inner IPv6 even in an experimental profile: without
 negotiation, correct MTU, and data fragmentation the result risked incompatibility, black

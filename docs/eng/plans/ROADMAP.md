@@ -13,8 +13,12 @@ Priorities: **P1** — noticeably affects security/functionality, **P2** — qua
   a new client uses H2 only and does not downgrade. Bare `fake-tls` is still a separate mode/profile.
 - ✅ Dated lab PCAP: 6/6 sessions completed; the old carrier classifier matched 0/6 (controls 0/6).
   This validates that capture and classifier only, not a universal detection probability.
-- 🟡 Remaining work: browser-family TLS/H2 profiles, target-specific H2 settings, hostile active
-  probes, malformed/reconnect/long-lived tests, a clean full-speed H2 benchmark, and real H3.
+- ✅ A clean full-speed H2 lab benchmark is published for binary SHA-256 `2f69b48f…`:
+  `reality-tls` reached 827.9 Mbps upload and 647.8 Mbps download with zero server drops.
+- 🟡 Remaining work: browser-family TLS/H2 profiles, target-specific H2 SETTINGS, hostile
+  active probes, malformed/reconnect/long-lived tests, and a repeatable 5× final-SHA benchmark.
+- 🔵 Genuine H3/MASQUE is deferred to 0.9.x. `udp-quic` remains QUIC-shape masking and
+  must not be described as HTTP/3.
 
 See [DPI-AUDIT.md](../reports/DPI-AUDIT.md), [CONFIG.md](../manuals/CONFIG.md), and
 [the dated PCAP report](../../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
@@ -411,9 +415,9 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](../archive
      `/0` → beats any default without deleting it; the server-bypass `/32` and connected
      `/24` stay intact; teardown's `flush dev` removes the halves). Verified in an isolated
      netns: OLD routed 8.8.8.8 via the physical gw, NEW routes it via `dev vpn0`. Gate green.
-3. 🟡 **P2 — adaptive mode under load** — implemented (ramp 1→max by throughput), but
-   e2e is confirmed only for FIXED; the adaptive ramp itself under real traffic has
-   NOT been run (threshold 250 KB/s, step 3s, stop at <10% gain).
+3. ✅ **P2 — adaptive mode under real tunnel load** — the Linux live gate passed:
+   single 17/17, fixed 21/21, and adaptive 22/22; adaptive grew to three streams and restored
+   its learned width after handover. The physical “4 vs 1” gain remains item 2.
 4. ✅ **P2 — resilience to the loss of one stream DONE 2026-06-08** — the death of a
    bonded stream now tears down the tunnel ONLY if it was the last one; otherwise the
    stream drops out of the round-robin, the tunnel proceeds on the remaining ones (a
@@ -427,50 +431,42 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](../archive
 
 ## P1 — next
 
-### Surfacing the drop breakdown in the mobile ABI (after 2026-08-15)
+### Surfacing the drop breakdown in the mobile ABI (V4 planned)
 
-The "throughput collapses after sleep" investigation is closed in full: the wake policy,
-downlink slot sizing in all four pumps (Linux/Android, Wintun, the iOS/Windows packet
-bridge), no backoff escalation for a deliberate CLI reconnect, and `internal_drops` split
-into five reasons plus the TUN writer's own refusals.
+The “throughput collapses after sleep” investigation is closed: wake policy, downlink-slot
+sizing, no backoff escalation for deliberate reconnects, and the five-way `internal_drops`
+breakdown plus TUN-writer refusals are already in the core and CLI diagnostics.
 
-One item is deliberately left: the breakdown is visible in the CLI (`stats.udp_drops_*` in
-the diagnostics file) and in the server log, but **not** in the mobile ABI.
-`QeliClientStats` is size-versioned (`STATS_V2_SIZE`), so five new fields mean a V3 plus
-matching changes in JNI, Swift and both UIs. Breaking the ABI for diagnostics nobody reads
-on a phone today was not worth it: `udp_internal_drops` stayed the sum and did not change
-meaning.
+`QeliClientStats` already has a 144-byte **V3**. After the stable V1/V2 prefixes it stores six
+roaming metrics (attempts/successes/failures/reconnect fallbacks/candidates/latency). iOS reads
+the full V3, while Android JNI still returns eight V2-like values and C# desktop stops at V2,
+so neither currently exposes the roaming telemetry.
 
-### Extend the control channel for live in-session PUSH (→ 0.8.0, BEFORE roaming)
+The five per-cause UDP-drop fields therefore require **V4**, not V3. First surface existing V3
+on Android/Windows/macOS, then add V4 once across the C header, Rust FFI, JNI, Swift and C#
+without changing the older prefixes.
 
-Today DNS/routes/MTU/multipath arrive **only** in `AuthOK` during the handshake
-([handler.rs](../../../qeli/src/server/handler.rs)), and changing any of them takes
-a reconnect. The protocol already has authenticated typed in-tunnel control frames in
-[`ctrl.rs`](../../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` and `CTRL_CLIENT_INFO` travel
-client → server as `[0xC1 0x9B][type][u8 len][payload]`. What is missing is a negotiated,
-server → client control plane and acknowledgement/error semantics.
+### Complete CONTROL_V2 as a management channel (→ 0.8.x)
 
-The existing discriminator remains compatible because an IP packet starts with nibble 4 or 6:
+DNS/routes/MTU/multipath still apply from `AuthOK`; a live change needs a reconnect or a new
+runtime handler.
 
-```
-empty            → heartbeat
-first nibble 4/6 → IP packet
-0xC1 0x9B        → existing control: [type][u8 len][payload]
-```
+[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) already implements magic/version/
+type/flags/message id, bounded fragmentation/reassembly, ACK/error and limits. Roaming path
+messages use this format end-to-end. The general server → client runtime dispatcher, however,
+handles only path-control/session close; `PUSH_CONFIG`, `KICK` and `NOTICE` are declarations and
+test frames rather than completed product features.
 
-- Add explicit control-version/capability negotiation to the auth exchange. The server must send
-  new downlink frames only to a client that advertised each capability; do not rely on an old
-  client discarding an unknown record.
-- Keep the first new downlink type set small: `PUSH_CONFIG` (a routes/DNS/MTU/multipath delta),
-  `KICK` (with a reason), `NOTICE` (quota/expiry), plus an ACK/error response where required.
-- ⚠️ **Android:** `VpnService` cannot change routes on a live interface — it needs a new
-  `Builder` + `establish()`. Pushing routes there means re-establishing the interface (no
-  handshake, but a brief gap). Plan for this from the start.
-- Payoff: unblocks the deferred hot-reload Tier A, and enables kick-with-a-reason and
-  quota warnings.
+Remaining work:
 
-**Do this before roaming:** roaming needs a server-notification mechanism, or it will have
-to be reworked afterwards.
+1. a negotiated dispatcher with capability, idempotency, retry and explicit error results;
+2. `KICK` with a reason and quota/expiry `NOTICE` first, because they do not mutate OS networking;
+3. then a typed, generation-safe `PUSH_CONFIG` for DNS/routes/MTU/multipath;
+4. Android route push must call a new `VpnService.Builder.establish()` and briefly replace the
+   TUN because routes cannot be changed on a live interface.
+
+For 0.8.0, `KICK`/`NOTICE` are desirable while full `PUSH_CONFIG` can explicitly move to 0.8.1.
+Completed roaming no longer depends on it and uses separate negotiated capabilities.
 
 ### Full IPv6 support (0.8.0 development line; certification pending)
 
@@ -480,9 +476,10 @@ independent outer IPv4/IPv6, inner `ipv4|dual|ipv6`, TUN and TAP, TCP/UDP/QUIC, 
 routing and DNS, MTU/PMTU and UDP data fragmentation, kill switch, every system/per-app
 client, panel, Quick Start, installer, packages, and examples.
 
-The source implementation is now the 0.8.0 development line. It ships only after the
-physical/native and Linux network-namespace certification matrix; until then it is
-development code, not a release.
+The source implementation is now the 0.8.0 development line. The automated Linux base matrix
+passed 14/14 outer/inner/transport cases on 2026-08-31, including cross-family leak and cleanup
+checks. Special DNS/PMTU/PTB/TAP/legacy cases and the physical/native certification matrix remain.
+Until those gates pass against final artifacts, this is development code, not a release.
 
 Intermediate stages are development-only. The feature cannot ship or be called complete
 until the entire IPv6-only/dual-stack release matrix passes. User configuration remains

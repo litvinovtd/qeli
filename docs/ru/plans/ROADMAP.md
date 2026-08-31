@@ -13,8 +13,12 @@
   новый клиент использует только H2 и не делает downgrade. Bare `fake-tls` остаётся отдельным режимом.
 - ✅ Датированный lab PCAP: завершены 6/6 сессий; старый carrier-classifier совпал в 0/6
   (контроли 0/6). Это проверка данного capture/classifier, а не универсальная вероятность обнаружения.
-- 🟡 Осталось: TLS/H2 профили семейств браузеров, H2 settings под target, hostile active probes,
-  malformed/reconnect/long-lived сценарии, чистый full-speed H2 benchmark и настоящий H3.
+- ✅ Чистый full-speed H2 lab benchmark опубликован для бинарника SHA-256 `2f69b48f…`:
+  `reality-tls` 827,9 Мбит/с upload и 647,8 Мбит/с download, server drops 0.
+- 🟡 Осталось: TLS/H2 профили семейств браузеров, H2 SETTINGS под target, hostile active
+  probes, malformed/reconnect/long-lived тесты и повторяемый 5× benchmark на финальном SHA.
+- 🔵 Настоящий H3/MASQUE перенесён в 0.9.x. `udp-quic` остаётся маскировкой формы QUIC и
+  не должен называться HTTP/3.
 
 См. [DPI-AUDIT.md](../reports/DPI-AUDIT.md), [CONFIG.md](../manuals/CONFIG.md) и
 [датированный PCAP-отчёт](../../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
@@ -379,9 +383,9 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](../archi
      → бьёт любой default без его удаления; server-bypass `/32` и connected `/24` целы;
      teardown — `flush dev` убирает /1 сам). Проверено в изолированном netns: OLD →
      `route get 8.8.8.8` шёл через физический gw, NEW → через `dev vpn0`. Гейт зелёный.
-3. 🟡 **P2 — adaptive-режим под нагрузкой** — реализован (ramp 1→max по throughput), но
-   e2e подтверждён только FIXED; сам адаптивный ramp под реальным трафиком НЕ прогонялся
-   (порог 250 КБ/с, шаг 3с, стоп при <10% прироста).
+3. ✅ **P2 — adaptive-режим под реальной tunnel-нагрузкой** — Linux live gate прошёл:
+   single 17/17, fixed 21/21, adaptive 22/22; adaptive вырос до трёх потоков и восстановил
+   learned width после handover. Физический замер прироста «4 vs 1» остаётся в пункте 2.
 4. ✅ **P2 — устойчивость к потере одного потока СДЕЛАНО 2026-06-08** — смерть bonded-
    потока теперь рвёт туннель ТОЛЬКО если это был последний; иначе поток выбывает из
    round-robin, туннель идёт на оставшихся (счётчик `live` + per-stream `dead`-флаг;
@@ -394,53 +398,42 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](../archi
 
 ## P1 — следующее
 
-### Разбивка потерь наружу, в мобильный ABI (после 2026-08-15)
+### Разбивка потерь наружу, в мобильный ABI (планируется V4)
 
-Разбор «после сна падает скорость» закрыт целиком: политика пробуждения, размер слотов
-downlink-пула во всех четырёх насосах (Linux/Android, Wintun, packet-мост iOS/Windows),
-неэскалация намеренного реконнекта в CLI и разбивка `internal_drops` на пять причин плюс
-учёт отказов самого писателя TUN.
+Разбор «после сна падает скорость» закрыт: политика пробуждения, размер слотов downlink-пула,
+неэскалация намеренного реконнекта и разбивка `internal_drops` на пять причин плюс отказы
+писателя TUN уже есть в ядре и CLI-диагностике.
 
-Осталось одно, и оно осознанно не сделано: разбивка видна в CLI (`stats.udp_drops_*` в
-файле диагностики) и в серверном логе, но **не** в мобильном ABI. `QeliClientStats`
-версионирована по размеру (`STATS_V2_SIZE`), поэтому пять новых полей — это V3 плюс
-согласованные правки в JNI, Swift и обоих интерфейсах. Ради диагностики, которой сейчас
-никто на телефоне не пользуется, ABI ломать не стали: `udp_internal_drops` остался суммой
-и значение своё не поменял.
+`QeliClientStats` уже имеет 144-байтовый **V3**: после стабильных V1/V2-префиксов он хранит
+шесть roaming-метрик (attempts/successes/failures/reconnect fallbacks/candidates/latency).
+iOS читает весь V3, но Android JNI пока возвращает восемь V2-подобных значений, а C# desktop
+заканчивает структуру на V2 и не показывает roaming-телеметрию.
 
-### Расширение control-канала для live PUSH в сессии (→ 0.8.0, ДО роуминга)
+Пять per-cause UDP drop полей поэтому требуют **V4**, а не V3. Сначала нужно вывести уже
+существующий V3 в Android/Windows/macOS, затем единым additive ABI-дополнением добавить V4
+в C header, Rust FFI, JNI, Swift и C# без изменения прежних префиксов.
 
-Сегодня DNS/routes/MTU/multipath приходят **только** в `AuthOK` во время рукопожатия
-([handler.rs](../../../qeli/src/server/handler.rs)), и поменять их можно лишь
-переподключением. Аутентифицированные типизированные внутритуннельные control-фреймы уже
-есть в [`ctrl.rs`](../../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` и `CTRL_CLIENT_INFO`
-идут клиент → сервер как `[0xC1 0x9B][тип][u8 len][payload]`. Текущий однобайтовый размер
-не годится для крупных сообщений, а клиентскому data-plane не хватает согласованного
-server → client dispatcher и семантики подтверждения/ошибок.
+### Завершение CONTROL_V2 как управляющего канала (→ 0.8.x)
 
-Существующий дискриминатор совместим с IP-пакетами, которые начинаются с ниббла 4 или 6:
+DNS/routes/MTU/multipath по-прежнему применяются из `AuthOK`; live-изменение требует
+переподключения или нового runtime handler.
 
-```
-пусто            → heartbeat
-первый ниббл 4/6 → IP-пакет
-0xC1 0x9B        → существующий control: [тип][u8 len][payload]
-```
+[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) уже реализует magic/version/type/
+flags/message id, bounded fragmentation/reassembly, ACK/error и ограничения. Roaming path
+messages используют этот формат end-to-end. Но общий server → client runtime dispatcher пока
+обрабатывает только path-control/закрытие; `PUSH_CONFIG`, `KICK` и `NOTICE` существуют как
+типы и тестовые кадры, а не как завершённые функции продукта.
 
-- Ввести согласованный `CONTROL_V2`: magic/version/type/flags/message id, длина `u16`
-  или bounded varint, bounded fragmentation/reassembly, порядок, идемпотентность,
-  ACK и явная ошибка. Новые downlink-фреймы сервер шлёт только peer, объявившему capability.
-- Первый набор live-push типов держать маленьким: `PUSH_CONFIG` (дельта routes/DNS/MTU/
-  multipath), `KICK` (с причиной), `NOTICE` (квота/срок). Сообщения роуминга используют
-  тот же dispatcher, но имеют отдельные negotiated capabilities.
-- ⚠️ **Android:** у `VpnService` маршруты нельзя менять на живом интерфейсе — нужен новый
-  `Builder` + `establish()`. Push маршрутов там = переустановка интерфейса (без
-  рукопожатия, но с коротким разрывом). Закладывать в план сразу.
-- Отдача: снимается отложенный hot-reload Tier A, появляется kick с причиной и
-  предупреждения о квоте.
+Осталось:
 
-**Делать до роуминга:** двунаправленный CONTROL_V2 нужен как общий транспорт событий.
-Полная реализация live `PUSH_CONFIG` не блокирует первую версию роуминга, если dispatcher,
-fragmentation, ACK/error и capability negotiation уже закончены.
+1. общий negotiated dispatcher с capability, idempotency, retry и явным error-result;
+2. сначала `KICK` с причиной и `NOTICE` квоты/срока — без изменения сетевого состояния ОС;
+3. затем типизированный `PUSH_CONFIG` с generation-safe применением DNS/routes/MTU/multipath;
+4. на Android route push должен делать новый `VpnService.Builder.establish()` и короткую
+   замену TUN, потому что живой интерфейс не умеет менять маршруты.
+
+Для 0.8.0 `KICK`/`NOTICE` желательны, а полный `PUSH_CONFIG` можно явно перенести в 0.8.1.
+Готовый roaming от этого больше не зависит и использует собственные negotiated capabilities.
 
 ### Полная поддержка IPv6 (линия разработки 0.8.0; сертификация не завершена)
 
@@ -450,9 +443,10 @@ fragmentation, ACK/error и capability negotiation уже закончены.
 маршрутизацию и DNS, MTU/PMTU и UDP data fragmentation, kill switch, все системные/per-app
 клиенты, панель, Quick Start, установщик, пакеты и примеры.
 
-Исходная реализация теперь относится к линии разработки 0.8.0. Она выпускается только после
-физической/native-матрицы и Linux network namespace из плана. До прохождения этих gate это
-development implementation, а не релиз.
+Исходная реализация теперь относится к линии разработки 0.8.0. Автоматическая базовая
+Linux-матрица 2026-08-31 прошла 14/14 сочетаний outer/inner/transport, включая cross-family
+leak и cleanup. Остаются специальные DNS/PMTU/PTB/TAP/legacy-сценарии и physical/native-матрица.
+До прохождения этих gate на финальных артефактах это development implementation, а не релиз.
 
 Промежуточные стадии используются только для разработки. Возможность нельзя выпускать или
 называть полной до прохождения всей IPv6-only/dual-stack release matrix. Пользовательские

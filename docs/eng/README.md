@@ -223,16 +223,15 @@ Confirmed in the lab: auto-reconnect, crash-safe DNS, brute-force lockout,
 channel-binding, server key pinning, per-profile authorization, and end-to-end runs of
 every wire mode.
 
-Performance (2-VM lab, latest structured run: v0.7.16, 2026-08-16). Methodology and raw data —
-[BENCHMARK.md](reports/BENCHMARK.md):
+Performance (2-VM lab, latest structured run: v0.8.0, 2026-08-26, binary SHA-256
+`2f69b48f…`). Methodology and raw data — [BENCHMARK.md](reports/BENCHMARK.md):
 
-- **TCP, legacy carrier through 0.7.16**: 462–551 ↑ / 358–678 ↓ Mbps. The published
-  `reality-tls` result (472 ↑ / 358 ↓ Mbps) used the former inner fake-TLS carrier and must not
-  be presented as current H2 throughput. A controlled full-speed H2 benchmark is still required.
-- **UDP**: all measured variants were lossless through 400 Mbps; at 500 Mbps loss ranged
-  from 6.47% to 21.39%, and at 600 Mbps from 31.25% to 36.55%.
-- Average tunnel RTT was 0.831–1.087 ms; measured qeli RSS was 75.9–87.1 MB. Treat these as
-  one lab snapshot, not a capacity guarantee for different CPUs, kernels or networks.
+- **TCP, current 12-mode run**: 713.2–1182 ↑ / 647.8–1330 ↓ Mbps, zero server drops.
+  Genuine-H2 `reality-tls`: 827.9 ↑ / 647.8 ↓ Mbps.
+- **UDP**: loss was 0–0.01% at 100 Mbps, 0.01–5.05% at 400 Mbps,
+  5.97–19.69% at 500 Mbps, and 27.88–33.21% at 600 Mbps.
+- Mean RTT across measured modes was 12.553–24.756 ms; TCP qeli RSS was 84.8–90.3 MB.
+  This is one lab snapshot, not a capacity guarantee; repeat H2 5× on the final SHA.
 
 ## License
 

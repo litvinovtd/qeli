@@ -12,13 +12,13 @@ Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting 
 
 **Initiative status: ✅ source refactor complete.** All production clients use the shared
 Rust transport core; the current source API is additive ABI 1.14. The committed
-`.so`/`.dll`/`.dylib` files are still the reproducible ABI 1.10 baseline from commit
-`b1e220d` recorded by `native-libs/PROVENANCE`. These are deliberately separate states:
-before the 0.8.0 release, native cores must be rebuilt from the final ABI 1.14 tree,
-synchronized to every consumed copy, and pass provenance/hash/ABI/platform gates.
-Until then the tree is source-complete but not package-release-ready. Remaining acceptance
-gates also include administrator Wintun full-tunnel, live macOS utun and physical-device
-iOS/Xcode. Written 2026-07-30; source refactor completed 2026-08-11.
+`.so`/`.dll`/`.dylib` files also match ABI 1.14 and the current Rust source digest:
+desktop and Android passed independent clean byte-identical A/B builds, canonical/consumed
+copies and evidence agree, and `native-libs/provenance.py --check` reports `OK`.
+The cores need another rebuild after the next Rust-tree change; final applications still
+have to be repackaged and pass signing/platform/E2E gates. Remaining acceptance gates include
+administrator Wintun full-tunnel, live macOS utun, and physical-device iOS/Xcode.
+Written 2026-07-30; native-core status refreshed 2026-08-31.
 **Reality/H2 delivery rule.** The current `reality-tls` H2 carrier is owned by this common Rust
 core, not by platform UI code. A platform receives it only when its native `.so`/`.dll`/`.dylib`
 or XCFramework is rebuilt from the updated source, packaged into the app and installed. A server

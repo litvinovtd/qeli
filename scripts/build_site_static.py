@@ -13,7 +13,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SITE = REPO / "site"
 BASE = "https://qeli.ru"
-UPDATED = "2026-08-27"
+UPDATED = "2026-08-31"
 HEADER_START = "<!-- shared-header:start -->"
 HEADER_END = "<!-- shared-header:end -->"
 FOOTER_START = "<!-- shared-footer:start -->"
@@ -101,6 +101,18 @@ PAGES = {
     },
     "/docs/transports/": {
         "title": "docsTransport.metaTitle", "desc": "docsTransport.metaDesc", "label": ("Транспортные режимы", "Transport modes"),
+        "crumbs": [("/docs/", "Документация", "Documentation")], "schema": "TechArticle",
+    },
+    "/docs/roaming/": {
+        "title": "docsRoaming.metaTitle", "desc": "docsRoaming.metaDesc", "label": ("Session roaming", "Session roaming"),
+        "crumbs": [("/docs/", "Документация", "Documentation")], "schema": "TechArticle",
+    },
+    "/docs/ipv6/": {
+        "title": "docsIpv6.metaTitle", "desc": "docsIpv6.metaDesc", "label": ("IPv6 и dual-stack", "IPv6 and dual stack"),
+        "crumbs": [("/docs/", "Документация", "Documentation")], "schema": "TechArticle",
+    },
+    "/docs/recordizer/": {
+        "title": "docsRecordizer.metaTitle", "desc": "docsRecordizer.metaDesc", "label": ("PACKET_MUX recordizer", "PACKET_MUX recordizer"),
         "crumbs": [("/docs/", "Документация", "Documentation")], "schema": "TechArticle",
     },
     "/docs/routing/": {

@@ -1428,7 +1428,7 @@ failed roam.
 **Desktop per-app details.** With `apps_mode = all`, Windows keeps its native Wintun
 zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
 changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
-the same ABI 1.11 Rust transport and uses the same server push, crypto and reconnect logic.
+the same ABI 1.14 Rust transport (compatibility floor 1.11) and uses the same server push, crypto and reconnect logic.
 On Windows, a configured/pushed tunnel resolver is intentionally tunnel-wide in per-app mode:
 DNS commonly belongs to the shared system resolver process rather than the originating app, so
 trying to classify it by that process leaks selected applications' queries. IPv4 DNS can use an

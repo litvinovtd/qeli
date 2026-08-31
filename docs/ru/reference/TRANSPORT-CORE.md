@@ -11,14 +11,14 @@ multipath, автоматический fallback и обработку конф�
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.14. При этом
-закоммиченные `.so`/`.dll`/`.dylib` остаются воспроизводимым baseline ABI 1.10 из commit
-`b1e220d`, зафиксированным в `native-libs/PROVENANCE`. Это намеренно разделённые состояния:
-до релиза 0.8.0 native cores должны быть заново собраны из финального дерева ABI 1.14,
-синхронизированы во все consumed-копии и пройти provenance/hash/ABI/platform gates.
-Без этого дерево source-complete, но пакет не release-ready. Остались также платформенные
-приёмочные gate: administrator Wintun full-tunnel, живой macOS utun и physical-device
-iOS/Xcode. Составлено 2026-07-30; рефакторинг исходников завершён 2026-08-11.
+общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.14. Закоммиченные
+`.so`/`.dll`/`.dylib` также соответствуют ABI 1.14 и текущему Rust source digest:
+desktop и Android независимо прошли чистую byte-identical A/B сборку, canonical/consumed
+копии и evidence согласованы, `native-libs/provenance.py --check` сообщает `OK`.
+Новая сборка cores нужна после следующего изменения Rust-дерева; финальные приложения всё
+равно должны быть заново упакованы и пройти signing/platform/E2E gates. Остались также
+administrator Wintun full-tunnel, живой macOS utun и physical-device iOS/Xcode.
+Составлено 2026-07-30; статус native cores актуализирован 2026-08-31.
 **Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
 общему Rust-ядру, а не платформенному UI-коду. Платформа получает его только после пересборки
 native `.so`/`.dll`/`.dylib` либо XCFramework из обновлённых исходников, упаковки в приложение
