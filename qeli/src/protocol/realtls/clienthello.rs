@@ -538,6 +538,82 @@ mod tests {
         build_client_hello(eph.public(), "www.microsoft.com", &sid).0
     }
 
+    fn extension_data(record: &[u8], target: u16) -> Option<&[u8]> {
+        let inner = record.get(5..)?;
+        if inner.first() != Some(&0x01) || inner.len() < 39 {
+            return None;
+        }
+        let mut offset = 39usize.checked_add(*inner.get(38)? as usize)?;
+        let cipher_len =
+            u16::from_be_bytes([*inner.get(offset)?, *inner.get(offset.checked_add(1)?)?]) as usize;
+        offset = offset.checked_add(2)?.checked_add(cipher_len)?;
+        let compression_len = *inner.get(offset)? as usize;
+        offset = offset.checked_add(1)?.checked_add(compression_len)?;
+        let extensions_len =
+            u16::from_be_bytes([*inner.get(offset)?, *inner.get(offset.checked_add(1)?)?]) as usize;
+        offset = offset.checked_add(2)?;
+        let extensions_end = offset.checked_add(extensions_len)?;
+        if extensions_end > inner.len() {
+            return None;
+        }
+
+        while offset.checked_add(4)? <= extensions_end {
+            let extension_type =
+                u16::from_be_bytes([*inner.get(offset)?, *inner.get(offset.checked_add(1)?)?]);
+            let extension_len = u16::from_be_bytes([
+                *inner.get(offset.checked_add(2)?)?,
+                *inner.get(offset.checked_add(3)?)?,
+            ]) as usize;
+            let data_start = offset.checked_add(4)?;
+            let data_end = data_start.checked_add(extension_len)?;
+            if data_end > extensions_end {
+                return None;
+            }
+            if extension_type == target {
+                return inner.get(data_start..data_end);
+            }
+            offset = data_end;
+        }
+        None
+    }
+
+    fn supported_groups_contains(data: &[u8], target: u16) -> bool {
+        let Some(prefix) = data.get(..2) else {
+            return false;
+        };
+        let declared = u16::from_be_bytes([prefix[0], prefix[1]]) as usize;
+        let Some(groups) = data.get(2..2usize.saturating_add(declared)) else {
+            return false;
+        };
+        groups
+            .chunks_exact(2)
+            .any(|group| u16::from_be_bytes([group[0], group[1]]) == target)
+    }
+
+    fn key_shares_contains(data: &[u8], target: u16) -> bool {
+        let Some(prefix) = data.get(..2) else {
+            return false;
+        };
+        let end = 2usize.saturating_add(u16::from_be_bytes([prefix[0], prefix[1]]) as usize);
+        if end > data.len() {
+            return false;
+        }
+        let mut offset = 2usize;
+        while offset.saturating_add(4) <= end {
+            let group = u16::from_be_bytes([data[offset], data[offset + 1]]);
+            let key_len = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+            offset = offset.saturating_add(4);
+            if offset.saturating_add(key_len) > end {
+                return false;
+            }
+            if group == target {
+                return true;
+            }
+            offset = offset.saturating_add(key_len);
+        }
+        false
+    }
+
     #[test]
     fn ja4_matches_chrome() {
         let hello = sample_hello();
@@ -610,9 +686,14 @@ mod tests {
         // The Chrome-grade hello carries the X25519MLKEM768 share (group 0x11ec,
         // key length 1216 = 0x04c0), and the x25519 key_share is still recoverable.
         let hello = sample_hello();
+        let group = crate::crypto::mlkem::X25519MLKEM768;
         assert!(
-            hello.windows(4).any(|w| w == [0x11, 0xEC, 0x04, 0xC0]),
-            "hello must carry X25519MLKEM768 (0x11ec, 1216 B)"
+            supported_groups_contains(extension_data(&hello, 0x000a).unwrap(), group),
+            "hello must advertise X25519MLKEM768 in supported_groups"
+        );
+        assert!(
+            key_shares_contains(extension_data(&hello, 0x0033).unwrap(), group),
+            "hello must carry an X25519MLKEM768 key_share"
         );
         let (_sid, ks) = FakeTlsHandshake::parse_client_hello_full(&hello).unwrap();
         assert_eq!(
@@ -635,9 +716,14 @@ mod tests {
             "compact ClientHello is {} bytes",
             hello.len()
         );
+        let group = crate::crypto::mlkem::X25519MLKEM768;
         assert!(
-            !hello.windows(2).any(|w| w == [0x11, 0xEC]),
-            "compact hello must not advertise X25519MLKEM768"
+            !supported_groups_contains(extension_data(&hello, 0x000a).unwrap(), group),
+            "compact hello must not advertise X25519MLKEM768 in supported_groups"
+        );
+        assert!(
+            !key_shares_contains(extension_data(&hello, 0x0033).unwrap(), group),
+            "compact hello must not carry an X25519MLKEM768 key_share"
         );
         let (got_sid, key_share) =
             FakeTlsHandshake::parse_client_hello_full(&hello).expect("server parses compact hello");
