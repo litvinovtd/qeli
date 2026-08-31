@@ -35,5 +35,11 @@ class Ipv6ReleaseMatrixContractTest(unittest.TestCase):
             matrix.SPECIAL_CASES[0][1], ("4", "6", "tcp", "fake-tls", "full", "tap")
         )
 
+    def test_legacy_pair_is_a_required_distinct_gate(self):
+        self.assertEqual(matrix.LEGACY_CASE_ID, "linux.legacy-peer")
+        self.assertIn(matrix.LEGACY_CASE_ID, release_certification.REQUIRED_CASES)
+        self.assertNotIn(matrix.LEGACY_CASE_ID, matrix.case_ids())
+        self.assertEqual(matrix.LEGACY_SCRIPT.name, "ipv6_legacy_pair.sh")
+
 if __name__ == "__main__":
     unittest.main()

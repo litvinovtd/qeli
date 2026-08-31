@@ -19,6 +19,9 @@
   probe проверяет полный IPv6 control plane: Router Solicitation/Advertisement без неявного
   default route, Neighbor Solicitation/Advertisement для аутентифицированного gateway, `/64`
   адресацию, рабочий трафик, отсутствие cross-family leak и очистку сети.
+- Legacy-peer gate проверяет обе стороны rolling upgrade на настоящем релизном бинарнике 0.7.16:
+  новый IPv4 server со старым client и старый server с новым client проходят аутентификацию,
+  трафик, leak/route assertions и clean shutdown без новых IPv6/roaming-ключей в legacy-конфиге.
 - IPv4/IPv6 packet parser включён в обязательные smoke/nightly fuzz-матрицы, а контракты
   release-certification и netns-runner выполняются отдельным CI gate.
 - Реальный HTTP/2 carrier теперь принимает только корректный streaming POST на выделенном пути

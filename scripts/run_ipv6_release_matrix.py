@@ -24,6 +24,8 @@ import release_certification
 ROOT = Path(__file__).resolve().parent.parent
 CASE_SCRIPT = ROOT / "scripts" / "ipv6_netns_case.sh"
 
+LEGACY_SCRIPT = ROOT / "scripts" / "ipv6_legacy_pair.sh"
+LEGACY_CASE_ID = "linux.legacy-peer"
 MATRIX_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("linux.outer4.inner4.tcp.full", ("4", "4", "tcp", "fake-tls", "full")),
     ("linux.outer4.inner6.tcp.full", ("4", "6", "tcp", "fake-tls", "full")),
@@ -134,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="promote successful rows into the current-version certification manifest",
     )
+    parser.add_argument(
+        "--legacy-binary",
+        type=Path,
+        help="also run bidirectional interop with the qeli 0.7.16 Linux binary",
+    )
     args = parser.parse_args(argv)
     if os.name != "posix" or os.geteuid() != 0:
         parser.error("the live matrix requires Linux root privileges")
@@ -145,12 +152,18 @@ def main(argv: list[str] | None = None) -> int:
     evidence_path = args.evidence or (
         ROOT / "release" / "certification" / "evidence" / f"ipv6-linux-{stamp}.json"
     )
+    legacy_binary = args.legacy_binary.resolve() if args.legacy_binary else None
+    if legacy_binary is not None and (
+        not legacy_binary.is_file() or not os.access(legacy_binary, os.X_OK)
+    ):
+        parser.error(f"legacy binary is not executable: {legacy_binary}")
     artifact = sha256(binary)
     results: list[dict[str, object]] = []
     passed: set[str] = set()
     selected_cases = MATRIX_CASES + (SPECIAL_CASES if args.include_special else ())
+    total_cases = len(selected_cases) + int(legacy_binary is not None)
     for index, (case_id, parameters) in enumerate(selected_cases, 1):
-        print(f"[{index:02d}/{len(selected_cases):02d}] {case_id}", flush=True)
+        print(f"[{index:02d}/{total_cases:02d}] {case_id}", flush=True)
         started = time.monotonic()
         process = subprocess.run(
             ["bash", str(CASE_SCRIPT), str(binary), *parameters],
@@ -183,6 +196,38 @@ def main(argv: list[str] | None = None) -> int:
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True
     ).stdout.strip()
+    if legacy_binary is not None:
+        index = len(selected_cases) + 1
+        print(f"[{index:02d}/{total_cases:02d}] {LEGACY_CASE_ID}", flush=True)
+        started = time.monotonic()
+        process = subprocess.run(
+            ["bash", str(LEGACY_SCRIPT), str(binary), str(legacy_binary)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=360,
+        )
+        duration = round(time.monotonic() - started, 3)
+        output = process.stdout + process.stderr
+        print(output.rstrip())
+        status = "passed" if process.returncode == 0 else "failed"
+        if process.returncode == 0:
+            passed.add(LEGACY_CASE_ID)
+        results.append(
+            {
+                "id": LEGACY_CASE_ID,
+                "parameters": [str(legacy_binary)],
+                "status": status,
+                "exit_code": process.returncode,
+                "duration_seconds": duration,
+                "output": output,
+            }
+        )
+        if process.returncode != 0:
+            print(f"FAIL: {LEGACY_CASE_ID}", file=sys.stderr)
+
     evidence_document = {
         "schema_version": 1,
         "kind": "qeli-ipv6-linux-netns-matrix",
@@ -192,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         "artifact_sha256": artifact,
         "environment": f"{platform.node()} | {platform.platform()}",
         "passed": len(passed),
-        "total": len(selected_cases),
+        "total": total_cases,
+        "legacy_artifact": str(legacy_binary) if legacy_binary else None,
+        "legacy_artifact_sha256": sha256(legacy_binary) if legacy_binary else None,
         "results": results,
     }
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(f"evidence: {evidence_path}")
-    if len(passed) != len(selected_cases):
+    if len(passed) != total_cases:
         return 1
     if args.record:
         source_digest = release_certification.repository_source_digest(ROOT)
