@@ -7254,6 +7254,119 @@ async fn send_client_udp_payload(
     }
     true
 }
+fn prepare_client_udp_control_payloads(
+    frame: &[u8],
+    recordizer: Option<&mut crate::protocol::recordizer::Recordizer>,
+) -> Result<Vec<Vec<u8>>, crate::protocol::recordizer::RecordizerError> {
+    let Some(recordizer) = recordizer else {
+        return Ok(vec![frame.to_vec()]);
+    };
+    let mut payloads = recordizer.push(frame, std::time::Instant::now())?;
+    // Control metadata must not wait behind the morphology delay. Flushing here also
+    // preserves any ready payload returned by push(), which is required when max_packets
+    // is one or when a fragmented control frame fills the current record.
+    if let Some(payload) = recordizer.flush() {
+        payloads.push(payload);
+    }
+    Ok(payloads)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_client_udp_control_frame(
+    frame: &[u8],
+    recordizer: Option<&mut crate::protocol::recordizer::Recordizer>,
+    client_tx: &mut PacketCodec,
+    obfuscation: &crate::config::client::ClientObfuscationConfig,
+    payload_budget: usize,
+    data_record_budget: usize,
+    data_frag_enabled: bool,
+    tx_data_frag_key: &[u8; 32],
+    tx_record_id: &mut u64,
+    shaper: &mut crate::protocol::Shaper,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
+    quic_pn: &mut u32,
+    max_empty_record_padding: usize,
+    wire_record: &mut Vec<u8>,
+    cover_record: &mut Vec<u8>,
+    quic_record: &mut Vec<u8>,
+    padding: &mut Vec<u8>,
+) -> Result<bool, crate::protocol::recordizer::RecordizerError> {
+    let payloads = prepare_client_udp_control_payloads(frame, recordizer)?;
+    for payload in payloads {
+        if !send_client_udp_payload(
+            &payload,
+            client_tx,
+            obfuscation,
+            payload_budget,
+            data_record_budget,
+            data_frag_enabled,
+            tx_data_frag_key,
+            tx_record_id,
+            shaper,
+            socket,
+            framing,
+            quic_pn,
+            max_empty_record_padding,
+            wire_record,
+            cover_record,
+            quic_record,
+            padding,
+        )
+        .await
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(test)]
+mod udp_control_recordizer_tests {
+    use super::prepare_client_udp_control_payloads;
+    use crate::protocol::recordizer::{Reassembler, Recordizer, RuntimeConfig};
+    use std::time::Duration;
+
+    fn config() -> RuntimeConfig {
+        RuntimeConfig {
+            delay_min: Duration::from_millis(25),
+            delay_max: Duration::from_millis(25),
+            max_packets: 1,
+            max_queue_bytes: 512,
+            max_payload_bytes: 512,
+            small_min_ratio: 1.0,
+            small_max_ratio: 1.0,
+            full_probability: 1.0,
+            fragment_enabled: true,
+            reassembly_timeout: Duration::from_secs(3),
+            max_inflight_packets: 8,
+            max_reassembly_bytes: 64 * 1024,
+            max_fragments_per_packet: 64,
+            max_packet_bytes: 16 * 1024,
+        }
+    }
+
+    #[test]
+    fn udp_client_info_uses_the_negotiated_recordizer_envelope() {
+        let frame = crate::protocol::ctrl::client_info("0.8.0", "android").unwrap();
+        assert_eq!(
+            prepare_client_udp_control_payloads(&frame, None).unwrap(),
+            vec![frame.clone()]
+        );
+
+        let runtime = config();
+        let mut sender = Recordizer::new(runtime.clone());
+        let payloads = prepare_client_udp_control_payloads(&frame, Some(&mut sender)).unwrap();
+        assert!(!sender.is_pending());
+
+        let mut receiver = Reassembler::new(runtime);
+        let restored: Vec<Vec<u8>> = payloads
+            .iter()
+            .flat_map(|payload| receiver.decode(payload).unwrap())
+            .collect();
+        assert_eq!(restored, vec![frame]);
+    }
+}
 
 #[cfg(feature = "experimental-roaming")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8696,81 +8809,70 @@ pub(crate) async fn run_udp_tunnel(
             usize::from(*budget)
                 > crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
         });
-    // Arm retries from intent, not from the result of the first local send. If both initial
-    // datagrams hit a transient socket error, the idle ticks must still get a chance to report.
-    let mut control_report_resends =
-        if mtu_report_value.is_some() || udp_payload_budget_report_value.is_some() {
-            UDP_CONTROL_REPORT_RESENDS
-        } else {
-            0
+    let client_info_frame = crate::protocol::ctrl::this_build();
+    macro_rules! send_udp_control {
+        ($frame:expr) => {
+            send_client_udp_control_frame(
+                $frame,
+                udp_tx_recordizer.as_mut(),
+                &mut client_tx,
+                &eff_obf,
+                mux_payload_budget,
+                data_record_budget,
+                data_frag_enabled,
+                &tx_data_frag_key,
+                &mut tx_record_id,
+                &mut shaper,
+                &socket,
+                udp_framing,
+                &mut quic_pn,
+                max_empty_record_padding,
+                &mut wire_record,
+                &mut cover_record,
+                &mut quic_record,
+                &mut padding,
+            )
+            .await
         };
+    }
+
+    // Arm retries from intent, not from the result of the first local send. A transient
+    // socket loss must not leave the server without the path limits or the client build.
+    let mut control_report_resends = if mtu_report_value.is_some()
+        || udp_payload_budget_report_value.is_some()
+        || client_info_frame.is_some()
+    {
+        UDP_CONTROL_REPORT_RESENDS
+    } else {
+        0
+    };
     if let Some(budget) = udp_payload_budget_report_value {
         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
-        if let Some(mux) = udp_tx_recordizer.as_mut() {
-            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
-                log::debug!("could not queue UDP payload budget report: {error}");
-            }
-        } else if client_tx
-            .encrypt_packet_into(&frame, &[], &mut cover_record)
-            .is_ok()
-        {
-            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                udp_framing,
-                &cover_record,
-                &mut quic_pn,
-                &mut quic_record,
-            );
-            match socket.send(send_data).await {
-                Ok(_) => {
-                    log::debug!("reported UDP payload budget {budget} to the server");
-                }
-                Err(e) => log::debug!("could not report UDP payload budget: {e}"),
+        match send_udp_control!(&frame) {
+            Ok(true) => log::debug!("reported UDP payload budget {budget} to the server"),
+            Ok(false) => log::debug!("could not report UDP payload budget"),
+            Err(error) => {
+                log::debug!("could not recordize UDP payload budget report: {error}")
             }
         }
     }
     if let Some(mtu) = mtu_report_value {
         let frame = crate::protocol::ctrl::mtu_report(mtu);
-        if let Some(mux) = udp_tx_recordizer.as_mut() {
-            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
-                log::debug!("could not queue UDP MTU report: {error}");
-            }
-        } else if client_tx
-            .encrypt_packet_into(&frame, &[], &mut cover_record)
-            .is_ok()
-        {
-            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                udp_framing,
-                &cover_record,
-                &mut quic_pn,
-                &mut quic_record,
-            );
-            match socket.send(send_data).await {
-                Ok(_) => {
-                    log::debug!("reported tunnel MTU {mtu} to the server");
-                }
-                Err(e) => log::debug!("could not report tunnel MTU: {e}"),
-            }
+        match send_udp_control!(&frame) {
+            Ok(true) => log::debug!("reported tunnel MTU {mtu} to the server"),
+            Ok(false) => log::debug!("could not report tunnel MTU"),
+            Err(error) => log::debug!("could not recordize UDP MTU report: {error}"),
         }
     }
 
-    // Tell the server which build we are, so the operator's `list-clients` and the panel can
-    // show it. Same authenticated path and the same fire-and-forget contract as the MTU
-    // report above: an older server discards the frame as a malformed packet, and nothing
-    // here waits for or depends on a reply.
-    if let Some(frame) = crate::protocol::ctrl::this_build() {
-        if client_tx
-            .encrypt_packet_into(&frame, &[], &mut cover_record)
-            .is_ok()
-        {
-            let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                udp_framing,
-                &cover_record,
-                &mut quic_pn,
-                &mut quic_record,
-            );
-            if let Err(e) = socket.send(send_data).await {
-                log::debug!("could not report client version: {e}");
-            }
+    // Tell the server which common-core build and platform we are. This uses the same
+    // authenticated and negotiated PACKET_MUX path as ordinary data; sending a bare control
+    // frame while the peer expects a recordizer envelope makes the server reject it.
+    if let Some(frame) = client_info_frame.as_ref() {
+        match send_udp_control!(frame) {
+            Ok(true) => log::debug!("reported client version to the server"),
+            Ok(false) => log::debug!("could not report client version"),
+            Err(error) => log::debug!("could not recordize client version: {error}"),
         }
     }
 
@@ -10242,50 +10344,27 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             _ = idle_check.tick() => {
-                // Re-send the unacknowledged MTU/budget reports (#5). `idle_check` fires
-                // immediately on its first tick, so the copies land at roughly 0 s, 5 s and
-                // 10 s: the first covers an isolated drop, the later ones a short burst that
-                // would take out back-to-back datagrams. Both server updates are idempotent.
+                // Re-send all unacknowledged authenticated metadata. The frames are
+                // idempotent, and CLIENT_INFO is self-reported diagnostics rather than policy.
                 if control_report_resends > 0 {
                     control_report_resends -= 1;
                     if let Some(budget) = udp_payload_budget_report_value {
                         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
-                        if let Some(mux) = udp_tx_recordizer.as_mut() {
-                            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
-                                log::debug!("could not queue UDP payload budget report retry: {error}");
-                            }
-                        } else if client_tx
-                            .encrypt_packet_into(&frame, &[], &mut cover_record)
-                            .is_ok()
-                        {
-                            let send_data =
-                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                                    udp_framing,
-                                    &cover_record,
-                                    &mut quic_pn,
-                                    &mut quic_record,
-                                );
-                            let _ = socket.send(send_data).await;
+                        if let Err(error) = send_udp_control!(&frame) {
+                            log::debug!(
+                                "could not recordize UDP payload budget report retry: {error}"
+                            );
                         }
                     }
                     if let Some(mtu) = mtu_report_value {
                         let frame = crate::protocol::ctrl::mtu_report(mtu);
-                        if let Some(mux) = udp_tx_recordizer.as_mut() {
-                            if let Err(error) = mux.push(&frame, std::time::Instant::now()) {
-                                log::debug!("could not queue UDP MTU report retry: {error}");
-                            }
-                        } else if client_tx
-                            .encrypt_packet_into(&frame, &[], &mut cover_record)
-                            .is_ok()
-                        {
-                            let send_data =
-                                crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                                    udp_framing,
-                                    &cover_record,
-                                    &mut quic_pn,
-                                    &mut quic_record,
-                                );
-                            let _ = socket.send(send_data).await;
+                        if let Err(error) = send_udp_control!(&frame) {
+                            log::debug!("could not recordize UDP MTU report retry: {error}");
+                        }
+                    }
+                    if let Some(frame) = client_info_frame.as_ref() {
+                        if let Err(error) = send_udp_control!(frame) {
+                            log::debug!("could not recordize client version retry: {error}");
                         }
                     }
                 }
