@@ -32,9 +32,9 @@
 
 - macOS kill-switch формирует синтаксически корректные `pf` selectors для IPv4/IPv6 server endpoints;
   runtime gate загружает production ruleset в отдельный anchor до выпуска.
-- Test-only iOS wire primitives больше не импортируют host app module из собственного test target,
-  а все `QeliIOSTests` используют фактическое имя host-модуля `Qeli`, устраняя циклическую или
-  отсутствующую Swift module dependency в release gate.
+- Test-only iOS wire primitives импортируют фактический host-модуль `Qeli`, а не несуществующее
+  имя target `QeliIOS`: прямые test-only копии видят общие `PacketCipher`/`VPNConfig`, не попадая
+  в production target, и release gate больше не падает на module dependency или missing types.
 ### Исправления по аудиту маршрутизации и роуминга
 
 - `route_local` на Linux, Windows и macOS теперь действительно перехватывает напрямую

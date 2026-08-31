@@ -335,11 +335,9 @@ class NativeRecipeTests(unittest.TestCase):
 
         protocol_dir = root / "qeli-ios/QeliCore/Protocol"
         for source in protocol_dir.glob("*.swift"):
-            self.assertNotIn(
-                "@testable import QeliIOS",
-                source.read_text(encoding="utf-8"),
-                source.name,
-            )
+            source_text = source.read_text(encoding="utf-8")
+            self.assertNotIn("@testable import QeliIOS", source_text, source.name)
+            self.assertIn("@testable import Qeli", source_text, source.name)
 
         tests_dir = root / "qeli-ios/QeliIOSTests"
         for source in tests_dir.glob("*.swift"):

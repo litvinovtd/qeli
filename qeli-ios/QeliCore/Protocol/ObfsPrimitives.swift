@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+@testable import Qeli
 
 /// Wire-compatible primitives for `qeli/src/protocol/obfs.rs`.
 enum QeliObfs {
