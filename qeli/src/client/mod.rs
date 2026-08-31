@@ -3344,17 +3344,19 @@ struct ClientTcpRxMetrics<'a> {
     unsupported_drops: &'a mut u64,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy)]
+struct ClientManagementRx<'a> {
+    negotiated: bool,
+    reassembler: &'a std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
+    sender: &'a tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
+}
+
 fn deliver_client_tcp_plaintext(
     record: PooledBuffer,
     mux: &mut Option<crate::protocol::recordizer::Reassembler>,
     tun: &TunWriter,
     family_mode: crate::transport_core::NetworkFamilyMode,
-    management_v1: bool,
-    management_reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
-    management_tx: &tokio::sync::watch::Sender<
-        Option<crate::protocol::control_v2::ManagementEvent>,
-    >,
+    management: ClientManagementRx<'_>,
     metrics: ClientTcpRxMetrics<'_>,
 ) -> bool {
     metrics
@@ -3376,9 +3378,9 @@ fn deliver_client_tcp_plaintext(
         for bytes in packets {
             if consume_authenticated_management(
                 &bytes,
-                management_v1,
-                management_reassembler,
-                management_tx,
+                management.negotiated,
+                management.reassembler,
+                management.sender,
             ) {
                 continue;
             }
@@ -3416,9 +3418,9 @@ fn deliver_client_tcp_plaintext(
 
     if consume_authenticated_management(
         record.as_ref(),
-        management_v1,
-        management_reassembler,
-        management_tx,
+        management.negotiated,
+        management.reassembler,
+        management.sender,
     ) {
         return true;
     }
@@ -3702,9 +3704,11 @@ where
                                 &mut inner_mux,
                                 &inner_tun,
                                 family_mode,
-                                management_v1,
-                                &inner_management_reassembler,
-                                &inner_management_tx,
+                                ClientManagementRx {
+                                    negotiated: management_v1,
+                                    reassembler: &inner_management_reassembler,
+                                    sender: &inner_management_tx,
+                                },
                                 ClientTcpRxMetrics {
                                     last_rx: &inner_last_rx,
                                     base,
@@ -3754,9 +3758,11 @@ where
                                             mux,
                                             tun,
                                             family_mode,
-                                            management_v1,
-                                            &management_reassembler,
-                                            &management_tx,
+                                            ClientManagementRx {
+                                                negotiated: management_v1,
+                                                reassembler: &management_reassembler,
+                                                sender: &management_tx,
+                                            },
                                             ClientTcpRxMetrics {
                                                 last_rx: &last_rx,
                                                 base,
