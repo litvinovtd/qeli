@@ -1,6 +1,5 @@
 import Foundation
 import Security
-@testable import QeliIOS
 
 enum UDPDatagramEvent: Equatable {
     case records([Data])

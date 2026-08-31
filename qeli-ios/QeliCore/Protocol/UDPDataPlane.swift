@@ -1,5 +1,4 @@
 import Foundation
-@testable import QeliIOS
 
 /// UDP-specific packet policy kept separate from the Network Extension loop so
 /// loss/corruption behavior is explicit and unit-testable.

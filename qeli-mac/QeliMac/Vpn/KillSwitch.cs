@@ -214,7 +214,7 @@ public static class KillSwitch
         }
         sb.AppendLine("pass out quick proto udp to any port 67");
         foreach (var ip in ips)
-            sb.AppendLine($"pass out quick to {ip} all");
+            sb.AppendLine($"pass out quick to {ip}");
         return sb.ToString();
     }
 
@@ -253,6 +253,9 @@ public static class KillSwitch
             rules.Contains("pass out quick on utun27 all", StringComparison.Ordinal) &&
             !rules.Contains("utun0", StringComparison.Ordinal) &&
             !rules.Contains("utun15", StringComparison.Ordinal));
+        check("macOS kill-switch server endpoint rules use valid pf selectors",
+            rules.Contains($"pass out quick to 203.0.113.7{Environment.NewLine}", StringComparison.Ordinal) &&
+            !rules.Contains("pass out quick to 203.0.113.7 all", StringComparison.Ordinal));
         bool rejected = false;
         try { NormalizeTunnelInterfaces(new[] { "en0" }); }
         catch (InvalidOperationException) { rejected = true; }

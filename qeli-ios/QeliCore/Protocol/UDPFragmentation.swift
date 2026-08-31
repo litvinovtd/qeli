@@ -1,6 +1,5 @@
 import Foundation
 import Security
-@testable import QeliIOS
 
 enum UDPFragmentation {
     static let magic: [UInt8] = [0xf0, 0x9b, 0x71]

@@ -1,7 +1,6 @@
 import Foundation
 import Security
 import CryptoKit
-@testable import QeliIOS
 
 final class PacketCodec: @unchecked Sendable {
     static let tlsHeaderSize = 5

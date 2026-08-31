@@ -30,6 +30,10 @@
 - GitHub router matrix использует тот же pin `cargo-zigbuild 0.23.0` и client-only `rlib`, что и
   лабораторные OpenWrt/Keenetic recipes; MIPS больше не пытается линковать ненужный FFI `cdylib`.
 
+- macOS kill-switch формирует синтаксически корректные `pf` selectors для IPv4/IPv6 server endpoints;
+  runtime gate загружает production ruleset в отдельный anchor до выпуска.
+- Test-only iOS wire primitives больше не импортируют host app module из собственного test target,
+  устраняя циклическую Swift module dependency в `QeliIOSTests`.
 ### Исправления по аудиту маршрутизации и роуминга
 
 - `route_local` на Linux, Windows и macOS теперь действительно перехватывает напрямую

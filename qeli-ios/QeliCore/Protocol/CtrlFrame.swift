@@ -1,5 +1,4 @@
 import Foundation
-@testable import QeliIOS
 
 /// In-tunnel control frames — small typed messages carried as ordinary AEAD records alongside
 /// the IP packets. Port of `qeli/src/protocol/ctrl.rs`.
