@@ -289,6 +289,13 @@
       'Restore /etc/qeli from "{}"?': 'Восстановить /etc/qeli из «{}»?',
       'Kick "{}" from "{}"?': 'Отключить «{}» от «{}»?',
       'Set up the "{}" server ({}) and restart now?': 'Настроить сервер «{}» ({}) и перезапустить сейчас?',
+      '{} server is live': '{}: сервер работает',
+      '{} profile saved; restart unconfirmed': 'Профиль {} сохранён; перезапуск не подтверждён',
+      'Applied — server still coming up': 'Применено — сервер ещё запускается',
+      'The profile was saved, but the panel could not confirm that the restarted server came back. Check `systemctl status qeli` before sharing the endpoint.':
+        'Профиль сохранён, но панель не смогла подтвердить запуск сервера после перезапуска. Перед публикацией адреса проверьте `systemctl status qeli`.',
+      'No free default profile slot remains (ports 4443–4698, vpn0–vpn255, or 10.8.0.0/16 are already in use). Change an existing profile manually first.':
+        'Не осталось свободного стандартного слота профиля (порты 4443–4698, vpn0–vpn255 или 10.8.0.0/16 уже заняты). Сначала вручную измените существующий профиль.',
       '{} {} selected user(s)?': '{}: выбранных пользователей — {}?',
       'This cannot be undone.': 'Это действие необратимо.',
       'Active sessions will be kicked.': 'Активные сессии будут разорваны.',

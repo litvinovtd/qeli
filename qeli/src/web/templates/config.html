@@ -2168,22 +2168,79 @@ function configPage() {
       }
     },
 
+    parseIpv4Cidr(value) {
+      const [address, prefixText] = String(value || '').trim().split('/');
+      const octets = address?.split('.').map(Number);
+      const prefix = Number(prefixText);
+      if (!octets || octets.length !== 4 || octets.some(o => !Number.isInteger(o) || o < 0 || o > 255)
+          || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return null;
+      const ip = octets.reduce((acc, octet) => ((acc << 8) | octet) >>> 0, 0);
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      return { network: (ip & mask) >>> 0, prefix };
+    },
+
+    ipv4CidrsOverlap(left, right) {
+      const a = this.parseIpv4Cidr(left), b = this.parseIpv4Cidr(right);
+      if (!a || !b) return false;
+      const prefix = Math.min(a.prefix, b.prefix);
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      return (a.network & mask) === (b.network & mask);
+    },
+
+    freshProfileSlot() {
+      const profiles = this.cfg.profiles || [];
+      const usedPorts = new Set(profiles.map(p => Number(p.bind?.port)).filter(Number.isInteger));
+      const usedInterfaces = new Set(profiles.map(p => String(p.tun?.name || '').trim()).filter(Boolean));
+      const usedCidrs = profiles.map(p => p.pool?.cidr).filter(Boolean);
+      for (let n = 0; n < 256; n++) {
+        const port = 4443 + n;
+        const interfaceName = `vpn${n}`;
+        const cidr = `10.8.${n}.0/24`;
+        if (usedPorts.has(port) || usedInterfaces.has(interfaceName)
+            || usedCidrs.some(existing => this.ipv4CidrsOverlap(cidr, existing))) continue;
+        return {
+          index: n,
+          port,
+          interfaceName,
+          gateway: `10.8.${n}.1`,
+          cidr,
+        };
+      }
+      return null;
+    },
+
+    requireFreshProfileSlot() {
+      const slot = this.freshProfileSlot();
+      if (!slot) {
+        this.$dispatch('notify', {
+          msg: qeliT('No free default profile slot remains (ports 4443–4698, vpn0–vpn255, or 10.8.0.0/16 are already in use). Change an existing profile manually first.'),
+          type: 'error', timeout: 15000,
+        });
+      }
+      return slot;
+    },
+
     // Build a new profile from the server's canonical defaults (single source of
     // truth — no schema duplicated in JS), then give it a unique name/iface/subnet.
     addProfile() {
-      const n = (this.cfg.profiles || []).length;
+      const slot = this.requireFreshProfileSlot();
+      if (!slot) return;
+      const profiles = this.cfg.profiles || [];
+      let suffix = profiles.length + 1;
+      let name = `profile-${suffix}`;
+      while (profiles.some(p => p.name === name)) name = `profile-${++suffix}`;
       const base = this.defaultProfile
         ? JSON.parse(JSON.stringify(this.defaultProfile))
         : { name: '', bind: {}, roaming: { enabled: true, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }, tun: { ip_mode: 'ipv4' }, pool: { ipv6: { exclude: [], static_reservations: {} } }, routing: { nat: {}, ipv6: { mode: 'off', interface: '' } }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, recordizer: { policy: 'prefer', batch: { delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 }, record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 }, fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 } }, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
-      base.name = 'profile-' + (n + 1);
+      base.name = name;
       base.enabled = true;
       base.bind.address = '0.0.0.0';
-      base.bind.port = 4443 + n;
-      base.tun.name = 'vpn' + n;
-      base.tun.address = '10.8.' + n + '.1';
-      base.pool.cidr = '10.8.' + n + '.0/24';
-      base.pool.exclude = ['10.8.' + n + '.1'];
-      base.dns.listen = '10.8.' + n + '.1';
+      base.bind.port = slot.port;
+      base.tun.name = slot.interfaceName;
+      base.tun.address = slot.gateway;
+      base.pool.cidr = slot.cidr;
+      base.pool.exclude = [slot.gateway];
+      base.dns.listen = slot.gateway;
       if (!this.cfg.profiles) this.cfg.profiles = [];
       this.cfg.profiles.push(base);
       this.normalizeProfiles();
@@ -2194,16 +2251,17 @@ function configPage() {
     cloneProfile() {
       const src = this.cfg.profiles[this.activeTab];
       if (!src) return;
+      const slot = this.requireFreshProfileSlot();
+      if (!slot) return;
       const c = JSON.parse(JSON.stringify(src)); // deep copy — keeps all obfs/routing/etc.
-      const n = (this.cfg.profiles || []).length;
       // Unique name + a fresh port/iface/subnet so the clone can't collide with the source.
       let name = (src.name || 'profile') + '-copy', k = 1;
       while (this.cfg.profiles.some(p => p.name === name)) { name = (src.name || 'profile') + '-copy' + k; k++; }
       c.name = name;
-      c.bind = c.bind || {}; c.bind.port = 4443 + n;
-      c.tun = c.tun || {}; c.tun.name = 'vpn' + n; c.tun.address = '10.8.' + n + '.1';
-      c.pool = c.pool || {}; c.pool.cidr = '10.8.' + n + '.0/24'; c.pool.exclude = ['10.8.' + n + '.1'];
-      c.dns = c.dns || {}; c.dns.listen = '10.8.' + n + '.1';
+      c.bind = c.bind || {}; c.bind.port = slot.port;
+      c.tun = c.tun || {}; c.tun.name = slot.interfaceName; c.tun.address = slot.gateway;
+      c.pool = c.pool || {}; c.pool.cidr = slot.cidr; c.pool.exclude = [slot.gateway];
+      c.dns = c.dns || {}; c.dns.listen = slot.gateway;
       if ((c.tun.ip_mode || 'ipv4') !== 'ipv4') {
         const fresh6 = this.freshIpv6Network();
         c.tun.ipv6_address = fresh6.gateway;

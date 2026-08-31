@@ -64,12 +64,15 @@
   <div x-cloak x-show="qs.done" class="modal-bg" @click.self="qs.done=null">
     <div class="modal p-6" @click.stop style="max-width:540px">
       <div class="flex items-center gap-2.5 mb-1">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,.12);color:var(--green-2)">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+             :style="doneValue('ok') ? 'background:rgba(0,230,118,.12);color:var(--green-2)' : 'background:rgba(245,158,11,.12);color:#f59e0b'">
+          <svg x-show="doneValue('ok')" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+          <svg x-show="!doneValue('ok')" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
         </div>
-        <h3 class="text-base font-semibold text-white"><span x-text="doneValue('name')"></span> server is live</h3>
+        <h3 class="text-base font-semibold text-white" x-text="doneValue('ok') ? qeliTf('{} server is live', doneValue('name')) : qeliTf('{} profile saved; restart unconfirmed', doneValue('name'))"></h3>
       </div>
-      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="doneValue('profile')"></strong> is running on <strong class="text-white font-mono" x-text="doneValue('endpoint')"></strong>.</p>
+      <p x-show="doneValue('ok')" class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="doneValue('profile')"></strong> is running on <strong class="text-white font-mono" x-text="doneValue('endpoint')"></strong>.</p>
+      <p x-show="!doneValue('ok')" class="text-sm mb-4" style="color:#f59e0b" x-text="qeliT('The profile was saved, but the panel could not confirm that the restarted server came back. Check `systemctl status qeli` before sharing the endpoint.')"></p>
 
       <div class="space-y-2.5 mb-5">
         <template x-if="doneValue('sid')">
@@ -175,6 +178,19 @@ function quickstartPage() {
     ],
 
     doneValue(field) { return this.qs.done ? this.qs.done[field] : null; },
+    endpointFor(profile) {
+      const bind = profile?.bind || {};
+      let host = String(bind.address || '').trim();
+      if (!host || host === '0.0.0.0' || host === '::' || host === '[::]') {
+        const browserHost = String(window.location.hostname || '').trim();
+        host = ['localhost', '127.0.0.1', '::1'].includes(browserHost)
+          ? 'SERVER_ADDRESS'
+          : browserHost || 'SERVER_ADDRESS';
+      }
+      if (host.includes(':') && !host.startsWith('[')) host = `[${host}]`;
+      const transport = String(bind.transport || 'tcp').toUpperCase();
+      return `${host}:${bind.port} · ${transport}`;
+    },
 
     copy(text) {
       navigator.clipboard?.writeText(text).then(
@@ -252,12 +268,13 @@ function quickstartPage() {
 
         this.qs.step = 'Restarting…';
         const ok = await restartServer();
+        const endpoint = this.endpointFor(profile);
         this.qs.done = {
-          id: m.id, name: m.name, profile: profile.name,
-          endpoint: `${profile.bind.address}:${profile.bind.port} · ${profile.bind.transport.toUpperCase()}`,
+          id: m.id, name: m.name, profile: profile.name, ok,
+          endpoint,
           tcp: m.transport === 'tcp', sid, obfsKey,
         };
-        this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
+        this.$dispatch('notify', { msg: ok ? qeliTf('{} server is live', m.name) : qeliT('Applied — server still coming up'), type: ok ? 'success' : 'warn' });
       } catch (e) {
         this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
       } finally {
