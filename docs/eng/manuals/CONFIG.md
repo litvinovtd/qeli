@@ -794,22 +794,13 @@ is at parity (the TUN pump is the ceiling); on a lossy/latent link it scales:
 | RTT 40 ms, 0.05% loss | ~225–420 | ~692–704 | ~1.6–3× |
 | RTT 80 ms, 0.1% loss | ~50–65 | ~260–305 | **~5×** |
 
-Note that in the **Rust client** the distribution is **per-flow** — each inner flow is
-pinned to one connection by a flow hash (`flow_hash % streams`) to avoid reordering (which
-only hurts the inner TCP). So only traffic with **several concurrent connections** (like a
-browser's 6+ TLS) speeds up; a single lone flow won't.
-
-> ⚠️ **Rust only.** The desktop (C#), Android and iOS clients spread **individual packets**
-> round-robin over the live connections, with no flow affinity. The inner TCP sees the
-> reordering, reads it as loss, sends duplicate ACKs and collapses its window — precisely
-> what per-flow pinning exists to prevent. The measurements above were taken with the Rust
-> client and do not carry over to the GUI clients, where bonding may be neutral or harmful,
-> especially when the connections differ in RTT.
->
-> The per-client **cap** differs too: Rust clamps the pushed `max_streams` to 16, the
-> desktop (C#) to 8, Android and iOS to 64. The effective count still cannot exceed the
-> server's `max_streams` (it rejects the extras), so the cap only shows up with very large
-> values in the profile.
+Distribution is **per-flow** in the shared Rust transport core used by the CLI, desktop,
+Android and iOS clients. Each inner flow is pinned to one carrier by a flow hash
+(`flow_hash % streams`) to avoid reordering. The common core clamps the pushed
+`max_streams` to 16 on every platform; the effective count also cannot exceed the server
+profile's `max_streams`. Consequently traffic with **several concurrent connections**
+(such as a browser's 6+ TLS connections) can benefit, while one lone flow stays on one
+carrier and does not become faster merely because bonding is enabled.
 
 ## Flow shaping — cover traffic (`obf.traffic_shaping.*`)
 
@@ -976,8 +967,10 @@ On exceeding it the connection ends with an error and reconnects with a fresh no
 (fail-safe, no keystream reuse). For very high-volume long-lived links this means a
 reconnect roughly every 256 GiB.
 
-UDP obfuscation is a separate mechanism (`obfuscation.quic`, masking as QUIC);
-`mode: "obfs"` applies only to TCP profiles.
+`mode = obfs` is supported on both TCP and UDP and requires the same `obfs_key` on both
+peers. TCP may additionally use `obfs_fronting`; fronting is not part of the UDP carrier.
+`obfuscation.quic` is an independent optional UDP packet-shape wrapper and is not the
+implementation of `udp-obfs`.
 
 ### REALITY (`mode = reality-tls`, keys `obf.tls.reality_proxy.*`)
 
@@ -1428,7 +1421,7 @@ failed roam.
 **Desktop per-app details.** With `apps_mode = all`, Windows keeps its native Wintun
 zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
 changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
-the same ABI 1.14 Rust transport (compatibility floor 1.11) and uses the same server push, crypto and reconnect logic.
+the same ABI 1.15 Rust transport (compatibility floor 1.11) and uses the same server push, crypto and reconnect logic.
 On Windows, a configured/pushed tunnel resolver is intentionally tunnel-wide in per-app mode:
 DNS commonly belongs to the shared system resolver process rather than the originating app, so
 trying to classify it by that process leaks selected applications' queries. IPv4 DNS can use an

@@ -154,7 +154,9 @@ allowed_origins = 192.168.88.8:8080
 ```
 
 Or, without editing the config, reach the panel over an SSH tunnel to loopback (always
-allowed): `ssh -L 8080:127.0.0.1:8080 root@<server>` → open `http://127.0.0.1:8080`.
+allowed): `ssh -L 8080:127.0.0.1:8080 root@<server>` → open `https://127.0.0.1:8080` and
+accept the expected hostname warning for the installer-generated certificate. Use `http://`
+only when `web.tls = false` was explicitly configured.
 
 **Behind a reverse proxy at a sub-path** (e.g. `https://host/qeli/` instead of the domain
 root): set `base_path = /qeli` in `[web]` and proxy the prefix through **without** stripping
