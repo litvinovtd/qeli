@@ -838,6 +838,12 @@ anti-amplification, PMTU reset, and bounded DATA_FRAG/reassembly.
   smokes pass while retaining one authenticated session. The representative Linux TAP gate passes
   TCP fake-TLS 17/17 and UDP QUIC 19/19 while preserving the same TAP, process, and authenticated
   session across the handover; the default TUN regression passes the same 17/17 and 19/19. Both
+  Each release candidate uses a bounded mandatory gate of 100 sequential A/B commits for one
+  representative TCP mode and UDP QUIC. It retains the strict session/PID/TUN, route, counter,
+  CID/orphan-state, fd/socket and RSS checks while completing in minutes rather than roughly
+  15 hours. The completed 10k runs remain endurance evidence, and the standalone harness still
+  defaults to 10k for nightly runs and major roaming-state changes. Values below 100 are smoke
+  only and cannot satisfy release certification.
   device types use the same TCP/UDP roaming state machines and the harness verifies their actual
   kernel kind. The TCP harness also covers `max_streams=1`, fixed bonding, and adaptive bonding.
   A live regression exposed old secondary writers that kept accepting flow-pinned packets after

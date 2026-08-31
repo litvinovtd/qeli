@@ -285,7 +285,7 @@
     },
     {
       "id": "linux.roaming-flap-soak",
-      "kind": "physical",
+      "kind": "automated",
       "status": "pending"
     },
     {

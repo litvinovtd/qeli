@@ -9,7 +9,7 @@ ARTIFACT = "b" * 64
 
 
 def complete_manifest():
-    return {
+    document = {
         "schema_version": 1,
         "release_version": "0.8.0",
         "source_digest": DIGEST,
@@ -27,6 +27,11 @@ def complete_manifest():
             for case_id, kind in certification.REQUIRED_CASES.items()
         ],
     }
+    document["cases"].extend(
+        {"id": case_id, "kind": kind, "status": "pending"}
+        for case_id, kind in certification.ADVISORY_CASES.items()
+    )
+    return document
 
 
 class ReleaseCertificationTest(unittest.TestCase):
@@ -42,7 +47,7 @@ class ReleaseCertificationTest(unittest.TestCase):
 
     def test_missing_case_fails_closed(self):
         document = complete_manifest()
-        missing = document["cases"].pop()["id"]
+        missing = document["cases"].pop(0)["id"]
         self.assertTrue(any(missing in error for error in self.validate(document)))
 
     def test_pending_case_blocks_without_demanding_fake_evidence(self):
@@ -55,6 +60,52 @@ class ReleaseCertificationTest(unittest.TestCase):
         errors = self.validate(document)
         self.assertEqual(len(errors), 1)
         self.assertIn("expected 'passed'", errors[0])
+
+    def test_pending_physical_case_is_advisory(self):
+        document = complete_manifest()
+        self.assertEqual(self.validate(document), [])
+        self.assertEqual(
+            certification.advisory_statuses(document),
+            {"pending": len(certification.ADVISORY_CASES)},
+        )
+
+    def test_unavailable_physical_case_is_advisory(self):
+        document = complete_manifest()
+        physical = document["cases"][len(certification.REQUIRED_CASES)]
+        physical["status"] = "not_available"
+        self.assertEqual(self.validate(document), [])
+
+    def test_failed_physical_case_blocks_known_regression(self):
+        document = complete_manifest()
+        physical = document["cases"][len(certification.REQUIRED_CASES)]
+        physical["status"] = "failed"
+        errors = self.validate(document)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("physical qualification failed", errors[0])
+
+    def test_passed_physical_case_requires_exact_evidence(self):
+        document = complete_manifest()
+        physical = document["cases"][len(certification.REQUIRED_CASES)]
+        physical["status"] = "passed"
+        errors = self.validate(document)
+        self.assertTrue(any("different source tree" in error for error in errors))
+        self.assertTrue(any("artifact_sha256" in error for error in errors))
+        self.assertTrue(any("executed_at" in error for error in errors))
+        self.assertTrue(any("environment" in error for error in errors))
+        self.assertTrue(any("evidence" in error for error in errors))
+
+    def test_missing_advisory_row_is_a_schema_error(self):
+        document = complete_manifest()
+        advisory_id = next(iter(certification.ADVISORY_CASES))
+        document["cases"] = [
+            case for case in document["cases"] if case["id"] != advisory_id
+        ]
+        self.assertTrue(
+            any(
+                f"missing advisory case {advisory_id}" in error
+                for error in self.validate(document)
+            )
+        )
 
     def test_stale_source_and_artifact_are_rejected(self):
         document = complete_manifest()

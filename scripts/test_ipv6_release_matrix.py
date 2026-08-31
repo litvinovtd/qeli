@@ -53,5 +53,11 @@ class Ipv6ReleaseMatrixContractTest(unittest.TestCase):
         self.assertNotIn(matrix.MTU_CASE_ID, matrix.case_ids())
         self.assertEqual(matrix.MTU_SCRIPT.name, "ipv6_mtu_pair.sh")
 
+    def test_bounded_soak_is_a_required_distinct_gate(self):
+        self.assertEqual(matrix.SOAK_CASE_ID, "linux.roaming-flap-soak")
+        self.assertIn(matrix.SOAK_CASE_ID, release_certification.REQUIRED_CASES)
+        self.assertNotIn(matrix.SOAK_CASE_ID, matrix.case_ids())
+        self.assertEqual(matrix.SOAK_SCRIPT.name, "linux_roaming_release_soak.sh")
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Validate mandatory IPv6/roaming evidence for a release candidate.
+"""Validate IPv6/roaming evidence for a release candidate.
 
-CI proves source-level correctness but cannot prove that signed packages survived
-carrier changes on physical clients or ran on the shipped router hardware. This gate
-keeps those results machine-readable and tied to the committed tree and tested binary.
+Automated Linux cases are release-blocking. Physical-device cases remain machine-readable
+and tied to exact artifacts when they can be executed, but an unavailable lab or device
+does not prevent a release. A physical case that was executed and failed still blocks: an
+explicit regression must never be downgraded to an advisory merely because the gate is
+physical.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 HEX_256 = re.compile(r"^[0-9a-f]{64}$")
 
-# Code owns this list so deleting an unfinished row from JSON cannot make preflight pass.
+# Code owns the release-blocking automated list. Deleting one cannot make preflight pass.
 REQUIRED_CASES: dict[str, str] = {
     "linux.outer4.inner4.tcp.full": "automated",
     "linux.outer4.inner6.tcp.full": "automated",
@@ -41,6 +43,13 @@ REQUIRED_CASES: dict[str, str] = {
     "linux.leak.ipv4-ipv6": "automated",
     "linux.tap.ndp-ra": "automated",
     "linux.legacy-peer": "automated",
+    "linux.roaming-flap-soak": "automated",
+}
+
+# These rows are retained as an honest qualification backlog. Pending, blocked,
+# deferred and unavailable physical checks are advisory; passed results need the same
+# exact evidence as automated cases, while an explicit failed result remains fatal.
+ADVISORY_CASES: dict[str, str] = {
     "android.wifi-to-cellular": "physical",
     "android.cellular-to-wifi": "physical",
     "android.carrier-gap-background": "physical",
@@ -59,14 +68,15 @@ REQUIRED_CASES: dict[str, str] = {
     "macos.sleep-wake": "physical",
     "macos.ipv6-pf-per-app-leak": "physical",
     "macos.networkextension-soak": "physical",
-    "linux.roaming-flap-soak": "physical",
     "openwrt.ipv6-roaming-flap-soak": "physical",
     "keenetic.ipv6-roaming-flap-soak": "physical",
     "rollout.canary-legacy-peer": "physical",
 }
+ADVISORY_NON_BLOCKING_STATUSES = {"pending", "blocked", "deferred", "not_available"}
+KNOWN_CASES: dict[str, str] = {**REQUIRED_CASES, **ADVISORY_CASES}
+
+
 class CertificationError(RuntimeError):
-
-
     """The repository identity could not be established safely."""
 
 
@@ -131,6 +141,25 @@ def _valid_timestamp(value: object) -> bool:
     return parsed.tzinfo is not None
 
 
+def _validate_passed_case(
+    case_id: str, case: dict[str, Any], expected_source_digest: str
+) -> list[str]:
+    prefix = f"case {case_id}"
+    errors: list[str] = []
+    if case.get("source_digest") != expected_source_digest:
+        errors.append(f"{prefix}: result belongs to a different source tree")
+    artifact = case.get("artifact_sha256")
+    if not isinstance(artifact, str) or HEX_256.fullmatch(artifact.lower()) is None:
+        errors.append(f"{prefix}: artifact_sha256 must be 64 lowercase hex characters")
+    if not _valid_timestamp(case.get("executed_at")):
+        errors.append(f"{prefix}: executed_at must be an RFC 3339 timestamp with timezone")
+    if not isinstance(case.get("environment"), str) or not case["environment"].strip():
+        errors.append(f"{prefix}: environment must identify the test host/device")
+    if not isinstance(case.get("evidence"), str) or not case["evidence"].strip():
+        errors.append(f"{prefix}: evidence must point to retained logs/results")
+    return errors
+
+
 def validate_manifest(
     document: Any, *, expected_version: str, expected_source_digest: str
 ) -> list[str]:
@@ -180,18 +209,39 @@ def validate_manifest(
         if case.get("status") != "passed":
             errors.append(f"{prefix}: status is {case.get('status')!r}, expected 'passed'")
             continue
-        if case.get("source_digest") != expected_source_digest:
-            errors.append(f"{prefix}: result belongs to a different source tree")
-        artifact = case.get("artifact_sha256")
-        if not isinstance(artifact, str) or HEX_256.fullmatch(artifact.lower()) is None:
-            errors.append(f"{prefix}: artifact_sha256 must be 64 lowercase hex characters")
-        if not _valid_timestamp(case.get("executed_at")):
-            errors.append(f"{prefix}: executed_at must be an RFC 3339 timestamp with timezone")
-        if not isinstance(case.get("environment"), str) or not case["environment"].strip():
-            errors.append(f"{prefix}: environment must identify the test host/device")
-        if not isinstance(case.get("evidence"), str) or not case["evidence"].strip():
-            errors.append(f"{prefix}: evidence must point to retained logs/results")
+        errors.extend(_validate_passed_case(case_id, case, expected_source_digest))
+
+    for case_id, expected_kind in ADVISORY_CASES.items():
+        case = by_id.get(case_id)
+        if case is None:
+            errors.append(f"missing advisory case {case_id}")
+            continue
+        prefix = f"case {case_id}"
+        if case.get("kind") != expected_kind:
+            errors.append(f"{prefix}: kind must be {expected_kind!r}")
+        status = case.get("status")
+        if status == "passed":
+            errors.extend(_validate_passed_case(case_id, case, expected_source_digest))
+        elif status == "failed":
+            errors.append(f"{prefix}: physical qualification failed")
+        elif status not in ADVISORY_NON_BLOCKING_STATUSES:
+            allowed = ", ".join(sorted(ADVISORY_NON_BLOCKING_STATUSES | {"failed", "passed"}))
+            errors.append(f"{prefix}: unsupported advisory status {status!r}; expected {allowed}")
     return errors
+
+
+def advisory_statuses(document: Any) -> dict[str, int]:
+    """Summarize physical qualification without turning unavailable devices into success."""
+    if not isinstance(document, dict) or not isinstance(document.get("cases"), list):
+        return {}
+    statuses: dict[str, int] = {}
+    advisory_ids = set(ADVISORY_CASES)
+    for case in document["cases"]:
+        if not isinstance(case, dict) or case.get("id") not in advisory_ids:
+            continue
+        status = str(case.get("status", "missing"))
+        statuses[status] = statuses.get(status, 0) + 1
+    return statuses
 
 
 def load_and_validate(path: Path, root: Path = ROOT) -> tuple[str, list[str]]:
@@ -235,10 +285,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {error}")
         return 1
     if not args.quiet:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        advisory = advisory_statuses(document)
         print(
-            f"PASS: {len(REQUIRED_CASES)} required cases certify qeli {version} "
+            f"PASS: {len(REQUIRED_CASES)} required automated cases certify qeli {version} "
             f"source {digest[:16]}"
         )
+        if advisory:
+            summary = ", ".join(
+                f"{status}={count}" for status, count in sorted(advisory.items())
+            )
+            print(
+                f"INFO: {len(ADVISORY_CASES)} physical qualification cases are advisory "
+                f"({summary}); only an explicit failed result blocks release"
+            )
     return 0
 
 

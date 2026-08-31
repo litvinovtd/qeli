@@ -8,10 +8,12 @@
 
 ### Сборка и проверка релиза
 
-- Release preflight теперь fail-closed проверяет машиночитаемую матрицу IPv6/roaming: каждый
-  обязательный automated/physical сценарий привязан к digest закоммиченного дерева, SHA-256
-  реально проверенного артефакта, окружению, времени и сохраняемому evidence. Незавершённая,
-  устаревшая или вручную урезанная матрица блокирует выпуск.
+- Release preflight теперь fail-closed проверяет обязательную автоматическую IPv6/roaming-матрицу:
+  каждый успешный сценарий привязан к digest закоммиченного дерева, SHA-256 реально проверенного
+  артефакта, окружению, времени и сохраняемому evidence. Недоступные physical-сценарии остаются
+  видимым advisory backlog и не блокируют выпуск; уже полученный `failed` по-прежнему фатален, а
+  physical `passed` принимается только с полной привязкой к артефакту. Linux roaming soak является
+  обязательным автоматическим gate.
 - Добавлен воспроизводимый Linux netns-runner для outer IPv4/IPv6 × inner IPv4/IPv6/dual,
   TCP, UDP fake-TLS, UDP QUIC, full/split tunnel и leak/cleanup-проверок; результаты сохраняются
   в JSON и могут обновить сертификационный manifest только для чистого committed tree.
@@ -30,6 +32,11 @@
   проверяет минимальный IPv6 TUN, прохождение пакета ровно 1280 байт и валидный ICMPv6 Packet Too
   Big с `mtu=1280` для oversized downlink, после которого отправка на объявленном размере
   восстанавливается.
+- Linux roaming release-soak выполняет по 100 последовательных A↔B commit для representative TCP
+  и UDP QUIC, контролируя одну AUTH-сессию, неизменные PID/TUN, маршруты, точные client/server
+  counters, CID/orphan state, fd/socket и RSS. Отдельный standalone endurance-режим сохраняет
+  дефолт 10k для nightly и крупных изменений state machine; значения ниже 100 остаются только
+  smoke и не закрывают release certification.
 - IPv4/IPv6 packet parser включён в обязательные smoke/nightly fuzz-матрицы, а контракты
   release-certification и netns-runner выполняются отдельным CI gate.
 - Реальный HTTP/2 carrier теперь принимает только корректный streaming POST на выделенном пути

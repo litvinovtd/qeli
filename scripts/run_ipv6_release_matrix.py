@@ -28,6 +28,8 @@ DNS_SCRIPT = ROOT / "scripts" / "ipv6_dns_pair.sh"
 DNS_CASE_ID = "linux.dns.ipv4-ipv6"
 MTU_SCRIPT = ROOT / "scripts" / "ipv6_mtu_pair.sh"
 MTU_CASE_ID = "linux.mtu.1280-pmtu-ptb"
+SOAK_SCRIPT = ROOT / "scripts" / "linux_roaming_release_soak.sh"
+SOAK_CASE_ID = "linux.roaming-flap-soak"
 LEGACY_SCRIPT = ROOT / "scripts" / "ipv6_legacy_pair.sh"
 LEGACY_CASE_ID = "linux.legacy-peer"
 MATRIX_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -145,6 +147,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="also run bidirectional interop with the qeli 0.7.16 Linux binary",
     )
+    parser.add_argument(
+        "--include-soak",
+        action="store_true",
+        help="also run the bounded representative TCP/UDP Linux roaming soak",
+    )
+    parser.add_argument(
+        "--soak-iterations",
+        type=int,
+        default=100,
+        help="committed A/B flips per soak transport (release minimum: 100)",
+    )
     args = parser.parse_args(argv)
     if os.name != "posix" or os.geteuid() != 0:
         parser.error("the live matrix requires Linux root privileges")
@@ -161,12 +174,17 @@ def main(argv: list[str] | None = None) -> int:
         not legacy_binary.is_file() or not os.access(legacy_binary, os.X_OK)
     ):
         parser.error(f"legacy binary is not executable: {legacy_binary}")
+    if args.include_soak and args.soak_iterations < 100:
+        parser.error("release soak requires at least 100 iterations per transport")
     artifact = sha256(binary)
     results: list[dict[str, object]] = []
     passed: set[str] = set()
     selected_cases = MATRIX_CASES + (SPECIAL_CASES if args.include_special else ())
     total_cases = (
-        len(selected_cases) + 2 * int(args.include_special) + int(legacy_binary is not None)
+        len(selected_cases)
+        + 2 * int(args.include_special)
+        + int(args.include_soak)
+        + int(legacy_binary is not None)
     )
     for index, (case_id, parameters) in enumerate(selected_cases, 1):
         print(f"[{index:02d}/{total_cases:02d}] {case_id}", flush=True)
@@ -262,11 +280,48 @@ def main(argv: list[str] | None = None) -> int:
         if process.returncode != 0:
             print(f"FAIL: {MTU_CASE_ID}", file=sys.stderr)
 
+    if args.include_soak:
+        index = len(selected_cases) + 2 * int(args.include_special) + 1
+        print(f"[{index:02d}/{total_cases:02d}] {SOAK_CASE_ID}", flush=True)
+        started = time.monotonic()
+        process = subprocess.run(
+            ["bash", str(SOAK_SCRIPT), str(binary), str(args.soak_iterations)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=2400,
+        )
+        duration = round(time.monotonic() - started, 3)
+        output = process.stdout + process.stderr
+        print(output.rstrip())
+        status = "passed" if process.returncode == 0 else "failed"
+        if process.returncode == 0:
+            passed.add(SOAK_CASE_ID)
+        results.append(
+            {
+                "id": SOAK_CASE_ID,
+                "parameters": ["tcp", "udp-quic", str(args.soak_iterations)],
+                "status": status,
+                "exit_code": process.returncode,
+                "duration_seconds": duration,
+                "output": output,
+            }
+        )
+        if process.returncode != 0:
+            print(f"FAIL: {SOAK_CASE_ID}", file=sys.stderr)
+
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True
     ).stdout.strip()
     if legacy_binary is not None:
-        index = len(selected_cases) + 2 * int(args.include_special) + 1
+        index = (
+            len(selected_cases)
+            + 2 * int(args.include_special)
+            + int(args.include_soak)
+            + 1
+        )
         print(f"[{index:02d}/{total_cases:02d}] {LEGACY_CASE_ID}", flush=True)
         started = time.monotonic()
         process = subprocess.run(

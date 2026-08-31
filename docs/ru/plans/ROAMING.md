@@ -1159,6 +1159,12 @@ attempts/commits, одну session, ноль failures/candidates и три CID a
 по 100 миграций во всех четырёх UDP wire modes прошли с сохранением одной аутентифицированной
 сессии, исходных PID/TUN, точных client/server commit и fd 14/10. Последующие representative TCP/UDP
 10k gates, описанные ниже, закрыты; открытыми остаются только physical-device/platform gates.
+Для каждого release candidate принят ограниченный обязательный gate: по 100 последовательных
+A↔B commit для representative TCP и UDP QUIC. Он сохраняет все строгие проверки session/PID/TUN,
+route, counters, CID/orphan state, fd/socket и RSS, но укладывается в минуты вместо примерно 15 часов.
+Уже пройденные 10k прогоны сохраняются как endurance evidence, а standalone harness по-прежнему
+запускает 10k по умолчанию для nightly/перед крупными изменениями roaming state machine. Значения
+меньше 100 считаются только smoke и не закрывают release certification.
 Старый диагностический TCP 10k прошёл все functional/fd проверки, но превысил RSS budget 32 MiB.
 Кодовый аудит нашёл lifecycle-причину: 2–3 завершённых Tokio task handles каждого заменённого
 carrier оставались в generation registry до полного teardown туннеля. Регистрация следующего
