@@ -1,147 +1,147 @@
 {
   "schema_version": 1,
   "release_version": "0.8.0",
-  "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+  "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
   "cases": [
     {
       "id": "linux.outer4.inner4.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer4.inner6.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner4.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner6.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer4.inner4.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer4.inner6.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner4.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner6.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer4.inner4.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer4.inner6.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner4.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.outer6.inner6.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.dual.tcp.split",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.dual.udp.split",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.dns.ipv4-ipv6",
@@ -157,16 +157,21 @@
       "id": "linux.leak.ipv4-ipv6",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "08f111ebc845d54bdd799edaabd99666ff2fbb086c599cef8ec7c77226dce1af",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
       "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
-      "executed_at": "2026-08-31T11:27:18.908030Z",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-7061dfe3.json"
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.tap.ndp-ra",
       "kind": "automated",
-      "status": "pending"
+      "status": "passed",
+      "source_digest": "893e06d1073b482a68c110fd4e4fd8889cb7da9df22794338484d729b876ca0e",
+      "artifact_sha256": "da0303ea035aa6ea2534e05f8b94b4227100a05933d8647effa876bfbf2f7dd2",
+      "executed_at": "2026-08-31T11:52:33.582470Z",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-03009d10.json"
     },
     {
       "id": "linux.legacy-peer",
