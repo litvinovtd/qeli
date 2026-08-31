@@ -717,10 +717,7 @@ mod tests {
         .unwrap()
         .expect("authenticated capability extension");
         assert_ne!(aware_gui.core_bits & client_capability::MANAGEMENT_V1, 0);
-        assert!(management_v1_negotiated(
-            server,
-            Some(aware_gui),
-        ));
+        assert!(management_v1_negotiated(server, Some(aware_gui),));
     }
 
     #[test]

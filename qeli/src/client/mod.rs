@@ -1503,6 +1503,19 @@ impl LinuxCoreAdapter {
                         "unexpected path refresh: this Linux adapter owns NAT recovery in-process"
                     ));
                 }
+                EventKind::Notice | EventKind::Kick => {
+                    let management = event.management.ok_or_else(|| {
+                        anyhow::anyhow!("management event has no typed payload")
+                    })?;
+                    <Self as ClientPlatform>::management_event(self, &management)?;
+                    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = management {
+                        return Err(ServerKickError {
+                            message: kick.message,
+                            reconnect_allowed: kick.reconnect_allowed,
+                        }
+                        .into());
+                    }
+                }
             }
         }
         Ok(found)
@@ -3573,6 +3586,9 @@ where
         let runtime = runtime.clone();
         let record_pool = tun_write_tx.clone();
         let recordizer_config = cfg.recordizer.clone();
+        let management_v1 = cfg.management_v1;
+        let management_reassembler = cfg.management_reassembler.clone();
+        let management_tx = cfg.management_tx.clone();
 
         // Where the reader sends each framed record. `Inline` decrypts in this
         // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
@@ -3600,6 +3616,8 @@ where
             let mut inner_mux = recordizer_config
                 .clone()
                 .map(crate::protocol::recordizer::Reassembler::new);
+            let inner_management_reassembler = management_reassembler.clone();
+            let inner_management_tx = management_tx.clone();
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
@@ -3614,9 +3632,9 @@ where
                                 &mut inner_mux,
                                 &inner_tun,
                                 family_mode,
-                                cfg.management_v1,
-                                &cfg.management_reassembler,
-                                &cfg.management_tx,
+                                management_v1,
+                                &inner_management_reassembler,
+                                &inner_management_tx,
                                 ClientTcpRxMetrics {
                                     last_rx: &inner_last_rx,
                                     base,
@@ -3666,9 +3684,9 @@ where
                                             mux,
                                             tun,
                                             family_mode,
-                                            cfg.management_v1,
-                                            &cfg.management_reassembler,
-                                            &cfg.management_tx,
+                                            management_v1,
+                                            &management_reassembler,
+                                            &management_tx,
                                             ClientTcpRxMetrics {
                                                 last_rx: &last_rx,
                                                 base,

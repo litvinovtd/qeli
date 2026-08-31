@@ -1811,6 +1811,7 @@ impl ClientCore {
             server_identity: None,
             path_command: None,
             path_refresh_generation: Some(generation),
+            management: None,
             fault: None,
         });
         sequence
@@ -3946,10 +3947,10 @@ mod tests {
                 deadline_unix: None,
             },
         );
-        assert_eq!(
+        assert!(matches!(
             core.publish_management(notice),
             Err(CoreError::EventQueueFull)
-        );
+        ));
 
         let kick = crate::protocol::control_v2::Kick {
             reason: crate::protocol::control_v2::KickReason::ProfileDisabled,

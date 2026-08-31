@@ -1112,6 +1112,7 @@ mod tests {
             server_identity: None,
             path_command: None,
             path_refresh_generation: Some(19),
+            management: None,
             fault: None,
         };
         let (payload, format) = event_payload(&event).unwrap();

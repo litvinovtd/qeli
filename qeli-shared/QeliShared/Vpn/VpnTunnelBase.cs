@@ -1528,25 +1528,21 @@ public abstract class VpnTunnelBase
 
                         case NativeTransportCore.EventNotice:
                         {
-                            using JsonDocument notice = JsonDocument.Parse(nativeEvent.Payload);
-                            string message = notice.RootElement.GetProperty("message").GetString()
-                                ?? "Server notice";
-                            Log($"NOTICE: {message}");
+                            var notice = NativeTransportCore.DecodeManagement(nativeEvent,
+                                NativeTransportCore.EventNotice);
+                            Log($"NOTICE: {notice.Message}");
                             break;
                         }
 
                         case NativeTransportCore.EventKick:
                         {
-                            using JsonDocument kick = JsonDocument.Parse(nativeEvent.Payload);
-                            string message = kick.RootElement.GetProperty("message").GetString()
-                                ?? "Session terminated by server";
-                            bool reconnectAllowed = kick.RootElement.TryGetProperty(
-                                "reconnect_allowed", out JsonElement reconnect)
-                                && reconnect.GetBoolean();
-                            Log($"KICK: {message}");
+                            var kick = NativeTransportCore.DecodeManagement(nativeEvent,
+                                NativeTransportCore.EventKick);
+                            Log($"KICK: {kick.Message}");
                             NativeTransportCore.Stop(handle);
-                            if (!reconnectAllowed) throw new ServerKickException(message);
-                            nativeError = message;
+                            if (!kick.ReconnectAllowed)
+                                throw new ServerKickException(kick.Message);
+                            nativeError = kick.Message;
                             break;
                         }
 

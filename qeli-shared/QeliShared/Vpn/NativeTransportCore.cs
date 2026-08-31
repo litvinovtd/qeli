@@ -115,6 +115,64 @@ internal static unsafe class NativeTransportCore
         ulong UdpKernelDrops, ulong UdpInternalDrops, ulong UdpBufferGrows,
         ulong UdpRecvBufferBytes);
 
+    internal readonly record struct ManagementEnvelope(string Message, bool ReconnectAllowed);
+
+    internal static ManagementEnvelope DecodeManagement(NativeEvent request, uint expectedKind)
+    {
+        if (expectedKind is not (EventNotice or EventKick) || request.Kind != expectedKind
+            || request.PayloadFormat != PayloadJson)
+            throw new InvalidDataException("invalid native management event envelope");
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(request.Payload,
+                new JsonDocumentOptions { MaxDepth = 8 });
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException("management payload is not an object");
+
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonProperty property in root.EnumerateObject())
+            {
+                if (!names.Add(property.Name))
+                    throw new InvalidDataException(
+                        $"duplicate management field '{property.Name}'");
+            }
+
+            string expectedType = expectedKind == EventKick ? "kick" : "notice";
+            if (!root.TryGetProperty("type", out JsonElement type)
+                || type.ValueKind != JsonValueKind.String
+                || type.GetString() != expectedType)
+                throw new InvalidDataException("management kind/type mismatch");
+            if (!root.TryGetProperty("message", out JsonElement text)
+                || text.ValueKind != JsonValueKind.String)
+                throw new InvalidDataException("management message is missing");
+            string message = text.GetString() ?? "";
+            int messageBytes = Encoding.UTF8.GetByteCount(message);
+            if (messageBytes is < 1 or > 512 || message.Any(char.IsControl))
+                throw new InvalidDataException("invalid management message");
+
+            bool reconnectAllowed = true;
+            bool hasReconnect = root.TryGetProperty("reconnect_allowed", out JsonElement reconnect);
+            if (expectedKind == EventKick)
+            {
+                if (!hasReconnect
+                    || reconnect.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new InvalidDataException("KICK reconnect policy is missing");
+                reconnectAllowed = reconnect.GetBoolean();
+            }
+            else if (hasReconnect)
+            {
+                throw new InvalidDataException("NOTICE carries an unexpected reconnect policy");
+            }
+            return new ManagementEnvelope(message, reconnectAllowed);
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException("invalid management JSON", error);
+        }
+    }
+
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern uint qeli_client_abi_version();
 
