@@ -1102,8 +1102,7 @@ mod tests {
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::CONTROL_V2
-                | client_capability::UDP_ROAM_V1
+            client_capability::UDP_ROAM_V1
                 | client_capability::TCP_RESUME_V2
                 | client_capability::TCP_HANDOVER_V2
         );

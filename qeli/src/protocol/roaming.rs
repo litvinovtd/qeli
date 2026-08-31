@@ -391,24 +391,32 @@ mod tests {
         let server_roaming =
             implemented_server_capabilities().bits & server_capability::ROAMING_RESERVED;
         #[cfg(feature = "experimental-roaming")]
+        assert_ne!(
+            implemented_server_capabilities().bits & server_capability::CONTROL_V2,
+            0
+        );
+        #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             server_roaming,
-            server_capability::CONTROL_V2
-                | server_capability::TCP_RESUME_V2
-                | server_capability::TCP_HANDOVER_V2
+            server_capability::TCP_RESUME_V2 | server_capability::TCP_HANDOVER_V2
         );
         #[cfg(not(feature = "experimental-roaming"))]
         assert_eq!(server_roaming, 0);
 
-        // The gated common supervisor implements terminal CONTROL_V2 close, hard resume, TCP
-        // handover, and the shared UDP roaming actor. Transport negotiation separately strips each
-        // handover bit unless the exact transport and a complete ROAMING_PATH adapter support it;
-        // the generic server advertisement above intentionally remains transport-neutral.
+        // CONTROL_V2 is shared with management and remains outside the migration-only mask.
+        // The gated common supervisor implements terminal close, hard resume, TCP handover,
+        // and the shared UDP roaming actor. Transport negotiation separately strips each
+        // migration bit unless the exact transport and a complete ROAMING_PATH adapter support
+        // it; the generic server advertisement above intentionally remains transport-neutral.
+        #[cfg(feature = "experimental-roaming")]
+        assert_ne!(
+            implemented_client_core_capabilities() & client_capability::CONTROL_V2,
+            0
+        );
         #[cfg(feature = "experimental-roaming")]
         assert_eq!(
             implemented_client_core_capabilities() & client_capability::ROAMING_RESERVED,
-            client_capability::CONTROL_V2
-                | client_capability::UDP_ROAM_V1
+            client_capability::UDP_ROAM_V1
                 | client_capability::TCP_RESUME_V2
                 | client_capability::TCP_HANDOVER_V2
         );

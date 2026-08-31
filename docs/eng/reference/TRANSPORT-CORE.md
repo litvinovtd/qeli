@@ -43,6 +43,9 @@ is reserved for an incomplete internal rollback; it terminates the current gener
 stale `ABORT_PATH`. Path transactions are capability-gated off when a desktop, Android, or iOS
 adapter loads a pre-1.14 core. ABI 1.15 adds negotiated, bounded server `NOTICE` and terminal
 `KICK` events; older peers do not advertise `MANAGEMENT_V1` and keep their previous behaviour.
+A native adapter must also advertise the ABI 1.15 platform capability `MANAGEMENT_EVENTS` before
+the wire capability is enabled. This keeps a pre-1.15 GUI safe if it loads a newer compatible
+core: the server cannot send event kinds that the GUI does not understand.
 The fixed 48-byte event header, statistics prefixes and export counts remain unchanged.
 
 ---

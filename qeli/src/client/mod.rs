@@ -1504,9 +1504,9 @@ impl LinuxCoreAdapter {
                     ));
                 }
                 EventKind::Notice | EventKind::Kick => {
-                    let management = event.management.ok_or_else(|| {
-                        anyhow::anyhow!("management event has no typed payload")
-                    })?;
+                    let management = event
+                        .management
+                        .ok_or_else(|| anyhow::anyhow!("management event has no typed payload"))?;
                     <Self as ClientPlatform>::management_event(self, &management)?;
                     if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = management {
                         return Err(ServerKickError {
@@ -1638,7 +1638,22 @@ fn consume_authenticated_management(
         Ok(crate::protocol::control_v2::ReassemblyOutcome::Complete(message)) => {
             match crate::protocol::control_v2::decode_management(&message) {
                 Ok(Some(event)) => {
-                    sender.send_replace(Some(event));
+                    sender.send_if_modified(|pending| {
+                        // A bounded watch slot deliberately coalesces advisory notices, but a
+                        // terminal KICK must never be overwritten by a later NOTICE arriving on
+                        // another bonded stream before the supervisor observes it.
+                        if matches!(
+                            &event,
+                            crate::protocol::control_v2::ManagementEvent::Notice(_)
+                        ) && matches!(
+                            pending.as_ref(),
+                            Some(crate::protocol::control_v2::ManagementEvent::Kick(_))
+                        ) {
+                            return false;
+                        }
+                        *pending = Some(event.clone());
+                        true
+                    });
                 }
                 Ok(None) => log::debug!(
                     "ignoring unsupported server CONTROL_V2 type 0x{:02x}",
@@ -2021,6 +2036,60 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             .retrying(result.as_ref().err(), retry_count, retry_in_secs);
         core_adapter.diagnostics.publish(&core_adapter.counters);
         tokio::time::sleep(delay).await;
+    }
+}
+
+#[cfg(test)]
+mod management_event_tests {
+    use super::consume_authenticated_management;
+    use crate::protocol::control_v2::{
+        Kick, KickReason, ManagementEvent, Notice, NoticeKind, NoticeSeverity, Reassembler,
+    };
+
+    #[test]
+    fn terminal_kick_cannot_be_overwritten_by_a_later_notice() {
+        let reassembler = std::sync::Mutex::new(Reassembler::new());
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let kick = ManagementEvent::Kick(Kick {
+            reason: KickReason::Administrative,
+            message: "Session stopped".to_string(),
+            reconnect_allowed: false,
+        });
+        let notice = ManagementEvent::Notice(Notice {
+            kind: NoticeKind::Administrative,
+            severity: NoticeSeverity::Info,
+            message: "Maintenance scheduled".to_string(),
+            value: None,
+            deadline_unix: None,
+        });
+
+        let kick_frame = crate::protocol::control_v2::management_frames(&kick, 1)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let notice_frame = crate::protocol::control_v2::management_frames(&notice, 2)
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(consume_authenticated_management(
+            &kick_frame,
+            true,
+            &reassembler,
+            &sender,
+        ));
+        assert!(consume_authenticated_management(
+            &notice_frame,
+            true,
+            &reassembler,
+            &sender,
+        ));
+        assert!(matches!(
+            receiver.borrow().as_ref(),
+            Some(ManagementEvent::Kick(Kick {
+                reconnect_allowed: false,
+                ..
+            }))
+        ));
     }
 }
 
@@ -3275,6 +3344,7 @@ struct ClientTcpRxMetrics<'a> {
     unsupported_drops: &'a mut u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn deliver_client_tcp_plaintext(
     record: PooledBuffer,
     mux: &mut Option<crate::protocol::recordizer::Reassembler>,
