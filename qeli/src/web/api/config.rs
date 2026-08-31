@@ -269,7 +269,7 @@ const QUICKSTART_SPECS: &[QuickStartSpec] = &[
         transport: "tcp",
         port: 443,
         index: 0,
-        obfuscation: "fake-tls",
+        obfuscation: "reality-tls",
         reality: true,
         real_tls: true,
         needs_short_id: true,
@@ -487,7 +487,6 @@ fn build_quickstart_profile(
     profile.dns.listen = profile.tun.address.clone();
     profile.routing.nat.enabled = true;
     profile.obfuscation.mode = spec.obfuscation.into();
-    profile.obfuscation.recordizer.policy = "prefer".into();
     profile.obfuscation.obfs_key = obfs_key.clone().unwrap_or_default();
     profile.obfuscation.fronting = spec.fronting.into();
     profile.obfuscation.tls.server_name = "www.microsoft.com".into();
@@ -2363,6 +2362,20 @@ mod raw_secret_tests {
     }
 
     #[test]
+    fn reality_tls_quickstart_uses_the_canonical_genuine_h2_profile() {
+        let (profile, short_id, _) = build_quickstart_profile("reality-tls").unwrap();
+        assert_eq!(profile.obfuscation.mode, "reality-tls");
+        assert!(profile.obfuscation.tls.reality_proxy.enabled);
+        assert!(profile.obfuscation.tls.reality_proxy.real_tls);
+        assert!(short_id.is_some());
+
+        let page = include_str!("../templates/quickstart.html");
+        assert!(page.contains("id: 'reality-tls'"));
+        assert!(page.contains("obfMode: 'reality-tls'"));
+        assert!(page.contains("genuine HTTP/2 streaming carrier"));
+    }
+
+    #[test]
     fn quickstart_page_and_backend_offer_the_same_modes() {
         let page = include_str!("../templates/quickstart.html");
         assert_eq!(
@@ -2377,6 +2390,21 @@ mod raw_secret_tests {
                 spec.id
             );
         }
+    }
+
+    #[test]
+    fn panel_new_profile_consumes_the_canonical_recordizer_default() {
+        assert_eq!(
+            crate::config::server::ProfileConfig::new_profile()
+                .obfuscation
+                .recordizer
+                .policy,
+            "prefer"
+        );
+        let page = include_str!("../templates/config.html");
+        assert!(page.contains("fetch('api/config/defaults')"));
+        assert!(page.contains("JSON.parse(JSON.stringify(this.defaultProfile))"));
+        assert!(!page.contains("base.obfuscation.recordizer.policy = 'prefer'"));
     }
 
     #[test]

@@ -143,7 +143,7 @@ function quickstartPage() {
     // collision-check metadata only.
     modes: [
       { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
-        obfMode: 'fake-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
+        obfMode: 'reality-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
         desc: 'REALITY TLS 1.3 with a genuine HTTP/2 streaming carrier and randomized batching. Server authentication uses qeli identity proof and the pinned key; no transport is literally indistinguishable. Best default.' },
       { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, idx: 1, tag: 'TCP · 8443',
         obfMode: 'fake-tls', realityEnabled: true, realTls: false, needsSid: true, padding: true, heartbeat: false, shaping: true, multipath: true,

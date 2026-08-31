@@ -2184,8 +2184,6 @@ function configPage() {
       base.pool.cidr = '10.8.' + n + '.0/24';
       base.pool.exclude = ['10.8.' + n + '.1'];
       base.dns.listen = '10.8.' + n + '.1';
-      // New panel-created profiles enable negotiated morphology without breaking legacy clients.
-      base.obfuscation.recordizer.policy = 'prefer';
       if (!this.cfg.profiles) this.cfg.profiles = [];
       this.cfg.profiles.push(base);
       this.normalizeProfiles();

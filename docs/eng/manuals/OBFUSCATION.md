@@ -65,7 +65,7 @@ after every client core is upgraded; an old client is then rejected before addre
 
 | Key | Default | Meaning and limits |
 |---|---:|---|
-| `obf.recordizer.policy` | `off` in the schema; `prefer` in shipped templates | `off`, `prefer`, or `required`; negotiation policy described above |
+| `obf.recordizer.policy` | `off` in the sparse schema baseline; `prefer` in shipped and newly created profiles | `off`, `prefer`, or `required`; negotiation policy described above |
 | `obf.recordizer.batch.delay_min_ms` | `2` | lower bound of the random flush deadline started by the first queued packet |
 | `obf.recordizer.batch.delay_max_ms` | `8` | upper bound of that deadline; must be at least `delay_min_ms`; `0/0` flushes immediately |
 | `obf.recordizer.batch.max_packets` | `16` | maximum mux frames placed in one record; must be greater than zero |

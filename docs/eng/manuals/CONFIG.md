@@ -2286,9 +2286,10 @@ boundaries, and can split one IP packet across several inner records.
 | `obf.recordizer.fragment.max_fragments_per_packet` | `64` | maximum fragments for one IP packet |
 
 Only the server owns these values and pushes them inside authenticated `AUTH OK`; no client-side
-recordizer keys are required. The schema default remains `off`, while shipped profiles explicitly
-use `prefer` so current clients get the new shape without breaking legacy clients. After the whole
-fleet is upgraded an operator may switch to `required`. Negotiation is per-session, so a config
+recordizer keys are required. The sparse schema baseline remains `off` for existing configs that
+omit the key, while shipped templates, Quick Start and profiles newly added in the panel use
+`prefer` so current clients get the new shape without breaking legacy clients. After the whole fleet
+is upgraded an operator may switch to `required`. Negotiation is per-session, so a config
 change requires reconnecting sessions, not merely editing the file.
 
 The recordizer removes the “one IP packet = one qeli record” relation from every mode, but it does
