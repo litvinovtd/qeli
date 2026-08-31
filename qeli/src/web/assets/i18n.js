@@ -1319,6 +1319,84 @@
         'Применено через перезапуск воркера (контейнер — systemctl недоступен)',
       'Restart failed': 'Перезапуск не удался',
 
+      // ── 0.8.0 roaming / recordizer / dual-stack UI ──
+      'Session Roaming': 'Роуминг сессии',
+      'Keep one authenticated session and TUN interface while the client changes network or repairs a dead NAT mapping. The same policy applies to TCP and every UDP camouflage mode.':
+        'Сохраняет одну аутентифицированную сессию и интерфейс TUN при смене сети клиентом или восстановлении неработающего NAT-сопоставления. Одинаково применяется к TCP и всем режимам маскировки UDP.',
+      'Standard server and client builds include roaming. New profiles enable it by default; unsupported or legacy clients negotiate normal reconnect instead.':
+        'Стандартные сборки сервера и клиента поддерживают роуминг. В новых профилях он включён по умолчанию; неподдерживаемые и устаревшие клиенты используют обычное переподключение.',
+      'Resume grace period': 'Период ожидания восстановления',
+      'Seconds to retain an interrupted authenticated session. Range: 1–3600.':
+        'Сколько секунд хранить прерванную аутентифицированную сессию. Диапазон: 1–3600.',
+      'Maximum orphaned sessions': 'Максимум прерванных сессий',
+      'Profile-wide cap for sessions waiting to resume. Range: 1–65536.':
+        'Общий для профиля лимит сессий, ожидающих восстановления. Диапазон: 1–65536.',
+      'Orphan buffer limit (MiB)': 'Лимит буфера прерванных сессий (МиБ)',
+      'Profile-wide memory cap while sessions wait to resume. Range: 4–1024 MiB.':
+        'Общий для профиля лимит памяти, пока сессии ожидают восстановления. Диапазон: 4–1024 МиБ.',
+      'Clients choose': 'Клиенты выбирают',
+      ', or': ', или',
+      'in their profile. This server switch only advertises the negotiated capability; unsupported and legacy clients keep their normal reconnect behavior.':
+        'в своём профиле. Этот переключатель сервера только объявляет согласуемую возможность; неподдерживаемые и устаревшие клиенты продолжают обычное переподключение.',
+      'IPv4 VPN subnet (CIDR)': 'Подсеть VPN IPv4 (CIDR)',
+      'Leave the gateway empty and clients use the matching-family profile address: IPv4':
+        'Оставьте шлюз пустым, и клиенты используют адрес профиля соответствующего семейства: IPv4',
+      ', IPv6': ', IPv6',
+      'IPv4 listen address': 'Адрес прослушивания IPv4',
+      'Should match the IPv4 VPN gateway': 'Должен совпадать со шлюзом VPN IPv4',
+      'Browser-shaped TLS 1.3 on the wire. "Foreign"/prober traffic is transparently proxied to a real HTTPS site; qeli clients are authenticated by short_id, the inner identity proof and the pinned server key.':
+        'В сети выглядит как браузерный TLS 1.3. Посторонний трафик и пробы прозрачно перенаправляются на настоящий HTTPS-сайт; клиенты qeli проверяются по short_id, внутреннему доказательству идентичности и закреплённому ключу сервера.',
+      'TLS 1.3 outer transport': 'Внешний транспорт TLS 1.3',
+      'Run the qeli tunnel inside a TLS 1.3-compatible encrypted session. The borrowed public certificate is camouflage, not a PKI trust anchor: server authentication comes from qeli identity proof plus the pinned server key. Off = fake-TLS directly on the socket.':
+        'Запускает туннель qeli внутри совместимой с TLS 1.3 зашифрованной сессии. Заимствованный публичный сертификат служит маскировкой, а не корнем доверия PKI: сервер проверяется доказательством идентичности qeli и закреплённым ключом. Выкл. = fake-TLS непосредственно в сокете.',
+      'Requires static session binding and at least one short_id.':
+        'Требует статической привязки сессии и хотя бы один short_id.',
+      'Send dummy packets in non-Reality modes. Reality/H2 forces qeli heartbeat off; other modes re-roll interval ± jitter after each activity/send.':
+        'Отправляет маскирующие пакеты вне режимов Reality. Reality/H2 принудительно отключает heartbeat qeli; в остальных режимах интервал ± джиттер пересчитывается после каждой активности или отправки.',
+      'Reality HTTP/2 carrier': 'Носитель Reality HTTP/2',
+      'Automatic for': 'Автоматически для',
+      ': genuine H2, one streaming POST and randomized batching. There is no separate setting; retired synthetic':
+        ': настоящий H2, один потоковый POST и случайное объединение пакетов. Отдельной настройки нет; устаревшие синтетические',
+      'keys are ignored.': 'ключи игнорируются.',
+      'PACKET_MUX recordizer': 'Recordizer PACKET_MUX',
+      'Transport-independent packet/record boundary masking. The server pushes these values after authentication.':
+        'Независимая от транспорта маскировка границ пакетов и записей. Сервер передаёт эти значения после аутентификации.',
+      'Batch delay min (ms)': 'Мин. задержка пакета (мс)',
+      'Batch delay max (ms)': 'Макс. задержка пакета (мс)',
+      'Max packets per batch': 'Макс. пакетов в группе',
+      'Queue ceiling (bytes)': 'Лимит очереди (байт)',
+      'Max payload bytes': 'Макс. полезная нагрузка (байт)',
+      '0 = automatic carrier/path-safe budget': '0 = автоматический безопасный для носителя и маршрута бюджет',
+      'Small target min ratio': 'Мин. доля малого размера',
+      'Small target max ratio': 'Макс. доля малого размера',
+      'Full target probability': 'Вероятность полного размера',
+      'Inner packet fragmentation': 'Фрагментация внутреннего пакета',
+      'Allow one IP packet to cross encrypted-record boundaries. This is different from carrier/handshake fragmentation.':
+        'Разрешает одному IP-пакету пересекать границы зашифрованных записей. Это не фрагментация носителя или рукопожатия.',
+      'Reassembly timeout (ms)': 'Тайм-аут сборки (мс)',
+      'Max inflight packets': 'Макс. пакетов в сборке',
+      'Reassembly ceiling (bytes)': 'Лимит памяти сборки (байт)',
+      'Max fragments per packet': 'Макс. фрагментов на пакет',
+      'Use Prefer during migration. Required rejects clients whose core does not advertise PACKET_MUX_V1. Session reconnect is required after a change.':
+        'При переходе используйте «Предпочитать». «Обязательно» отклоняет клиенты, ядро которых не объявляет PACKET_MUX_V1. После изменения требуется переподключение сессии.',
+      'Wrap UDP packets in shallow QUIC-shaped compatibility headers; this is not genuine QUIC or HTTP/3':
+        'Оборачивает UDP-пакеты в упрощённые заголовки, похожие на QUIC; это не настоящий QUIC или HTTP/3',
+      'Session roaming': 'Роуминг сессии',
+      'Authenticated worker-lifetime outcomes. Counters reset when the data-plane worker restarts.':
+        'Результаты аутентифицированного роуминга за время работы процесса. Счётчики сбрасываются при перезапуске обработчика данных.',
+      'runtime unavailable': 'нет данных процесса',
+      'enabled profiles': 'включённых профилей',
+      'commits / attempts': 'переносы / попытки',
+      'failed / grace expired': 'ошибки / истёк период',
+      'pending paths': 'ожидающие пути',
+      'commits': 'переносов',
+      'failed': 'ошибок',
+      'pending': 'ожидает',
+      'IPv4 address / pool': 'Адрес / пул IPv4',
+      'IPv6 address / pool': 'Адрес / пул IPv6',
+      'IPv6 forwarding': 'Маршрутизация IPv6',
+      'DNS listen IPv6': 'Прослушивание DNS IPv6',
+
       // ── JS-built toasts / dialogs (wrapped in qeliT() at the call site) ──
       'Copied': 'Скопировано',
       'Link copied': 'Ссылка скопирована',

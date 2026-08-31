@@ -30,11 +30,13 @@ mod tests {
     use super::CONFIG_PAGE;
 
     #[test]
-    fn profile_tabs_use_semantic_transport_svg_icons() {
-        assert!(CONFIG_PAGE.contains(r#"data-transport-icon="tcp""#));
-        assert!(CONFIG_PAGE.contains(r#"data-transport-icon="udp""#));
-        assert!(CONFIG_PAGE.contains(r#"aria-label="TCP""#));
-        assert!(CONFIG_PAGE.contains(r#"aria-label="UDP""#));
+    fn profile_navigation_wraps_and_uses_text_transport_badges() {
+        assert!(CONFIG_PAGE.contains("config-profile-nav"));
+        assert!(CONFIG_PAGE.contains("transport-kind-tcp"));
+        assert!(CONFIG_PAGE.contains("transport-kind-udp"));
+        assert!(CONFIG_PAGE.contains("? 'UDP' : 'TCP'"));
+        assert!(!CONFIG_PAGE.contains("data-transport-icon"));
+        assert!(!CONFIG_PAGE.contains("overflow-x-auto"));
         assert!(!CONFIG_PAGE.contains("profileIcon("));
         assert!(!CONFIG_PAGE.contains("📡"));
         assert!(!CONFIG_PAGE.contains("🔒"));

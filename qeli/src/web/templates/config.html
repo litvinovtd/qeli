@@ -42,39 +42,27 @@
   <div x-show="view === 'form'" x-cloak>
 
     <!-- Profile tabs (top level only — each profile's settings live on one page) -->
-    <div class="flex items-center gap-1 mb-5 border-b border-[#21314e] overflow-x-auto">
-      <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0"
-        :class="activeTab === '__global' ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
+    <div class="config-profile-nav">
+      <button class="config-profile-tab"
+        :class="activeTab === '__global' ? 'active' : ''"
         @click="activeTab = '__global'">
-        <svg class="w-4 h-4 inline mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
-        Global
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
+        <span class="config-profile-tab-name">Global</span>
       </button>
       <template x-for="(p, i) in cfg.profiles || []" :key="i">
-        <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 flex items-center"
-          :class="activeTab === i ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
+        <button class="config-profile-tab"
+          :class="activeTab === i ? 'active' : ''"
+          :title="p.name || ('Profile ' + (i+1))"
           @click="activeTab = i">
-          <svg x-show="p.bind.transport !== 'udp'" data-transport-icon="tcp"
-            class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--blue-2)"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="TCP">
-            <circle cx="4" cy="12" r="2.25" stroke-width="1.8"/>
-            <circle cx="20" cy="12" r="2.25" stroke-width="1.8"/>
-            <path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
-              d="M7.5 9h8m0 0-2-2m2 2-2 2M16.5 15h-8m0 0 2 2m-2-2 2-2"/>
-          </svg>
-          <svg x-show="p.bind.transport === 'udp'" data-transport-icon="udp"
-            class="w-4 h-4 mr-1.5 flex-shrink-0" style="color:var(--violet)"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="UDP">
-            <path stroke-width="1.7" stroke-linecap="round" d="M3 5.25h5M3 12h2.5M3 18.75h5"/>
-            <rect x="10" y="3" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
-            <rect x="7.5" y="9.75" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
-            <rect x="10" y="16.5" width="10" height="4.5" rx="1.25" stroke-width="1.7"/>
-          </svg>
-          <span x-text="p.name || ('Profile ' + (i+1))"></span>
-          <span x-show="p.enabled === false" class="badge badge-off ml-1.5" style="font-size:.6rem">off</span>
+          <span class="transport-kind" :class="p.bind.transport === 'udp' ? 'transport-kind-udp' : 'transport-kind-tcp'"
+            x-text="p.bind.transport === 'udp' ? 'UDP' : 'TCP'"></span>
+          <span class="config-profile-tab-name" x-text="p.name || ('Profile ' + (i+1))"></span>
+          <span x-show="p.enabled === false" class="badge badge-off ml-auto" style="font-size:.6rem">off</span>
         </button>
       </template>
-      <button class="px-3 py-2.5 text-slate-500 hover:text-green-400 flex-shrink-0 transition-colors" @click="addProfile()" title="Add profile">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      <button class="config-profile-tab config-profile-add" @click="addProfile()" title="Add profile">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+        <span>Add profile</span>
       </button>
     </div>
 

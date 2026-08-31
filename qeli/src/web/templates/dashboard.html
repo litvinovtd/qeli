@@ -368,7 +368,7 @@ function dashboard() {
     dur(value) { return window.dur ? window.dur(Number(value) || 0) : '0s'; },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     get roamingProfiles() {
-      return this.profiles.filter(profile => profile.roaming && profile.roaming.enabled);
+      return this.profiles.filter(profile => profile.enabled !== false && profile.roaming && profile.roaming.enabled);
     },
     get roamingRuntimeUnavailable() {
       return this.roamingProfiles.some(profile => !profile.roaming.runtime_available);
@@ -401,8 +401,9 @@ function dashboard() {
     roamingProfileSummary(profile) {
       const stats = this.roamingStats(profile);
       return profile.name + ' · ' + stats.transport + ' · '
-        + stats.commits + '/' + stats.attempts + ' commits · '
-        + stats.failures + ' failed · ' + stats.pending + ' pending';
+        + stats.commits + '/' + stats.attempts + ' ' + this.qeliT('commits') + ' · '
+        + stats.failures + ' ' + this.qeliT('failed') + ' · '
+        + stats.pending + ' ' + this.qeliT('pending');
     },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },

@@ -32,7 +32,8 @@ mod tests {
     fn roaming_rollout_uses_one_transport_aware_dashboard_contract() {
         assert!(DASHBOARD.contains("Session roaming"));
         assert!(!DASHBOARD.contains("(experimental)"));
-        assert!(DASHBOARD.contains("profile.roaming && profile.roaming.enabled"));
+        assert!(DASHBOARD
+            .contains("profile.enabled !== false && profile.roaming && profile.roaming.enabled"));
         assert!(DASHBOARD.contains("roaming.transport === 'udp' ? 'udp' : 'tcp'"));
         assert!(DASHBOARD.contains("stats.commits_total"));
         assert!(DASHBOARD.contains("stats.active_candidates"));

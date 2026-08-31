@@ -176,6 +176,7 @@ pub async fn status(
                     .unwrap_or_else(|| unavailable_roaming_profile(p));
                 json!({
                     "name": p.name,
+                    "enabled": p.enabled,
                     "client_count": counts.get(&p.name).copied().unwrap_or(0),
                     "bind": p.bind,
                     "roaming": roaming,

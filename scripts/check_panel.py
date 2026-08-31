@@ -62,6 +62,10 @@ def technical_label(value: str) -> bool:
     # Symbols and protocol/config values are intentionally language-neutral.
     if not any(character.isalpha() for character in stripped):
         return True
+    if "{{" in stripped or "{%" in stripped:
+        return True
+    if stripped == "qeli show-identity" or re.fullmatch(r"jc\s+\([^)]*\)", stripped):
+        return True
     return bool(re.fullmatch(r"[A-Za-z0-9_.:/+×-]+", stripped))
 
 
@@ -69,6 +73,12 @@ def technical_placeholder(value: str) -> bool:
     # Single tokens and examples containing config/network punctuation should not be translated.
     # Human instructions such as "Search profiles" or "auto from the link" must be.
     return " " not in value or bool(re.search(r"[/:=\[\]{}<>$0-9]", value))
+VOID_TAGS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+}
+NON_VISIBLE_TAGS = {"script", "style", "textarea"}
+
 
 
 class TemplateAudit(HTMLParser):
@@ -76,7 +86,7 @@ class TemplateAudit(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.path = path
         self.source = source
-        self.control_stack: list[tuple[str, dict[str, str | None], int]] = []
+        self.element_stack: list[tuple[str, dict[str, str | None], int]] = []
 
     @property
     def line(self) -> int:
@@ -84,6 +94,8 @@ class TemplateAudit(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         data = dict(attrs)
+        if tag not in VOID_TAGS:
+            self.element_stack.append((tag, data, self.line))
         classes = set((data.get("class") or "").split())
         input_type = (data.get("type") or "text").lower()
 
@@ -130,26 +142,32 @@ class TemplateAudit(HTMLParser):
             if not allowed:
                 fail(self.path, self.line, "clickable div must be a shared toggle, modal, or keyboard-operable role")
 
-        if tag in {"button", "option"}:
-            self.control_stack.append((tag, data, self.line))
-
     def handle_data(self, data: str) -> None:
-        if not self.control_stack:
+        if not self.element_stack:
             return
-        tag, attrs, start_line = self.control_stack[-1]
+        if any(tag in NON_VISIBLE_TAGS for tag, _, _ in self.element_stack):
+            return
+        if any(
+            attrs.get("data-i18n-skip") is not None or attrs.get("x-text") is not None
+            for _, attrs, _ in self.element_stack
+        ):
+            return
+        tag, attrs, start_line = self.element_stack[-1]
         text = " ".join(data.split())
-        if not text or attrs.get("data-i18n-skip") is not None or attrs.get("x-text") is not None:
+        if not text:
             return
         # An option without value submits its visible text as the configuration value. The
         # runtime translator intentionally leaves those protocol enum tokens untouched.
         if tag == "option" and "value" not in attrs:
             return
         if text not in dictionary and not technical_label(text):
-            fail(self.path, start_line, f"{tag} text has no RU translation: {text!r}")
+            fail(self.path, start_line, f"visible text has no RU translation: {text!r}")
 
     def handle_endtag(self, tag: str) -> None:
-        if self.control_stack and self.control_stack[-1][0] == tag:
-            self.control_stack.pop()
+        for index in range(len(self.element_stack) - 1, -1, -1):
+            if self.element_stack[index][0] == tag:
+                del self.element_stack[index:]
+                return
 
 
 template_paths = sorted(TEMPLATES.glob("*.html"))
