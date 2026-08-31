@@ -999,6 +999,13 @@ public abstract class VpnTunnelBase
                     ? 0
                     : (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30)) ? 0 : NextAttempt(attempt);
             }
+            catch (ServerKickException e) when (!ct.IsCancellationRequested)
+            {
+                Log($"Server stopped reconnect: {e.Message}");
+                Status(VpnStatus.Error, e.Message);
+                _stoppedForSecurityReason = true;
+                break;
+            }
             catch (System.Security.SecurityException e) when (!ct.IsCancellationRequested)
             {
                 // Server identity changed / key mismatch — a possible MITM. Do NOT
@@ -1138,6 +1145,11 @@ public abstract class VpnTunnelBase
         // connect (no adapter up yet); a persist-tun reconnect reuses the existing one.
         if (!_handshakeOnly && _tun == null) PrewarmTun(config);
         RunNativeConnection(config, ct);
+    }
+
+    private sealed class ServerKickException : Exception
+    {
+        internal ServerKickException(string message) : base(message) { }
     }
 
     internal sealed class NativePlan
@@ -1511,8 +1523,32 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string tunnelAddresses = _persistedTunnelAddresses ?? _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(tunnelAddresses));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.11)");
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI >= 1.11)");
                             break;
+
+                        case NativeTransportCore.EventNotice:
+                        {
+                            using JsonDocument notice = JsonDocument.Parse(nativeEvent.Payload);
+                            string message = notice.RootElement.GetProperty("message").GetString()
+                                ?? "Server notice";
+                            Log($"NOTICE: {message}");
+                            break;
+                        }
+
+                        case NativeTransportCore.EventKick:
+                        {
+                            using JsonDocument kick = JsonDocument.Parse(nativeEvent.Payload);
+                            string message = kick.RootElement.GetProperty("message").GetString()
+                                ?? "Session terminated by server";
+                            bool reconnectAllowed = kick.RootElement.TryGetProperty(
+                                "reconnect_allowed", out JsonElement reconnect)
+                                && reconnect.GetBoolean();
+                            Log($"KICK: {message}");
+                            NativeTransportCore.Stop(handle);
+                            if (!reconnectAllowed) throw new ServerKickException(message);
+                            nativeError = message;
+                            break;
+                        }
 
                         case NativeTransportCore.EventError:
                             nativeError = string.IsNullOrWhiteSpace(nativeEvent.Payload)

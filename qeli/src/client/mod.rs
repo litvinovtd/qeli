@@ -1076,6 +1076,20 @@ pub(crate) trait ClientPlatform {
     fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
+    fn management_event(
+        &mut self,
+        event: &crate::protocol::control_v2::ManagementEvent,
+    ) -> anyhow::Result<()> {
+        match event {
+            crate::protocol::control_v2::ManagementEvent::Notice(notice) => {
+                log::warn!("server notice: {}", notice.message)
+            }
+            crate::protocol::control_v2::ManagementEvent::Kick(kick) => {
+                log::error!("server terminated the session: {}", kick.message)
+            }
+        }
+        Ok(())
+    }
     /// Consume the client `post_up` hook after the first successfully applied NetworkPlan.
     /// Non-Linux adapters and later reconnect generations have no pending hook.
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
@@ -1327,7 +1341,8 @@ impl LinuxCoreAdapter {
         let mut platform_capabilities = platform_capability::SYSTEM_PLAN
             | platform_capability::IPV6_TUN
             | platform_capability::IPV6_ROUTES
-            | platform_capability::IPV6_DNS;
+            | platform_capability::IPV6_DNS
+            | platform_capability::MANAGEMENT_EVENTS;
         #[cfg(feature = "experimental-roaming")]
         if linux_roaming_path_supported(&preview) {
             platform_capabilities |= platform_capability::ROAMING_PATH;
@@ -1582,6 +1597,52 @@ impl ClientPlatform for LinuxCoreAdapter {
 /// mobile cores, so a `linux`-only definition compiles on the gate host and nowhere else.
 static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[derive(Debug, thiserror::Error)]
+#[error("server terminated the session: {message}")]
+struct ServerKickError {
+    message: String,
+    reconnect_allowed: bool,
+}
+
+fn consume_authenticated_management(
+    bytes: &[u8],
+    negotiated: bool,
+    reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
+    sender: &tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
+) -> bool {
+    if !crate::protocol::control_v2::is_control_v2(bytes) {
+        return false;
+    }
+    if !negotiated {
+        log::warn!("dropping unnegotiated server CONTROL_V2 management frame");
+        return true;
+    }
+    let outcome = crate::protocol::control_v2::decode(bytes).and_then(|frame| {
+        crate::util::lock_or_recover(reassembler, "client::management_reassembler")
+            .push(std::time::Instant::now(), frame)
+    });
+    match outcome {
+        Ok(crate::protocol::control_v2::ReassemblyOutcome::Complete(message)) => {
+            match crate::protocol::control_v2::decode_management(&message) {
+                Ok(Some(event)) => {
+                    sender.send_replace(Some(event));
+                }
+                Ok(None) => log::debug!(
+                    "ignoring unsupported server CONTROL_V2 type 0x{:02x}",
+                    message.message_type
+                ),
+                Err(error) => log::warn!("rejecting invalid server management message: {error}"),
+            }
+        }
+        Ok(
+            crate::protocol::control_v2::ReassemblyOutcome::Pending
+            | crate::protocol::control_v2::ReassemblyOutcome::Duplicate,
+        ) => {}
+        Err(error) => log::warn!("rejecting malformed server CONTROL_V2 frame: {error}"),
+    }
+    true
+}
+
 /// Desynchronise clients that lose the same server/carrier at once. Jitter only shortens the
 /// scheduled delay (by at most 20%), so the configured maximum is never exceeded.
 #[cfg(any(target_os = "linux", test))]
@@ -1799,6 +1860,30 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             log::error!("transport core teardown error: {error}");
         }
         let ran = started.elapsed();
+
+        if let Err(error) = &result {
+            if error
+                .downcast_ref::<ServerKickError>()
+                .is_some_and(|kick| !kick.reconnect_allowed)
+            {
+                let cleanup = cleanup_routing_features(
+                    ks_on,
+                    gw_on,
+                    exit_on,
+                    &tun_if,
+                    &lan_subnet,
+                    &lan_subnet_ipv6,
+                );
+                crate::hooks::run("post_down", &post_down, &hook_env).await;
+                let terminal = match cleanup {
+                    Ok(()) => anyhow::anyhow!("{error}"),
+                    Err(cleanup) => anyhow::anyhow!("{error}; teardown also failed: {cleanup}"),
+                };
+                core_adapter.diagnostics.terminal(Some(&terminal));
+                core_adapter.diagnostics.publish(&core_adapter.counters);
+                return Err(terminal);
+            }
+        }
 
         if shutdown_requested.load(Ordering::Acquire) {
             let cleanup = cleanup_routing_features(
@@ -2710,6 +2795,9 @@ struct StreamPump {
     /// task. Off for every other mode (no heavy outer AEAD → a pipeline hop would
     /// only add latency).
     pipeline_rx: bool,
+    management_v1: bool,
+    management_reassembler: Arc<std::sync::Mutex<crate::protocol::control_v2::Reassembler>>,
+    management_tx: tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
 }
 
 /// Plaintext queued for one TCP stream. TUN packets retain their reusable backing
@@ -3179,6 +3267,11 @@ fn deliver_client_tcp_plaintext(
     mux: &mut Option<crate::protocol::recordizer::Reassembler>,
     tun: &TunWriter,
     family_mode: crate::transport_core::NetworkFamilyMode,
+    management_v1: bool,
+    management_reassembler: &std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
+    management_tx: &tokio::sync::watch::Sender<
+        Option<crate::protocol::control_v2::ManagementEvent>,
+    >,
     metrics: ClientTcpRxMetrics<'_>,
 ) -> bool {
     metrics
@@ -3198,6 +3291,14 @@ fn deliver_client_tcp_plaintext(
         };
         drop(record);
         for bytes in packets {
+            if consume_authenticated_management(
+                &bytes,
+                management_v1,
+                management_reassembler,
+                management_tx,
+            ) {
+                continue;
+            }
             if !is_supported_inner_packet(&bytes, family_mode) {
                 *metrics.unsupported_drops = metrics.unsupported_drops.saturating_add(1);
                 if metrics.unsupported_drops.is_power_of_two() {
@@ -3230,6 +3331,14 @@ fn deliver_client_tcp_plaintext(
         return true;
     }
 
+    if consume_authenticated_management(
+        record.as_ref(),
+        management_v1,
+        management_reassembler,
+        management_tx,
+    ) {
+        return true;
+    }
     if !is_supported_inner_packet(record.as_ref(), family_mode) {
         *metrics.unsupported_drops = metrics.unsupported_drops.saturating_add(1);
         if metrics.unsupported_drops.is_power_of_two() {
@@ -3505,6 +3614,9 @@ where
                                 &mut inner_mux,
                                 &inner_tun,
                                 family_mode,
+                                cfg.management_v1,
+                                &cfg.management_reassembler,
+                                &cfg.management_tx,
                                 ClientTcpRxMetrics {
                                     last_rx: &inner_last_rx,
                                     base,
@@ -3554,6 +3666,9 @@ where
                                             mux,
                                             tun,
                                             family_mode,
+                                            cfg.management_v1,
+                                            &cfg.management_reassembler,
+                                            &cfg.management_tx,
                                             ClientTcpRxMetrics {
                                                 last_rx: &last_rx,
                                                 base,
@@ -4001,7 +4116,6 @@ where
         }
     };
     let server_capabilities = handshake.server_capabilities;
-    #[cfg(feature = "experimental-roaming")]
     let client_capabilities = handshake.client_capabilities;
     #[cfg(feature = "experimental-roaming")]
     let tcp_control_v2 = client_capabilities.is_some_and(|client| {
@@ -4009,6 +4123,10 @@ where
     }) && server_capabilities.is_some_and(|server| {
         server.contains(crate::protocol::capabilities::server_capability::CONTROL_V2)
     });
+    let management_v1 = crate::protocol::capabilities::management_v1_negotiated(
+        server_capabilities,
+        client_capabilities,
+    );
     #[cfg(feature = "experimental-roaming")]
     let resume_secret = handshake.resume_secret;
     let client_rx = handshake.client_rx;
@@ -4356,6 +4474,10 @@ where
         log::info!("Packet recordizer: PACKET_MUX_V1 active on TCP");
     }
 
+    let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
+    let management_reassembler = Arc::new(std::sync::Mutex::new(
+        crate::protocol::control_v2::Reassembler::new(),
+    ));
     let pump = StreamPump {
         framing,
         family_mode: negotiated_family_mode,
@@ -4380,6 +4502,9 @@ where
         // side; pipeline its two decrypt layers across cores. Other modes decrypt
         // inline (unchanged path).
         pipeline_rx: config.obfuscation.mode == "reality-tls",
+        management_v1,
+        management_reassembler,
+        management_tx,
     };
 
     // Stream #0 = the primary (already authenticated) connection.
@@ -5012,11 +5137,24 @@ where
     // 5-tuple) so each connection stays in order. Each stream's tasks own
     // encrypt/heartbeat/idle; a dead stream fires dead_rx.
     let mut unsupported_inner_drops = 0u64;
+    let mut terminal_kick: Option<crate::protocol::control_v2::Kick> = None;
     loop {
         tokio::select! {
             biased;
 
             _ = dead_rx.recv() => { break; }
+
+            changed = management_rx.changed() => {
+                if changed.is_err() { break; }
+                let event = management_rx.borrow_and_update().clone();
+                if let Some(event) = event {
+                    core.management_event(&event)?;
+                    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = event {
+                        terminal_kick = Some(kick);
+                        break;
+                    }
+                }
+            }
 
             _ = cancel_tick.tick() => {
                 if cancel.load(Ordering::Acquire) { break; }
@@ -5125,6 +5263,13 @@ where
     #[cfg(target_os = "linux")]
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("Client disconnected");
+    if let Some(kick) = terminal_kick {
+        return Err(ServerKickError {
+            message: kick.message,
+            reconnect_allowed: kick.reconnect_allowed,
+        }
+        .into());
+    }
     Ok(())
 }
 
@@ -7967,6 +8112,10 @@ pub(crate) async fn run_udp_tunnel(
     }) && negotiated_capabilities.is_some_and(|client| {
         client.core_bits & crate::protocol::capabilities::client_capability::UDP_DATA_FRAG_V1 != 0
     });
+    let management_v1 = crate::protocol::capabilities::management_v1_negotiated(
+        server_capabilities,
+        negotiated_capabilities,
+    );
     let server_static_pub_bytes = verify_server_identity(
         &auth_proof_msg,
         &client_kp,
@@ -8518,6 +8667,9 @@ pub(crate) async fn run_udp_tunnel(
         })?;
     let mut tx_record_id: u64 = rand::random();
     let mut data_reassembler = crate::protocol::data_frag::DataReassembler::new();
+    let management_reassembler =
+        std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
+    let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -8676,6 +8828,7 @@ pub(crate) async fn run_udp_tunnel(
     let mut committed_early_data = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
 
     let mut unsupported_inner_drops = 0u64;
+    let mut terminal_kick: Option<crate::protocol::control_v2::Kick> = None;
     'udp: loop {
         let mux_deadline = udp_tx_recordizer
             .as_ref()
@@ -8683,6 +8836,18 @@ pub(crate) async fn run_udp_tunnel(
             .map(tokio::time::Instant::from_std)
             .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
         tokio::select! {
+            changed = management_rx.changed() => {
+                if changed.is_err() { break; }
+                let event = management_rx.borrow_and_update().clone();
+                if let Some(event) = event {
+                    core.management_event(&event)?;
+                    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = event {
+                        terminal_kick = Some(kick);
+                        break;
+                    }
+                }
+            }
+
             _ = cancel_tick.tick() => {
                 if cancel.load(Ordering::Acquire) { break; }
             }
@@ -9879,6 +10044,14 @@ pub(crate) async fn run_udp_tunnel(
                             let mut pool_exhausted_drops = 0_u64;
                             let mut oversize_drops = 0_u64;
                             let decode_result = reassembler.decode_with(&record, |bytes| {
+                                if consume_authenticated_management(
+                                    bytes,
+                                    management_v1,
+                                    &management_reassembler,
+                                    &management_tx,
+                                ) {
+                                    return;
+                                }
                                 let Some(mut packet) = tun_write_tx.try_acquire() else {
                                     pool_exhausted_drops =
                                         pool_exhausted_drops.saturating_add(1);
@@ -9949,6 +10122,14 @@ pub(crate) async fn run_udp_tunnel(
                                     }
                                 }
                             }
+                            continue;
+                        }
+                        if consume_authenticated_management(
+                            record.as_ref(),
+                            management_v1,
+                            &management_reassembler,
+                            &management_tx,
+                        ) {
                             continue;
                         }
                         if !record.is_empty()
@@ -10259,6 +10440,13 @@ pub(crate) async fn run_udp_tunnel(
     #[cfg(target_os = "linux")]
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("UDP client disconnected");
+    if let Some(kick) = terminal_kick {
+        return Err(ServerKickError {
+            message: kick.message,
+            reconnect_allowed: kick.reconnect_allowed,
+        }
+        .into());
+    }
     Ok(())
 }
 

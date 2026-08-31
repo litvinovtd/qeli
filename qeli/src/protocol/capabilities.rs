@@ -33,12 +33,9 @@ pub mod server_capability {
     pub const TCP_HANDOVER_V1: u64 = 1 << 8;
     pub const TCP_RESUME_V2: u64 = 1 << 9;
     pub const TCP_HANDOVER_V2: u64 = 1 << 10;
-    pub const ROAMING_RESERVED: u64 = CONTROL_V2
-        | UDP_ROAM_V1
-        | TCP_RESUME_V1
-        | TCP_HANDOVER_V1
-        | TCP_RESUME_V2
-        | TCP_HANDOVER_V2;
+    pub const MANAGEMENT_V1: u64 = 1 << 11;
+    pub const ROAMING_RESERVED: u64 =
+        UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
 
 /// Features implemented by the client core. Platform operations are advertised separately.
@@ -55,12 +52,9 @@ pub mod client_capability {
     pub const TCP_HANDOVER_V1: u64 = 1 << 7;
     pub const TCP_RESUME_V2: u64 = 1 << 8;
     pub const TCP_HANDOVER_V2: u64 = 1 << 9;
-    pub const ROAMING_RESERVED: u64 = CONTROL_V2
-        | UDP_ROAM_V1
-        | TCP_RESUME_V1
-        | TCP_HANDOVER_V1
-        | TCP_RESUME_V2
-        | TCP_HANDOVER_V2;
+    pub const MANAGEMENT_V1: u64 = 1 << 10;
+    pub const ROAMING_RESERVED: u64 =
+        UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -103,6 +97,7 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
     #[cfg(feature = "experimental-roaming")]
     let bits = bits
         | server_capability::CONTROL_V2
+        | server_capability::MANAGEMENT_V1
         | server_capability::TCP_RESUME_V2
         | server_capability::TCP_HANDOVER_V2;
     ServerCapabilities { bits }
@@ -149,6 +144,20 @@ pub fn control_v2_supported(client: Option<ClientCapabilities>) -> bool {
     cfg!(feature = "experimental-roaming")
         && client
             .is_some_and(|capabilities| capabilities.core_bits & client_capability::CONTROL_V2 != 0)
+}
+
+pub fn management_v1_negotiated(
+    server: Option<ServerCapabilities>,
+    client: Option<ClientCapabilities>,
+) -> bool {
+    cfg!(feature = "experimental-roaming")
+        && server.is_some_and(|capabilities| {
+            capabilities.contains(server_capability::CONTROL_V2 | server_capability::MANAGEMENT_V1)
+        })
+        && client.is_some_and(|capabilities| {
+            let required = client_capability::CONTROL_V2 | client_capability::MANAGEMENT_V1;
+            capabilities.core_bits & required == required
+        })
 }
 
 /// UDP migration is entered only after both authenticated capability trailers confirm the
@@ -203,11 +212,13 @@ pub const fn implemented_client_core_capabilities() -> u64 {
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
         | client_capability::PACKET_MUX_V1;
-    // The shared supervisor owns terminal close, TCP resume/handover, and the UDP path actor.
-    // Negotiation below strips each migration bit unless this exact transport and platform can use it.
+    // The shared supervisor owns terminal close, management events, TCP resume/handover,
+    // and the UDP path actor. Negotiation below strips each migration bit unless this exact
+    // transport and platform can use it.
     #[cfg(feature = "experimental-roaming")]
     let bits = bits
         | client_capability::CONTROL_V2
+        | client_capability::MANAGEMENT_V1
         | client_capability::UDP_ROAM_V1
         | client_capability::TCP_RESUME_V2
         | client_capability::TCP_HANDOVER_V2;
@@ -304,6 +315,12 @@ pub fn negotiate_client_capabilities(
         // A handover proof permits replacing a still-live carrier. Never advertise that wire
         // authority unless the adapter can transactionally prepare and bind the exact path.
         core_bits &= !client_capability::TCP_HANDOVER_V2;
+    }
+    if platform_bits & crate::transport_core::platform_capability::MANAGEMENT_EVENTS == 0 {
+        // A newer native core can be loaded by an older GUI because ABI minors are forward
+        // compatible. Do not negotiate events that the concrete adapter did not explicitly
+        // promise to understand.
+        core_bits &= !client_capability::MANAGEMENT_V1;
     }
     match config.server.protocol.as_str() {
         "tcp" => core_bits &= !client_capability::UDP_ROAM_V1,
@@ -651,6 +668,58 @@ mod tests {
                 core_bits: client.core_bits & !client_capability::UDP_DATA_FRAG_V1,
                 ..client
             })
+        ));
+    }
+
+    #[test]
+    fn management_requires_bidirectional_opt_in_and_is_not_disabled_with_roaming() {
+        let server = ServerCapabilities {
+            bits: server_capability::CONTROL_V2 | server_capability::MANAGEMENT_V1,
+        };
+        let client = ClientCapabilities {
+            core_bits: client_capability::CONTROL_V2 | client_capability::MANAGEMENT_V1,
+            ..ClientCapabilities::default()
+        };
+        #[cfg(feature = "experimental-roaming")]
+        {
+            assert!(management_v1_negotiated(Some(server), Some(client)));
+            assert!(server_capabilities_for_profile(false)
+                .contains(server_capability::CONTROL_V2 | server_capability::MANAGEMENT_V1));
+        }
+        #[cfg(not(feature = "experimental-roaming"))]
+        assert!(!management_v1_negotiated(Some(server), Some(client)));
+        assert!(!management_v1_negotiated(None, Some(client)));
+        assert!(!management_v1_negotiated(Some(server), None));
+        assert!(!management_v1_negotiated(
+            Some(server),
+            Some(ClientCapabilities {
+                core_bits: client.core_bits & !client_capability::MANAGEMENT_V1,
+                ..client
+            })
+        ));
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    #[test]
+    fn management_wire_capability_requires_platform_event_opt_in() {
+        let config = crate::config::client::ClientConfig::default();
+        let server = Some(implemented_server_capabilities());
+        let legacy_gui = negotiate_client_capabilities(&config, server, 0)
+            .unwrap()
+            .expect("authenticated capability extension");
+        assert_eq!(legacy_gui.core_bits & client_capability::MANAGEMENT_V1, 0);
+
+        let aware_gui = negotiate_client_capabilities(
+            &config,
+            server,
+            crate::transport_core::platform_capability::MANAGEMENT_EVENTS,
+        )
+        .unwrap()
+        .expect("authenticated capability extension");
+        assert_ne!(aware_gui.core_bits & client_capability::MANAGEMENT_V1, 0);
+        assert!(management_v1_negotiated(
+            server,
+            Some(aware_gui),
         ));
     }
 

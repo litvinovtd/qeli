@@ -451,22 +451,25 @@ without changing the older prefixes.
 DNS/routes/MTU/multipath still apply from `AuthOK`; a live change needs a reconnect or a new
 runtime handler.
 
-[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) already implements magic/version/
+[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) implements magic/version/
 type/flags/message id, bounded fragmentation/reassembly, ACK/error and limits. Roaming path
-messages use this format end-to-end. The general server → client runtime dispatcher, however,
-handles only path-control/session close; `PUSH_CONFIG`, `KICK` and `NOTICE` are declarations and
-test frames rather than completed product features.
+messages use this format end-to-end. The first general server → client management slice is now
+complete: negotiated `MANAGEMENT_V1` carries typed `KICK` and `NOTICE` events through the common
+Rust core and the Android, iOS, Windows, macOS and Linux adapters. Administrative, quota and
+expiry revocation sends a reasoned terminal `KICK`; quota/expiry thresholds emit deduplicated
+`NOTICE` events. TCP preserves carrier ordering, while UDP repeats one logical message three
+times and the bounded reassembler deduplicates the shared message id.
 
-Remaining work:
+Remaining work is the mutating part of the channel:
 
-1. a negotiated dispatcher with capability, idempotency, retry and explicit error results;
-2. `KICK` with a reason and quota/expiry `NOTICE` first, because they do not mutate OS networking;
-3. then a typed, generation-safe `PUSH_CONFIG` for DNS/routes/MTU/multipath;
-4. Android route push must call a new `VpnService.Builder.establish()` and briefly replace the
-   TUN because routes cannot be changed on a live interface.
+1. a typed, generation-safe `PUSH_CONFIG` for DNS/routes/MTU/multipath with request ACK/error and
+   rollback semantics;
+2. Android route push must call a new `VpnService.Builder.establish()` and briefly replace the
+   TUN because routes cannot be changed on a live interface;
+3. equivalent transactional apply/rollback integration is required for every other platform.
 
-For 0.8.0, `KICK`/`NOTICE` are desirable while full `PUSH_CONFIG` can explicitly move to 0.8.1.
-Completed roaming no longer depends on it and uses separate negotiated capabilities.
+`KICK`/`NOTICE` are complete for 0.8.0. Full live `PUSH_CONFIG` is explicitly deferred to 0.8.1.
+Completed roaming does not depend on it and uses separate negotiated path capabilities.
 
 ### Full IPv6 support (0.8.0 development line; certification pending)
 

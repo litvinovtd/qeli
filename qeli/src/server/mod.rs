@@ -529,6 +529,10 @@ mod client_route_tests {
             tcp_roaming: None,
             #[cfg(feature = "experimental-roaming")]
             tcp_control_v2: false,
+            #[cfg(feature = "experimental-roaming")]
+            management_v1: false,
+            #[cfg(feature = "experimental-roaming")]
+            management_datagram: false,
             connected_at: std::time::Instant::now(),
             bytes_sent: Arc::new(AtomicU64::new(0)),
             bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -3516,6 +3520,9 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 async fn usage_sweep(state: Arc<ServerState>) {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // One bit per warning threshold, scoped to a concrete session id. Reconnects receive a
+    // fresh notice while a long-lived session is not spammed every ten seconds.
+    let mut management_notices: HashMap<u64, u8> = HashMap::new();
     loop {
         tick.tick().await;
 
@@ -3533,7 +3540,13 @@ async fn usage_sweep(state: Arc<ServerState>) {
         let now = usage::now_unix();
 
         let mut live: HashSet<u64> = HashSet::new();
-        let mut to_kick: Vec<(String, std::net::IpAddr, u64)> = Vec::new();
+        let mut to_kick: Vec<(String, std::net::IpAddr, u64, bool, bool)> = Vec::new();
+        #[cfg(feature = "experimental-roaming")]
+        let mut to_notice: Vec<(
+            Arc<crate::server::handler::SessionShared>,
+            crate::protocol::control_v2::Notice,
+            u8,
+        )> = Vec::new();
         {
             let profiles = state.profiles.read().await;
             for (pname, profile) in profiles.iter() {
@@ -3555,6 +3568,66 @@ async fn usage_sweep(state: Arc<ServerState>) {
                         .flatten()
                         .map(|x| now >= x)
                         .unwrap_or(false);
+                    #[cfg(feature = "experimental-roaming")]
+                    if !over && gb > 0 {
+                        let limit = gb.saturating_mul(1_000_000_000);
+                        let used = state.usage.used_down(&s.username);
+                        let percent = used.saturating_mul(100) / limit.max(1);
+                        let (bit, threshold) = if percent >= 95 {
+                            (2, 95)
+                        } else if percent >= 80 {
+                            (1, 80)
+                        } else {
+                            (0, 0)
+                        };
+                        if bit != 0
+                            && management_notices.get(&s.session_id).copied().unwrap_or(0) & bit
+                                == 0
+                        {
+                            to_notice.push((
+                                s.clone(),
+                                crate::protocol::control_v2::Notice {
+                                    kind: crate::protocol::control_v2::NoticeKind::QuotaWarning,
+                                    severity: crate::protocol::control_v2::NoticeSeverity::Warning,
+                                    message: format!("Data quota is {percent}% used"),
+                                    value: Some(threshold),
+                                    deadline_unix: None,
+                                },
+                                bit,
+                            ));
+                        }
+                    }
+                    #[cfg(feature = "experimental-roaming")]
+                    if !expired {
+                        if let Some(deadline) = expire.get(&s.username).copied().flatten() {
+                            let remaining = deadline.saturating_sub(now);
+                            let (bit, days) = if remaining <= 86_400 {
+                                (8, 1)
+                            } else if remaining <= 7 * 86_400 {
+                                (4, 7)
+                            } else {
+                                (0, 0)
+                            };
+                            if bit != 0
+                                && management_notices.get(&s.session_id).copied().unwrap_or(0) & bit
+                                    == 0
+                            {
+                                to_notice.push((
+                                    s.clone(),
+                                    crate::protocol::control_v2::Notice {
+                                        kind:
+                                            crate::protocol::control_v2::NoticeKind::ExpiryWarning,
+                                        severity:
+                                            crate::protocol::control_v2::NoticeSeverity::Warning,
+                                        message: format!("Account expires in {days} day(s)"),
+                                        value: Some(days),
+                                        deadline_unix: Some(deadline),
+                                    },
+                                    bit,
+                                ));
+                            }
+                        }
+                    }
                     if over || expired {
                         // Notify (Tier-3) — throttled to once/hour per user so a
                         // client that keeps reconnecting over quota can't spam.
@@ -3573,9 +3646,21 @@ async fn usage_sweep(state: Arc<ServerState>) {
                             notify::fire_throttled(&key, 3600, notify::Event::QuotaBreach, &detail)
                                 .await;
                         });
-                        to_kick.push((pname.clone(), *ip, s.session_id));
+                        to_kick.push((pname.clone(), *ip, s.session_id, over, expired));
                     }
                 }
+            }
+        }
+
+        management_notices.retain(|session_id, _| live.contains(session_id));
+        #[cfg(feature = "experimental-roaming")]
+        for (session, notice, bit) in to_notice {
+            let event = crate::protocol::control_v2::ManagementEvent::Notice(notice);
+            if session.send_management(&event).await {
+                management_notices
+                    .entry(session.session_id)
+                    .and_modify(|bits| *bits |= bit)
+                    .or_insert(bit);
             }
         }
 
@@ -3584,7 +3669,54 @@ async fn usage_sweep(state: Arc<ServerState>) {
             log::error!("usage: periodic flush failed: {error}");
         }
 
-        for (pname, ip, session_id) in to_kick {
+        #[cfg(feature = "experimental-roaming")]
+        let mut management_queued = false;
+        #[cfg(feature = "experimental-roaming")]
+        for (pname, ip, session_id, over, expired) in &to_kick {
+            let profile = { state.profiles.read().await.get(pname).cloned() };
+            if let Some(session) = profile
+                .as_ref()
+                .and_then(|profile| profile.sessions.try_read().ok())
+                .and_then(|sessions| {
+                    sessions
+                        .by_ip
+                        .get(ip)
+                        .filter(|session| session.session_id == *session_id)
+                        .cloned()
+                })
+            {
+                let (reason, message) = if *over {
+                    (
+                        crate::protocol::control_v2::KickReason::QuotaExceeded,
+                        "Data quota exceeded",
+                    )
+                } else if *expired {
+                    (
+                        crate::protocol::control_v2::KickReason::AccountExpired,
+                        "Account expired",
+                    )
+                } else {
+                    (
+                        crate::protocol::control_v2::KickReason::Administrative,
+                        "Session revoked",
+                    )
+                };
+                let event = crate::protocol::control_v2::ManagementEvent::Kick(
+                    crate::protocol::control_v2::Kick {
+                        reason,
+                        message: message.to_string(),
+                        reconnect_allowed: false,
+                    },
+                );
+                management_queued |= session.send_management(&event).await;
+            }
+        }
+        #[cfg(feature = "experimental-roaming")]
+        if management_queued {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+
+        for (pname, ip, session_id, _over, _expired) in to_kick {
             let profile = { state.profiles.read().await.get(&pname).cloned() };
             if let Some(profile) = profile {
                 // Quota/expiry removal and lease release must be one admission transaction.

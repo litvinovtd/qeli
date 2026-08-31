@@ -32,6 +32,12 @@ internal data class TransportCoreServerIdentityRequest(
     val publicKey: String,
 )
 
+internal data class TransportCoreManagementEvent(
+    val type: String,
+    val message: String,
+    val reconnectAllowed: Boolean,
+)
+
 internal data class TransportCorePathRef(
     val platformPathId: String,
     val networkToken: String,
@@ -107,6 +113,8 @@ internal object TransportCoreEventCodec {
     const val KIND_SERVER_IDENTITY = 5
     const val KIND_PATH_COMMAND = 6
     const val KIND_PATH_REFRESH = 7
+    const val KIND_NOTICE = 8
+    const val KIND_KICK = 9
     const val PAYLOAD_NONE = 0
     const val PAYLOAD_JSON = 1
     const val PAYLOAD_UTF8 = 2
@@ -141,6 +149,29 @@ internal object TransportCoreEventCodec {
             planGeneration = planGeneration,
             errorCode = errorCode,
             payload = payload,
+        )
+    }
+
+    fun decodeManagement(event: TransportCoreEvent): TransportCoreManagementEvent {
+        require(event.kind == KIND_NOTICE || event.kind == KIND_KICK) {
+            "event is not a management event"
+        }
+        require(event.payloadFormat == PAYLOAD_JSON) { "management payload is not JSON" }
+        val json = JSONObject(event.payload.toString(Charsets.UTF_8))
+        val type = json.getString("type")
+        require(type == if (event.kind == KIND_KICK) "kick" else "notice") {
+            "management event kind/type mismatch"
+        }
+        val message = json.getString("message")
+        require(
+            message.isNotBlank() &&
+                message.toByteArray(Charsets.UTF_8).size <= 512 &&
+                message.none { it.isISOControl() }
+        ) { "invalid management message" }
+        return TransportCoreManagementEvent(
+            type = type,
+            message = message,
+            reconnectAllowed = json.optBoolean("reconnect_allowed", true),
         )
     }
 

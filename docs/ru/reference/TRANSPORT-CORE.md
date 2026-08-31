@@ -11,12 +11,11 @@ multipath, автоматический fallback и обработку конф�
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.14. Закоммиченные
-`.so`/`.dll`/`.dylib` также соответствуют ABI 1.14 и текущему Rust source digest:
-desktop и Android независимо прошли чистую byte-identical A/B сборку, canonical/consumed
-копии и evidence согласованы, `native-libs/provenance.py --check` сообщает `OK`.
-Новая сборка cores нужна после следующего изменения Rust-дерева; финальные приложения всё
-равно должны быть заново упакованы и пройти signing/platform/E2E gates. Остались также
+общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.15. ABI 1.15 добавляет
+типизированные серверные события `NOTICE`/`KICK` и capability `MANAGEMENT_EVENTS`, не меняя
+фиксированный event header и число экспортов. Закоммиченные `.so`/`.dll`/`.dylib` пока остаются
+последним сертифицированным набором ABI 1.14; перед упаковкой их нужно пересобрать из финального
+коммита 0.8.0. Финальные приложения всё равно должны пройти signing/platform/E2E gates. Остались также
 administrator Wintun full-tunnel, живой macOS utun и physical-device iOS/Xcode.
 Составлено 2026-07-30; статус native cores актуализирован 2026-08-31.
 **Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
@@ -42,8 +41,10 @@ reconnect fallback принадлежат общему ядру; capable adapter
 явных результата path-команды: accepted, безопасный для rollback rejected и
 platform-state-unknown. Последний разрешён только при неполном внутреннем rollback и завершает
 текущую generation без stale `ABORT_PATH`. Path transactions отключаются capability gate, если
-desktop, Android или iOS adapter загрузил ядро старее 1.14. Фиксированный 48-байтовый event header,
-префиксы статистики и число экспортов не меняются.
+desktop, Android или iOS adapter загрузил ядро старее 1.14. ABI 1.15 добавляет negotiated bounded
+события серверного `NOTICE` и терминального `KICK`; старые peers не рекламируют `MANAGEMENT_V1`
+и сохраняют прежнее поведение. Фиксированный 48-байтовый event header, префиксы статистики и
+число экспортов не меняются.
 
 ---
 

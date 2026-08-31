@@ -92,13 +92,17 @@ final class QeliNativeTransport: @unchecked Sendable {
     static let platformPathTransactions: UInt64 = 1 << 12
     static let platformPathSocketBinding: UInt64 = 1 << 13
     static let platformPathRefresh: UInt64 = 1 << 14
+    static let platformManagementEvents: UInt64 = 1 << 15
     static let basePlatformCapabilities = platformRoutes | platformDNS | platformPacketBatch
         | platformServerIdentity | platformIPv6Tun | platformIPv6Routes | platformIPv6DNS
+        | platformManagementEvents
     static let coreNativeDataPlane: UInt64 = 1 << 8
     static let corePacketIO: UInt64 = 1 << 9
     static let coreUDPDiagnostic: UInt64 = 1 << 10
     static let corePathTransactions: UInt64 = 1 << 13
     static let corePathRefreshEvents: UInt64 = 1 << 14
+    static let noticeEvent: UInt32 = 8
+    static let kickEvent: UInt32 = 9
     static let maxPacketBytes = 65_535
     static let maxBatchPackets = 64
     static let batchBytes = 256 * 1024

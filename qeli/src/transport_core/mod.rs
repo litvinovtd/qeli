@@ -11,7 +11,8 @@
 //! ABI 1.12 adds the experimental generation-scoped path transaction contract and telemetry;
 //! ABI 1.13 lets the core request a same-network path snapshot without moving retry policy into
 //! platform clients. ABI 1.14 distinguishes a reversible path-command rejection from an
-//! incomplete platform rollback that must terminate the generation.
+//! incomplete platform rollback that must terminate the generation. ABI 1.15 adds bounded
+//! server NOTICE and terminal KICK events without changing the fixed event header.
 
 use self::path::{
     PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathCommandFailure,
@@ -117,7 +118,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 14;
+pub const ABI_VERSION_MINOR: u16 = 15;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -149,11 +150,13 @@ pub mod core_capability {
     pub const NETWORK_PLAN_V2: u64 = 1 << 12;
     pub const PATH_TRANSACTIONS: u64 = 1 << 13;
     pub const PATH_REFRESH_EVENTS: u64 = 1 << 14;
+    pub const MANAGEMENT_EVENTS: u64 = 1 << 15;
     #[cfg(feature = "experimental-roaming")]
     const EXPERIMENTAL: u64 = PATH_TRANSACTIONS | PATH_REFRESH_EVENTS;
     #[cfg(not(feature = "experimental-roaming"))]
     const EXPERIMENTAL: u64 = 0;
-    pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2;
+    pub const BASE: u64 =
+        STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2 | MANAGEMENT_EVENTS;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
         | TUN_FD_OWNERSHIP
@@ -232,6 +235,9 @@ pub mod platform_capability {
     pub const PATH_SOCKET_BINDING: u64 = 1 << 13;
     /// The adapter can answer a core request with a fresh snapshot of the current path.
     pub const PATH_REFRESH: u64 = 1 << 14;
+    /// The adapter understands ABI 1.15 NOTICE/KICK events and terminal KICK semantics.
+    /// This opt-in keeps a newer native core safe when loaded by an older GUI.
+    pub const MANAGEMENT_EVENTS: u64 = 1 << 15;
     pub const ROAMING_PATH: u64 = PATH_TRANSACTIONS | PATH_SOCKET_BINDING;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
@@ -258,6 +264,8 @@ pub enum EventKind {
     ServerIdentity = 5,
     PathCommand = 6,
     PathRefresh = 7,
+    Notice = 8,
+    Kick = 9,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -802,6 +810,7 @@ pub struct ClientEvent {
     pub server_identity: Option<ServerIdentityRequest>,
     pub path_command: Option<PathCommand>,
     pub path_refresh_generation: Option<u64>,
+    pub management: Option<crate::protocol::control_v2::ManagementEvent>,
     pub fault: Option<CoreFault>,
 }
 
@@ -1773,6 +1782,7 @@ impl ClientCore {
             server_identity: None,
             path_command: Some(command),
             path_refresh_generation: None,
+            management: None,
             fault: None,
         });
         sequence
@@ -2468,6 +2478,40 @@ impl ClientCore {
         self.events.front()
     }
 
+    /// Publish a decoded authenticated server management event. NOTICE is advisory and may
+    /// be dropped under platform backpressure; KICK is terminal and replaces the oldest queued
+    /// event when necessary because the generation is cancelled immediately afterwards.
+    pub(crate) fn publish_management(
+        &mut self,
+        event: crate::protocol::control_v2::ManagementEvent,
+    ) -> Result<(), CoreError> {
+        let kind = match event {
+            crate::protocol::control_v2::ManagementEvent::Notice(_) => EventKind::Notice,
+            crate::protocol::control_v2::ManagementEvent::Kick(_) => EventKind::Kick,
+        };
+        if self.events.len() >= self.event_capacity {
+            if kind == EventKind::Notice {
+                return Err(CoreError::EventQueueFull);
+            }
+            self.events.pop_front();
+        }
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.events.push_back(ClientEvent {
+            sequence,
+            kind,
+            state: self.state,
+            plan: None,
+            socket_protect: None,
+            server_identity: None,
+            path_command: None,
+            path_refresh_generation: None,
+            management: Some(event),
+            fault: None,
+        });
+        Ok(())
+    }
+
     /// Account for one packet accepted from the platform TUN boundary.
     pub fn record_tx(&mut self, bytes: usize) {
         self.tx_packets = self.tx_packets.saturating_add(1);
@@ -2520,6 +2564,7 @@ impl ClientCore {
             path_command: None,
             fault,
             path_refresh_generation: None,
+            management: None,
         });
         sequence
     }
@@ -3884,6 +3929,44 @@ mod tests {
             core.submit_path_update(&path_update(31, 1, "wifi-a")),
             Err(CoreError::StaleRequest { got: 1 })
         ));
+    }
+
+    #[test]
+    fn terminal_kick_replaces_backpressure_while_notice_remains_advisory() {
+        let mut core = started_core(MIN_EVENT_CAPACITY);
+        while core.events.len() < core.event_capacity {
+            core.push_event(EventKind::StateChanged, None, None, None, None);
+        }
+        let notice = crate::protocol::control_v2::ManagementEvent::Notice(
+            crate::protocol::control_v2::Notice {
+                kind: crate::protocol::control_v2::NoticeKind::Administrative,
+                severity: crate::protocol::control_v2::NoticeSeverity::Info,
+                message: "Maintenance soon".to_string(),
+                value: None,
+                deadline_unix: None,
+            },
+        );
+        assert_eq!(
+            core.publish_management(notice),
+            Err(CoreError::EventQueueFull)
+        );
+
+        let kick = crate::protocol::control_v2::Kick {
+            reason: crate::protocol::control_v2::KickReason::ProfileDisabled,
+            message: "Profile disabled".to_string(),
+            reconnect_allowed: false,
+        };
+        core.publish_management(crate::protocol::control_v2::ManagementEvent::Kick(
+            kick.clone(),
+        ))
+        .unwrap();
+        assert_eq!(core.events.len(), core.event_capacity);
+        let event = core.events.back().expect("terminal event");
+        assert_eq!(event.kind, EventKind::Kick);
+        assert_eq!(
+            event.management,
+            Some(crate::protocol::control_v2::ManagementEvent::Kick(kick))
+        );
     }
 
     #[cfg(feature = "experimental-roaming")]

@@ -11,12 +11,11 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
 **Initiative status: ✅ source refactor complete.** All production clients use the shared
-Rust transport core; the current source API is additive ABI 1.14. The committed
-`.so`/`.dll`/`.dylib` files also match ABI 1.14 and the current Rust source digest:
-desktop and Android passed independent clean byte-identical A/B builds, canonical/consumed
-copies and evidence agree, and `native-libs/provenance.py --check` reports `OK`.
-The cores need another rebuild after the next Rust-tree change; final applications still
-have to be repackaged and pass signing/platform/E2E gates. Remaining acceptance gates include
+Rust transport core; the current source API is additive ABI 1.15. ABI 1.15 adds typed server
+`NOTICE`/`KICK` events and the `MANAGEMENT_EVENTS` capability without changing the fixed event
+header or export counts. The committed `.so`/`.dll`/`.dylib` files are still the last certified
+ABI 1.14 set; they must be rebuilt from the final 0.8.0 commit before packaging. Final
+applications still have to pass signing/platform/E2E gates. Remaining acceptance gates include
 administrator Wintun full-tunnel, live macOS utun, and physical-device iOS/Xcode.
 Written 2026-07-30; native-core status refreshed 2026-08-31.
 **Reality/H2 delivery rule.** The current `reality-tls` H2 carrier is owned by this common Rust
@@ -42,8 +41,9 @@ that do not advertise the new platform bit never receive the event. ABI 1.14 add
 path-command outcomes: accepted, rollback-safe rejected, and platform-state-unknown. The last one
 is reserved for an incomplete internal rollback; it terminates the current generation without a
 stale `ABORT_PATH`. Path transactions are capability-gated off when a desktop, Android, or iOS
-adapter loads a pre-1.14 core. The fixed 48-byte event header, statistics prefixes and export
-counts remain unchanged.
+adapter loads a pre-1.14 core. ABI 1.15 adds negotiated, bounded server `NOTICE` and terminal
+`KICK` events; older peers do not advertise `MANAGEMENT_V1` and keep their previous behaviour.
+The fixed 48-byte event header, statistics prefixes and export counts remain unchanged.
 
 ---
 

@@ -418,6 +418,14 @@ pub struct SessionShared {
     /// True only after authenticated bidirectional CONTROL_V2 negotiation on a TCP session.
     #[cfg(feature = "experimental-roaming")]
     pub(crate) tcp_control_v2: bool,
+    /// Authenticated server-to-client KICK/NOTICE support. Kept independent from roaming so
+    /// disabling path migration does not disable account and administrative control events.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) management_v1: bool,
+    /// Datagram carriers repeat an identical logical event three times. The shared message id
+    /// lets the bounded client reassembler deduplicate them while avoiding a lost UDP KICK.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) management_datagram: bool,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
@@ -582,6 +590,59 @@ impl SessionShared {
         }
         let i = (flow_hash % streams.len() as u64) as usize;
         Some((streams[i].writer.clone(), self.wire_pool.clone()))
+    }
+
+    /// Queue one authenticated management event on every live carrier. CONTROL_V2 frames
+    /// enter the same bounded plaintext queues as data, so TCP ordering is preserved and UDP
+    /// uses the session's current committed egress/CID. A false return means the peer is legacy
+    /// or no live writer accepted the event; callers must still enforce their local decision.
+    #[cfg(feature = "experimental-roaming")]
+    pub async fn send_management(
+        &self,
+        event: &crate::protocol::control_v2::ManagementEvent,
+    ) -> bool {
+        if !self.management_v1 || self.is_revoked() {
+            return false;
+        }
+        let frames = match crate::protocol::control_v2::management_frames(event, rand::random()) {
+            Ok(frames) => frames,
+            Err(error) => {
+                log::error!("refusing invalid outbound CONTROL_V2 management event: {error}");
+                return false;
+            }
+        };
+        let writers = lock_or_recover(&self.streams, "send_management")
+            .iter()
+            .filter(|stream| stream.ready)
+            .map(|stream| stream.writer.clone())
+            .collect::<Vec<_>>();
+        let mut accepted = false;
+        let repetitions = if self.management_datagram { 3 } else { 1 };
+        for writer in writers {
+            for _ in 0..repetitions {
+                for frame in &frames {
+                    let Some(mut packet) = self.wire_pool.try_acquire() else {
+                        log::debug!(
+                            "management event dropped for one carrier: wire pool exhausted"
+                        );
+                        break;
+                    };
+                    if frame.len() > packet.capacity() {
+                        log::error!("management event exceeds the negotiated writer buffer");
+                        break;
+                    }
+                    packet.as_vec_mut().extend_from_slice(frame);
+                    match writer.try_send(packet) {
+                        Ok(()) => accepted = true,
+                        Err(error) => {
+                            log::debug!("management event could not be queued: {error}");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        accepted
     }
 
     /// All streams' kick channels (used by control-plane kick / supersede).
@@ -1276,8 +1337,18 @@ where
                     None
                 },
                 #[cfg(feature = "experimental-roaming")]
-                tcp_control_v2: pcfg.roaming.enabled
-                    && crate::protocol::capabilities::control_v2_supported(capabilities),
+                tcp_control_v2: crate::protocol::capabilities::control_v2_supported(capabilities),
+                #[cfg(feature = "experimental-roaming")]
+                management_v1: crate::protocol::capabilities::management_v1_negotiated(
+                    Some(
+                        crate::protocol::capabilities::server_capabilities_for_profile(
+                            pcfg.roaming.enabled,
+                        ),
+                    ),
+                    capabilities,
+                ),
+                #[cfg(feature = "experimental-roaming")]
+                management_datagram: false,
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
@@ -2521,6 +2592,8 @@ async fn run_stream<R, W>(
                 // independent bucket, allowing the configured rate in both directions.
                 // Stealth mode caps the data plane to the (lower) stealth rate so the
                 // flow stops looking like a line-rate bulk download.
+                let priority_control =
+                    crate::protocol::control_v2::is_control_v2(packet.as_ref());
                 let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
                 let limit = if shaping_on && shaper.stealth() {
                     let sr = shaper.stealth_rate_mbps();
@@ -2528,10 +2601,14 @@ async fn run_stream<R, W>(
                 } else {
                     bw
                 };
-                let delay = session
-                    .rates
-                    .download
-                    .consume(packet.len() as u64 * 8, limit);
+                let delay = if priority_control {
+                    Duration::ZERO
+                } else {
+                    session
+                        .rates
+                        .download
+                        .consume(packet.len() as u64 * 8, limit)
+                };
                 if shaping_on && shaper.stealth() && !delay.is_zero() {
                     // STEALTH: instead of one smooth sleep (which evens the spacing
                     // into a metronome — a WORSE tell), fill the rate-cap gap with
@@ -2571,13 +2648,18 @@ async fn run_stream<R, W>(
                 if let Some(mux) = recordizer.as_mut() {
                     let ready = mux.push(packet.as_ref(), std::time::Instant::now());
                     drop(packet);
-                    let payloads = match ready {
+                    let mut payloads = match ready {
                         Ok(payloads) => payloads,
                         Err(error) => {
                             log::debug!("server TCP recordizer dropped a packet: {error}");
                             continue;
                         }
                     };
+                    if priority_control {
+                        if let Some(payload) = mux.flush() {
+                            payloads.push(payload);
+                        }
+                    }
                     for payload in payloads {
                         if !encrypt_server_stream_payload(
                             &server_tx,

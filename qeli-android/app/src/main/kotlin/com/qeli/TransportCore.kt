@@ -297,6 +297,7 @@ internal class TransportCore private constructor(
         const val PLATFORM_PATH_SOCKET_BINDING = AndroidRoamingPolicy.PLATFORM_PATH_SOCKET_BINDING
         const val PLATFORM_PATH_REFRESH = AndroidRoamingPolicy.PLATFORM_PATH_REFRESH
         const val PLATFORM_ROAMING_PATH = AndroidRoamingPolicy.PLATFORM_ROAMING_PATH
+        const val PLATFORM_MANAGEMENT_EVENTS = 1L shl 15
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 

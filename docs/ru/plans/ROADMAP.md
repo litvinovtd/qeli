@@ -418,22 +418,25 @@ iOS читает весь V3, но Android JNI пока возвращает в�
 DNS/routes/MTU/multipath по-прежнему применяются из `AuthOK`; live-изменение требует
 переподключения или нового runtime handler.
 
-[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) уже реализует magic/version/type/
+[`control_v2.rs`](../../../qeli/src/protocol/control_v2.rs) реализует magic/version/type/
 flags/message id, bounded fragmentation/reassembly, ACK/error и ограничения. Roaming path
-messages используют этот формат end-to-end. Но общий server → client runtime dispatcher пока
-обрабатывает только path-control/закрытие; `PUSH_CONFIG`, `KICK` и `NOTICE` существуют как
-типы и тестовые кадры, а не как завершённые функции продукта.
+messages используют этот формат end-to-end. Первый общий server → client management-срез теперь
+завершён: negotiated `MANAGEMENT_V1` проводит типизированные `KICK` и `NOTICE` через общее
+Rust-ядро и адаптеры Android, iOS, Windows, macOS и Linux. Административное отключение, квота и
+срок отправляют терминальный `KICK` с причиной; пороги квоты/срока создают дедуплицированные
+`NOTICE`. TCP сохраняет порядок carrier, а UDP трижды повторяет одно логическое сообщение,
+которое bounded reassembler дедуплицирует по общему message id.
 
-Осталось:
+Осталась изменяющая сетевое состояние часть канала:
 
-1. общий negotiated dispatcher с capability, idempotency, retry и явным error-result;
-2. сначала `KICK` с причиной и `NOTICE` квоты/срока — без изменения сетевого состояния ОС;
-3. затем типизированный `PUSH_CONFIG` с generation-safe применением DNS/routes/MTU/multipath;
-4. на Android route push должен делать новый `VpnService.Builder.establish()` и короткую
-   замену TUN, потому что живой интерфейс не умеет менять маршруты.
+1. типизированный generation-safe `PUSH_CONFIG` для DNS/routes/MTU/multipath с ACK/error и
+   семантикой rollback;
+2. на Android route push должен делать новый `VpnService.Builder.establish()` и короткую
+   замену TUN, потому что живой интерфейс не умеет менять маршруты;
+3. эквивалентное транзакционное применение и rollback нужны для остальных платформ.
 
-Для 0.8.0 `KICK`/`NOTICE` желательны, а полный `PUSH_CONFIG` можно явно перенести в 0.8.1.
-Готовый roaming от этого больше не зависит и использует собственные negotiated capabilities.
+`KICK`/`NOTICE` завершены для 0.8.0. Полный live `PUSH_CONFIG` явно перенесён в 0.8.1.
+Готовый roaming от него не зависит и использует отдельные negotiated path capabilities.
 
 ### Полная поддержка IPv6 (линия разработки 0.8.0; сертификация не завершена)
 

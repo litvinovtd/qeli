@@ -409,6 +409,52 @@ class TransportCoreEventTest {
     }
 
     @Test
+    fun decodesTypedManagementEventsAndRejectsKindMismatch() {
+        val kick = TransportCoreEventCodec.decode(
+            frame(
+                payload = """{"type":"kick","reason":"administrative","message":"Session stopped","reconnect_allowed":false}""".toByteArray(),
+                kind = TransportCoreEventCodec.KIND_KICK,
+                abiVersion = 0x0001000f,
+            )
+        )
+        val decoded = TransportCoreEventCodec.decodeManagement(kick)
+        assertEquals("kick", decoded.type)
+        assertEquals("Session stopped", decoded.message)
+        assertEquals(false, decoded.reconnectAllowed)
+
+        val mismatch = TransportCoreEventCodec.decode(
+            frame(
+                payload = """{"type":"notice","message":"Wrong kind"}""".toByteArray(),
+                kind = TransportCoreEventCodec.KIND_KICK,
+                abiVersion = 0x0001000f,
+            )
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodeManagement(mismatch)
+        }
+    }
+
+    @Test
+    fun rejectsOversizeOrControlCharacterManagementText() {
+        for (message in listOf("x".repeat(513), "line one\nline two")) {
+            val event = TransportCoreEventCodec.decode(
+                frame(
+                    payload = org.json.JSONObject()
+                        .put("type", "notice")
+                        .put("message", message)
+                        .toString()
+                        .toByteArray(),
+                    kind = TransportCoreEventCodec.KIND_NOTICE,
+                    abiVersion = 0x0001000f,
+                )
+            )
+            assertThrows(IllegalArgumentException::class.java) {
+                TransportCoreEventCodec.decodeManagement(event)
+            }
+        }
+    }
+
+    @Test
     fun encodesSameNetworkNatFailureAsAnExactPathReason() {
         val payload = org.json.JSONObject(
             TransportCoreEventCodec.encodePathUpdate(

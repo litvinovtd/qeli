@@ -145,6 +145,8 @@ class VpnServiceImpl : VpnService() {
     private val CHANNEL_ID = "vpn_obfuscated_channel"
     private val NOTIFICATION_ID = 1001
 
+    private class ServerKickException(message: String) : IllegalStateException(message)
+
     companion object {
         private const val MAX_CARRIER_DNS_REQUESTS = 2
         // A finite lease is renewed while the foreground tunnel is alive. If every
@@ -965,6 +967,7 @@ class VpnServiceImpl : VpnService() {
                         TransportCore.PLATFORM_IPV6_TUN or
                         TransportCore.PLATFORM_IPV6_ROUTES or
                         TransportCore.PLATFORM_IPV6_DNS or
+                        TransportCore.PLATFORM_MANAGEMENT_EVENTS or
                         (if (killSwitchReadiness == AndroidKillSwitchReadiness.READY)
                             TransportCore.PLATFORM_KILL_SWITCH or
                                 TransportCore.PLATFORM_IPV6_KILL_SWITCH else 0L) or
@@ -1150,6 +1153,20 @@ class VpnServiceImpl : VpnService() {
                 dispatchTransportCorePathCommand(core, event)
             TransportCoreEventCodec.KIND_PATH_REFRESH ->
                 dispatchTransportCorePathRefresh(core, event)
+            TransportCoreEventCodec.KIND_NOTICE -> {
+                val notice = TransportCoreEventCodec.decodeManagement(event)
+                broadcastLog("NOTICE: ${notice.message}")
+                showNotification(notice.message)
+            }
+            TransportCoreEventCodec.KIND_KICK -> {
+                val kick = TransportCoreEventCodec.decodeManagement(event)
+                broadcastLog("KICK: ${kick.message}")
+                if (!kick.reconnectAllowed) {
+                    nativeFatalError = ServerKickException(kick.message)
+                    broadcastStatus(STATUS_ERROR, kick.message)
+                }
+                core.stop()
+            }
             TransportCoreEventCodec.KIND_NETWORK_PLAN -> applyNativeNetworkPlan(core, event)
             else -> throw IllegalStateException("unknown transport core event ${event.kind}")
         }
@@ -1711,6 +1728,10 @@ class VpnServiceImpl : VpnService() {
                 // treat as a retryable error, or the loop spins on delay() which
                 // re-throws CancellationException immediately.
                 throw e
+            } catch (e: ServerKickException) {
+                giveUpReason = e.message ?: "Session terminated by server"
+                broadcastLog("Server stopped reconnect: $giveUpReason")
+                break
             } catch (e: SecurityException) {
                 broadcastLog("[SECURITY] ${e.message}")
                 stopVpn(e.message ?: "VPN permission denied")

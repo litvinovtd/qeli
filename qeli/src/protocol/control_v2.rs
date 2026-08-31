@@ -5,6 +5,7 @@
 //! format and implements bounded fragmentation/reassembly. Live handlers remain explicitly
 //! capability-gated by the client and server session code.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,59 @@ pub const MAX_MESSAGE_SIZE: usize = MAX_PART_PAYLOAD * MAX_PARTS as usize;
 pub const MAX_INFLIGHT_MESSAGES: usize = 8;
 pub const COMPLETED_ID_CACHE: usize = 64;
 pub const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(5);
+pub const MAX_MANAGEMENT_TEXT_BYTES: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KickReason {
+    Administrative,
+    QuotaExceeded,
+    AccountExpired,
+    SessionSuperseded,
+    ProfileDisabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Kick {
+    pub reason: KickReason,
+    pub message: String,
+    pub reconnect_allowed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeKind {
+    Administrative,
+    QuotaWarning,
+    ExpiryWarning,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeSeverity {
+    Info,
+    Warning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Notice {
+    pub kind: NoticeKind,
+    pub severity: NoticeSeverity,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_unix: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ManagementEvent {
+    Notice(Notice),
+    Kick(Kick),
+}
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum ControlV2Error {
@@ -70,6 +124,8 @@ pub enum ControlV2Error {
     OutOfOrder,
     #[error("CONTROL_V2 fragment conflicts with prior state")]
     Conflict,
+    #[error("invalid CONTROL_V2 management payload: {0}")]
+    InvalidManagementPayload(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +310,65 @@ pub struct Message {
     pub flags: u8,
     pub message_id: u32,
     pub payload: Vec<u8>,
+}
+
+fn validate_management_text(text: &str) -> Result<(), ControlV2Error> {
+    if text.is_empty()
+        || text.len() > MAX_MANAGEMENT_TEXT_BYTES
+        || text.chars().any(|ch| ch.is_control())
+    {
+        return Err(ControlV2Error::InvalidManagementPayload(
+            "message must be 1..512 UTF-8 bytes without control characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn management_frames(
+    event: &ManagementEvent,
+    message_id: u32,
+) -> Result<Vec<Vec<u8>>, ControlV2Error> {
+    let (message_type, payload) = match event {
+        ManagementEvent::Notice(notice) => {
+            validate_management_text(&notice.message)?;
+            (TYPE_NOTICE, serde_json::to_vec(notice))
+        }
+        ManagementEvent::Kick(kick) => {
+            validate_management_text(&kick.message)?;
+            (TYPE_KICK, serde_json::to_vec(kick))
+        }
+    };
+    let payload =
+        payload.map_err(|error| ControlV2Error::InvalidManagementPayload(error.to_string()))?;
+    fragment_message(message_type, 0, message_id, &payload)
+}
+
+pub fn decode_management(message: &Message) -> Result<Option<ManagementEvent>, ControlV2Error> {
+    if message.flags != 0 {
+        return if matches!(message.message_type, TYPE_NOTICE | TYPE_KICK) {
+            Err(ControlV2Error::InvalidManagementPayload(
+                "management messages must not carry CONTROL_V2 flags".to_string(),
+            ))
+        } else {
+            Ok(None)
+        };
+    }
+    let event = match message.message_type {
+        TYPE_NOTICE => ManagementEvent::Notice(
+            serde_json::from_slice(&message.payload)
+                .map_err(|error| ControlV2Error::InvalidManagementPayload(error.to_string()))?,
+        ),
+        TYPE_KICK => ManagementEvent::Kick(
+            serde_json::from_slice(&message.payload)
+                .map_err(|error| ControlV2Error::InvalidManagementPayload(error.to_string()))?,
+        ),
+        _ => return Ok(None),
+    };
+    match &event {
+        ManagementEvent::Notice(notice) => validate_management_text(&notice.message)?,
+        ManagementEvent::Kick(kick) => validate_management_text(&kick.message)?,
+    }
+    Ok(Some(event))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -522,6 +637,87 @@ mod tests {
             reassembler.push(now, decode(&frames[2]).unwrap()).unwrap(),
             ReassemblyOutcome::Duplicate
         );
+    }
+
+    #[test]
+    fn management_payloads_roundtrip_and_repeated_datagrams_are_deduplicated() {
+        let notice = ManagementEvent::Notice(Notice {
+            kind: NoticeKind::QuotaWarning,
+            severity: NoticeSeverity::Warning,
+            message: "Data quota is 80% used".to_string(),
+            value: Some(80),
+            deadline_unix: None,
+        });
+        let notice_wire = management_frames(&notice, 0x1020_3040).unwrap();
+        assert_eq!(notice_wire.len(), 1);
+        assert_eq!(decode(&notice_wire[0]).unwrap().message_type, TYPE_NOTICE);
+        let now = Instant::now();
+        let mut reassembler = Reassembler::new();
+        let complete = reassembler
+            .push(now, decode(&notice_wire[0]).unwrap())
+            .unwrap();
+        let ReassemblyOutcome::Complete(message) = complete else {
+            panic!("single-part management event must complete")
+        };
+        assert_eq!(decode_management(&message).unwrap(), Some(notice));
+        assert_eq!(
+            reassembler
+                .push(now, decode(&notice_wire[0]).unwrap())
+                .unwrap(),
+            ReassemblyOutcome::Duplicate,
+            "UDP repeats use one message id and must not duplicate UI events"
+        );
+
+        let kick = ManagementEvent::Kick(Kick {
+            reason: KickReason::Administrative,
+            message: "Disconnected by the server administrator".to_string(),
+            reconnect_allowed: false,
+        });
+        let kick_wire = management_frames(&kick, 7).unwrap();
+        let mut kick_reassembler = Reassembler::new();
+        let ReassemblyOutcome::Complete(message) = kick_reassembler
+            .push(now, decode(&kick_wire[0]).unwrap())
+            .unwrap()
+        else {
+            panic!("single-part KICK must complete")
+        };
+        assert_eq!(decode_management(&message).unwrap(), Some(kick));
+    }
+
+    #[test]
+    fn management_payloads_reject_control_text_flags_and_unknown_fields() {
+        let invalid = ManagementEvent::Notice(Notice {
+            kind: NoticeKind::Administrative,
+            severity: NoticeSeverity::Info,
+            message: "line one\nline two".to_string(),
+            value: None,
+            deadline_unix: None,
+        });
+        assert!(matches!(
+            management_frames(&invalid, 1),
+            Err(ControlV2Error::InvalidManagementPayload(_))
+        ));
+
+        let message = Message {
+            message_type: TYPE_KICK,
+            flags: FLAG_ACK_REQUIRED,
+            message_id: 2,
+            payload: br#"{"reason":"administrative","message":"stop","reconnect_allowed":false}"#
+                .to_vec(),
+        };
+        assert!(matches!(
+            decode_management(&message),
+            Err(ControlV2Error::InvalidManagementPayload(_))
+        ));
+        let message = Message {
+            flags: 0,
+            payload: br#"{"reason":"administrative","message":"stop","reconnect_allowed":false,"extra":1}"#.to_vec(),
+            ..message
+        };
+        assert!(matches!(
+            decode_management(&message),
+            Err(ControlV2Error::InvalidManagementPayload(_))
+        ));
     }
 
     #[test]

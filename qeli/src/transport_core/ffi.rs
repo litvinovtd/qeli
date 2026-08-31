@@ -8,7 +8,8 @@
 //! telemetry while preserving the complete 64-byte stats V1 prefix. ABI 1.11 adds the
 //! dual-family NetworkPlan; ABI 1.12 adds generation-scoped path commands and separate roam
 //! telemetry, ABI 1.13 adds a generation-scoped no-payload path-refresh event, and ABI 1.14
-//! distinguishes reversible path rejection from incomplete platform rollback. Both fixed ABI
+//! distinguishes reversible path rejection from incomplete platform rollback. ABI 1.15 adds
+//! server NOTICE/KICK events. Both fixed ABI
 //! prefixes remain unchanged.
 
 use super::path::PathCommandOutcome;
@@ -913,6 +914,15 @@ fn event_payload(event: &ClientEvent) -> Result<(Vec<u8>, u32), ErrorCode> {
             .path_refresh_generation
             .map(|_| (Vec::new(), PAYLOAD_NONE))
             .ok_or(ErrorCode::Panic),
+        EventKind::Notice | EventKind::Kick => event
+            .management
+            .as_ref()
+            .ok_or(ErrorCode::Panic)
+            .and_then(|management| {
+                serde_json::to_vec(management)
+                    .map(|payload| (payload, PAYLOAD_JSON))
+                    .map_err(|_| ErrorCode::Panic)
+            }),
     }
 }
 
@@ -1049,7 +1059,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V3_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000e)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000f)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));

@@ -4678,6 +4678,17 @@ async fn handle_udp_auth(
         tcp_roaming: None,
         #[cfg(feature = "experimental-roaming")]
         tcp_control_v2: false,
+        #[cfg(feature = "experimental-roaming")]
+        management_v1: crate::protocol::capabilities::management_v1_negotiated(
+            Some(
+                crate::protocol::capabilities::udp_server_capabilities_for_profile(
+                    profile.config.roaming.enabled,
+                ),
+            ),
+            capabilities,
+        ),
+        #[cfg(feature = "experimental-roaming")]
+        management_datagram: true,
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,
@@ -4899,7 +4910,7 @@ async fn handle_udp_auth(
                 .unwrap_or_else(|| {
                     tokio::time::Instant::now() + std::time::Duration::from_secs(86_400)
                 });
-            let payloads = tokio::select! {
+            let (payloads, priority_control) = tokio::select! {
                 biased;
                 _ = kick_rx.recv() => {
                     let peer = writer_egress.snapshot().peer;
@@ -4912,14 +4923,16 @@ async fn handle_udp_auth(
                     match recordizer.as_mut().and_then(|mux| {
                         mux.flush_due(std::time::Instant::now())
                     }) {
-                        Some(payload) => vec![payload],
+                        Some(payload) => (vec![payload], false),
                         None => continue,
                     }
                 }
                 msg = writer_rx.recv() => {
                     match msg {
                         Some(packet) => {
-                            if let Some(mux) = recordizer.as_mut() {
+                            let priority_control =
+                                crate::protocol::control_v2::is_control_v2(packet.as_ref());
+                            let mut payloads = if let Some(mux) = recordizer.as_mut() {
                                 match mux.push(packet.as_ref(), std::time::Instant::now()) {
                                     Ok(payloads) => payloads,
                                     Err(error) => {
@@ -4932,10 +4945,16 @@ async fn handle_udp_auth(
                                 }
                             } else {
                                 vec![packet.to_vec()]
+                            };
+                            if priority_control {
+                                if let Some(payload) = recordizer.as_mut().and_then(|mux| mux.flush()) {
+                                    payloads.push(payload);
+                                }
                             }
+                            (payloads, priority_control)
                         }
                         None => match recordizer.as_mut().and_then(|mux| mux.flush()) {
-                            Some(payload) => vec![payload],
+                            Some(payload) => (vec![payload], false),
                             None => break 'writer,
                         },
                     }
@@ -5000,10 +5019,14 @@ async fn handle_udp_auth(
                                 .iter()
                                 .map(|fragment| (fragment.len() + wrappers) as u64)
                                 .sum();
-                            let delay = writer_session
-                                .rates
-                                .download
-                                .consume(attempted_wire_len * 8, limit);
+                            let delay = if priority_control {
+                                std::time::Duration::ZERO
+                            } else {
+                                writer_session
+                                    .rates
+                                    .download
+                                    .consume(attempted_wire_len * 8, limit)
+                            };
                             if !delay.is_zero() {
                                 tokio::time::sleep(delay).await;
                             }
@@ -5074,7 +5097,11 @@ async fn handle_udp_auth(
                             .framing
                             .wrap_into(data, packet_number, &mut quic_record);
                         let wire_len = (pkt.len() + egress.socket.seal_overhead()) as u64;
-                        let delay = writer_session.rates.download.consume(wire_len * 8, limit);
+                        let delay = if priority_control {
+                            std::time::Duration::ZERO
+                        } else {
+                            writer_session.rates.download.consume(wire_len * 8, limit)
+                        };
                         if !delay.is_zero() {
                             tokio::time::sleep(delay).await;
                         }

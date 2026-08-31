@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000e)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000f)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -59,7 +59,9 @@ enum qeli_client_event_kind {
     QELI_CLIENT_SOCKET_PROTECT = 4,
     QELI_CLIENT_SERVER_IDENTITY = 5,
     QELI_CLIENT_PATH_COMMAND = 6,
-    QELI_CLIENT_PATH_REFRESH = 7
+    QELI_CLIENT_PATH_REFRESH = 7,
+    QELI_CLIENT_NOTICE = 8,
+    QELI_CLIENT_KICK = 9
 };
 
 enum qeli_client_payload_format {
@@ -70,7 +72,8 @@ enum qeli_client_payload_format {
 
 /* ABI 1.11 adds the dual-family platform capability contract. ABI 1.12 adds opt-in path
  * transactions and exact candidate socket binding. ABI 1.13 adds a same-path snapshot request;
- * ABI 1.14 adds fail-closed path-command outcome classification.
+ * ABI 1.14 adds fail-closed path-command outcome classification. ABI 1.15 adds typed server
+ * NOTICE/KICK events and QELI_CORE_MANAGEMENT_EVENTS without changing the event header.
  * Unknown bits must be ignored; no bit may be advertised before the platform implements its
  * complete fail-closed contract. */
 enum qeli_client_platform_capability {
@@ -88,7 +91,8 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_IPV6_KILL_SWITCH = UINT64_C(1) << 11,
     QELI_PLATFORM_PATH_TRANSACTIONS = UINT64_C(1) << 12,
     QELI_PLATFORM_PATH_SOCKET_BINDING = UINT64_C(1) << 13,
-    QELI_PLATFORM_PATH_REFRESH = UINT64_C(1) << 14
+    QELI_PLATFORM_PATH_REFRESH = UINT64_C(1) << 14,
+    QELI_PLATFORM_MANAGEMENT_EVENTS = UINT64_C(1) << 15
 };
 
 enum qeli_client_core_capability {
@@ -106,7 +110,8 @@ enum qeli_client_core_capability {
     QELI_CORE_WINTUN_IO = UINT64_C(1) << 11,
     QELI_CORE_NETWORK_PLAN_V2 = UINT64_C(1) << 12,
     QELI_CORE_PATH_TRANSACTIONS = UINT64_C(1) << 13,
-    QELI_CORE_PATH_REFRESH_EVENTS = UINT64_C(1) << 14
+    QELI_CORE_PATH_REFRESH_EVENTS = UINT64_C(1) << 14,
+    QELI_CORE_MANAGEMENT_EVENTS = UINT64_C(1) << 15
 };
 
 typedef struct qeli_client_event {

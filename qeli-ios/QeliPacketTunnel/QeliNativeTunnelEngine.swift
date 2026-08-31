@@ -538,6 +538,17 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     _ = await roamingController.requestUpdate(
                         reason: "same_network_nat_failure", requiredGeneration: generation,
                         reconnectOnFailure: false)
+                case QeliNativeTransport.noticeEvent:
+                    let management = try Self.decodeManagement(event, expectedType: "notice")
+                    sharedStore.appendLog("NOTICE: \(management.message)")
+                case QeliNativeTransport.kickEvent:
+                    let management = try Self.decodeManagement(event, expectedType: "kick")
+                    sharedStore.appendLog("KICK: \(management.message)")
+                    transport.stop()
+                    if !management.reconnectAllowed {
+                        throw NativeTunnelError.serverKick(management.message)
+                    }
+                    throw NativeTunnelError.transportStopped(management.message)
                 default:
                     break
                 }
@@ -627,11 +638,33 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         tasks.3?.cancel()
     }
 
+    private struct ManagementEnvelope {
+        let message: String
+        let reconnectAllowed: Bool
+    }
+
+    private static func decodeManagement(
+        _ event: QeliTransportEvent,
+        expectedType: String
+    ) throws -> ManagementEnvelope {
+        guard let data = event.payload.data(using: .utf8),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == expectedType,
+              let message = object["message"] as? String,
+              !message.isEmpty, message.utf8.count <= 512,
+              !message.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        else { throw NativeTunnelError.transportStopped("Invalid server management event.") }
+        return ManagementEnvelope(
+            message: message,
+            reconnectAllowed: object["reconnect_allowed"] as? Bool ?? true
+        )
+    }
+
     private static func isTerminalReconnectError(_ error: Error) -> Bool {
         guard let native = error as? NativeTunnelError else { return false }
         switch native {
         case .invalidNetworkPlan, .invalidServerIdentity, .serverKeyMismatch,
-             .unsupportedDNSPort:
+             .unsupportedDNSPort, .serverKick:
             return true
         case .networkSettingsTimedOut, .dnsResolutionTimedOut, .sessionUnavailable,
              .packetInjectionFailed, .transportStopped:
@@ -1613,6 +1646,7 @@ private enum NativeTunnelError: LocalizedError {
     case sessionUnavailable
     case packetInjectionFailed
     case transportStopped(String)
+    case serverKick(String)
 
     var errorDescription: String? {
         switch self {
@@ -1627,6 +1661,7 @@ private enum NativeTunnelError: LocalizedError {
         case .sessionUnavailable: return "No authenticated native tunnel session is active."
         case .packetInjectionFailed: return "iOS rejected a native downlink packet batch."
         case .transportStopped(let reason): return reason
+        case .serverKick(let reason): return reason
         }
     }
 }

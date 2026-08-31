@@ -511,6 +511,24 @@ impl ClientPlatform for NativeCoreAdapter {
     fn counters(&self) -> Arc<RuntimeCounters> {
         self.counters.clone()
     }
+
+    fn management_event(
+        &mut self,
+        event: &crate::protocol::control_v2::ManagementEvent,
+    ) -> anyhow::Result<()> {
+        let terminal = matches!(event, crate::protocol::control_v2::ManagementEvent::Kick(_));
+        let result = self.lock().publish_management(event.clone());
+        if let Err(error) = result {
+            if terminal {
+                return Err(anyhow::Error::new(error));
+            }
+            log::warn!("dropping NOTICE because the platform event queue is full: {error}");
+        }
+        if terminal {
+            self.cancel.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn run(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow::Result<()> {

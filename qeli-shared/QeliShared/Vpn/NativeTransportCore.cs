@@ -36,6 +36,8 @@ internal static unsafe class NativeTransportCore
     internal const uint EventServerIdentity = 5;
     internal const uint EventPathCommand = 6;
     internal const uint EventPathRefresh = 7;
+    internal const uint EventNotice = 8;
+    internal const uint EventKick = 9;
 
     internal const ulong PlatformRoutes = 1UL << 0;
     internal const ulong PlatformDns = 1UL << 1;
@@ -51,11 +53,12 @@ internal static unsafe class NativeTransportCore
     internal const ulong PlatformPathTransactions = 1UL << 12;
     internal const ulong PlatformPathSocketBinding = 1UL << 13;
     internal const ulong PlatformPathRefresh = 1UL << 14;
+    internal const ulong PlatformManagementEvents = 1UL << 15;
     internal const ulong PlatformRoamingPath = PlatformPathTransactions | PlatformPathSocketBinding;
     internal const ulong PlatformIpv6SystemPlan =
         PlatformIpv6Tun | PlatformIpv6Routes | PlatformIpv6Dns;
     internal const ulong DesktopBaseCapabilities = PlatformRoutes | PlatformDns |
-        PlatformKillSwitch | PlatformServerIdentity;
+        PlatformKillSwitch | PlatformServerIdentity | PlatformManagementEvents;
 
     internal const ulong CoreNativeDataPlane = 1UL << 8;
     internal const ulong CoreTunFdOwnership = 1UL << 3;
@@ -64,6 +67,7 @@ internal static unsafe class NativeTransportCore
     internal const ulong CoreWintunIo = 1UL << 11;
     internal const ulong CorePathTransactions = 1UL << 13;
     internal const ulong CorePathRefreshEvents = 1UL << 14;
+    internal const ulong CoreManagementEvents = 1UL << 15;
 
     internal const int MaxPacketBytes = 65_535;
     internal const int MaxBatchPackets = 64;
