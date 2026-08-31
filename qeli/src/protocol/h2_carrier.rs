@@ -26,6 +26,8 @@ pub const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 const BRIDGE_CAPACITY: usize = 256 * 1024;
 const H2_FRAME_MAX: usize = 16 * 1024;
 const H2_WINDOW: u32 = 2 * 1024 * 1024;
+const CARRIER_PATH: &str = "/v1/events/stream";
+const GRPC_MEDIA_TYPE: &str = "application/grpc";
 
 fn h2_error(context: &str, error: impl std::fmt::Display) -> io::Error {
     io::Error::other(format!("{context}: {error}"))
@@ -161,6 +163,52 @@ fn configure_server() -> h2::server::Builder {
     builder
 }
 
+fn carrier_rejection(request: &Request<RecvStream>) -> Option<(StatusCode, &'static str)> {
+    if request.method() != Method::POST {
+        return Some((
+            StatusCode::METHOD_NOT_ALLOWED,
+            "HTTP/2 carrier requires a streaming POST",
+        ));
+    }
+    if request.uri().path() != CARRIER_PATH {
+        return Some((
+            StatusCode::NOT_FOUND,
+            "HTTP/2 carrier path is not available",
+        ));
+    }
+    let content_type_ok = request
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            let media_type = value.split(';').next().unwrap_or_default().trim();
+            media_type.eq_ignore_ascii_case(GRPC_MEDIA_TYPE)
+                || media_type
+                    .get(..GRPC_MEDIA_TYPE.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(GRPC_MEDIA_TYPE))
+                    && media_type.as_bytes().get(GRPC_MEDIA_TYPE.len()) == Some(&b'+')
+        })
+        .unwrap_or(false);
+    if !content_type_ok {
+        return Some((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "HTTP/2 carrier requires gRPC content",
+        ));
+    }
+    let trailers = request
+        .headers()
+        .get("te")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("trailers"));
+    if !trailers {
+        return Some((
+            StatusCode::BAD_REQUEST,
+            "HTTP/2 carrier requires TE trailers",
+        ));
+    }
+    None
+}
+
 /// Establish the client side of a genuine h2 streaming exchange over an already
 /// authenticated REALITY-TLS stream.
 pub async fn connect<S>(io: S, authority: &str) -> io::Result<DuplexStream>
@@ -181,7 +229,7 @@ where
         .ready()
         .await
         .map_err(|error| h2_error("HTTP/2 client was not ready", error))?;
-    let uri = format!("https://{authority}/v1/events/stream");
+    let uri = format!("https://{authority}{CARRIER_PATH}");
     let request = Request::builder()
         .method(Method::POST)
         .uri(uri)
@@ -228,16 +276,29 @@ where
             )
         })?
         .map_err(|error| h2_error("HTTP/2 request accept failed", error))?;
-    if request.method() != Method::POST {
+    if let Some((status, message)) = carrier_rejection(&request) {
         let response = Response::builder()
-            .status(StatusCode::METHOD_NOT_ALLOWED)
+            .status(status)
+            .header("content-length", "0")
             .body(())
             .map_err(|error| h2_error("HTTP/2 rejection build failed", error))?;
-        let _ = respond.send_response(response, true);
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "HTTP/2 carrier requires a streaming POST",
-        ));
+        respond
+            .send_response(response, true)
+            .map_err(|error| h2_error("HTTP/2 rejection send failed", error))?;
+        // `send_response` only queues the frame. Keep polling the connection briefly so
+        // an authenticated but invalid request receives the deliberate HTTP status rather
+        // than an incidental reset when this function returns its local validation error.
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(Duration::from_secs(1), async {
+                while let Some(next) = connection.accept().await {
+                    if next.is_err() {
+                        break;
+                    }
+                }
+            })
+            .await;
+        });
+        return Err(io::Error::new(io::ErrorKind::InvalidData, message));
     }
 
     let response = Response::builder()
@@ -358,3 +419,6 @@ mod tests {
         assert_eq!(server.await.unwrap(), request);
     }
 }
+
+#[cfg(test)]
+mod hardening_tests;
