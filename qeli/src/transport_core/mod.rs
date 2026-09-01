@@ -2482,7 +2482,18 @@ impl ClientCore {
     /// Publish a decoded authenticated server management event. NOTICE is advisory and may
     /// be dropped under platform backpressure; KICK is terminal and replaces the oldest queued
     /// event when necessary because the generation is cancelled immediately afterwards.
-    #[cfg(any(test, feature = "transport-core-ffi"))]
+    #[cfg(any(
+        test,
+        all(
+            feature = "transport-core-ffi",
+            any(
+                target_os = "android",
+                target_os = "windows",
+                target_os = "macos",
+                target_os = "ios"
+            )
+        )
+    ))]
     pub(crate) fn publish_management(
         &mut self,
         event: crate::protocol::control_v2::ManagementEvent,
