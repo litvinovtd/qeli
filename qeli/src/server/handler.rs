@@ -2684,12 +2684,18 @@ async fn run_stream<R, W>(
             .and_then(|mux| mux.deadline())
             .map(tokio::time::Instant::from_std)
             .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
+        #[cfg(feature = "experimental-roaming")]
+        let terminal_management = terminal_management_rx.recv();
+        #[cfg(not(feature = "experimental-roaming"))]
+        let terminal_management = std::future::pending::<()>();
+        tokio::pin!(terminal_management);
         tokio::select! {
             biased;
 
-            #[cfg(feature = "experimental-roaming")]
-            terminal = terminal_management_rx.recv() => {
-                let Some(terminal) = terminal else { break };
+            _terminal_event = &mut terminal_management => {
+                #[cfg(feature = "experimental-roaming")]
+                {
+                let Some(terminal) = _terminal_event else { break };
                 let mut delivered = true;
                 'terminal: for _ in 0..terminal.repetitions {
                     for frame in &terminal.frames {
@@ -2720,6 +2726,9 @@ async fn run_stream<R, W>(
                 if !delivered {
                     break 'writer;
                 }
+                }
+                #[cfg(not(feature = "experimental-roaming"))]
+                unreachable!("disabled terminal-management future is pending");
             }
 
             _ = kick_rx.recv() => { break; }

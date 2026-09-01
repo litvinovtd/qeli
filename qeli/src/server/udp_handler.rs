@@ -2254,7 +2254,10 @@ enum UdpRoamingIngress {
 
 #[cfg(feature = "experimental-roaming")]
 enum UdpRoamingDispatch {
-    Control(UdpRoamingControlIngress),
+    Control {
+        ingress: UdpRoamingControlIngress,
+        path: UdpRoamingIngressPath,
+    },
     Uplink(UdpPreparedUplink),
 }
 
@@ -2702,7 +2705,10 @@ async fn handle_udp_roaming_ingress(
                 // Candidate liveness is authenticated only after PacketCodec accepted the
                 // record and advanced the one session-wide replay window.
                 client.last_activity = std::time::Instant::now();
-                UdpRoamingDispatch::Control(control)
+                UdpRoamingDispatch::Control {
+                    ingress: control,
+                    path: ingress_path,
+                }
             }
             Ok(UdpRoamingIngress::Data(plaintext)) => {
                 if ingress_path == UdpRoamingIngressPath::Candidate {
@@ -2750,8 +2756,8 @@ async fn handle_udp_roaming_ingress(
             }
         }
     };
-    let control = match action {
-        UdpRoamingDispatch::Control(control) => control,
+    let (control, ingress_path) = match action {
+        UdpRoamingDispatch::Control { ingress, path } => (ingress, path),
         UdpRoamingDispatch::Uplink(prepared) => {
             forward_udp_roaming_uplink(
                 prepared,
@@ -4985,11 +4991,17 @@ async fn handle_udp_auth(
                 .unwrap_or_else(|| {
                     tokio::time::Instant::now() + std::time::Duration::from_secs(86_400)
                 });
+            #[cfg(feature = "experimental-roaming")]
+            let terminal_management = terminal_management_rx.recv();
+            #[cfg(not(feature = "experimental-roaming"))]
+            let terminal_management = std::future::pending::<()>();
+            tokio::pin!(terminal_management);
             let (payloads, priority_control) = tokio::select! {
                 biased;
-                #[cfg(feature = "experimental-roaming")]
-                terminal = terminal_management_rx.recv() => {
-                    let Some(terminal) = terminal else { break 'writer };
+                _terminal_event = &mut terminal_management => {
+                    #[cfg(feature = "experimental-roaming")]
+                    {
+                    let Some(terminal) = _terminal_event else { break 'writer };
                     let mut delivered = true;
                     'terminal: for _ in 0..terminal.repetitions {
                         for frame in &terminal.frames {
@@ -5039,6 +5051,9 @@ async fn handle_udp_auth(
                         break 'writer;
                     }
                     continue;
+                    }
+                    #[cfg(not(feature = "experimental-roaming"))]
+                    unreachable!("disabled terminal-management future is pending");
                 }
                 _ = kick_rx.recv() => {
                     let peer = writer_egress.snapshot().peer;
@@ -5489,7 +5504,8 @@ mod tests {
     use super::{
         classify_udp_roaming_uplink_probe, decrypt_udp_roaming_record, encrypt_udp_roaming_control,
         UdpActiveEgress, UdpEgressCommit, UdpEgressCommitError, UdpEgressPublishError,
-        UdpRoamingControlError, UdpRoamingIngressPath, UdpRoamingOwnerIndex, UdpRoamingPmtuAction,
+        UdpRoamingControlError, UdpRoamingControlIngress, UdpRoamingIngressPath,
+        UdpRoamingOwnerIndex, UdpRoamingPmtuAction,
     };
     use crate::protocol::udp_frag;
     use std::time::Duration;
@@ -5578,8 +5594,15 @@ mod tests {
         let decoded = decrypt_udp_roaming_record(&mut receiver, &mut record)
             .unwrap()
             .expect("PATH_INIT is control");
-        assert_eq!(decoded.message_id, 17);
-        assert!(decoded.message == expected);
+        let UdpRoamingControlIngress::Path {
+            message_id,
+            message,
+        } = decoded
+        else {
+            panic!("PATH_INIT decoded as management ACK");
+        };
+        assert_eq!(message_id, 17);
+        assert!(message == expected);
 
         let mut response = encrypted_path_control(
             &mut sender,

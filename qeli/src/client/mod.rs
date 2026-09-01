@@ -3183,18 +3183,22 @@ mod tcp_resume_client_tests {
         let (old_one, old_one_rx) = tokio::sync::mpsc::channel(1);
         let (old_two, old_two_rx) = tokio::sync::mpsc::channel(1);
         let (new_zero, _new_zero_rx) = tokio::sync::mpsc::channel(1);
+        let (terminal_sender, _terminal_receiver) = tokio::sync::mpsc::channel(1);
         let mut outputs = vec![
             ClientStreamSender {
                 logical_slot_id: 0,
                 sender: old_zero,
+                terminal_sender: terminal_sender.clone(),
             },
             ClientStreamSender {
                 logical_slot_id: 1,
                 sender: old_one,
+                terminal_sender: terminal_sender.clone(),
             },
             ClientStreamSender {
                 logical_slot_id: 2,
                 sender: old_two,
+                terminal_sender: terminal_sender.clone(),
             },
         ];
         let retired = publish_tcp_path_handover(
@@ -3202,6 +3206,7 @@ mod tcp_resume_client_tests {
             ClientStreamSender {
                 logical_slot_id: 0,
                 sender: new_zero,
+                terminal_sender,
             },
         );
         assert_eq!(retired, 3);
@@ -6288,6 +6293,10 @@ fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
 /// caller converts it into a complete outer UDP-payload budget; only a legacy peer without
 /// DATA_FRAG also uses it to lower an IPv4 TUN MTU. `None` keeps the pushed/effective inner
 /// MTU and selects the conservative DATA_FRAG budget (or legacy IP-fragmentation fallback).
+// The probe owns the session's codecs, framing counter, and management-control state while it
+// is the sole UDP receiver during startup. Keeping those dependencies explicit prevents hidden
+// shared state and is safer than wrapping the mutable references solely to satisfy this lint.
+#[allow(clippy::too_many_arguments)]
 #[cfg(any(
     target_os = "linux",
     target_os = "android",
@@ -6847,6 +6856,7 @@ mod mtu_ladder_tests {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[cfg(not(any(
     target_os = "linux",
     target_os = "android",
