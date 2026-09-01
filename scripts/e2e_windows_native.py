@@ -58,8 +58,10 @@ tun.address = {NETWORK}.1
 tun.mtu = 1400
 pool.cidr = {NETWORK}.0/24
 pool.exclude = {NETWORK}.1
-routing.forward_private = true
-routing.nat.enabled = true
+routing.forward_private = false
+# This is a handshake-only gate: no client payload is routed through the lab host.
+# Forwarding or NAT here makes the ABI check depend on unrelated host firewall state.
+routing.nat.enabled = false
 dns.enabled = false
 obf.mode = fake-tls
 obf.tls.server_name = www.microsoft.com
