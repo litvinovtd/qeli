@@ -18,6 +18,10 @@ internal object AndroidRoamingPolicy {
     const val PLATFORM_PATH_REFRESH = 1L shl 14
     const val PLATFORM_ROAMING_PATH =
         PLATFORM_PATH_TRANSACTIONS or PLATFORM_PATH_SOCKET_BINDING
+    private const val MAKE_BEFORE_BREAK_SETTLE_MS = 350L
+
+    fun pathPreparationDelayMs(carrierWasLost: Boolean): Long =
+        if (carrierWasLost) 0L else MAKE_BEFORE_BREAK_SETTLE_MS
 
     fun platformCapabilities(
         pathAllowedByConfig: Boolean,

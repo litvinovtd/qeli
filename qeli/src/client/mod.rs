@@ -5199,8 +5199,11 @@ where
                     )
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP handover JOIN timed out"))??;
-                    commit_phase = TcpHandoverCommitPhase::CommitIssued;
                     let commit = path_controller.commit_candidate_path(&candidate)?;
+                    // The candidate can be superseded between JOIN proof and this call. An
+                    // immediate stale/error result means COMMIT_PATH never crossed the ABI and
+                    // remains safely reversible; only an accepted command creates ambiguity.
+                    commit_phase = TcpHandoverCommitPhase::CommitIssued;
                     match tokio::time::timeout(PATH_ACK_TIMEOUT, commit).await {
                         Ok(Ok(())) => {
                             commit_phase = TcpHandoverCommitPhase::PlatformCommitted;
@@ -7374,6 +7377,14 @@ async fn connect_udp_candidates(
         failures.join("; ")
     )
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClientUdpPayloadSendOutcome {
+    Sent,
+    EncodeFailed,
+    CarrierFailed,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn send_client_udp_payload(
     payload: &[u8],
@@ -7393,7 +7404,7 @@ async fn send_client_udp_payload(
     cover_record: &mut Vec<u8>,
     quic_record: &mut Vec<u8>,
     padding: &mut Vec<u8>,
-) -> bool {
+) -> ClientUdpPayloadSendOutcome {
     let mut obf = Obfuscator::new();
     let normalization_padding = if obfuscation.traffic_normalization.enabled
         && !obfuscation.traffic_normalization.round_sizes.is_empty()
@@ -7429,7 +7440,7 @@ async fn send_client_udp_payload(
         .encrypt_packet_into(payload, padding, wire_record)
         .is_err()
     {
-        return false;
+        return ClientUdpPayloadSendOutcome::EncodeFailed;
     }
 
     let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
@@ -7476,7 +7487,7 @@ async fn send_client_udp_payload(
             Ok(fragments) => fragments,
             Err(error) => {
                 log::warn!("UDP data fragmentation failed: {error}");
-                return false;
+                return ClientUdpPayloadSendOutcome::EncodeFailed;
             }
         };
         for fragment in fragments {
@@ -7488,7 +7499,7 @@ async fn send_client_udp_payload(
             );
             if let Err(error) = socket.send(send_data).await {
                 log::warn!("UDP carrier fragment send failed: {error}");
-                return false;
+                return ClientUdpPayloadSendOutcome::CarrierFailed;
             }
         }
     } else {
@@ -7500,10 +7511,10 @@ async fn send_client_udp_payload(
         );
         if let Err(error) = socket.send(send_data).await {
             log::warn!("UDP carrier send failed: {error}");
-            return false;
+            return ClientUdpPayloadSendOutcome::CarrierFailed;
         }
     }
-    true
+    ClientUdpPayloadSendOutcome::Sent
 }
 fn prepare_client_udp_control_payloads(
     frame: &[u8],
@@ -7576,7 +7587,7 @@ async fn send_client_udp_control_frame(
 ) -> Result<bool, crate::protocol::recordizer::RecordizerError> {
     let payloads = prepare_client_udp_control_payloads(frame, recordizer)?;
     for payload in payloads {
-        if !send_client_udp_payload(
+        if send_client_udp_payload(
             &payload,
             client_tx,
             obfuscation,
@@ -7596,6 +7607,7 @@ async fn send_client_udp_control_frame(
             padding,
         )
         .await
+            != ClientUdpPayloadSendOutcome::Sent
         {
             return Ok(false);
         }
@@ -8003,6 +8015,49 @@ fn spawn_client_udp_receive_pump(
             }
         }
     })
+}
+
+#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+fn begin_udp_carrier_failure_recovery(
+    recovery: &mut crate::transport_core::udp_roaming_client::UdpClientNatRecoveryPolicy,
+    roaming: &crate::transport_core::udp_roaming_client::UdpClientRoaming,
+    path_controller: &dyn PathController,
+    candidate_in_flight: bool,
+    detail: &str,
+) -> bool {
+    let active_epoch = roaming.active_epoch();
+    match recovery.on_carrier_failure(
+        active_epoch,
+        candidate_in_flight,
+        path_controller.can_request_same_network_nat_rebind(),
+        std::time::Instant::now(),
+    ) {
+        crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::WaitForPath => {
+            log::warn!(
+                "UDP active carrier failed ({detail}); preserving generation for a replacement path at epoch {active_epoch}"
+            );
+            true
+        }
+        crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::RequestSameNetworkPath => {
+            match path_controller.request_same_network_nat_rebind() {
+                Ok(()) => log::warn!(
+                    "UDP active carrier failed ({detail}); requested an immediate replacement path at epoch {active_epoch}"
+                ),
+                Err(error) => log::warn!(
+                    "UDP active carrier failed ({detail}); path refresh request failed ({error}), waiting for the platform observer at epoch {active_epoch}"
+                ),
+            }
+            // A platform network callback or Linux sampler may still deliver a candidate even
+            // when the explicit refresh event failed. The policy owns the bounded timeout.
+            true
+        }
+        crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::Reconnect => {
+            log::warn!(
+                "UDP replacement-path grace expired after carrier failure ({detail}); reconnecting"
+            );
+            false
+        }
+    }
 }
 
 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
@@ -9512,7 +9567,7 @@ pub(crate) async fn run_udp_tunnel(
                     .as_mut()
                     .and_then(|mux| mux.flush_due(std::time::Instant::now()))
                 {
-                    if !send_client_udp_payload(
+                    let send_outcome = send_client_udp_payload(
                         &payload,
                         &mut client_tx,
                         &eff_obf,
@@ -9531,9 +9586,33 @@ pub(crate) async fn run_udp_tunnel(
                         &mut quic_record,
                         &mut padding,
                     )
-                    .await
-                    {
-                        break 'udp;
+                    .await;
+                    match send_outcome {
+                        ClientUdpPayloadSendOutcome::Sent => {}
+                        ClientUdpPayloadSendOutcome::EncodeFailed => break 'udp,
+                        ClientUdpPayloadSendOutcome::CarrierFailed => {
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                            if udp_handover_enabled {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if begin_udp_carrier_failure_recovery(
+                                    &mut same_network_nat_recovery,
+                                    udp_roaming
+                                        .as_ref()
+                                        .expect("enabled UDP handover retains roaming state"),
+                                    path_controller,
+                                    candidate_in_flight,
+                                    "recordizer flush send",
+                                ) {
+                                    continue 'udp;
+                                }
+                            }
+                            break 'udp;
+                        }
                     }
                     last_activity = tokio::time::Instant::now();
                     last_tx_inst = last_activity;
@@ -9615,6 +9694,23 @@ pub(crate) async fn run_udp_tunnel(
                     log::warn!("UDP: TUN reader stopped — reconnecting");
                     break;
                 };
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                if udp_handover_enabled {
+                    let active_epoch = udp_roaming
+                        .as_ref()
+                        .expect("enabled UDP handover retains roaming state")
+                        .active_epoch();
+                    let now = std::time::Instant::now();
+                    if same_network_nat_recovery.recovery_pending(active_epoch, now) {
+                        // The old carrier is known dead. Bound memory/CPU by dropping current
+                        // uplink while PATH_INIT/COMMIT establishes the replacement socket.
+                        continue;
+                    }
+                    if same_network_nat_recovery.recovery_expired(active_epoch, now) {
+                        log::warn!("UDP replacement-path grace expired; reconnecting");
+                        break;
+                    }
+                }
                 if !is_supported_inner_packet(ip_packet.as_ref(), negotiated_family_mode) {
                     unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
                     udp_buffer.note_internal_drop(InternalDrop::Unsupported);
@@ -9663,7 +9759,7 @@ pub(crate) async fn run_udp_tunnel(
                     };
                     drop(ip_packet);
                     for payload in payloads {
-                        if !send_client_udp_payload(
+                        let send_outcome = send_client_udp_payload(
                             &payload,
                             &mut client_tx,
                             &eff_obf,
@@ -9682,9 +9778,33 @@ pub(crate) async fn run_udp_tunnel(
                             &mut quic_record,
                             &mut padding,
                         )
-                        .await
-                        {
-                            break 'udp;
+                        .await;
+                        match send_outcome {
+                            ClientUdpPayloadSendOutcome::Sent => {}
+                            ClientUdpPayloadSendOutcome::EncodeFailed => break 'udp,
+                            ClientUdpPayloadSendOutcome::CarrierFailed => {
+                                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                                if udp_handover_enabled {
+                                    let path_controller = path_controller
+                                        .as_deref()
+                                        .expect("enabled UDP handover retains path controller");
+                                    let candidate_in_flight = live_udp_candidate.is_some()
+                                        || candidate_connect_task.is_some()
+                                        || path_controller.prepared_candidate().is_some();
+                                    if begin_udp_carrier_failure_recovery(
+                                        &mut same_network_nat_recovery,
+                                        udp_roaming
+                                            .as_ref()
+                                            .expect("enabled UDP handover retains roaming state"),
+                                        path_controller,
+                                        candidate_in_flight,
+                                        "recordizer data send",
+                                    ) {
+                                        continue 'udp;
+                                    }
+                                }
+                                break 'udp;
+                            }
                         }
                     }
                     continue;
@@ -9812,6 +9932,26 @@ pub(crate) async fn run_udp_tunnel(
                         }
                         if let Some(error) = send_failed {
                             log::warn!("UDP carrier fragment send failed: {error}");
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                            if udp_handover_enabled {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if begin_udp_carrier_failure_recovery(
+                                    &mut same_network_nat_recovery,
+                                    udp_roaming
+                                        .as_ref()
+                                        .expect("enabled UDP handover retains roaming state"),
+                                    path_controller,
+                                    candidate_in_flight,
+                                    "fragment send",
+                                ) {
+                                    continue 'udp;
+                                }
+                            }
                             break;
                         }
                     } else {
@@ -9824,6 +9964,26 @@ pub(crate) async fn run_udp_tunnel(
                             );
                         if let Err(error) = socket.send(send_data).await {
                             log::warn!("UDP carrier send failed: {error}");
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                            if udp_handover_enabled {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if begin_udp_carrier_failure_recovery(
+                                    &mut same_network_nat_recovery,
+                                    udp_roaming
+                                        .as_ref()
+                                        .expect("enabled UDP handover retains roaming state"),
+                                    path_controller,
+                                    candidate_in_flight,
+                                    "data send",
+                                ) {
+                                    continue 'udp;
+                                }
+                            }
                             break;
                         }
                     }
@@ -10705,6 +10865,19 @@ pub(crate) async fn run_udp_tunnel(
                     DELIBERATE_CYCLE.store(true, std::sync::atomic::Ordering::Release);
                     break;
                 }
+                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                if udp_handover_enabled {
+                    let active_epoch = udp_roaming
+                        .as_ref()
+                        .expect("enabled UDP handover retains roaming state")
+                        .active_epoch();
+                    if same_network_nat_recovery
+                        .recovery_expired(active_epoch, std::time::Instant::now())
+                    {
+                        log::warn!("UDP replacement-path grace expired; reconnecting");
+                        break;
+                    }
+                }
                 // RX-liveness is valid only when the peer promises authenticated heartbeat
                 // or shaping cover. Ordinary UDP uplink is allowed to be one-way and has no
                 // transport ACK, so it must never be treated as proof that downlink is due.
@@ -10729,7 +10902,7 @@ pub(crate) async fn run_udp_tunnel(
                                 std::time::Instant::now(),
                             );
                             match decision {
-                                crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::WaitForCandidate => {
+                                crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::WaitForPath => {
                                     continue 'udp;
                                 }
                                 crate::transport_core::udp_roaming_client::UdpClientNatRecoveryDecision::RequestSameNetworkPath => {

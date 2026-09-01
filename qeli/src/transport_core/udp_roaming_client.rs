@@ -26,8 +26,9 @@ pub const UDP_CLIENT_NAT_RECOVERY_GRACE: Duration = Duration::from_secs(15);
 /// Transport-neutral action selected when authenticated receive liveness expires.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdpClientNatRecoveryDecision {
-    /// A platform/transport candidate already exists; keep the actor alive for the bounded grace.
-    WaitForCandidate,
+    /// Keep the actor alive while an existing candidate or a delayed platform observation can
+    /// provide a replacement path. This also covers break-before-make carrier loss.
+    WaitForPath,
     /// Ask the platform observer for a fresh snapshot of the unchanged physical path.
     RequestSameNetworkPath,
     /// No recovery is available or its single bounded attempt expired.
@@ -59,20 +60,61 @@ impl UdpClientNatRecoveryPolicy {
     ) -> UdpClientNatRecoveryDecision {
         if self.attempted_epoch == Some(active_epoch) {
             return if self.grace_until.is_some_and(|deadline| now < deadline) {
-                UdpClientNatRecoveryDecision::WaitForCandidate
+                UdpClientNatRecoveryDecision::WaitForPath
             } else {
                 UdpClientNatRecoveryDecision::Reconnect
             };
         }
         if candidate_in_flight {
             self.begin_attempt(active_epoch, now);
-            return UdpClientNatRecoveryDecision::WaitForCandidate;
+            return UdpClientNatRecoveryDecision::WaitForPath;
         }
         if same_network_request_available {
             self.begin_attempt(active_epoch, now);
             return UdpClientNatRecoveryDecision::RequestSameNetworkPath;
         }
         UdpClientNatRecoveryDecision::Reconnect
+    }
+
+    /// A connected UDP socket can fail as soon as its physical interface disappears, before an
+    /// OS observer has delivered the replacement path. Unlike receive silence, this is direct
+    /// evidence that the active carrier cannot currently send. Give every negotiated roaming
+    /// adapter the same bounded break-before-make window even when its replacement callback has
+    /// not arrived yet; request an immediate snapshot when the adapter supports it.
+    pub fn on_carrier_failure(
+        &mut self,
+        active_epoch: u64,
+        candidate_in_flight: bool,
+        same_network_request_available: bool,
+        now: Instant,
+    ) -> UdpClientNatRecoveryDecision {
+        if self.attempted_epoch == Some(active_epoch) {
+            return if self.grace_until.is_some_and(|deadline| now < deadline) {
+                UdpClientNatRecoveryDecision::WaitForPath
+            } else {
+                UdpClientNatRecoveryDecision::Reconnect
+            };
+        }
+        self.begin_attempt(active_epoch, now);
+        if candidate_in_flight {
+            UdpClientNatRecoveryDecision::WaitForPath
+        } else if same_network_request_available {
+            UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        } else {
+            // Linux route sampling and platform callbacks can observe a replacement without a
+            // PATH_REFRESH capability. Do not tear down the generation during that callback gap.
+            UdpClientNatRecoveryDecision::WaitForPath
+        }
+    }
+
+    pub fn recovery_pending(&self, active_epoch: u64, now: Instant) -> bool {
+        self.attempted_epoch == Some(active_epoch)
+            && self.grace_until.is_some_and(|deadline| now < deadline)
+    }
+
+    pub fn recovery_expired(&self, active_epoch: u64, now: Instant) -> bool {
+        self.attempted_epoch == Some(active_epoch)
+            && self.grace_until.is_none_or(|deadline| now >= deadline)
     }
 
     /// An authenticated PATH_COMMIT establishes a fresh receive baseline and a new epoch. A later
@@ -640,7 +682,7 @@ mod tests {
                 true,
                 now + UDP_CLIENT_NAT_RECOVERY_GRACE - Duration::from_millis(1),
             ),
-            UdpClientNatRecoveryDecision::WaitForCandidate
+            UdpClientNatRecoveryDecision::WaitForPath
         );
         assert_eq!(
             policy.on_receive_timeout(0, false, true, now + UDP_CLIENT_NAT_RECOVERY_GRACE,),
@@ -654,7 +696,7 @@ mod tests {
         let mut policy = UdpClientNatRecoveryPolicy::default();
         assert_eq!(
             policy.on_receive_timeout(4, true, false, now),
-            UdpClientNatRecoveryDecision::WaitForCandidate
+            UdpClientNatRecoveryDecision::WaitForPath
         );
         assert_eq!(
             policy.on_receive_timeout(4, false, false, now + UDP_CLIENT_NAT_RECOVERY_GRACE),
@@ -680,6 +722,45 @@ mod tests {
         assert_eq!(
             policy.on_receive_timeout(9, false, true, now),
             UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        );
+    }
+
+    #[test]
+    fn carrier_failure_waits_for_a_late_platform_observation() {
+        let now = Instant::now();
+        let mut policy = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            policy.on_carrier_failure(12, false, false, now),
+            UdpClientNatRecoveryDecision::WaitForPath
+        );
+        assert!(policy.recovery_pending(
+            12,
+            now + UDP_CLIENT_NAT_RECOVERY_GRACE - Duration::from_millis(1)
+        ));
+        assert!(policy.recovery_expired(12, now + UDP_CLIENT_NAT_RECOVERY_GRACE));
+        assert_eq!(
+            policy.on_carrier_failure(12, true, true, now + UDP_CLIENT_NAT_RECOVERY_GRACE),
+            UdpClientNatRecoveryDecision::Reconnect
+        );
+    }
+
+    #[test]
+    fn carrier_failure_requests_a_snapshot_and_commit_rearms_it() {
+        let now = Instant::now();
+        let mut policy = UdpClientNatRecoveryPolicy::default();
+        assert_eq!(
+            policy.on_carrier_failure(21, false, true, now),
+            UdpClientNatRecoveryDecision::RequestSameNetworkPath
+        );
+        assert_eq!(
+            policy.on_carrier_failure(21, true, true, now + Duration::from_secs(1)),
+            UdpClientNatRecoveryDecision::WaitForPath
+        );
+        policy.on_authenticated_commit();
+        assert!(!policy.recovery_pending(22, now));
+        assert_eq!(
+            policy.on_carrier_failure(22, true, true, now),
+            UdpClientNatRecoveryDecision::WaitForPath
         );
     }
 

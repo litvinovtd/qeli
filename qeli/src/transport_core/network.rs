@@ -1684,11 +1684,13 @@ mod tests {
         let mut plan = build_network_plan(&config, 7, &network).unwrap();
         plan.max_streams = 4;
         plan.adaptive = true;
-        let mut pushed = PushedObf::default();
-        pushed.recordizer = Some(crate::config::RecordizerConfig {
-            policy: "prefer".into(),
+        let pushed = PushedObf {
+            recordizer: Some(crate::config::RecordizerConfig {
+                policy: "prefer".into(),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
         let lines = server_push_log_lines(
             &config,
             &plan,

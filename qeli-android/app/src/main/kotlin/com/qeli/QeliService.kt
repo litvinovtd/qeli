@@ -1893,7 +1893,10 @@ class VpnServiceImpl : VpnService() {
                         enteringTrustedWifi = enteringTrustedWifi,
                     ) == AndroidRoamingPolicy.AvailableNetworkAction.ROAM
                 ) {
-                    switchedNetwork("Network changed")
+                    switchedNetwork(
+                        "Network changed",
+                        carrierWasLost = replacementAfterLoss,
+                    )
                 }
                 reevaluateTrustedWifi(caps)
                 return
@@ -1911,7 +1914,10 @@ class VpnServiceImpl : VpnService() {
                         enteringTrustedWifi = enteringTrustedWifi,
                     ) == AndroidRoamingPolicy.AvailableNetworkAction.ROAM
                 ) {
-                    switchedNetwork("Network changed")
+                    switchedNetwork(
+                        "Network changed",
+                        carrierWasLost = replacementAfterLoss,
+                    )
                 }
             }
             if (network == currentNetwork) reevaluateTrustedWifi(caps)
@@ -1963,7 +1969,9 @@ class VpnServiceImpl : VpnService() {
                 val replacementCaps = cm.getNetworkCapabilities(replacement)
                 val enteringTrustedWifi = replacementCaps?.let(::classifyNetwork) ==
                     TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
-                if (!enteringTrustedWifi) switchedNetwork("Network lost")
+                if (!enteringTrustedWifi) {
+                    switchedNetwork("Network lost", carrierWasLost = true)
+                }
                 replacementCaps?.let(::reevaluateTrustedWifi)
             } else {
                 val waitScope = coroutineScope
@@ -2002,7 +2010,10 @@ class VpnServiceImpl : VpnService() {
                                 val enteringTrustedWifi = caps?.let(::classifyNetwork) ==
                                     TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
                                 if (!enteringTrustedWifi) {
-                                    switchedNetwork("Replacement network discovered")
+                                    switchedNetwork(
+                                        "Replacement network discovered",
+                                        carrierWasLost = true,
+                                    )
                                 }
                                 caps?.let(::reevaluateTrustedWifi)
                                 return@launch
@@ -2368,9 +2379,18 @@ class VpnServiceImpl : VpnService() {
         return kotlin.random.Random.nextLong(minimum, scheduledMs + 1L)
     }
 
-    private fun switchedNetwork(why: String, wake: Boolean = false) {
+    private fun switchedNetwork(
+        why: String,
+        wake: Boolean = false,
+        carrierWasLost: Boolean = false,
+    ) {
         if (liveStatus != STATUS_CONNECTED) return
-        if (scheduleRoamingUpdate(why, if (wake) "wake" else "network_changed")) return
+        if (scheduleRoamingUpdate(
+                why = why,
+                reason = if (wake) "wake" else "network_changed",
+                settleDelayMs = AndroidRoamingPolicy.pathPreparationDelayMs(carrierWasLost),
+            )
+        ) return
         broadcastLog("$why — reconnecting on the current network")
         forceReconnect()
     }
@@ -2380,6 +2400,7 @@ class VpnServiceImpl : VpnService() {
         reason: String,
         expectedGeneration: Long? = null,
         reconnectOnFailure: Boolean = true,
+        settleDelayMs: Long = AndroidRoamingPolicy.pathPreparationDelayMs(false),
     ): Boolean {
         val core = transportCore ?: return false
         val config = activeConfig ?: return false
@@ -2394,7 +2415,7 @@ class VpnServiceImpl : VpnService() {
         roamingUpdateJob?.cancel()
         roamingUpdateJob = scope.launch(Dispatchers.IO) {
             try {
-                delay(350)
+                if (settleDelayMs > 0L) delay(settleDelayMs)
                 submitRoamingPath(core, config, network, generation, reason)
             } catch (_: kotlinx.coroutines.CancellationException) {
                 return@launch

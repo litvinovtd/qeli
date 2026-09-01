@@ -128,4 +128,10 @@ class AndroidRoamingPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun breakBeforeMakeReplacementSkipsTheOrdinarySettleDelay() {
+        assertEquals(0L, AndroidRoamingPolicy.pathPreparationDelayMs(carrierWasLost = true))
+        assertEquals(350L, AndroidRoamingPolicy.pathPreparationDelayMs(carrierWasLost = false))
+    }
 }

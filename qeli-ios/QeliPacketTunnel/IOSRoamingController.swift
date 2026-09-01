@@ -396,6 +396,7 @@ actor IOSRoamingController {
         }
 
         // A usable path, even the same Wi-Fi returning, resolves the break-before-make gap.
+        let replacementAfterLoss = waitingForReplacement
         waitingForReplacement = false
         pendingUpdate?.cancel()
         pendingUpdate = nil
@@ -408,7 +409,11 @@ actor IOSRoamingController {
         observationRevision &+= 1
         let revision = observationRevision
         pendingUpdate = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
+            if !replacementAfterLoss {
+                // Keep debounce for make-before-break callback bursts. Once the old carrier was
+                // explicitly lost, delaying only widens the interval before PATH_INIT.
+                do { try await Task.sleep(nanoseconds: 350_000_000) } catch { return }
+            }
             guard let self else { return }
             _ = await self.submit(
                 path: path, reason: "default_route_changed", requiredGeneration: nil,
