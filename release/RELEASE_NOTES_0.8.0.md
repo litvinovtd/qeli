@@ -201,7 +201,7 @@ For all configuration fields see the [configuration reference](../docs/eng/manua
 ### Release verification
 
 The 2026-09-01 candidate was rebuilt after the break-before-make fix in Rust/native source commit
-`f2dbe7fe`. It passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
+`adba1826`. It passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
 Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
 and macOS universal2 and matched across independent A/B builds. The signed Android APK, both
 Windows executables, the ad-hoc signed universal macOS bundle, four OpenWrt clients and two
@@ -405,7 +405,7 @@ carrier больше не нужен, shaping работает с настоящ
 ### Проверка релиза
 
 Кандидат от 2026-09-01 полностью пересобран после исправления break-before-make в commit исходников
-Rust/native `f2dbe7fe`. Он прошёл release gates Rust workspace, CLI/configuration suites, dependency
+Rust/native `adba1826`. Он прошёл release gates Rust workspace, CLI/configuration suites, dependency
 policy, jemalloc и portable Linux/DEB. Native cores пересобраны для Android arm64-v8a/x86_64,
 Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. После этого заново собраны
 подписанный Android APK, оба Windows EXE, ad-hoc подписанный universal macOS bundle, четыре клиента
@@ -428,19 +428,19 @@ OpenWrt и два клиента Keenetic. DEB содержит в точнос�
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.8.0.apk` | 9.8 MB | `c43f4831d3489dc7` |
+| `qeli-android-0.8.0.apk` | 9.8 MB | `c95f54ac71c61c0f` |
 | `qeli-linux-amd64` | 12.6 MB | `1c94e93bf5ecb377` |
-| `qeli_0.8.0_amd64.deb` | 4.0 MB | `a40f77a3f335d5b2` |
-| `Qeli-macOS-universal.zip` | 57.9 MB | `51ba8ac13ea5811d` |
-| `QeliWin-net-required.exe` | 8.0 MB | `53e3398101368ad4` |
-| `QeliWin-standalone.exe` | 72.7 MB | `28480f6f3d13f401` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `e905e1b16315a79a` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `40b0962a4bb369e3` |
+| `QeliWin-net-required.exe` | 8.0 MB | `ebe82749c04491db` |
+| `QeliWin-standalone.exe` | 72.7 MB | `9df91d4a77bdae18` |
 | `qeli-client-keenetic-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
 | `qeli-client-keenetic-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
 | `qeli-client-openwrt-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
 | `qeli-client-openwrt-armv7` | 4.2 MB | `74a8e76a38d717fd` |
 | `qeli-client-openwrt-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
 | `qeli-client-openwrt-x86_64` | 4.7 MB | `499ffbcb55324c1b` |
-| `qeli-openwrt-files.tar.gz` | 12.7 KB | `be63fc06eb73c91f` |
+| `qeli-openwrt-files.tar.gz` | 12.7 KB | `5f9e271efc270455` |
 | `install-keenetic.sh` | 2.3 KB | `fa12354977d6a81e` |
 | `Wintun-LICENSE.txt` | 5.3 KB | `9aaf948856ce8845` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
