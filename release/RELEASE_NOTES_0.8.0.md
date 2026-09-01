@@ -71,6 +71,12 @@ and can move to a new network path without being equated with one TCP connection
   terminated and recovered by a clean reconnect rather than left as a traffic black hole.
 - UDP migration uses authenticated epochs and a bounded pre-commit queue. It accepts NAT rebinding
   and reordered traffic while rejecting stale paths and unbounded buffering.
+- Break-before-make carrier loss is now covered as well: when an interface disappears before the
+  platform reports its replacement, the UDP session keeps its authenticated generation for one
+  bounded 15-second recovery window, requests an immediate path refresh where supported and drops
+  uplink packets instead of building an unbounded queue. A valid candidate is committed into the
+  existing session; expiry falls back to a clean reconnect. TCP also distinguishes a rejected
+  pre-commit request from an actually issued commit, preserving rollback-safe recovery.
 - Android and iOS feed physical-network changes into the same generation state machine used by the
   desktop platforms. If a platform or native core cannot prove that a path switch succeeded, qeli
   falls back to reconnect instead of reporting a migration that did not happen.
@@ -194,8 +200,9 @@ For all configuration fields see the [configuration reference](../docs/eng/manua
 
 ### Release verification
 
-The 2026-09-01 candidate passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc
-and portable Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
+The 2026-09-01 candidate was rebuilt after the break-before-make fix in Rust/native source commit
+`f2dbe7fe`. It passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
+Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
 and macOS universal2 and matched across independent A/B builds. The signed Android APK, both
 Windows executables, the ad-hoc signed universal macOS bundle, four OpenWrt clients and two
 Keenetic clients were then rebuilt from those inputs. The DEB contains the exact standalone Linux
@@ -265,6 +272,12 @@ IPv6 больше не рассматривается как необязате�
 - Миграция UDP использует аутентифицированные epoch и ограниченную очередь до commit. Она корректно
   обрабатывает смену NAT mapping и переупорядочивание трафика, отклоняя устаревшие пути и не допуская
   неограниченного накопления данных.
+- Учтена и потеря carrier по схеме break-before-make: если интерфейс исчез раньше, чем платформа
+  сообщила замену, UDP-сессия сохраняет аутентифицированное поколение на одно ограниченное окно
+  восстановления в 15 секунд, запрашивает немедленное обновление пути там, где это поддерживается,
+  и отбрасывает исходящие пакеты вместо накопления неограниченной очереди. Валидный кандидат
+  фиксируется в прежней сессии, а по истечении окна выполняется чистое переподключение. TCP теперь
+  также отличает отклонённый запрос до commit от действительно отправленного commit.
 - Android и iOS передают смену физической сети в ту же generation state machine, что используется на
   desktop-платформах. Если платформа или native core не может подтвердить успешную смену пути, qeli
   выполняет reconnect, а не сообщает о миграции, которой фактически не произошло.
@@ -391,7 +404,8 @@ carrier больше не нужен, shaping работает с настоящ
 
 ### Проверка релиза
 
-Кандидат от 2026-09-01 прошёл release gates Rust workspace, CLI/configuration suites, dependency
+Кандидат от 2026-09-01 полностью пересобран после исправления break-before-make в commit исходников
+Rust/native `f2dbe7fe`. Он прошёл release gates Rust workspace, CLI/configuration suites, dependency
 policy, jemalloc и portable Linux/DEB. Native cores пересобраны для Android arm64-v8a/x86_64,
 Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. После этого заново собраны
 подписанный Android APK, оба Windows EXE, ad-hoc подписанный universal macOS bundle, четыре клиента
@@ -414,19 +428,19 @@ OpenWrt и два клиента Keenetic. DEB содержит в точнос�
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.8.0.apk` | 9.8 MB | `70991766f5825ad7` |
-| `qeli-linux-amd64` | 12.6 MB | `1d349328be1a1e30` |
-| `qeli_0.8.0_amd64.deb` | 4.0 MB | `3c21bc0478316a49` |
-| `Qeli-macOS-universal.zip` | 57.9 MB | `82507ebf3d5ca4ee` |
-| `QeliWin-net-required.exe` | 8.0 MB | `c5ec4733fb8be77d` |
-| `QeliWin-standalone.exe` | 72.7 MB | `f67bf32e6ea2ac97` |
-| `qeli-client-keenetic-aarch64` | 4.0 MB | `5111d9690b7404bf` |
-| `qeli-client-keenetic-mipsel` | 5.7 MB | `afab619f0ab670f1` |
-| `qeli-client-openwrt-aarch64` | 4.0 MB | `5111d9690b7404bf` |
-| `qeli-client-openwrt-armv7` | 4.1 MB | `c20cb2c014762805` |
-| `qeli-client-openwrt-mipsel` | 5.7 MB | `afab619f0ab670f1` |
-| `qeli-client-openwrt-x86_64` | 4.7 MB | `f397a50a1f307eec` |
-| `qeli-openwrt-files.tar.gz` | 12.6 KB | `d8d5ff941e5424b1` |
+| `qeli-android-0.8.0.apk` | 9.8 MB | `c43f4831d3489dc7` |
+| `qeli-linux-amd64` | 12.6 MB | `1c94e93bf5ecb377` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `a40f77a3f335d5b2` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `51ba8ac13ea5811d` |
+| `QeliWin-net-required.exe` | 8.0 MB | `53e3398101368ad4` |
+| `QeliWin-standalone.exe` | 72.7 MB | `28480f6f3d13f401` |
+| `qeli-client-keenetic-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
+| `qeli-client-keenetic-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
+| `qeli-client-openwrt-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
+| `qeli-client-openwrt-armv7` | 4.2 MB | `74a8e76a38d717fd` |
+| `qeli-client-openwrt-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
+| `qeli-client-openwrt-x86_64` | 4.7 MB | `499ffbcb55324c1b` |
+| `qeli-openwrt-files.tar.gz` | 12.7 KB | `be63fc06eb73c91f` |
 | `install-keenetic.sh` | 2.3 KB | `fa12354977d6a81e` |
 | `Wintun-LICENSE.txt` | 5.3 KB | `9aaf948856ce8845` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
