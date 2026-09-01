@@ -586,7 +586,9 @@ mod tests {
             return false;
         };
         let (groups, _) = groups.as_chunks::<2>();
-        groups.iter().any(|group| u16::from_be_bytes(*group) == target)
+        groups
+            .iter()
+            .any(|group| u16::from_be_bytes(*group) == target)
     }
 
     fn key_shares_contains(data: &[u8], target: u16) -> bool {
