@@ -201,17 +201,29 @@ for path in template_paths:
     except Exception as error:  # fail closed on malformed input/parser surprises
         fail(path, parser.line, f"HTML audit failed: {error}")
 
-# Selects must remain locale-independent: the shared CSS centres native values and
-# JavaScript fits compact controls to the longest translated/dynamic option.
+# Selects must remain locale-independent: the shared CSS keeps native values left-aligned,
+# reserves space for the custom arrow, and JavaScript fits compact controls to the longest
+# translated/dynamic option.
 select_css = SELECT_CSS.read_text(encoding="utf-8")
+select_block_match = re.search(r"select\.inp\s*\{(?P<body>[^}]*)\}", select_css, re.DOTALL)
+if not select_block_match:
+    fail(SELECT_CSS, 1, "shared select.inp styling block is missing")
+    select_block = ""
+else:
+    select_block = select_block_match.group("body")
 for marker in (
-    "text-align:center",
-    "text-align-last:center",
-    "select.inp.inp-fit",
-    "--qeli-select-fit-width",
+    "padding:0 2.25rem 0 .75rem",
+    "text-align:left",
+    "text-align-last:left",
 ):
+    if marker not in select_block:
+        fail(SELECT_CSS, 1, f"shared select.inp styling is missing {marker!r}")
+for marker in ("text-align:center", "text-align-last:center"):
+    if marker in select_block:
+        fail(SELECT_CSS, 1, f"shared select.inp styling must not contain {marker!r}")
+for marker in ("select.inp.inp-fit", "--qeli-select-fit-width"):
     if marker not in select_css:
-        fail(SELECT_CSS, 1, f"shared select styling is missing {marker!r}")
+        fail(SELECT_CSS, 1, f"localized select auto-fitting is missing {marker!r}")
 for marker in ("select.inp-fit, select[data-select-fit]", "--qeli-select-fit-width"):
     if marker not in i18n_text:
         fail(I18N, 1, f"localized select auto-fitting is missing {marker!r}")
