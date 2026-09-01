@@ -4,7 +4,7 @@
 >
 > ⚠️ **Бета — возможна нестабильность.** Стабильной станет линейка **1.0**.
 
-**Release candidate prepared · Кандидат подготовлен:** 2026-08-31
+**Release candidate prepared · Кандидат подготовлен:** 2026-09-01
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Artifacts](#artifacts--артефакты)
@@ -194,15 +194,17 @@ For all configuration fields see the [configuration reference](../docs/eng/manua
 
 ### Release verification
 
-The current source passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and
-Linux compatibility gates. The Linux IPv6 base matrix passed 14/14 cases. Native cores were rebuilt for Android
-arm64-v8a/x86_64, Windows x64 and macOS universal2; the platform/ABI pairs were verified for
-reproducibility.
+The 2026-09-01 candidate passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc
+and portable Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
+and macOS universal2 and matched across independent A/B builds. The signed Android APK, both
+Windows executables, the ad-hoc signed universal macOS bundle, four OpenWrt clients and two
+Keenetic clients were then rebuilt from those inputs. The DEB contains the exact standalone Linux
+binary, and every payload is covered by the candidate's `SHA256SUMS`.
 
-This is not yet a release-readiness claim. The files currently stored in `release/dist/v0.8.0`
-predate the final H2/native-core changes and must be rebuilt before publication. Android signing,
-macOS signing/notarization, final Windows/OpenWrt/Keenetic packages, the special IPv6 cases and the
-physical roaming/IPv6 matrix must be verified again against one final commit.
+This local candidate has not been published. Release publication still requires final preflight
+for the committed source and a remote CI run covering that exact commit after it is pushed.
+Machine-readable certification retains unavailable physical roaming/IPv6 cases as an explicit
+advisory backlog; an executed failure remains blocking.
 
 ---
 
@@ -389,41 +391,42 @@ carrier больше не нужен, shaping работает с настоящ
 
 ### Проверка релиза
 
-Текущие исходники прошли release gates Rust workspace, CLI/configuration suites, dependency policy,
-jemalloc и совместимости Linux. Базовая IPv6-матрица Linux прошла 14/14 сценариев. Native cores
-пересобраны для Android arm64-v8a/x86_64, Windows x64 и macOS universal2; пары platform/ABI
-проверены на воспроизводимость.
+Кандидат от 2026-09-01 прошёл release gates Rust workspace, CLI/configuration suites, dependency
+policy, jemalloc и portable Linux/DEB. Native cores пересобраны для Android arm64-v8a/x86_64,
+Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. После этого заново собраны
+подписанный Android APK, оба Windows EXE, ad-hoc подписанный universal macOS bundle, четыре клиента
+OpenWrt и два клиента Keenetic. DEB содержит в точности тот же бинарник, что и standalone Linux,
+а каждый payload покрыт новым `SHA256SUMS` кандидата.
 
-Это ещё не утверждение о готовности релиза. Файлы в `release/dist/v0.8.0` собраны до последних
-изменений H2/native core и должны быть пересобраны перед публикацией. Android signing, macOS
-signing/notarization, финальные Windows/OpenWrt/Keenetic-пакеты, специальные IPv6-сценарии и
-физическая roaming/IPv6-матрица должны быть повторно проверены на одном финальном коммите.
+Этот локальный кандидат ещё не опубликован. Для публикации нужны финальный preflight на
+закоммиченном дереве и удалённый CI для этого же commit после push. Машиночитаемая сертификация
+сохраняет недоступные физические roaming/IPv6-проверки как явный неблокирующий backlog;
+реально выполненная неуспешная проверка остаётся блокирующей.
 
 ---
 
 ## Artifacts · Артефакты
 
-The directory currently contains a **pre-hardening snapshot** of 17 payloads. Its `SHA256SUMS`
-matches those files, but they are not publishable as the final 0.8.0 build and the table is retained
-only to identify the snapshot that must be replaced. Каталог сейчас содержит **снимок до финального
-hardening** из 17 файлов. Его `SHA256SUMS` соответствует файлам, но это не финальная публикуемая
-сборка 0.8.0; таблица сохранена только для идентификации кандидата, который требуется заменить.
+`release/dist/v0.8.0` contains the freshly rebuilt local candidate: 17 payloads plus
+`SHA256SUMS`. The table identifies the exact files prepared on 2026-09-01. Каталог
+`release/dist/v0.8.0` содержит заново собранный локальный кандидат: 17 payload-файлов и
+`SHA256SUMS`. Таблица описывает точные файлы, подготовленные 2026-09-01.
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.8.0.apk` | 9.6 MB | `2741450f4e55a84e` |
-| `qeli-linux-amd64` | 12.5 MB | `5b7d3a0ba3512516` |
-| `qeli_0.8.0_amd64.deb` | 4.0 MB | `4193d1ed182d8036` |
-| `Qeli-macOS-universal.zip` | 57.9 MB | `55690faa05f9839c` |
-| `QeliWin-net-required.exe` | 7.9 MB | `b5341871f7105124` |
-| `QeliWin-standalone.exe` | 72.7 MB | `23f33967dbc9ed6e` |
-| `qeli-client-keenetic-aarch64` | 3.9 MB | `0583c37c5e3f7d04` |
-| `qeli-client-keenetic-mipsel` | 5.6 MB | `8fc2bfe18038e4c6` |
-| `qeli-client-openwrt-aarch64` | 3.9 MB | `0583c37c5e3f7d04` |
-| `qeli-client-openwrt-armv7` | 4.1 MB | `82e02f0ffc9744d0` |
-| `qeli-client-openwrt-mipsel` | 5.6 MB | `8fc2bfe18038e4c6` |
-| `qeli-client-openwrt-x86_64` | 4.6 MB | `641a74ac938b8e8b` |
-| `qeli-openwrt-files.tar.gz` | 12.7 KB | `be01d128f7d0c241` |
+| `qeli-android-0.8.0.apk` | 9.8 MB | `70991766f5825ad7` |
+| `qeli-linux-amd64` | 12.6 MB | `1d349328be1a1e30` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `3c21bc0478316a49` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `82507ebf3d5ca4ee` |
+| `QeliWin-net-required.exe` | 8.0 MB | `c5ec4733fb8be77d` |
+| `QeliWin-standalone.exe` | 72.7 MB | `f67bf32e6ea2ac97` |
+| `qeli-client-keenetic-aarch64` | 4.0 MB | `5111d9690b7404bf` |
+| `qeli-client-keenetic-mipsel` | 5.7 MB | `afab619f0ab670f1` |
+| `qeli-client-openwrt-aarch64` | 4.0 MB | `5111d9690b7404bf` |
+| `qeli-client-openwrt-armv7` | 4.1 MB | `c20cb2c014762805` |
+| `qeli-client-openwrt-mipsel` | 5.7 MB | `afab619f0ab670f1` |
+| `qeli-client-openwrt-x86_64` | 4.7 MB | `f397a50a1f307eec` |
+| `qeli-openwrt-files.tar.gz` | 12.6 KB | `d8d5ff941e5424b1` |
 | `install-keenetic.sh` | 2.3 KB | `fa12354977d6a81e` |
 | `Wintun-LICENSE.txt` | 5.3 KB | `9aaf948856ce8845` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
@@ -434,7 +437,7 @@ byte-identical. Полностью совпадающие хеши этих па
 
 ### Candidate handling · Работа с кандидатом
 
-Do not publish or install this snapshot as the final release. Rebuild every payload from the final
-commit, regenerate `SHA256SUMS`, then complete signing and certification. Не публиковать и не
-устанавливать этот снимок как финальный релиз: сначала пересобрать все файлы из финального коммита,
-обновить `SHA256SUMS`, затем завершить подпись и сертификацию.
+Do not publish the candidate until final preflight and remote CI pass for the source being released.
+The payload rebuild and checksum regeneration are complete; no GitHub release has been created.
+Не публиковать кандидат до успешных финального preflight и удалённого CI для выпускаемого дерева.
+Пересборка payload-файлов и обновление контрольных сумм завершены; GitHub Release не создавался.

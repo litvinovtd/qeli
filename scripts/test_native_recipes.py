@@ -243,7 +243,7 @@ class NativeRecipeTests(unittest.TestCase):
             ),
             (
                 "qeli/src/server/mod.rs",
-                "for (pname, ip, session_id) in to_kick",
+                "for (pname, ip, session_id, _over, _expired) in to_kick",
                 "profile.pool.lock().await.release",
             ),
         )
