@@ -184,7 +184,8 @@ public abstract class VpnTunnelBase
             Status(VpnStatus.Connecting);
             Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
                 (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
-            Log($"Connecting to {LogValue(config.ServerAddress)}:{config.Port}");
+            Log($"Connecting to {LogValue(config.ServerAddress)}:{config.Port} " +
+                $"as user '{LogValue(config.Username)}'");
 
             // Raise the firewall kill-switch BEFORE the first connect, so even the first
             // attempt and every reconnect window is leak-proof. It stays up across
@@ -1400,7 +1401,7 @@ public abstract class VpnTunnelBase
                             if (plan.FullTunnel != config.IsFullTunnel)
                                 throw new InvalidDataException(
                                     "native NetworkPlan routing mode differs from the selected profile");
-                            Log($"Auth OK: IP {plan.TunnelAddress}");
+                            Log($"Auth OK: user='{LogValue(config.Username)}', IP {plan.TunnelAddress}");
                             foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
                             {

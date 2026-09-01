@@ -574,6 +574,23 @@ pub(crate) fn server_push_log_lines(
         plan.adaptive,
     )];
 
+    let transport = if config.server.protocol.eq_ignore_ascii_case("udp") {
+        "UDP"
+    } else {
+        "TCP"
+    };
+    match pushed_obfuscation.and_then(|obfuscation| obfuscation.recordizer.as_ref()) {
+        Some(recordizer) => lines.push(format!(
+            "Packet recordizer: PACKET_MUX_V1 active on {} (policy={})",
+            transport,
+            log_value(&recordizer.policy.to_ascii_lowercase())
+        )),
+        None => lines.push(format!(
+            "Packet recordizer: legacy packet-per-record on {} (policy=not advertised)",
+            transport
+        )),
+    }
+
     if pushed_mtu <= 0 {
         lines.push(format!(
             "server push: mtu not sent (older server) — using {}",
@@ -1667,7 +1684,11 @@ mod tests {
         let mut plan = build_network_plan(&config, 7, &network).unwrap();
         plan.max_streams = 4;
         plan.adaptive = true;
-        let pushed = PushedObf::default();
+        let mut pushed = PushedObf::default();
+        pushed.recordizer = Some(crate::config::RecordizerConfig {
+            policy: "prefer".into(),
+            ..Default::default()
+        });
         let lines = server_push_log_lines(
             &config,
             &plan,
@@ -1690,6 +1711,7 @@ mod tests {
             "shaping APPLIED",
             "multipath max_streams=4 adaptive=true",
             "NetworkPlan 7:",
+            "Packet recordizer: PACKET_MUX_V1 active on TCP (policy=prefer)",
         ] {
             assert!(
                 lines.iter().any(|line| line.contains(expected)),
@@ -1697,5 +1719,11 @@ mod tests {
             );
         }
         assert!(lines.iter().all(|line| line.len() <= 1_024));
+
+        let legacy_lines =
+            server_push_log_lines(&config, &plan, 1400, "10.8.0.1", "53", routes, None);
+        assert!(legacy_lines.iter().any(|line| {
+            line == "Packet recordizer: legacy packet-per-record on TCP (policy=not advertised)"
+        }));
     }
 }

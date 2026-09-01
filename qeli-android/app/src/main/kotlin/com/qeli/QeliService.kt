@@ -1017,7 +1017,10 @@ class VpnServiceImpl : VpnService() {
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
-        broadcastLog("Connecting to ${logValue(config.serverAddress)}:${config.port}")
+        broadcastLog(
+            "Connecting to ${logValue(config.serverAddress)}:${config.port} " +
+                "as user '${logValue(config.username)}'"
+        )
         acquireTunnelWakeLock()
 
         supervisor = SupervisorJob()
@@ -1303,7 +1306,8 @@ class VpnServiceImpl : VpnService() {
      * the established TUN to the native packet pump before acknowledging Running. */
     private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
-        broadcastLog("Auth OK: IP ${plan.tunnelAddress}")
+        val username = activeConfig?.username?.let(::logValue) ?: "?"
+        broadcastLog("Auth OK: user='$username', IP ${plan.tunnelAddress}")
         plan.connectionLog.forEach(::broadcastLog)
         val config = activeConfig
         if (config == null || transportCore !== core) {

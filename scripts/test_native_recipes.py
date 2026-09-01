@@ -321,6 +321,31 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("if updateCheckGeneration == generation", ios_model)
         self.assertIn("automaticUpdateChecked = false", ios_model)
 
+    def test_gui_connection_logs_include_sanitized_username(self):
+        root = Path(__file__).parent.parent
+        android = (root / "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt").read_text(
+            encoding="utf-8"
+        )
+        ios = (root / "qeli-ios/QeliPacketTunnel/QeliNativeTunnelEngine.swift").read_text(
+            encoding="utf-8"
+        )
+        desktop = (root / "qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("as user '${logValue(config.username)}'", android)
+        self.assertIn("activeConfig?.username?.let(::logValue)", android)
+        self.assertIn("Auth OK: user='$username'", android)
+        self.assertIn("plan.connectionLog.forEach(::broadcastLog)", android)
+
+        self.assertIn("as user '\\(Self.logValue(config.username))'", ios)
+        self.assertIn("Auth OK: user='\\(Self.logValue(config.username))'", ios)
+        self.assertIn("(plan.connectionLog ?? []).forEach", ios)
+
+        self.assertIn("as user '{LogValue(config.Username)}'", desktop)
+        self.assertIn("Auth OK: user='{LogValue(config.Username)}'", desktop)
+        self.assertIn("foreach (string line in plan.ConnectionLog) Log(line)", desktop)
+
     def test_ios_retained_wire_primitives_are_test_only(self):
         root = Path(__file__).parent.parent
         ios_project = (root / "qeli-ios/project.yml").read_text(encoding="utf-8")
