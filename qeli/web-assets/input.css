@@ -103,26 +103,40 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 @media (min-width:1536px){
   .profile-grid{ grid-template-columns:repeat(6,minmax(0,1fr)); }
 }
-/* Configuration profile navigation wraps into a compact grid. Unlike a horizontal
-   tab strip it exposes every profile without a nested scrollbar or browser arrows. */
+/* Configuration profile navigation uses content-sized cards. Long names remain visible,
+   while complete cards wrap naturally without a nested scrollbar or fixed grid tracks. */
 .config-profile-nav{
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.5rem;
-  margin-bottom:1.25rem; padding:.5rem; border:1px solid var(--line);
-  border-radius:var(--radius-sm); background:var(--bg-2);
+  margin-bottom:1.25rem; overflow:hidden; border:1px solid var(--line);
+  border-radius:var(--radius); background:var(--bg-card);
 }
+.config-profile-nav-head{
+  display:flex; align-items:center; justify-content:space-between; gap:.875rem;
+  padding:.875rem 1rem; border-bottom:1px solid var(--line-soft);
+}
+.config-profile-nav-heading{ display:flex; align-items:baseline; gap:.55rem; min-width:0; }
+.config-profile-nav-title{ color:var(--txt); font-size:.875rem; font-weight:600; }
+.config-profile-nav-count{ color:var(--txt-dim); font-size:.72rem; }
+.config-profile-nav-body{ padding:.75rem .875rem .875rem; }
+.config-profile-list{ display:flex; flex-wrap:wrap; align-items:stretch; gap:.5rem; }
+.config-profile-add{
+  display:inline-flex; align-items:center; gap:.4rem; flex:0 0 auto;
+  padding:.45rem .7rem; border:1px solid rgba(74,158,255,.28); border-radius:9px;
+  color:var(--blue-2); background:rgba(74,158,255,.08); font-size:.78rem; font-weight:600;
+  cursor:pointer; transition:color .16s,background .16s,border-color .16s;
+}
+.config-profile-add:hover{ color:var(--txt); background:rgba(74,158,255,.14); border-color:rgba(74,158,255,.42); }
 .config-profile-tab{
-  display:flex; align-items:center; gap:.5rem; min-width:0; min-height:40px;
+  display:inline-flex; align-items:center; gap:.5rem; flex:0 0 auto; width:auto; max-width:100%; min-height:40px;
   padding:.5rem .625rem; border:1px solid transparent; border-radius:9px;
-  color:var(--txt-mut); background:transparent; font-size:.78rem; font-weight:600;
+  color:var(--txt-mut); background:var(--bg-2); font-size:.78rem; font-weight:600;
   cursor:pointer; transition:color .16s,background .16s,border-color .16s;
 }
 .config-profile-tab:hover{ color:var(--txt); background:rgba(255,255,255,.04); }
 .config-profile-tab.active{
   color:var(--txt); background:rgba(74,158,255,.12); border-color:rgba(74,158,255,.32);
-  box-shadow:inset 3px 0 0 var(--blue-2);
 }
-.config-profile-tab-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
-.config-profile-add{ justify-content:center; color:var(--blue-2); border-style:dashed; border-color:rgba(74,158,255,.28); }
+.config-profile-tab-name{ min-width:0; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.config-profile-global{ margin-bottom:.625rem; color:var(--txt-mut); background:transparent; }
 .transport-kind{
   display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
   min-width:34px; padding:3px 5px; border-radius:6px; font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
@@ -131,7 +145,7 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 .transport-kind-tcp{ color:var(--blue-2); background:rgba(74,158,255,.14); border:1px solid rgba(74,158,255,.22); }
 .transport-kind-udp{ color:#ddd6fe; background:rgba(124,58,237,.2); border:1px solid rgba(167,139,250,.28); }
 @media (max-width:639px){
-  .config-profile-nav{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .config-profile-nav-head{ align-items:flex-start; }
 }
 
 /* ── buttons ── */

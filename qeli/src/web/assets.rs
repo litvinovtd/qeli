@@ -90,7 +90,8 @@ mod tests {
     fn panel_grid_controls_and_localized_options_are_embedded() {
         assert!(APP_CSS.contains(".profile-grid{display:grid"));
         assert!(APP_CSS.contains("repeat(6,minmax(0,1fr))"));
-        assert!(APP_CSS.contains(".config-profile-nav{display:grid"));
+        assert!(APP_CSS.contains(".config-profile-list{display:flex;flex-wrap:wrap"));
+        assert!(APP_CSS.contains(".config-profile-tab-name{min-width:0;white-space:normal;overflow-wrap:anywhere"));
         assert!(APP_CSS.contains(".transport-kind-udp{"));
         assert!(APP_CSS.contains("select.inp{"));
         assert!(APP_CSS.contains(".inp[type=search]{"));

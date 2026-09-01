@@ -43,27 +43,37 @@
 
     <!-- Profile tabs (top level only — each profile's settings live on one page) -->
     <div class="config-profile-nav">
-      <button class="config-profile-tab"
-        :class="activeTab === '__global' ? 'active' : ''"
-        @click="activeTab = '__global'">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
-        <span class="config-profile-tab-name">Global</span>
-      </button>
-      <template x-for="(p, i) in cfg.profiles || []" :key="i">
-        <button class="config-profile-tab"
-          :class="activeTab === i ? 'active' : ''"
-          :title="p.name || ('Profile ' + (i+1))"
-          @click="activeTab = i">
-          <span class="transport-kind" :class="p.bind.transport === 'udp' ? 'transport-kind-udp' : 'transport-kind-tcp'"
-            x-text="p.bind.transport === 'udp' ? 'UDP' : 'TCP'"></span>
-          <span class="config-profile-tab-name" x-text="p.name || ('Profile ' + (i+1))"></span>
-          <span x-show="p.enabled === false" class="badge badge-off ml-auto" style="font-size:.6rem">off</span>
+      <div class="config-profile-nav-head">
+        <div class="config-profile-nav-heading">
+          <span class="config-profile-nav-title">Profiles</span>
+          <span class="config-profile-nav-count" x-text="(cfg.profiles || []).length"></span>
+        </div>
+        <button type="button" class="config-profile-add" @click="addProfile()" title="Add profile">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+          <span>Add profile</span>
         </button>
-      </template>
-      <button class="config-profile-tab config-profile-add" @click="addProfile()" title="Add profile">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
-        <span>Add profile</span>
-      </button>
+      </div>
+      <div class="config-profile-nav-body">
+        <button type="button" class="config-profile-tab config-profile-global"
+          :class="activeTab === '__global' ? 'active' : ''"
+          @click="activeTab = '__global'">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
+          <span class="config-profile-tab-name">Global</span>
+        </button>
+        <div class="config-profile-list">
+          <template x-for="(p, i) in cfg.profiles || []" :key="i">
+            <button type="button" class="config-profile-tab"
+              :class="activeTab === i ? 'active' : ''"
+              :title="p.name || ('Profile ' + (i+1))"
+              @click="activeTab = i">
+              <span class="transport-kind" :class="p.bind.transport === 'udp' ? 'transport-kind-udp' : 'transport-kind-tcp'"
+                x-text="p.bind.transport === 'udp' ? 'UDP' : 'TCP'"></span>
+              <span class="config-profile-tab-name" x-text="p.name || ('Profile ' + (i+1))"></span>
+              <span x-show="p.enabled === false" class="badge badge-off" style="font-size:.6rem">off</span>
+            </button>
+          </template>
+        </div>
+      </div>
     </div>
 
     <!-- ── GLOBAL TAB ── -->
