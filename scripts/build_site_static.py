@@ -13,7 +13,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SITE = REPO / "site"
 BASE = "https://qeli.ru"
-UPDATED = "2026-08-31"
+UPDATED = "2026-09-02"
+SITE_CONFIG = json.loads((SITE / "assets" / "site.json").read_text(encoding="utf-8"))
+SCHEMA_VERSION = SITE_CONFIG["versionJsonLd"]
+SCHEMA_DOWNLOAD_URL = f"https://github.com/litvinovtd/qeli/releases/tag/v{SCHEMA_VERSION}"
 HEADER_START = "<!-- shared-header:start -->"
 HEADER_END = "<!-- shared-header:end -->"
 FOOTER_START = "<!-- shared-footer:start -->"
@@ -507,8 +510,8 @@ def schema_json(url_path: str, meta: dict, lang: str, title: str, desc: str) -> 
             {
                 "@type": "SoftwareApplication", "@id": f"{url}#software", "name": "Qeli",
                 "applicationCategory": "SecurityApplication", "operatingSystem": "Linux, Windows, macOS, Android",
-                "softwareVersion": "0.7.16", "description": desc,
-                "url": url, "downloadUrl": "https://github.com/litvinovtd/qeli/releases/tag/v0.7.16",
+                "softwareVersion": SCHEMA_VERSION, "description": desc,
+                "url": url, "downloadUrl": SCHEMA_DOWNLOAD_URL,
                 "codeRepository": "https://github.com/litvinovtd/qeli", "license": "https://www.gnu.org/licenses/agpl-3.0.html",
                 "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
                 "author": {"@type": "Organization", "name": "Qeli", "url": "https://github.com/litvinovtd/qeli"},
