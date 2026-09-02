@@ -60,6 +60,7 @@ Current analyses and measured results. Dated, frozen reports live in the archive
 | [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
 | [DPI-AUDIT.md](reports/DPI-AUDIT.md) | DPI detectability analysis and mitigations |
 | [BENCHMARK.md](reports/BENCHMARK.md) | Load-testing method and per-mode measurements |
+| [Qeli 0.8.0: 34 VPN modes](reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md) | Full dated cross-protocol run, CPU/RSS, and interpretation limits |
 | [COMPARISON.md](reports/COMPARISON.md) | Comparison with WireGuard, OpenVPN and V2Ray |
 
 ## Archive (`archive/`)

@@ -34,14 +34,14 @@ layout live in the root [README.md](../README.md).
 Актуальная безопасность: [RU](ru/reports/AUDIT.md) · [EN](eng/reports/AUDIT.md).
 Настройка recordizer: [RU](ru/manuals/OBFUSCATION.md) · [EN](eng/manuals/OBFUSCATION.md).
 
-## Общие бенчмарки · Shared benchmarks
+## Бенчмарки · Benchmarks
 
-Датированные полные лабораторные отчёты, общие для обеих локалей, находятся в
-`benchmarks/`. The shared `benchmarks/` directory contains dated full lab reports used by
-both documentation trees.
+Датированные полные лабораторные отчёты хранятся зеркально в обеих локалях. Dated full
+laboratory reports are maintained in both mirrored locale trees.
 
-- [Qeli 0.8.0: сравнительный прогон 34 VPN-режимов](benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)
-  — throughput, CPU/RSS, IPv4/IPv6, повторяемость и ограничения DPI-вывода.
+- Qeli 0.8.0, 34 VPN modes: [RU](ru/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md) ·
+  [EN](eng/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md) — throughput,
+  CPU/RSS, IPv4/IPv6, repeatability, and the limits of DPI-related conclusions.
 
 ## Общий исторический архив · Shared historical archive
 

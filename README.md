@@ -51,8 +51,9 @@ Across all 12 Qeli profiles, average four-stream TCP throughput was **1220 Mbit/
 fast TCP profiles averaged **1767 Mbit/s**, while every Qeli profile ran with Recordizer in
 required mode. These figures compare throughput and processing cost on one controlled lab,
 not the probability of bypassing an external DPI system. See the
-**[full Qeli 0.8.0 cross-protocol report](docs/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)**
-and the maintained [English methodology/history](docs/eng/reports/BENCHMARK.md).
+**[full Qeli 0.8.0 cross-protocol report in English](docs/eng/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)**
+or **[the Russian version](docs/ru/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)**,
+plus the maintained [English methodology/history](docs/eng/reports/BENCHMARK.md).
 
 ## Quick start
 
