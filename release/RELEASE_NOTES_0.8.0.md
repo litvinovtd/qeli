@@ -6,6 +6,18 @@
 
 **Released · Выпущен:** 2026-09-02
 
+> **macOS hotfix · исправление macOS (2026-09-02):** the universal macOS archive was rebuilt
+> after correcting carrier-route pinning. Kernel-generated `WASCLONED`, `LLINFO` and `DYNAMIC`
+> entries are no longer mistaken for an explicit route to the VPN server, preventing the carrier
+> connection from being redirected into `utun` by full-tunnel routes. Cleanup now also accepts
+> interface-bound routes that macOS already removed together with a vanished `utun`.
+>
+> Universal-архив macOS пересобран после исправления закрепления маршрута до VPN-сервера.
+> Созданные ядром записи `WASCLONED`, `LLINFO` и `DYNAMIC` больше не считаются явным маршрутом:
+> транспортное соединение не попадёт обратно в `utun` после установки full-tunnel маршрутов.
+> Очистка также корректно учитывает маршруты, которые macOS уже удалила вместе с исчезнувшим
+> интерфейсом `utun`.
+
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Artifacts](#artifacts--артефакты)
 
@@ -454,7 +466,7 @@ exact files prepared on 2026-09-02. Опубликованный набор qeli
 | `qeli-android-0.8.0.apk` | 9.8 MB | `d2aa97de709e65f5` |
 | `qeli-linux-amd64` | 12.6 MB | `e376bc27eaae3059` |
 | `qeli_0.8.0_amd64.deb` | 4.0 MB | `27c5718f6e2c27bc` |
-| `Qeli-macOS-universal.zip` | 57.9 MB | `93fb1f1c5e17521e` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `f940c15e206245f4` |
 | `QeliWin-net-required.exe` | 8.0 MB | `cade58d88750b399` |
 | `QeliWin-standalone.exe` | 72.7 MB | `153b8cb98c6ceff1` |
 | `qeli-client-keenetic-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
