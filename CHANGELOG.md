@@ -33,6 +33,11 @@
 Полное двуязычное описание фундаментальных изменений: [RELEASE_NOTES_0.8.0.md](release/RELEASE_NOTES_0.8.0.md).
 
 - Выпущен полный набор для Linux, DEB, Android, Windows, macOS, OpenWrt и Keenetic: 17 payload-файлов и `SHA256SUMS`.
+- Hotfix macOS: закрепление маршрута до VPN-сервера больше не принимает созданные ядром
+  `WASCLONED`/`LLINFO`/`DYNAMIC` записи за явный host route. Это предотвращает возврат
+  транспортного соединения в `utun` после установки full-tunnel маршрутов. Очистка также
+  корректно принимает уже удалённые macOS маршруты исчезнувшего `utun`; universal-пакет
+  пересобран и заменён в GitHub Release.
 
 ### Управляющий канал CONTROL_V2
 
