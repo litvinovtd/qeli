@@ -1,9 +1,9 @@
 # qeli for OpenWrt (client)
 
-> **Status: experimental integration.** The full-IPv6 line uses public version 0.8.0;
-> there is no public 0.7.17 release. Real OpenWrt hardware acceptance is still pending;
-> only use artifacts attached to the exact release tag and treat the package as
-> pre-production until that gate is closed.
+> **Status: tested on real OpenWrt hardware.** The full-IPv6 line uses public version 0.8.0;
+> there is no public 0.7.17 release. The client and gateway path have been verified on a
+> real router and work. Use artifacts attached to the exact release tag, and still verify
+> the target architecture, TUN support and firewall/interface names for your model.
 
 A native **OpenWrt** package for the qeli **client**, so an OpenWrt router can dial
 out to a qeli server and route its LAN through the tunnel — managed the OpenWrt way
@@ -93,7 +93,7 @@ logread -e qeli                      # look for "Auth OK"
 Or use **LuCI → Services → qeli VPN**. The password fields are write-only and show only
 whether a volatile secret exists; an empty field leaves the current value unchanged.
 
-## Notes / open items
+## Notes / compatibility
 
 - Wire mode by CPU: on low-end **mipsel** prefer `fake-tls` / `obfs` / `plain` (ChaCha20);
   `reality-tls` (double AEAD) is sane only on ARM (aarch64) routers.
@@ -103,5 +103,6 @@ whether a volatile secret exists; an empty field leaves the current value unchan
   stored a comma list directly in `dns` are migrated by the init renderer at startup.
 - The `.ipk` ships per-arch; `build/build_openwrt.py` cross-builds the binary (zig), the
   OpenWrt `Makefile` also builds it from source via the SDK rust feed.
-- TODO before marking stable: test on a real OpenWrt 23.05 device; confirm fw4 zone
-  naming; add a status/connect toggle to the LuCI view.
+- Real-device validation has passed. OpenWrt models and releases can still differ in
+  interface naming, flash layout and fw4 integration, so verify those platform details
+  when deploying to a new router model or firmware line.

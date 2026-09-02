@@ -23,7 +23,7 @@ Priorities: **P1** — noticeably affects security/functionality, **P2** — qua
 See [DPI-AUDIT.md](../reports/DPI-AUDIT.md), [CONFIG.md](../manuals/CONFIG.md), and
 [the dated PCAP report](../../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md).
 
-## 0.7.5 (2026-06-29) — stability fixes + experimental OpenWrt client
+## 0.7.5 (2026-06-29) — stability fixes + OpenWrt client
 
 Wire-compatible with 0.7.4; config defaults unchanged.
 
@@ -36,8 +36,8 @@ Wire-compatible with 0.7.4; config defaults unchanged.
   retry with a fresh random GUID bypasses a poisoned stable-GUID registry ghost.
 - ✅ **Share link: clear error for an unloaded profile** (profiles, unlike users, don't
   hot-reload — restart the server).
-- ✅ **Experimental OpenWrt client** (procd + UCI + LuCI; not yet tested on hardware).
-  Versions → 0.7.5.
+- ✅ **OpenWrt client** (procd + UCI + LuCI). The current 0.8.0 line has been verified
+  on real hardware and works. Versions → 0.7.5.
 
 ## 0.7.4 (2026-06-27) — UDP reliability on mobile
 
