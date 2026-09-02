@@ -509,16 +509,47 @@ public sealed partial class NetworkConfigurator : IDisposable
     public void SetMtu(string dev, int mtu) =>
         Run("/sbin/ifconfig", $"{dev} mtu {mtu}");
 
+    /// <summary>
+    /// Delete a route bound to <paramref name="dev"/>, treating a vanished interface as
+    /// success — the same "delete, or prove it is already absent" reconciliation the server
+    /// and roaming routes use.
+    ///
+    /// VpnTunnelBase disposes the utun BEFORE CleanupPlatform runs, and macOS purges every
+    /// route bound to an interface the instant that interface disappears, so the delete then
+    /// exits non-zero ("not in table") for a route that is already gone. Counting that as a
+    /// failed cleanup made Dispose report the whole tunnel route set as "Routes still owned
+    /// by Qeli", which escalated to "[SECURITY] terminal platform cleanup failed" and left
+    /// the next attempt unable to prepare a safe reconnect.
+    /// </summary>
+    private bool DeleteTunnelRoute(string family, string net, string dev) =>
+        Run("/sbin/route", $"-n delete {family} -net {net} -interface {dev}", optional: true)
+        || !InterfaceExists(dev);
+
+    /// <summary>An unreadable interface list returns true so ownership is retained and the
+    /// route is retried, rather than being silently declared clean.</summary>
+    private static bool InterfaceExists(string dev)
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                if (string.Equals(ni.Name, dev, StringComparison.Ordinal) ||
+                    string.Equals(ni.Id, dev, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+        catch { return true; }
+    }
+
     /// <summary>Override the default route via the tunnel using two /1 routes (WireGuard-style),
     /// which beat the existing default without deleting it.</summary>
     public void SetFullTunnelRoutes(string dev)
     {
         Run("/sbin/route", $"-n add -inet -net 0.0.0.0/1 -interface {dev}");
         OwnRoute(IPAddress.Any, 1, "full-tunnel route 0.0.0.0/1",
-            () => Run("/sbin/route", $"-n delete -inet -net 0.0.0.0/1 -interface {dev}", optional: true));
+            () => DeleteTunnelRoute("-inet", "0.0.0.0/1", dev));
         Run("/sbin/route", $"-n add -inet -net 128.0.0.0/1 -interface {dev}");
         OwnRoute(IPAddress.Parse("128.0.0.0"), 1, "full-tunnel route 128.0.0.0/1",
-            () => Run("/sbin/route", $"-n delete -inet -net 128.0.0.0/1 -interface {dev}", optional: true));
+            () => DeleteTunnelRoute("-inet", "128.0.0.0/1", dev));
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
@@ -531,8 +562,7 @@ public sealed partial class NetworkConfigurator : IDisposable
             var (literal, prefix) = ParseCidr(net);
             string captured = net;
             OwnRoute(IPAddress.Parse(literal!), prefix, $"full-tunnel route {net}",
-                () => Run("/sbin/route",
-                    $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
+                () => DeleteTunnelRoute("-inet6", captured, dev));
         }
         _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
     }
@@ -559,8 +589,7 @@ public sealed partial class NetworkConfigurator : IDisposable
                 var (literal, prefix) = ParseCidr(net);
                 string captured = net;
                 OwnRoute(IPAddress.Parse(literal!), prefix, $"IPv6 capture route {net}",
-                    () => Run("/sbin/route",
-                        $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
+                    () => DeleteTunnelRoute("-inet6", captured, dev));
             }
         }
         _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 -alias", optional: true));
@@ -624,8 +653,7 @@ public sealed partial class NetworkConfigurator : IDisposable
             return false;
         }
         OwnRoute(network, prefix, $"tunnel route {cidr}",
-            () => Run("/sbin/route",
-                $"-n delete {family} -net {net} -interface {dev}", optional: true));
+            () => DeleteTunnelRoute(family, net, dev));
         _log($"route {cidr} via tunnel");
         return true;
     }
