@@ -432,6 +432,25 @@ actor IOSRoamingController {
             generation: state.generation,
             reason: "No replacement physical path appeared within 5 seconds")
     }
+    func hasUsablePath() -> Bool {
+        latestPath.flatMap(IOSRoamingSocket.signature) != nil
+    }
+
+    /// Suspend reconnect attempts while Network.framework has no usable physical path. The
+    /// transport generation is already stopped, but NetworkExtension remains alive and keeps
+    /// its fail-closed routes until a Wi-Fi/cellular callback makes progress possible.
+    func waitForUsablePath() async throws -> Bool {
+        var waited = false
+        while monitoring {
+            if latestPath.flatMap(IOSRoamingSocket.signature) != nil {
+                return waited
+            }
+            waited = true
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw CancellationError()
+    }
+
 
     func requestUpdate(
         reason: String, requiredGeneration: UInt64?, reconnectOnFailure: Bool

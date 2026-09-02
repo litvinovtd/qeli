@@ -24,6 +24,20 @@ private struct NativeNetworkPlan: Decodable, Sendable {
     var dataPlane: NativeDataPlaneFacts
     var connectionLog: [String]?
 }
+private struct NativeNetworkSettingsFingerprint: Equatable, Sendable {
+    var remoteAddress: String
+    var familyMode: String
+    var addresses: [String]
+    var mtu: Int
+    var includedRoutes: [String]
+    var excludedRoutes: [String]
+    var dnsServers: [String]
+    var fullTunnel: Bool
+    var killSwitch: Bool
+    var allowIpv4Leak: Bool
+    var allowIpv6Leak: Bool
+}
+
 
 private struct NativeNetworkAddress: Decodable, Sendable {
     var family: String
@@ -185,6 +199,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     // those routes and turned a detected MITM into a physical-network fail-open.
     private var failClosedSecurityHold = false
     private var networkSettingsGeneration: UInt64 = 0
+    private var appliedNetworkSettingsFingerprint: NativeNetworkSettingsFingerprint?
+    private var pendingUplink = MobilePacketHandoffBuffer()
     private var snapshot: TunnelSnapshot
     private var sampledUpload: UInt64 = 0
     private var sampledDownload: UInt64 = 0
@@ -311,6 +327,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             downlinkTask = nil
             statsTask = nil
             activePlan = nil
+            appliedNetworkSettingsFingerprint = nil
+            pendingUplink.removeAll()
             return value
         }
         guard resources.7 else { return }
@@ -438,16 +456,39 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 return
             case .retry(let attempt, let delayMilliseconds):
                 provider.reasserting = true
-                update(
-                    phase: .connecting,
-                    message: "Reconnect attempt \(max(1, attempt)) in \(delayMilliseconds) ms"
-                )
-                if delayMilliseconds > 0 {
-                    do {
-                        try await Task.sleep(
-                            nanoseconds: UInt64(delayMilliseconds) * 1_000_000
-                        )
-                    } catch { return }
+                let carrierWasMissing = !(await roamingController.hasUsablePath())
+                if carrierWasMissing {
+                    update(phase: .connecting, message: "Waiting for Wi-Fi or cellular network")
+                    sharedStore.appendLog(
+                        "No usable physical network; reconnect parked until a carrier appears"
+                    )
+                }
+                let resumedFromOffline: Bool
+                do {
+                    resumedFromOffline = try await roamingController.waitForUsablePath()
+                } catch {
+                    return
+                }
+                if resumedFromOffline {
+                    // A carrier outage is not a failed server connection and must not leave an
+                    // exponential timer between NWPath becoming usable and the next handshake.
+                    failureCount = 0
+                    update(phase: .connecting, message: "Physical network restored; reconnecting")
+                    sharedStore.appendLog(
+                        "Physical network available; reconnecting immediately"
+                    )
+                } else {
+                    update(
+                        phase: .connecting,
+                        message: "Reconnect attempt \(max(1, attempt)) in \(delayMilliseconds) ms"
+                    )
+                    if delayMilliseconds > 0 {
+                        do {
+                            try await Task.sleep(
+                                nanoseconds: UInt64(delayMilliseconds) * 1_000_000
+                            )
+                        } catch { return }
+                    }
                 }
             }
 
@@ -712,7 +753,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 transport: transport,
                 generation: plan.generation,
                 carrierAddresses: carriers)
-            startPacketPumps(transport: transport, generation: plan.generation)
+            let continuityKey = sessionContinuityKey(for: plan)
+            startPacketPumps(transport: transport, generation: plan.generation, continuityKey: continuityKey)
             let dns = plan.dnsServers.isEmpty
                 ? "system unchanged"
                 : plan.dnsServers.map { "\($0.address):\($0.port)" }.joined(separator: ", ")
@@ -783,7 +825,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         }
     }
 
-    private func startPacketPumps(transport: QeliNativeTransport, generation: UInt64) {
+    private func startPacketPumps(
+        transport: QeliNativeTransport, generation: UInt64, continuityKey: String
+    ) {
         let previous = stateLock.withLock { () -> (Task<Void, Never>?, Task<Void, Never>?, Task<Void, Never>?) in
             let value = (uplinkTask, downlinkTask, statsTask)
             uplinkTask = nil
@@ -798,22 +842,33 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         let uplink = Task { [weak self, transport] in
             guard let self else { return }
             while !Task.isCancelled, !self.stateLock.withLock({ self.stopped }) {
-                let (packets, protocols) = await self.readPackets()
-                if Task.isCancelled { return }
-                let ipPackets = zip(packets, protocols).compactMap { pair in
-                    pair.1.int32Value == AF_INET || pair.1.int32Value == AF_INET6
-                        ? pair.0 : nil
+                var ipPackets = self.takePendingUplink(continuityKey: continuityKey)
+                if ipPackets.isEmpty {
+                    let (packets, protocols) = await self.readPackets(continuityKey: continuityKey)
+                    ipPackets = Self.ipPackets(packets, protocols: protocols)
+                }
+                if Task.isCancelled {
+                    self.retainPendingUplink(ipPackets, continuityKey: continuityKey)
+                    return
                 }
                 var offset = 0
-                while offset < ipPackets.count, !Task.isCancelled {
+                while offset < ipPackets.count {
+                    if Task.isCancelled {
+                        self.retainPendingUplink(
+                            Array(ipPackets[offset...]), continuityKey: continuityKey)
+                        return
+                    }
                     do {
-                        let accepted = try transport.pushPackets(ipPackets[offset...], generation: generation)
+                        let accepted = try transport.pushPackets(
+                            ipPackets[offset...], generation: generation)
                         if accepted == 0 {
                             try await Task.sleep(nanoseconds: Self.emptyPullNanoseconds)
                         } else {
                             offset += accepted
                         }
                     } catch {
+                        self.retainPendingUplink(
+                            Array(ipPackets[offset...]), continuityKey: continuityKey)
                         if !Task.isCancelled { self.failAttempt(error, transport: transport) }
                         return
                     }
@@ -1122,27 +1177,66 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             network.dnsSettings = dns
         }
         network.mtu = NSNumber(value: plan.mtu)
+        let settingsFingerprint = NativeNetworkSettingsFingerprint(
+            remoteAddress: plan.carrierAddress ?? config.serverAddress,
+            familyMode: plan.familyMode,
+            addresses: plan.addresses.map {
+                "\($0.family):\($0.address)/\($0.prefixLen)@\($0.onLinkPrefixLen):\($0.gateway ?? "")"
+            }.sorted(),
+            mtu: plan.mtu,
+            includedRoutes: effectivePlanCIDRs.sorted(),
+            excludedRoutes: (
+                effectiveExcludes + uniqueCarrierExclusions.map {
+                    "\($0)/\(Self.isIPv4Address($0) ? 32 : 128)"
+                }
+            ).sorted(),
+            dnsServers: config.dnsMode == "tunnel" ? plan.dnsServers.map {
+                "\($0.address):\($0.port)"
+            } : [],
+            fullTunnel: plan.fullTunnel, killSwitch: plan.killSwitch,
+            allowIpv4Leak: plan.allowIpv4Leak, allowIpv6Leak: plan.allowIpv6Leak)
+
 
         await settingsGate.acquire()
         do {
-            guard stateLock.withLock({ !stopped && networkSettingsGeneration == requestGeneration }) else {
-                throw CancellationError()
+            guard stateLock.withLock({
+                !stopped && networkSettingsGeneration == requestGeneration
+            }) else { throw CancellationError() }
+            let reused = stateLock.withLock {
+                appliedNetworkSettingsFingerprint == settingsFingerprint
             }
-            let completion = NativeSettingsCompletion()
-            let outcome: Result<Void, Error> = await withCheckedContinuation { continuation in
-                completion.park(continuation)
-                provider.setTunnelNetworkSettings(network) { error in
-                    completion.finish(error.map { Result<Void, Error>.failure($0) } ?? .success(()))
+            if !reused {
+                let completion = NativeSettingsCompletion()
+                let outcome: Result<Void, Error> = await withCheckedContinuation { continuation in
+                    completion.park(continuation)
+                    provider.setTunnelNetworkSettings(network) { error in
+                        completion.finish(
+                            error.map { Result<Void, Error>.failure($0) } ?? .success(()))
+                    }
+                    DispatchQueue.global().asyncAfter(
+                        deadline: .now() + .milliseconds(Self.settingsTimeoutMilliseconds)
+                    ) {
+                        completion.finish(.failure(NativeTunnelError.networkSettingsTimedOut))
+                    }
                 }
-                DispatchQueue.global().asyncAfter(
-                    deadline: .now() + .milliseconds(Self.settingsTimeoutMilliseconds)
-                ) {
-                    completion.finish(.failure(NativeTunnelError.networkSettingsTimedOut))
+                try outcome.get()
+                let committed = stateLock.withLock { () -> Bool in
+                    guard !stopped, networkSettingsGeneration == requestGeneration else {
+                        return false
+                    }
+                    appliedNetworkSettingsFingerprint = settingsFingerprint
+                    return true
                 }
-            }
-            try outcome.get()
-            guard stateLock.withLock({ !stopped && networkSettingsGeneration == requestGeneration }) else {
-                throw CancellationError()
+                guard committed else { throw CancellationError() }
+            } else {
+                guard stateLock.withLock({
+                    !stopped && networkSettingsGeneration == requestGeneration
+                }) else { throw CancellationError() }
+                if publishFacts {
+                    sharedStore.appendLog(
+                        "iOS tunnel network settings reused for NetworkPlan \(plan.generation)"
+                    )
+                }
             }
             await settingsGate.release()
         } catch {
@@ -1202,8 +1296,60 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             }
         }
     }
+    private static func ipPackets(_ packets: [Data], protocols: [NSNumber]) -> [Data] {
+        zip(packets, protocols).compactMap { pair in
+            pair.1.int32Value == AF_INET || pair.1.int32Value == AF_INET6 ? pair.0 : nil
+        }
+    }
 
-    private func readPackets() async -> ([Data], [NSNumber]) {
+    /// Stable inner-network identity. Outer carrier addresses are intentionally absent:
+    /// Wi-Fi/cellular changes must retain flows, while a changed address/route/DNS plan must
+    /// discard packets captured for the previous tunnel.
+    private func sessionContinuityKey(for plan: NativeNetworkPlan) -> String {
+        let addresses = plan.addresses.map {
+            "\($0.family):\($0.address)/\($0.prefixLen)@\($0.onLinkPrefixLen):\($0.gateway ?? "")"
+        }.sorted().joined(separator: ",")
+        let routes = plan.routes.map {
+            "\($0.cidr):\($0.gateway):\($0.metric)"
+        }.sorted().joined(separator: ",")
+        let dns = plan.dnsServers.map { "\($0.address):\($0.port)" }.joined(separator: ",")
+        let allowLAN = config.allowLAN || SettingsStore().load().allowLAN
+        return [
+            plan.familyMode, addresses, String(plan.mtu), routes, dns,
+            String(plan.fullTunnel), String(plan.killSwitch),
+            String(plan.allowIpv4Leak), String(plan.allowIpv6Leak),
+            config.dnsMode, config.excludeRoutes.sorted().joined(separator: ","),
+            String(allowLAN),
+        ].joined(separator: "|")
+    }
+
+    private func retainPendingUplink(_ packets: [Data], continuityKey: String) {
+        guard !packets.isEmpty else { return }
+        let result: MobilePacketHandoffBuffer.Retention? = stateLock.withLock {
+            guard !stopped else { return nil }
+            return pendingUplink.retain(packets, continuityKey: continuityKey)
+        }
+        guard detailedLogging, let result,
+              result.retained > 0 || result.dropped > 0 else { return }
+        sharedStore.appendLog(
+            "Uplink handoff retained \(result.retained) packet(s), dropped \(result.dropped)"
+        )
+    }
+
+    private func takePendingUplink(continuityKey: String) -> [Data] {
+        let packets = stateLock.withLock {
+            pendingUplink.drain(continuityKey: continuityKey)
+        }
+        if detailedLogging, !packets.isEmpty {
+            sharedStore.appendLog(
+                "Replaying \(packets.count) unaccepted uplink packet(s) on the new generation"
+            )
+        }
+        return packets
+    }
+
+
+    private func readPackets(continuityKey: String) async -> ([Data], [NSNumber]) {
         final class ReadBox: @unchecked Sendable {
             private let lock = NSLock()
             private var continuation: CheckedContinuation<([Data], [NSNumber]), Never>?
@@ -1217,14 +1363,17 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 }
             }
 
-            func finish(_ value: ([Data], [NSNumber])) {
+            @discardableResult
+            func finish(_ value: ([Data], [NSNumber])) -> Bool {
                 let pending = lock.withLock { () -> CheckedContinuation<([Data], [NSNumber]), Never>? in
                     guard !resumed else { return nil }
                     resumed = true
                     defer { continuation = nil }
                     return continuation
                 }
-                pending?.resume(returning: value)
+                guard let pending else { return false }
+                pending.resume(returning: value)
+                return true
             }
         }
 
@@ -1235,7 +1384,13 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     continuation.resume(returning: ([], []))
                     return
                 }
-                provider.packetFlow.readPackets { box.finish(($0, $1)) }
+                provider.packetFlow.readPackets { [weak self] packets, protocols in
+                    if !box.finish((packets, protocols)) {
+                        self?.retainPendingUplink(
+                            Self.ipPackets(packets, protocols: protocols),
+                            continuityKey: continuityKey)
+                    }
+                }
             }
         } onCancel: {
             box.finish(([], []))
