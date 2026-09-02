@@ -1,7 +1,7 @@
 # Qeli — connection diagnostics and error reference
 
-> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
-> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.1**;
+> latest published release **0.8.0**. There will be no public 0.7.17 release.
 > `qeli --version` reports the version of the binary actually installed.
 
 A detailed, practical guide: how to enable debug logging, how to read the log by

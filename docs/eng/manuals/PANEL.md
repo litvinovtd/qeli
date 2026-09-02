@@ -1,7 +1,7 @@
 # qeli web panel — installation & usage
 
-> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
-> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.1**;
+> latest published release **0.8.0**. There will be no public 0.7.17 release.
 > `qeli --version` reports the version of the binary actually installed.
 
 The daemon's built-in admin UI: profiles, users/groups, live clients, identity

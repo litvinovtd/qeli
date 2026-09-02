@@ -4,7 +4,7 @@
 >
 > ⚠️ **Бета — возможна нестабильность.** Стабильной станет линейка **1.0**.
 
-**Release candidate prepared · Кандидат подготовлен:** 2026-09-02
+**Released · Выпущен:** 2026-09-02
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Artifacts](#artifacts--артефакты)
@@ -184,6 +184,18 @@ policy, while Windows per-app routing preserves direct traffic outside selected 
 PMTU handling, configuration validation and recovery were strengthened around the new architecture;
 detailed individual changes remain in the changelog.
 
+### Benchmark
+
+The final laboratory comparison covered 34 VPN modes, with repeat runs for 25 masked modes.
+[Read the full English benchmark report](../docs/eng/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
+With Recordizer set to `required` and its runtime activation confirmed for all 12 Qeli profiles,
+the fast TCP group averaged **1767 Mbit/s at TCP P=4** and a **1365 Mbit/s UDP rep1 ceiling**;
+the heavyweight TCP group averaged **1274 / 1048 Mbit/s**, and the native UDP group
+**496 / 409 Mbit/s** for the same paired metrics. The result shows that qeli 0.8.0 preserves
+high throughput while applying its traffic-morphology layer across transports. It does not claim
+universal performance leadership or invisibility to DPI: the figures describe the tested lab,
+configurations and methodology.
+
 ### Upgrade order
 
 1. Upgrade the server and run `qeli check-config` before restarting it.
@@ -200,16 +212,16 @@ For all configuration fields see the [configuration reference](../docs/eng/manua
 
 ### Release verification
 
-The 2026-09-02 candidate was rebuilt after the break-before-make fix in Rust/native source commit
-`adba1826`. It passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
-Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
-and macOS universal2 and matched across independent A/B builds. The signed Android APK, both
-Windows executables, the ad-hoc signed universal macOS bundle, four OpenWrt clients and two
-Keenetic clients were then rebuilt from those inputs. The DEB contains the exact standalone Linux
-binary, and every payload is covered by the candidate's `SHA256SUMS`.
+The 2026-09-02 payload set incorporates the break-before-make fix from `adba1826` and was
+certified against application tree `20852c4a`. That exact tree passed the remote CI run and the
+full release preflight: Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
+Linux/DEB gates, plus the IPv6/roaming certification matrix. Native cores were rebuilt for Android
+arm64-v8a/x86_64, Windows x64 and macOS universal2 and matched across independent A/B builds.
+The signed Android APK, both Windows executables, the ad-hoc signed universal macOS bundle, four
+OpenWrt clients and two Keenetic clients were rebuilt from those inputs. The DEB contains the exact
+standalone Linux binary, and every published payload is covered by `SHA256SUMS`. Publication-only
+Markdown changes made after certification do not alter any executable payload.
 
-This local candidate has not been published. Release publication still requires final preflight
-for the committed source and a remote CI run covering that exact commit after it is pushed.
 Machine-readable certification retains unavailable physical roaming/IPv6 cases as an explicit
 advisory backlog; an executed failure remains blocking.
 
@@ -388,6 +400,18 @@ carrier больше не нужен, shaping работает с настоящ
 Маршрутизация, PMTU, проверка конфигурации и восстановление усилены вокруг новой архитектуры; полный
 перечень небольших изменений остаётся в changelog.
 
+### Бенчмарк
+
+В финальном лабораторном сравнении измерены 34 VPN-режима, а для 25 маскируемых режимов выполнены
+повторные прогоны. [Полный отчёт бенчмарка на русском](../docs/ru/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
+При политике Recordizer `required` и подтверждённой runtime-активации во всех 12 профилях Qeli
+группа быстрых TCP-профилей в среднем показала **1767 Mbit/s при TCP P=4** и
+**1365 Mbit/s UDP rep1 ceiling**; тяжёлые TCP-профили — **1274 / 1048 Mbit/s**, а нативные
+UDP-профили — **496 / 409 Mbit/s** для той же пары метрик. Итог показывает, что qeli 0.8.0
+сохраняет высокую пропускную способность при работе слоя изменения морфологии трафика на разных
+транспортах. Это не заявление об абсолютном лидерстве или невидимости для DPI: цифры относятся
+к протестированному стенду, конфигурациям и методике.
+
 ### Порядок обновления
 
 1. Сначала обновите сервер и перед рестартом выполните `qeli check-config`.
@@ -404,26 +428,25 @@ carrier больше не нужен, shaping работает с настоящ
 
 ### Проверка релиза
 
-Кандидат от 2026-09-02 полностью пересобран после исправления break-before-make в commit исходников
-Rust/native `adba1826`. Он прошёл release gates Rust workspace, CLI/configuration suites, dependency
-policy, jemalloc и portable Linux/DEB. Native cores пересобраны для Android arm64-v8a/x86_64,
-Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. После этого заново собраны
+Набор файлов от 2026-09-02 включает исправление break-before-make из `adba1826` и сертифицирован
+для дерева приложения `20852c4a`. Именно это дерево успешно прошло удалённый CI и полный release
+preflight: Rust workspace, CLI/configuration suites, dependency policy, jemalloc, portable Linux/DEB
+и матрицу сертификации IPv6/roaming. Native cores пересобраны для Android arm64-v8a/x86_64,
+Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. Из них заново собраны
 подписанный Android APK, оба Windows EXE, ad-hoc подписанный universal macOS bundle, четыре клиента
 OpenWrt и два клиента Keenetic. DEB содержит в точности тот же бинарник, что и standalone Linux,
-а каждый payload покрыт новым `SHA256SUMS` кандидата.
+а каждый публикуемый payload покрыт `SHA256SUMS`. Сделанные после сертификации публикационные
+изменения Markdown не меняют исполняемые файлы.
 
-Этот локальный кандидат ещё не опубликован. Для публикации нужны финальный preflight на
-закоммиченном дереве и удалённый CI для этого же commit после push. Машиночитаемая сертификация
-сохраняет недоступные физические roaming/IPv6-проверки как явный неблокирующий backlog;
-реально выполненная неуспешная проверка остаётся блокирующей.
+Машиночитаемая сертификация сохраняет недоступные физические roaming/IPv6-проверки как явный
+неблокирующий backlog; реально выполненная неуспешная проверка остаётся блокирующей.
 
 ---
 
 ## Artifacts · Артефакты
 
-`release/dist/v0.8.0` contains the freshly rebuilt local candidate: 17 payloads plus
-`SHA256SUMS`. The table identifies the exact files prepared on 2026-09-02. Каталог
-`release/dist/v0.8.0` содержит заново собранный локальный кандидат: 17 payload-файлов и
+The published qeli 0.8.0 set contains 17 payloads plus `SHA256SUMS`. The table identifies the
+exact files prepared on 2026-09-02. Опубликованный набор qeli 0.8.0 содержит 17 payload-файлов и
 `SHA256SUMS`. Таблица описывает точные файлы, подготовленные 2026-09-02.
 
 | Artifact | Size | SHA-256 (first 16) |
@@ -449,9 +472,10 @@ OpenWrt и два клиента Keenetic. DEB содержит в точнос�
 The Keenetic/OpenWrt aarch64 pair and the Keenetic/OpenWrt mipsel pair are intentionally
 byte-identical. Полностью совпадающие хеши этих пар являются ожидаемым результатом.
 
-### Candidate handling · Работа с кандидатом
+### Integrity and publication · Целостность и публикация
 
-Do not publish the candidate until final preflight and remote CI pass for the source being released.
-The payload rebuild and checksum regeneration are complete; no GitHub release has been created.
-Не публиковать кандидат до успешных финального preflight и удалённого CI для выпускаемого дерева.
-Пересборка payload-файлов и обновление контрольных сумм завершены; GitHub Release не создавался.
+The published payloads are byte-for-byte the files covered by this directory's `SHA256SUMS`; the
+application tree and artifacts passed remote CI, release preflight and certification before the
+publication-only metadata was finalised. Опубликованные payload-файлы побайтно соответствуют
+`SHA256SUMS`; дерево приложения и артефакты прошли удалённый CI, release preflight и сертификацию
+до финализации публикационных метаданных.

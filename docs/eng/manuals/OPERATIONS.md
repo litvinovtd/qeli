@@ -1,7 +1,7 @@
 # Qeli — operations: compatibility, upgrades, rollback, backup
 
-> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.0**;
-> latest published release **0.7.16**. There will be no public 0.7.17 release.
+> **Documentation status:** current development tree **0.8.0**; planned full-IPv6 release **0.8.1**;
+> latest published release **0.8.0**. There will be no public 0.7.17 release.
 > `qeli --version` reports the version of the binary actually installed.
 
 Installation is covered in [GETTING-STARTED.md](GETTING-STARTED.md), config keys in
@@ -137,7 +137,7 @@ Three caveats:
   `SHA256SUMS`:
 
   ```bash
-  gh attestation verify qeli_0.7.16_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.8.0_amd64.deb -R litvinovtd/qeli
   ```
 
   That verification binds the Linux package to this repository, workflow and tagged source
