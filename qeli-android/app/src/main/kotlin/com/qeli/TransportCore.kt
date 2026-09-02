@@ -304,7 +304,7 @@ internal class TransportCore private constructor(
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x0001000b
+        private const val COMPATIBILITY_ABI_VERSION = 0x0001000b
         private const val PATH_TRANSACTION_ABI_VERSION = 0x0001000e
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
@@ -338,9 +338,13 @@ internal class TransportCore private constructor(
             }
             val libraryVersion = nativeAbiVersion()
             check(
-                libraryVersion ushr 16 == ABI_VERSION ushr 16 &&
-                    (libraryVersion and 0xffff) >= (ABI_VERSION and 0xffff)
-            ) { "incompatible transport core ABI 0x${libraryVersion.toUInt().toString(16)}" }
+                libraryVersion ushr 16 == COMPATIBILITY_ABI_VERSION ushr 16 &&
+                    (libraryVersion and 0xffff) >= (COMPATIBILITY_ABI_VERSION and 0xffff)
+            ) {
+                "incompatible transport core ABI ${formatAbiVersion(libraryVersion)} " +
+                    "(0x${libraryVersion.toUInt().toString(16)}); compatibility floor " +
+                    formatAbiVersion(COMPATIBILITY_ABI_VERSION)
+            }
             val capabilities = nativeCoreCapabilities()
             check(capabilities and REQUIRED_CORE_CAPABILITIES == REQUIRED_CORE_CAPABILITIES) {
                 "transport core is missing required lifecycle capabilities"
@@ -366,6 +370,15 @@ internal class TransportCore private constructor(
         }
 
         fun abiVersion(): Int = nativeAbiVersion()
+
+        fun abiVersionDescription(): String {
+            val loaded = abiVersion()
+            return "${formatAbiVersion(loaded)}, compatibility floor " +
+                formatAbiVersion(COMPATIBILITY_ABI_VERSION)
+        }
+
+        internal fun formatAbiVersion(version: Int): String =
+            "${version ushr 16}.${version and 0xffff}"
 
         fun supportsPathTransactions(): Boolean =
             nativeAbiVersion() >= PATH_TRANSACTION_ABI_VERSION &&

@@ -1,7 +1,7 @@
 # qeli-win
 
 Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + WPF
-как platform/UI слой и общее Rust transport-ядро ABI 1.14 (compatibility floor 1.11). Rust владеет
+как platform/UI слой и общее Rust transport-ядро ABI 1.15 (compatibility floor 1.11). Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
 Wintun session/rings; C# управляет lifecycle/reconnect, созданием интерфейса,
 маршрутами/DNS/kill-switch, trust и UI. Только для per-app-профиля C# передаёт
@@ -18,7 +18,7 @@ handshake/framing. Внешний TLS и внутренний qeli AEAD сохр
 | Компонент            | Чем реализовано                                              |
 |----------------------|-------------------------------------------------------------|
 | TUN-устройство       | Wintun для `apps_mode=all`; WinDivert capture для `include`/`exclude` (обе пары DLL/драйверов вшиты в exe) |
-| Transport/crypto     | Rust `qeli.dll`, ABI 1.14 (`qeli_client_run` + native Wintun rings) |
+| Transport/crypto     | Rust `qeli.dll`, ABI 1.15 (`qeli_client_run` + native Wintun rings) |
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
@@ -29,7 +29,7 @@ handshake/framing. Внешний TLS и внутренний qeli AEAD сохр
 qeli-win/
 ├── QeliWin/
 │   ├── Model/         VpnConfig (flat-INI + qeli://), ProfileStore (profiles.json — внутреннее зашифрованное хранилище приложения)
-│   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.14 adapter
+│   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.15 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
 │   ├── MainWindow.*   интерфейс
 │   ├── InputDialog.cs модальный ввод

@@ -77,7 +77,7 @@ enum QeliPathCommandOutcome: Int32, Sendable {
 }
 
 final class QeliNativeTransport: @unchecked Sendable {
-    static let abiVersion: UInt32 = 0x0001_000b
+    static let compatibilityABIVersion: UInt32 = 0x0001_000b
     // ABI 1.14 is the first path-transaction revision that can report an incomplete platform
     // rollback separately from a clean rejection. Older cores stay on full reconnect.
     static let pathTransactionsABIVersion: UInt32 = 0x0001_000e
@@ -120,12 +120,26 @@ final class QeliNativeTransport: @unchecked Sendable {
     private var downlinkBytes = [UInt8](repeating: 0, count: batchBytes)
     private var downlinkLengths = [UInt32](repeating: 0, count: maxBatchPackets)
 
+    static func loadedABIVersion() -> UInt32 { qeli_client_abi_version() }
+
+    static func formatABIVersion(_ version: UInt32) -> String {
+        "\(version >> 16).\(version & 0xffff)"
+    }
+
+    static func loadedABIDescription() -> String {
+        let loaded = loadedABIVersion()
+        return "ABI \(formatABIVersion(loaded)), compatibility floor "
+            + formatABIVersion(compatibilityABIVersion)
+    }
+
     static func requireCompatible() throws {
-        let actual = qeli_client_abi_version()
-        guard actual >> 16 == abiVersion >> 16,
-              actual & 0xffff >= abiVersion & 0xffff else {
+        let actual = loadedABIVersion()
+        guard actual >> 16 == compatibilityABIVersion >> 16,
+              actual & 0xffff >= compatibilityABIVersion & 0xffff else {
+            let actualHex = String(format: "0x%08x", actual)
             throw QeliNativeError.operationFailed(
-                String(format: "transport ABI 0x%08x (need 0x%08x)", actual, abiVersion)
+                "transport ABI \(formatABIVersion(actual)) (\(actualHex)) is incompatible "
+                    + "with compatibility floor \(formatABIVersion(compatibilityABIVersion))"
             )
         }
         let required = coreNativeDataPlane | corePacketIO | coreUDPDiagnostic
@@ -139,7 +153,7 @@ final class QeliNativeTransport: @unchecked Sendable {
 
     init(config: String, roamingEnabled: Bool = false) throws {
         try Self.requireCompatible()
-        let actualABI = qeli_client_abi_version()
+        let actualABI = Self.loadedABIVersion()
         let coreCapabilities = qeli_client_core_capabilities()
         let transactions = roamingEnabled
             && actualABI >= Self.pathTransactionsABIVersion
@@ -202,7 +216,7 @@ final class QeliNativeTransport: @unchecked Sendable {
         try eventLock.withLock {
             var event = qeli_client_event_t()
             event.struct_size = UInt32(MemoryLayout<qeli_client_event_t>.size)
-            event.abi_version = Self.abiVersion
+            event.abi_version = Self.compatibilityABIVersion
             var payloadLength = 0
             let payloadCapacity = eventPayload.count
             let status = eventPayload.withUnsafeMutableBytes { raw in
@@ -366,7 +380,7 @@ final class QeliNativeTransport: @unchecked Sendable {
     func stats() throws -> QeliTransportStats {
         var value = qeli_client_stats_t()
         value.struct_size = UInt32(MemoryLayout<qeli_client_stats_t>.size)
-        value.abi_version = Self.abiVersion
+        value.abi_version = Self.compatibilityABIVersion
         try check(qeli_client_stats(handle, &value), "stats")
         return QeliTransportStats(
             state: value.state,

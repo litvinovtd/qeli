@@ -10,7 +10,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_000b;
+    internal const uint CompatibilityAbiVersion = 0x0001_000b;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -245,14 +245,27 @@ internal static unsafe class NativeTransportCore
 
     internal static uint LoadedAbiVersion() => qeli_client_abi_version();
 
+    internal static string FormatAbiVersion(uint version) =>
+        $"{version >> 16}.{version & 0xffff}";
+
+    internal static string LoadedAbiDescription()
+    {
+        uint loaded = LoadedAbiVersion();
+        return $"ABI {FormatAbiVersion(loaded)}, compatibility floor " +
+            FormatAbiVersion(CompatibilityAbiVersion);
+    }
+
     internal static void RequireCompatible(bool tunFdOwnership = false, bool wintunOwnership = false)
     {
         if (tunFdOwnership && wintunOwnership)
             throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
         uint actual = LoadedAbiVersion();
-        if ((actual >> 16) != (AbiVersion >> 16) || (actual & 0xffff) < (AbiVersion & 0xffff))
+        if ((actual >> 16) != (CompatibilityAbiVersion >> 16) ||
+            (actual & 0xffff) < (CompatibilityAbiVersion & 0xffff))
             throw new InvalidOperationException(
-                $"native transport ABI 0x{actual:x8} is incompatible with required 0x{AbiVersion:x8}");
+                $"native transport ABI {FormatAbiVersion(actual)} (0x{actual:x8}) is incompatible " +
+                $"with compatibility floor {FormatAbiVersion(CompatibilityAbiVersion)} " +
+                $"(0x{CompatibilityAbiVersion:x8})");
         ulong capabilities = qeli_client_core_capabilities();
         ulong tunCapability = tunFdOwnership ? CoreTunFdOwnership
             : wintunOwnership ? CoreWintunIo
@@ -402,7 +415,10 @@ internal static unsafe class NativeTransportCore
 
     internal static NativeEvent? PollEvent(ulong handle, byte[] payload)
     {
-        EventHeader header = new() { StructSize = (uint)sizeof(EventHeader), AbiVersion = AbiVersion };
+        EventHeader header = new()
+        {
+            StructSize = (uint)sizeof(EventHeader), AbiVersion = CompatibilityAbiVersion
+        };
         fixed (byte* payloadPointer = payload)
         {
             int rc = qeli_client_poll_event(handle, &header, payloadPointer,
@@ -444,7 +460,10 @@ internal static unsafe class NativeTransportCore
 
     internal static NativeStats Stats(ulong handle)
     {
-        StatsHeader stats = new() { StructSize = (uint)sizeof(StatsHeader), AbiVersion = AbiVersion };
+        StatsHeader stats = new()
+        {
+            StructSize = (uint)sizeof(StatsHeader), AbiVersion = CompatibilityAbiVersion
+        };
         Check(qeli_client_stats(handle, &stats), "qeli_client_stats");
         return new NativeStats(stats.State, stats.TxPackets, stats.TxBytes, stats.RxPackets,
             stats.RxBytes, stats.Reconnects, stats.UptimeMs, stats.UdpKernelDrops,

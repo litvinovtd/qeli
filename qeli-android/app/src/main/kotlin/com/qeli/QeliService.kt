@@ -1004,9 +1004,8 @@ class VpnServiceImpl : VpnService() {
         }
         transportCore?.let { core ->
             debugLog(
-                "Shared native transport active: ABI 0x" +
-                    TransportCore.abiVersion().toUInt().toString(16) +
-                    ", state=${core.state()}, lifecycle events drained"
+                "Shared native transport active: ABI ${TransportCore.abiVersionDescription()}, " +
+                    "state=${core.state()}, lifecycle events drained"
             )
         }
         if (transportCore?.pathTransactionsEnabled == true) {

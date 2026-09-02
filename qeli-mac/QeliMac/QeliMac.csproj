@@ -63,7 +63,8 @@
                       Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 
-  <!-- Native whole-client Rust core (transport ABI 1.11 plus realtls C ABI). A
+  <!-- Native whole-client Rust core (current ABI 1.15 with compatibility floor 1.11,
+       plus realtls C ABI). A
        universal (arm64+x86_64) dylib cross-built by build_dylib.sh, copied next
        to QeliMac so DllImport("qeli") resolves it inside the .app bundle. The
        Condition lets the project build for dev before the dylib is produced. -->

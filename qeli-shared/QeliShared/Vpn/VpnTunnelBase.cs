@@ -11,7 +11,8 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.11 Rust transport.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.15 Rust transport,
+/// using the stable ABI 1.11 compatibility floor.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
 /// authenticated NetworkPlan, creates the platform Wintun interface or transfers a Unix TUN
 /// descriptor, and raises events for the UI.
@@ -1524,10 +1525,8 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string tunnelAddresses = _persistedTunnelAddresses ?? _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(tunnelAddresses));
-                            uint loadedAbi = NativeTransportCore.LoadedAbiVersion();
                             Log($"TUN ready; Rust owns the complete transport data plane " +
-                                $"(ABI {loadedAbi >> 16}.{loadedAbi & 0xffff}, compatibility floor " +
-                                $"{NativeTransportCore.AbiVersion >> 16}.{NativeTransportCore.AbiVersion & 0xffff})");
+                                $"({NativeTransportCore.LoadedAbiDescription()})");
                             break;
 
                         case NativeTransportCore.EventNotice:
