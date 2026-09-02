@@ -431,7 +431,9 @@ public partial class MainWindow : Window
     }
 
     private void OnLog(string line) =>
-        Dispatcher.Invoke(() =>
+        // Logging must never block network setup. Large route_file imports used to perform
+        // one synchronous UI round-trip per route, freezing both Connect and Disconnect.
+        Dispatcher.BeginInvoke(() =>
         {
             // A line belongs to the RUNNING profile (its reconnect loop is what emits them);
             // when nothing is running it belongs to the selected profile. The stamp shape

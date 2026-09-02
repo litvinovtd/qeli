@@ -166,6 +166,16 @@ final class ConfigHardeningTests: XCTestCase {
         XCTAssertEqual(thrice.mtu, 1200)
     }
 
+    func testRepeatedRouteFilesAreAdditiveAndSurviveRoundTrip() throws {
+        let config = try VPNConfig.fromINI(ini(
+            "route_file = /tmp/cidrs.txt", "route_file = /tmp/openvpn.txt"))
+        XCTAssertEqual(config.routeFiles, ["/tmp/cidrs.txt", "/tmp/openvpn.txt"])
+        XCTAssertFalse(config.duplicateKeys.contains("qeli.route_file"))
+
+        let roundTrip = try VPNConfig.fromINI(config.toINI())
+        XCTAssertEqual(roundTrip.routeFiles, config.routeFiles)
+    }
+
     /// A boolean nobody could parse must not read as `false`.
     ///
     /// Every unknown value used to be falsey, so `bind_static = ture` silently dropped the

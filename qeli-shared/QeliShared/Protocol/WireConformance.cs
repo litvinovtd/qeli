@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Qeli.Shared.Crypto;
+using Qeli.Shared.Vpn;
 
 namespace Qeli.Shared.Protocol;
 
@@ -261,6 +262,39 @@ public static class WireConformance
         check("ini-dups: recorded once, last value still wins", dupOnce);
         check("ini-dups: a clean config records nothing", cleanQuiet);
 
+        // route_file is deliberately repeatable: each occurrence contributes one desktop
+        // source and a save/load round-trip must preserve their declaration order.
+        var routeSources = Ini(
+            @"route_file = C:\qeli\cidrs.txt",
+            @"route_file = C:\qeli\openvpn.txt");
+        bool routeSourcesAccepted = routeSources.RouteFilePaths.SequenceEqual(new[]
+            { @"C:\qeli\cidrs.txt", @"C:\qeli\openvpn.txt" })
+            && !routeSources.DuplicateKeys.Contains("route_file");
+        var routeSourcesRoundTrip = Model.VpnConfig.FromIni(routeSources.ToIni());
+        check("route_file: repeated keys are additive and ordered", routeSourcesAccepted);
+        check("route_file: repeated keys survive INI round-trip",
+            routeSourcesRoundTrip.RouteFilePaths.SequenceEqual(routeSources.RouteFilePaths));
+
+        IReadOnlyList<string> parsedRoutes = RouteFileParser.ParseLines(new[]
+        {
+            "10.20.1.9/16 # canonicalized CIDR",
+            "route 172.16.9.7 255.255.0.0 vpn_gateway 10",
+            "route-ipv6 2001:db8:42:ffff::1/48",
+            "route 192.0.2.7",
+        }, "route-fixture");
+        check("route_file: CIDR and OpenVPN formats parse and canonicalize",
+            parsedRoutes.SequenceEqual(new[]
+            {
+                "10.20.0.0/16", "172.16.0.0/16", "2001:db8:42::/48", "192.0.2.7/32"
+            }));
+        bool malformedRouteRefused = false;
+        try { RouteFileParser.ParseLines(new[] { "route 10.0.0.0 255.0.255.0" }, "bad-routes"); }
+        catch (InvalidDataException e)
+        {
+            malformedRouteRefused = e.Message.Contains("bad-routes:1");
+        }
+        check("route_file: malformed netmask fails closed with source line", malformedRouteRefused);
+
         // A number nobody could parse must not become a default in silence. `server =
         // host:notnum` became `host:443` — a DIFFERENT server — with nothing reported, the same
         // failure mode the boolean handling already fixed. (Audit 2026-08-01, §P2.)
@@ -305,6 +339,10 @@ public static class WireConformance
         var outOfRange = Ini("lport = 99999", "heartbeat_interval = -5");
         bool rangedRecorded = outOfRange.UnparsedNumericKeys.Contains("lport")
             && outOfRange.UnparsedNumericKeys.Contains("heartbeat_interval");
+        var automaticLocalPort = Ini("lport = 0");
+        check("ini-nums: explicit lport zero means automatic/ephemeral",
+            automaticLocalPort.LocalPort == 0
+            && !automaticLocalPort.UnparsedNumericKeys.Contains("lport"));
         bool rangeRefused = false;
         try { outOfRange.Validate(); }
         catch (ArgumentException e) { rangeRefused = e.Message.Contains("lport"); }

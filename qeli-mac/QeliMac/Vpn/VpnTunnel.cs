@@ -42,8 +42,10 @@ public sealed partial class VpnTunnel : VpnTunnelBase
     }
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
-        IReadOnlyList<IPAddress> carrierCandidates)
+        IReadOnlyList<IPAddress> carrierCandidates,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
         // the same client IP can arrive with different routes, DNS, prefix or MTU.
         if (ReusePersistedTun(config, session, serverIp))
@@ -159,9 +161,12 @@ public sealed partial class VpnTunnel : VpnTunnelBase
 
         var connectedPrefixes = ConnectedTunnelPrefixes(session);
         foreach (var cidr in connectedPrefixes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!_net.AddRoute(cidr, dev))
                 throw new InvalidOperationException(
                     $"connected tunnel prefix {cidr} was not applied");
+        }
 
         if (config.IsFullTunnel)
         {
@@ -181,29 +186,38 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         }
         else if (!session.PlanIncludesClientRoutes)
         {
-            foreach (var r in config.IncludeRoutes) _net.AddRoute(r, dev);
+            foreach (var r in config.IncludeRoutes)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_net.AddRoute(r, dev))
+                    throw new InvalidOperationException($"include route {r} was not applied");
+            }
         }
         if (!config.IsFullTunnel)
-            foreach (var r in EffectiveRouteFileRoutes(session))
-                _net.AddRoute(r, dev);  // OpenVPN route-file
+            ApplyRouteFileRoutes(session, dev, cancellationToken);
 
         // Subnets the server advertised (`route = …` on the profile / per-user) are a
         // specific, explicit admin decision — always honoured, like OpenVPN's
         // `push "route …"`. Until 0.7.12 these sat behind RouteLocalNetworks, so a
         // correctly configured route was silently dropped on every default client.
-        ApplyPushedRoutes(session.PlannedRoutes, dev, connectedPrefixes);
+        ApplyPushedRoutes(session.PlannedRoutes, dev, connectedPrefixes, cancellationToken);
 
         // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
         // default because it would hijack the machine's own LAN (printers, NAS, router).
         if (config.RouteLocalNetworks && !session.PlanIncludesClientRoutes)
         {
             foreach (var r in new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" })
-                _net.AddRoute(r, dev);
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_net.AddRoute(r, dev))
+                    throw new InvalidOperationException($"route_local route {r} was not applied");
+            }
             Log("Routing local networks (RFC1918 blanket) through the tunnel");
         }
 
         foreach (string route in localCaptureRoutes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!_net.AddRoute(route, dev))
                 throw new InvalidOperationException(
                     $"route_local connected-prefix override {route} was not applied");
@@ -338,13 +352,29 @@ public sealed partial class VpnTunnel : VpnTunnelBase
                 (string.IsNullOrWhiteSpace(stderr) ? stdout : stderr));
     }
 
+    private void ApplyRouteFileRoutes(Session session, string dev,
+        CancellationToken cancellationToken)
+    {
+        int installed = 0;
+        foreach (string route in EffectiveRouteFileRoutes(session))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_net!.AddRoute(route, dev, logSuccess: false))
+                throw new InvalidOperationException($"route_file route {route} was not applied");
+            installed++;
+        }
+        if (installed > 0)
+            Log($"route_file: installed {installed} unique route(s) via the tunnel interface");
+    }
+
     private void ApplyPushedRoutes(IReadOnlyList<PlannedRoute> routes, string dev,
-        IReadOnlyList<string> alreadyApplied)
+        IReadOnlyList<string> alreadyApplied, CancellationToken cancellationToken)
     {
         if (routes.Count == 0) return;
         var seen = new HashSet<string>(alreadyApplied, StringComparer.OrdinalIgnoreCase);
         foreach (var route in routes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!seen.Add(route.Cidr)) continue;
             // Desktop routes are interface-scoped, so next-hop/metric are diagnostic only.
             string got = route.Cidr

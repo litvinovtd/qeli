@@ -186,6 +186,11 @@ struct VPNConfig: Codable, Equatable, Sendable {
     var appsMode = "all"
     var apps: [String] = []
 
+    /// Desktop-only route sources are preserved as an ordered list because `route_file` is
+    /// deliberately repeatable. iOS never opens these host paths; it only keeps a portable
+    /// desktop profile lossless while it is viewed or edited here.
+    var routeFiles: [String] = []
+
     /// `[qeli]` keys accepted but not modelled (``carriedINIKeys``), kept verbatim so a save
     /// does not delete them. Written back by ``toINI()`` after the modelled keys.
     var carriedKeys: [String: String] = [:]
@@ -338,7 +343,8 @@ struct VPNConfig: Codable, Equatable, Sendable {
             ("include", includeRoutes),
             ("exclude", excludeRoutes),
             ("dns", dnsServers),
-            ("apps", apps)
+            ("apps", apps),
+            ("route_file", routeFiles)
         ]
         for (field, values) in listFields where values.contains(where: Self.containsForbiddenINICharacters) {
             throw VPNConfigError.invalid("\(field) contains a forbidden line break or NUL character")
@@ -553,7 +559,8 @@ struct VPNConfig: Codable, Equatable, Sendable {
 
     static func fromINI(_ text: String) throws -> VPNConfig {
         var dupKeys: [String] = []
-        let sections = parseINI(text, duplicates: &dupKeys)
+        var repeatedKeys: [String: [String]] = [:]
+        let sections = parseINI(text, duplicates: &dupKeys, repeatedKeys: &repeatedKeys)
         guard let qeli = sections["qeli"] else {
             throw VPNConfigError.invalid("config is missing [qeli] section")
         }
@@ -709,14 +716,18 @@ struct VPNConfig: Codable, Equatable, Sendable {
         // (Audit 2026-08-02, §10.)
         config.appsMode = qeli["apps_mode"]?.lowercased() ?? "all"
         config.apps = list(qeli["apps"])
+        config.routeFiles = repeatedKeys["qeli.route_file"] ?? []
         config.unparsedBooleanKeys = badBools
         config.duplicateKeys = dupKeys
         config.unparsedNumericKeys = badNums
         config.unknownKeys = qeli.keys
             .filter { !Self.knownINIKeys.contains($0.lowercased()) }
             .sorted()
-        // Accepted but not modelled — kept so saving does not delete them.
-        config.carriedKeys = qeli.filter { Self.carriedINIKeys.contains($0.key.lowercased()) }
+        // Accepted but not modelled — kept so saving does not delete them. route_file is
+        // stored separately because it is the one deliberately repeatable key.
+        config.carriedKeys = qeli.filter {
+            Self.carriedINIKeys.contains($0.key.lowercased()) && $0.key.lowercased() != "route_file"
+        }
         return config
     }
 
@@ -873,6 +884,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         if reconnectBaseDelaySeconds != 1 { lines.append("reconnect_base_delay = \(reconnectBaseDelaySeconds)") }
         if reconnectMaxDelaySeconds != 60 { lines.append("reconnect_max_delay = \(reconnectMaxDelaySeconds)") }
         lines.append("timeout = \(connectionTimeoutSeconds)")
+        for path in routeFiles { lines.append("route_file = \(path)") }
         // Re-emit the keys this port accepts but does not model, verbatim and in a stable
         // order. Without this, opening a CLI profile here and saving it deleted its hooks
         // (`post_up`/`post_down`), socket policy and routing policy — silently, and as
@@ -925,7 +937,8 @@ struct VPNConfig: Codable, Equatable, Sendable {
     }
 
     private static func parseINI(
-        _ text: String, duplicates: inout [String]
+        _ text: String, duplicates: inout [String],
+        repeatedKeys: inout [String: [String]]
     ) -> [String: [String: String]] {
         var result: [String: [String: String]] = [:]
         var section: String?
@@ -948,6 +961,13 @@ struct VPNConfig: Codable, Equatable, Sendable {
                 // Keep LAST-wins, so a file that never had a duplicate parses exactly as it did
                 // before, and record the ambiguity for validate() to refuse.
                 let qualified = "\(section).\(key)"
+                if qualified == "qeli.route_file" {
+                    if !value.isEmpty {
+                        repeatedKeys[qualified, default: []].append(value)
+                    }
+                    result[section, default: [:]][key] = value
+                    continue
+                }
                 if result[section, default: [:]][key] != nil, !duplicates.contains(qualified) {
                     duplicates.append(qualified)
                 }

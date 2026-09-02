@@ -315,8 +315,10 @@ public sealed class VpnTunnel : VpnTunnelBase
     }
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp,
-        IReadOnlyList<IPAddress> carrierCandidates)
+        IReadOnlyList<IPAddress> carrierCandidates,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var assigned = session.NetworkAddresses;
         // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
         // the same client IP can arrive with different routes, DNS, prefix or MTU.
@@ -382,6 +384,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                 physicalLocalRoutes:
                     RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes());
             adapter.Open();
+            cancellationToken.ThrowIfCancellationRequested();
             adapter.SetTunnelUp(true);
             _tun = adapter;
             Log($"Per-app split tunnel ACTIVE: mode={config.AppsMode}, apps={config.Apps.Count}; "
@@ -450,9 +453,12 @@ public sealed class VpnTunnel : VpnTunnelBase
             _net.SetAddress(alias, address.Address, address.PrefixLength);
         var connectedPrefixes = ConnectedTunnelPrefixes(session);
         foreach (var cidr in connectedPrefixes)
-            if (!_net.AddRoute(cidr, session.ClientIp, tunIndex))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_net.AddOnLinkRoute(cidr, session.ClientIp, tunIndex))
                 throw new InvalidOperationException(
                     $"connected tunnel prefix {cidr} was not applied");
+        }
         int mtu = EffectiveMtu(config.Mtu, session.PushedMtu);  // explicit > pushed > 1400
         Log($"TUN MTU: {mtu}");
         _net.SetMtu(alias, mtu,
@@ -492,7 +498,7 @@ public sealed class VpnTunnel : VpnTunnelBase
             var ipv4 = assigned.FirstOrDefault(address => address.Family == "ipv4");
             var ipv6 = assigned.FirstOrDefault(address => address.Family == "ipv6");
             if (ipv4 != null)
-                _net.SetFullTunnelRoutes(ipv4.Address, tunIndex);
+                _net.SetFullTunnelRoutes(TunnelGatewayForRoute(session, "0.0.0.0/0"), tunIndex);
             else if (!session.AllowIpv4Leak)
             {
                 const string sink = "169.254.71.1";
@@ -506,30 +512,39 @@ public sealed class VpnTunnel : VpnTunnelBase
         }
         else if (!session.PlanIncludesClientRoutes)
         {
-            foreach (var r in config.IncludeRoutes) _net.AddRoute(r, session.ClientIp, tunIndex);
+            foreach (var r in config.IncludeRoutes)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_net.AddRoute(r, TunnelGatewayForRoute(session, r), tunIndex))
+                    throw new InvalidOperationException($"include route {r} was not applied");
+            }
         }
         if (!config.IsFullTunnel)
-            foreach (var r in EffectiveRouteFileRoutes(session))
-                _net.AddRoute(r, session.ClientIp, tunIndex);  // OpenVPN route-file
+            ApplyRouteFileRoutes(session, tunIndex, cancellationToken);
 
         // Subnets the server advertised (`route = …` on the profile / per-user) are a
         // specific, explicit admin decision — always honoured, like OpenVPN's
         // `push "route …"`. Until 0.7.12 these sat behind RouteLocalNetworks, so a
         // correctly configured route was silently dropped on every default client.
-        ApplyPushedRoutes(session.PlannedRoutes, session.ClientIp, tunIndex, connectedPrefixes);
+        ApplyPushedRoutes(session, tunIndex, connectedPrefixes, cancellationToken);
 
         // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
         // default because it would hijack the machine's own LAN (printers, NAS, router).
         if (config.RouteLocalNetworks && !session.PlanIncludesClientRoutes)
         {
             foreach (var r in new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" })
-                _net.AddRoute(r, session.ClientIp, tunIndex);
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_net.AddRoute(r, TunnelGatewayForRoute(session, r), tunIndex))
+                    throw new InvalidOperationException($"route_local route {r} was not applied");
+            }
             Log("Routing local networks (RFC1918 blanket) through the tunnel");
         }
 
         foreach (string route in localCaptureRoutes)
         {
-            if (!_net.AddRoute(route, session.ClientIp, tunIndex))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_net.AddRoute(route, TunnelGatewayForRoute(session, route), tunIndex))
                 throw new InvalidOperationException(
                     $"route_local connected-prefix override {route} was not applied");
         }
@@ -688,25 +703,56 @@ public sealed class VpnTunnel : VpnTunnelBase
         _ipv6ForwardingWasOn = null;
     }
 
-    private void ApplyPushedRoutes(IReadOnlyList<PlannedRoute> routes, string clientIp,
-        uint tunIndex, IReadOnlyList<string> alreadyApplied)
+    private void ApplyRouteFileRoutes(Session session, uint tunIndex,
+        CancellationToken cancellationToken)
     {
+        int installed = 0;
+        foreach (string route in EffectiveRouteFileRoutes(session))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_net!.AddRoute(route, TunnelGatewayForRoute(session, route), tunIndex,
+                logSuccess: false))
+                throw new InvalidOperationException($"route_file route {route} was not applied");
+            installed++;
+        }
+        if (installed > 0)
+            Log($"route_file: installed {installed} unique route(s) via the tunnel gateway");
+    }
+
+    private void ApplyPushedRoutes(Session session, uint tunIndex,
+        IReadOnlyList<string> alreadyApplied, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PlannedRoute> routes = session.PlannedRoutes;
         if (routes.Count == 0) return;
         var seen = new HashSet<string>(alreadyApplied, StringComparer.OrdinalIgnoreCase);
         foreach (var route in routes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!seen.Add(route.Cidr)) continue;
-            // Desktop routes are interface-scoped, so next-hop/metric are diagnostic only.
             string got = route.Cidr
                 + (route.Gateway.Length > 0 ? $" gateway={route.Gateway}" : "")
                 + (route.Metric != 0 ? $" metric={route.Metric}" : "");
-            if (!_net!.AddRoute(route.Cidr, clientIp, tunIndex))
+            string gateway = TunnelGatewayForRoute(session, route.Cidr, route.Gateway);
+            if (!_net!.AddRoute(route.Cidr, gateway, tunIndex))
                 throw new InvalidOperationException(
                     $"canonical NetworkPlan route {route.Cidr} was not applied");
-            Log(route.Gateway.Length > 0 || route.Metric != 0
-                ? $"pushed route: {got} -> APPLIED via the tunnel interface (next-hop/metric not settable here)"
-                : $"pushed route: {got} -> APPLIED via the tunnel interface");
+            Log(route.Metric != 0
+                ? $"pushed route: {got} -> APPLIED via tunnel gateway {gateway} (metric not settable here)"
+                : $"pushed route: {got} -> APPLIED via tunnel gateway {gateway}");
         }
+    }
+
+    private static string TunnelGatewayForRoute(Session session, string cidr,
+        string? requestedGateway = null)
+    {
+        bool ipv6 = cidr.Contains(':');
+        if (!string.IsNullOrWhiteSpace(requestedGateway)) return requestedGateway;
+        AssignedAddress? assigned = session.NetworkAddresses.FirstOrDefault(address =>
+            address.Family.Equals(ipv6 ? "ipv6" : "ipv4", StringComparison.OrdinalIgnoreCase));
+        if (assigned == null || string.IsNullOrWhiteSpace(assigned.Gateway))
+            throw new InvalidOperationException(
+                $"no authenticated tunnel gateway for route {cidr}");
+        return assigned.Gateway;
     }
 
     private static IReadOnlyList<string> PushedRouteCidrs(IReadOnlyList<PlannedRoute> routes) =>

@@ -579,7 +579,7 @@ public sealed partial class NetworkConfigurator : IDisposable
         return false;
     }
 
-    public bool AddRoute(string cidr, string dev)
+    public bool AddRoute(string cidr, string dev, bool logSuccess = true)
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return false; }
@@ -596,7 +596,7 @@ public sealed partial class NetworkConfigurator : IDisposable
         OwnRoute(network, prefix, $"tunnel route {cidr}",
             () => Run("/sbin/route",
                 $"-n delete {family} -net {net} -interface {dev}", optional: true));
-        _log($"route {cidr} via tunnel");
+        if (logSuccess) _log($"route {cidr} via tunnel");
         return true;
     }
 

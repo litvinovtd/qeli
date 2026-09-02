@@ -103,10 +103,19 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public List<string> IncludeRoutes { get; init; } = new();
     public List<string> ExcludeRoutes { get; init; } = new();
     public bool RouteLocalNetworks { get; init; }
-    // Extra split-tunnel routes loaded from a FILE of CIDRs (one per line, '#'/';'
-    // comments allowed) — OpenVPN's route-include-from-file. Merged with IncludeRoutes at
-    // tunnel setup. Empty = none.
+    // Extra split-tunnel routes loaded from CIDR/OpenVPN route files. Repeating route_file
+    // is intentional: RouteFile keeps the first path for profile-store compatibility and
+    // AdditionalRouteFiles keeps the remaining paths in declaration order.
     public string? RouteFile { get; init; }
+    public List<string> AdditionalRouteFiles { get; init; } = new();
+    [JsonIgnore]
+    public IReadOnlyList<string> RouteFilePaths =>
+        (string.IsNullOrWhiteSpace(RouteFile)
+            ? AdditionalRouteFiles
+            : new[] { RouteFile }.Concat(AdditionalRouteFiles))
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
     // TUN interface routing metric (OpenVPN `route-metric` / a lower value = higher
     // priority). 0 = OS default. Applied to the tunnel adapter after addressing.
     public int InterfaceMetric { get; init; }
@@ -416,7 +425,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // ── preserved from `this` (no form control) ──
         Id = Id,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
-        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
+        RouteFile = RouteFile, AdditionalRouteFiles = AdditionalRouteFiles,
+        InterfaceMetric = InterfaceMetric, DevNode = DevNode,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
         Ipv6Policy = ipv6Policy ?? Ipv6Policy,
@@ -602,7 +612,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (AllowIpv4Leak) sb.AppendLine("allow_ipv4_leak = true");
         if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {IniSafe(LocalAddress)}");
         if (LocalPort > 0) sb.AppendLine($"lport = {LocalPort}");
-        if (!string.IsNullOrEmpty(RouteFile)) sb.AppendLine($"route_file = {IniSafe(RouteFile)}");
+        foreach (string routeFile in RouteFilePaths)
+            sb.AppendLine($"route_file = {IniSafe(routeFile)}");
         if (InterfaceMetric > 0) sb.AppendLine($"metric = {InterfaceMetric}");
         if (!string.IsNullOrEmpty(DevNode)) sb.AppendLine($"dev_node = {IniSafe(DevNode)}");
         // `dns` is the MODE, `dns_servers` is the resolver LIST — the split the key table in
@@ -787,6 +798,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
     {
         var q = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var dupKeys = new List<string>();
+        var routeFiles = new List<string>();
         string section = "";
         foreach (var raw in text.Replace("\r", "").Split('\n'))
         {
@@ -799,6 +811,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
             {
                 var iniKey = line[..eq].Trim();
                 var iniValue = line[(eq + 1)..].Trim();
+                // route_file is the sole repeatable flat-INI key. Each occurrence adds one
+                // source file; treating it as an ambiguous scalar made multi-file route sets
+                // impossible while the last-wins dictionary silently discarded earlier files.
+                if (iniKey.Equals("route_file", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (iniValue.Length > 0) routeFiles.Add(iniValue);
+                    q[iniKey] = iniValue;
+                    continue;
+                }
                 if (!q.TryAdd(iniKey, iniValue))
                 {
                     // Second occurrence: keep the map's LAST-wins behaviour, so a config that
@@ -1027,8 +1048,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
             AllowIpv6Leak = BoolAt("allow_ipv6_leak", false),
             AllowIpv4Leak = BoolAt("allow_ipv4_leak", false),
             LocalAddress = Get("local").Length > 0 ? Get("local") : null,
-            LocalPort = RangedNum("lport", 0, 1, 65535),
-            RouteFile = Get("route_file").Length > 0 ? Get("route_file") : null,
+            LocalPort = RangedNum("lport", 0, 0, 65535),
+            RouteFile = routeFiles.Count > 0 ? routeFiles[0] : null,
+            AdditionalRouteFiles = routeFiles.Skip(1).ToList(),
             InterfaceMetric = RangedNum("metric", 0, 1, int.MaxValue),
             // Accept the Rust/Android client's `dev` key as an alias for `dev_node` so a
             // shared flat-INI config's TUN interface name transfers across clients.

@@ -495,7 +495,8 @@ class ConfigImportRangesTest {
             ini(
                 "timeout = 47", "padding_min = 7", "heartbeat_jitter = 2345",
                 "shaping = true", "local = 192.0.2.7", "lport = 34567",
-                "route_file = C:/routes.txt", "kill_switch = true",
+                "route_file = C:/cidrs.txt", "route_file = C:/openvpn.txt",
+                "kill_switch = true",
                 "allow_unpinned_tofu = true",
             )
         )
@@ -506,9 +507,11 @@ class ConfigImportRangesTest {
         assertEquals(2345L, back.heartbeatJitterMs)
         assertTrue(back.shapingEnabled)
         assertTrue(back.allowUnpinnedTofu)
-        for (key in listOf("local", "lport", "route_file")) {
+        for (key in listOf("local", "lport")) {
             assertEquals(config.carriedKeys[key], back.carriedKeys[key])
         }
+        assertEquals(listOf("C:/cidrs.txt", "C:/openvpn.txt"), back.routeFiles)
+        assertFalse(back.duplicateKeys.contains("qeli.route_file"))
         assertTrue(output.contains("gateway = true"))
         assertTrue(output.contains("padding = true"))
         assertTrue(output.contains("shaping = true"))

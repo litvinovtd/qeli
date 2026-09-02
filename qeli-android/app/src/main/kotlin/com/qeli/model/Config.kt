@@ -139,6 +139,10 @@ data class VpnConfig(
     val loggingLevel: String? = null,
     val loggingFile: String? = null,
     val loggingTimeFormat: String? = null,
+    // Desktop-only route sources are still part of the portable INI contract. Keep every
+    // repeated occurrence so editing a desktop profile on Android cannot discard all but the
+    // last file. Android does not open these host paths itself.
+    val routeFiles: List<String> = emptyList(),
     /**
      * `[qeli]` keys this Kotlin model accepts but does not edit — transport-owned or foreign
      * platform settings in [KNOWN_INI_KEYS] (`post_up`, `exit_node`, `gateway_nat`, …).
@@ -359,6 +363,7 @@ data class VpnConfig(
         for (v in dnsServers) scalar("dns", v)
         for (v in apps) scalar("apps", v)
         scalar("logging.level", loggingLevel); scalar("logging.file", loggingFile)
+        for (v in routeFiles) scalar("route_file", v)
         scalar("logging.time_format", loggingTimeFormat)
         // Carried keys are written back verbatim, so they get the same INI-forgery gate as
         // everything else this port emits — a `post_up` with an embedded newline would
@@ -594,6 +599,7 @@ data class VpnConfig(
         append("shaping_max_size = ").append(shapingMaxSize).append('\n')
         append("shaping_stealth = ").append(shapingStealth).append('\n')
         append("shaping_stealth_mbps = ").append(shapingStealthRateMbps).append('\n')
+        for (path in routeFiles) append("route_file = ").append(path).append('\n')
         // Re-emit the keys this port accepts but does not model, verbatim and in a stable
         // order. Without this, opening a CLI profile here and saving it deleted its hooks
         // (`post_up`/`post_down`), socket policy and routing policy — silently, and as
@@ -741,7 +747,8 @@ data class VpnConfig(
          */
         fun fromIni(text: String): VpnConfig {
             val dupKeys = mutableListOf<String>()
-            val ini = parseIni(text, dupKeys)
+            val repeatedKeys = linkedMapOf<String, MutableList<String>>()
+            val ini = parseIni(text, dupKeys, repeatedKeys)
             val q = ini["qeli"] ?: throw IllegalArgumentException("config: missing [qeli] section")
             val log = ini["logging"]
             val server = q["server"]?.takeIf { it.isNotBlank() }
@@ -886,12 +893,16 @@ data class VpnConfig(
                 loggingLevel = log?.get("level")?.takeIf { it.isNotEmpty() },
                 loggingFile = log?.get("file")?.takeIf { it.isNotEmpty() },
                 loggingTimeFormat = log?.get("time_format")?.takeIf { it.isNotEmpty() },
+                routeFiles = repeatedKeys["qeli.route_file"]?.toList() ?: emptyList(),
                 unparsedBooleanKeys = badBools.toList(),
                 duplicateKeys = dupKeys.toList(),
                 unparsedNumericKeys = badNums.toList(),
                 unknownKeys = q.keys.filter { it.lowercase() !in KNOWN_INI_KEYS }.sorted(),
-                // Accepted but not modelled — kept so saving does not delete them.
-                carriedKeys = q.filterKeys { it.lowercase() in CARRIED_INI_KEYS }
+                // Accepted but not modelled — kept so saving does not delete them. route_file
+                // is stored separately because it is the one deliberately repeatable key.
+                carriedKeys = q.filterKeys {
+                    it.lowercase() in CARRIED_INI_KEYS && it.lowercase() != "route_file"
+                }
             )
         }
 
@@ -1158,7 +1169,8 @@ data class VpnConfig(
 
         private fun parseIni(
             text: String,
-            duplicates: MutableList<String>? = null
+            duplicates: MutableList<String>? = null,
+            repeatedKeys: MutableMap<String, MutableList<String>>? = null,
         ): Map<String, MutableMap<String, String>> {
             val out = LinkedHashMap<String, MutableMap<String, String>>()
             var cur: MutableMap<String, String>? = null
@@ -1180,6 +1192,13 @@ data class VpnConfig(
                     // Keep LAST-wins, so a file that never had a duplicate parses exactly as it
                     // did before, and record the ambiguity for validate() to refuse.
                     val qualified = "$curName.$k"
+                    if (qualified == "qeli.route_file") {
+                        if (v.isNotEmpty()) {
+                            repeatedKeys?.getOrPut(qualified) { mutableListOf() }?.add(v)
+                        }
+                        cur?.put(k, v)
+                        continue
+                    }
                     if (cur?.put(k, v) != null && duplicates?.contains(qualified) == false) {
                         duplicates.add(qualified)
                     }

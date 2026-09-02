@@ -135,6 +135,7 @@ desktop-only; carrier source binding also applies to the Linux CLI):**
 - `lport = <port>` — bind the primary carrier socket to a fixed local source port (for firewall
   rules). Bonded TCP members keep `local`, but use ephemeral ports because simultaneous streams
   to the same server cannot share one TCP four-tuple.
+  An omitted value or explicit `lport = 0` selects the normal OS-assigned ephemeral port.
 - `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
 - `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority). Applied to
   **both IPv4 and IPv6** via the WinAPI `SetIpInterfaceEntry` (no `netsh`; falls back to `netsh` on failure).
@@ -142,6 +143,12 @@ desktop-only; carrier source binding also applies to the Linux CLI):**
   and silently ignores it): extra split-tunnel routes from a file of CIDRs (one per line,
   `#`/`;` comments), in addition to the profile's routes. On the Rust CLI use `include`/
   `exclude` directly in the config for the same effect.
+  The key may be repeated; all files are loaded in declaration order and duplicate networks are
+  removed. A source may contain either plain CIDRs or OpenVPN `route <network> <netmask>` /
+  `route-ipv6 <CIDR>` lines. Invalid or unreadable input aborts the connection instead of
+  silently omitting requested routes. On Windows, only the authenticated tunnel-pool prefix is
+  on-link; imported networks use the authenticated tunnel gateway, so they do not create a
+  broadcast `/32` for every imported subnet.
 The next two keys are **not** C#-only: the Rust CLI parses them too (there's a round-trip
 test), unlike the rest of this block.
 - `keepalive = <secs>` (default `60`) — TCP keepalive probe interval (seconds) on the carrier
@@ -191,8 +198,9 @@ local = 192.168.1.50
 metric = 10
 # Wintun adapter name (Windows)
 dev_node = QeliWork
-# extra CIDR routes from a file
+# extra routes from any number of files
 route_file = C:\qeli\routes.txt
+route_file = C:\qeli\openvpn-routes.txt
 # these subnets bypass the tunnel (go direct)
 exclude = 192.168.50.0/24, 10.20.0.0/16
 ```
@@ -202,6 +210,12 @@ exclude = 192.168.50.0/24, 10.20.0.0/16
 ```
 10.20.0.0/16      # office LAN
 192.0.2.0/24
+```
+OpenVPN route exports are accepted directly too:
+
+```text
+route 172.16.0.0 255.255.0.0 vpn_gateway
+route-ipv6 2001:db8:42::/48
 ```
 
 Keepalive, graceful FIN on disconnect, the amber connecting indicator, ISO-8601 log timestamps and
