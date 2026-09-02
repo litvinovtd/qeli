@@ -199,7 +199,7 @@ public sealed partial class NetworkConfigurator : IDisposable
             else if (line.StartsWith("flags:", StringComparison.Ordinal))
                 flags = line["flags:".Length..].Trim();
         }
-        if (destination == null) return null;
+        if (destination == null || IsKernelSynthesizedRoute(flags)) return null;
 
         int maxPrefix = requestedAddress.AddressFamily ==
             System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
@@ -240,6 +240,36 @@ public sealed partial class NetworkConfigurator : IDisposable
         return gateway != null && gateway.StartsWith("link#", StringComparison.Ordinal)
             ? new ExistingRoute(null, iface)
             : new ExistingRoute(gateway, iface);
+    }
+
+    /// <summary>
+    /// True when `route get` answered with an entry the KERNEL made up rather than one that
+    /// exists in the routing table.
+    ///
+    /// macOS `route -n get &lt;ip&gt;` never says "no route": for any reachable destination it
+    /// clones a host entry from the broader parent (the PRCLONING default) and prints it with
+    /// the parent's gateway and the HOST flag, even though `netstat -rn` lists nothing. Read
+    /// as a real /32 that answer made PinServerRoute believe the carrier pin was already in
+    /// place on EVERY macOS connect, so it installed nothing — and once the full-tunnel /1
+    /// halves went in, the server address resolved to utun and VerifyCarrierPath failed the
+    /// plan closed ("the encrypted carrier would loop back into itself").
+    ///
+    /// WASCLONED marks such a clone, LLINFO an ARP/ND cache entry and DYNAMIC an
+    /// ICMP-redirect entry: none is a route we may preserve or restore. CLONING/PRCLONING
+    /// mark a *parent* that may spawn clones and stay preservable.
+    /// </summary>
+    private static bool IsKernelSynthesizedRoute(string? flags)
+    {
+        if (flags == null) return false;
+        foreach (var flag in flags.Trim().Trim('<', '>').Split(','))
+            switch (flag.Trim())
+            {
+                case "WASCLONED":
+                case "LLINFO":
+                case "DYNAMIC":
+                    return true;
+            }
+        return false;
     }
 
     private static int? PrefixFromMask(string? mask, int maxPrefix)
@@ -479,16 +509,47 @@ public sealed partial class NetworkConfigurator : IDisposable
     public void SetMtu(string dev, int mtu) =>
         Run("/sbin/ifconfig", $"{dev} mtu {mtu}");
 
+    /// <summary>
+    /// Delete a route bound to <paramref name="dev"/>, treating a vanished interface as
+    /// success — the same "delete, or prove it is already absent" reconciliation the server
+    /// and roaming routes use.
+    ///
+    /// VpnTunnelBase disposes the utun BEFORE CleanupPlatform runs, and macOS purges every
+    /// route bound to an interface the instant that interface disappears, so the delete then
+    /// exits non-zero ("not in table") for a route that is already gone. Counting that as a
+    /// failed cleanup made Dispose report the whole tunnel route set as "Routes still owned
+    /// by Qeli", which escalated to "[SECURITY] terminal platform cleanup failed" and left
+    /// the next attempt unable to prepare a safe reconnect.
+    /// </summary>
+    private bool DeleteTunnelRoute(string family, string net, string dev) =>
+        Run("/sbin/route", $"-n delete {family} -net {net} -interface {dev}", optional: true)
+        || !InterfaceExists(dev);
+
+    /// <summary>An unreadable interface list returns true so ownership is retained and the
+    /// route is retried, rather than being silently declared clean.</summary>
+    private static bool InterfaceExists(string dev)
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                if (string.Equals(ni.Name, dev, StringComparison.Ordinal) ||
+                    string.Equals(ni.Id, dev, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+        catch { return true; }
+    }
+
     /// <summary>Override the default route via the tunnel using two /1 routes (WireGuard-style),
     /// which beat the existing default without deleting it.</summary>
     public void SetFullTunnelRoutes(string dev)
     {
         Run("/sbin/route", $"-n add -inet -net 0.0.0.0/1 -interface {dev}");
         OwnRoute(IPAddress.Any, 1, "full-tunnel route 0.0.0.0/1",
-            () => Run("/sbin/route", $"-n delete -inet -net 0.0.0.0/1 -interface {dev}", optional: true));
+            () => DeleteTunnelRoute("-inet", "0.0.0.0/1", dev));
         Run("/sbin/route", $"-n add -inet -net 128.0.0.0/1 -interface {dev}");
         OwnRoute(IPAddress.Parse("128.0.0.0"), 1, "full-tunnel route 128.0.0.0/1",
-            () => Run("/sbin/route", $"-n delete -inet -net 128.0.0.0/1 -interface {dev}", optional: true));
+            () => DeleteTunnelRoute("-inet", "128.0.0.0/1", dev));
         _log("Default route now via tunnel (0.0.0.0/1 + 128.0.0.0/1)");
     }
 
@@ -501,8 +562,7 @@ public sealed partial class NetworkConfigurator : IDisposable
             var (literal, prefix) = ParseCidr(net);
             string captured = net;
             OwnRoute(IPAddress.Parse(literal!), prefix, $"full-tunnel route {net}",
-                () => Run("/sbin/route",
-                    $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
+                () => DeleteTunnelRoute("-inet6", captured, dev));
         }
         _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
     }
@@ -529,8 +589,7 @@ public sealed partial class NetworkConfigurator : IDisposable
                 var (literal, prefix) = ParseCidr(net);
                 string captured = net;
                 OwnRoute(IPAddress.Parse(literal!), prefix, $"IPv6 capture route {net}",
-                    () => Run("/sbin/route",
-                        $"-n delete -inet6 -net {captured} -interface {dev}", optional: true));
+                    () => DeleteTunnelRoute("-inet6", captured, dev));
             }
         }
         _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 -alias", optional: true));
@@ -594,8 +653,7 @@ public sealed partial class NetworkConfigurator : IDisposable
             return false;
         }
         OwnRoute(network, prefix, $"tunnel route {cidr}",
-            () => Run("/sbin/route",
-                $"-n delete {family} -net {net} -interface {dev}", optional: true));
+            () => DeleteTunnelRoute(family, net, dev));
         _log($"route {cidr} via tunnel");
         return true;
     }
@@ -1003,10 +1061,35 @@ public sealed partial class NetworkConfigurator : IDisposable
         const string host = "destination: 203.0.113.7\n" +
                             "gateway: link#4\n" +
                             "interface: en0\n" +
-                            "flags: <UP,HOST,DONE,LLINFO>\n";
+                            "flags: <UP,HOST,DONE,STATIC>\n";
         var onLink = ParseExactRoute(host, IPAddress.Parse("203.0.113.7"), 32);
         check("macOS route parser preserves an exact on-link host route",
             onLink?.Gateway == null && onLink?.Interface == "en0");
+
+        // Verbatim `route -n get` output for a server reached through the ordinary default
+        // route: no such entry exists in the table, the kernel cloned it on demand. Reading
+        // it as a real /32 made PinServerRoute skip the carrier pin on every macOS connect.
+        const string cloned = "destination: 144.31.196.91\n" +
+                              "gateway: 192.168.1.1\n" +
+                              "interface: en0\n" +
+                              "flags: <UP,GATEWAY,HOST,DONE,WASCLONED,IFSCOPE,IFREF,GLOBAL>\n";
+        check("macOS route parser never mistakes a kernel-cloned answer for a pinned host route",
+            ParseExactRoute(cloned, IPAddress.Parse("144.31.196.91"), 32) == null);
+
+        const string arp = "destination: 203.0.113.7\n" +
+                           "gateway: link#4\n" +
+                           "interface: en0\n" +
+                           "flags: <UP,HOST,DONE,LLINFO,WASCLONED,IFREF>\n";
+        check("macOS route parser never mistakes an ARP cache entry for a pinned host route",
+            ParseExactRoute(arp, IPAddress.Parse("203.0.113.7"), 32) == null);
+
+        // A route that MAY spawn clones is still a real, preservable table entry; only a
+        // route that IS a clone is synthetic. Substring matching would confuse the two.
+        check("macOS route parser keeps preserving a cloning PARENT route",
+            !IsKernelSynthesizedRoute("<UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>")
+            && !IsKernelSynthesizedRoute("<UP,CLONING,STATIC,DONE>")
+            && IsKernelSynthesizedRoute("<UP,HOST,WASCLONED>")
+            && IsKernelSynthesizedRoute("<UP,GATEWAY,HOST,DYNAMIC,MODIFIED>"));
     }
 
     private static bool IsStrictIp(string s)
