@@ -1524,7 +1524,10 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string tunnelAddresses = _persistedTunnelAddresses ?? _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(tunnelAddresses));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI >= 1.11)");
+                            uint loadedAbi = NativeTransportCore.LoadedAbiVersion();
+                            Log($"TUN ready; Rust owns the complete transport data plane " +
+                                $"(ABI {loadedAbi >> 16}.{loadedAbi & 0xffff}, compatibility floor " +
+                                $"{NativeTransportCore.AbiVersion >> 16}.{NativeTransportCore.AbiVersion & 0xffff})");
                             break;
 
                         case NativeTransportCore.EventNotice:

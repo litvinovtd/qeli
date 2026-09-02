@@ -243,11 +243,13 @@ internal static unsafe class NativeTransportCore
         ulong candidateId, ulong requestSequence, int resultCode, byte* reason,
         nuint reasonLen);
 
+    internal static uint LoadedAbiVersion() => qeli_client_abi_version();
+
     internal static void RequireCompatible(bool tunFdOwnership = false, bool wintunOwnership = false)
     {
         if (tunFdOwnership && wintunOwnership)
             throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
-        uint actual = qeli_client_abi_version();
+        uint actual = LoadedAbiVersion();
         if ((actual >> 16) != (AbiVersion >> 16) || (actual & 0xffff) < (AbiVersion & 0xffff))
             throw new InvalidOperationException(
                 $"native transport ABI 0x{actual:x8} is incompatible with required 0x{AbiVersion:x8}");
