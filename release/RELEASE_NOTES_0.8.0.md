@@ -4,7 +4,7 @@
 >
 > ⚠️ **Бета — возможна нестабильность.** Стабильной станет линейка **1.0**.
 
-**Release candidate prepared · Кандидат подготовлен:** 2026-09-01
+**Release candidate prepared · Кандидат подготовлен:** 2026-09-02
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Artifacts](#artifacts--артефакты)
@@ -200,7 +200,7 @@ For all configuration fields see the [configuration reference](../docs/eng/manua
 
 ### Release verification
 
-The 2026-09-01 candidate was rebuilt after the break-before-make fix in Rust/native source commit
+The 2026-09-02 candidate was rebuilt after the break-before-make fix in Rust/native source commit
 `adba1826`. It passed the Rust workspace, CLI/configuration, dependency-policy, jemalloc and portable
 Linux/DEB gates. Native cores were rebuilt for Android arm64-v8a/x86_64, Windows x64
 and macOS universal2 and matched across independent A/B builds. The signed Android APK, both
@@ -404,7 +404,7 @@ carrier больше не нужен, shaping работает с настоящ
 
 ### Проверка релиза
 
-Кандидат от 2026-09-01 полностью пересобран после исправления break-before-make в commit исходников
+Кандидат от 2026-09-02 полностью пересобран после исправления break-before-make в commit исходников
 Rust/native `adba1826`. Он прошёл release gates Rust workspace, CLI/configuration suites, dependency
 policy, jemalloc и portable Linux/DEB. Native cores пересобраны для Android arm64-v8a/x86_64,
 Windows x64 и macOS universal2 и совпали в независимых A/B-сборках. После этого заново собраны
@@ -422,25 +422,25 @@ OpenWrt и два клиента Keenetic. DEB содержит в точнос�
 ## Artifacts · Артефакты
 
 `release/dist/v0.8.0` contains the freshly rebuilt local candidate: 17 payloads plus
-`SHA256SUMS`. The table identifies the exact files prepared on 2026-09-01. Каталог
+`SHA256SUMS`. The table identifies the exact files prepared on 2026-09-02. Каталог
 `release/dist/v0.8.0` содержит заново собранный локальный кандидат: 17 payload-файлов и
-`SHA256SUMS`. Таблица описывает точные файлы, подготовленные 2026-09-01.
+`SHA256SUMS`. Таблица описывает точные файлы, подготовленные 2026-09-02.
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.8.0.apk` | 9.8 MB | `c95f54ac71c61c0f` |
-| `qeli-linux-amd64` | 12.6 MB | `1c94e93bf5ecb377` |
-| `qeli_0.8.0_amd64.deb` | 4.0 MB | `e905e1b16315a79a` |
-| `Qeli-macOS-universal.zip` | 57.9 MB | `40b0962a4bb369e3` |
-| `QeliWin-net-required.exe` | 8.0 MB | `ebe82749c04491db` |
-| `QeliWin-standalone.exe` | 72.7 MB | `9df91d4a77bdae18` |
+| `qeli-android-0.8.0.apk` | 9.8 MB | `d2aa97de709e65f5` |
+| `qeli-linux-amd64` | 12.6 MB | `e376bc27eaae3059` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `015468661143b7d2` |
+| `Qeli-macOS-universal.zip` | 57.9 MB | `93fb1f1c5e17521e` |
+| `QeliWin-net-required.exe` | 8.0 MB | `cade58d88750b399` |
+| `QeliWin-standalone.exe` | 72.7 MB | `153b8cb98c6ceff1` |
 | `qeli-client-keenetic-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
 | `qeli-client-keenetic-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
 | `qeli-client-openwrt-aarch64` | 4.0 MB | `b02cff7569d6bfa8` |
 | `qeli-client-openwrt-armv7` | 4.2 MB | `74a8e76a38d717fd` |
 | `qeli-client-openwrt-mipsel` | 5.7 MB | `1ee78b7f1ff98e8f` |
 | `qeli-client-openwrt-x86_64` | 4.7 MB | `499ffbcb55324c1b` |
-| `qeli-openwrt-files.tar.gz` | 12.7 KB | `5f9e271efc270455` |
+| `qeli-openwrt-files.tar.gz` | 12.7 KB | `6d67cdab9343d5ae` |
 | `install-keenetic.sh` | 2.3 KB | `fa12354977d6a81e` |
 | `Wintun-LICENSE.txt` | 5.3 KB | `9aaf948856ce8845` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
