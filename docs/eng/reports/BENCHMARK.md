@@ -9,6 +9,13 @@ holds the **latest structured run** — **qeli 0.8.0**, 2026-08-26, full binary 
 The dated copy is `benchmark_v0.8.0_2026-08-26_combined_12modes.json`; older files remain
 historical snapshots. The orchestrator — [scripts/benchmark.py](../../../scripts/benchmark.py).
 
+> **Latest 0.8.0 cross-protocol run:** the
+> [full 34-mode report](../../benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)
+> covers three passes for 25 masked modes, IPv4/IPv6, TCP/UDP, CPU/RSS and the limits of
+> DPI-related interpretation. Average four-stream TCP throughput across Qeli's 12 profiles
+> was **1220 Mbit/s**, and **1767 Mbit/s** across its five fast TCP profiles. The detailed
+> report is currently in Russian; its tables and units are language-neutral.
+
 **Reality throughput scope.** Values through 0.7.16 measured the former inner fake-TLS
 carrier. The current 12-mode run measures genuine HTTP/2: `reality-tls` reached 827.9 Mbps
 upload and 647.8 Mbps download with zero server drops. This is a clean full-speed baseline

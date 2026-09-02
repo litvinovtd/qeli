@@ -44,6 +44,16 @@ unchanged. Statistical DPI resistance is a measured property, not a guarantee.
 > In spirit a self-hosted alternative to Xray / V2Ray / sing-box (REALITY/VLESS) setups, but
 > with its own protocol, native GUI clients and a post-quantum handshake.
 
+## Benchmarks
+
+A repeatable two-VM lab run covered 34 VPN modes, with three passes for 25 masked modes.
+Across all 12 Qeli profiles, average four-stream TCP throughput was **1220 Mbit/s**; the five
+fast TCP profiles averaged **1767 Mbit/s**, while every Qeli profile ran with Recordizer in
+required mode. These figures compare throughput and processing cost on one controlled lab,
+not the probability of bypassing an external DPI system. See the
+**[full Qeli 0.8.0 cross-protocol report](docs/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)**
+and the maintained [English methodology/history](docs/eng/reports/BENCHMARK.md).
+
 ## Quick start
 
 **One command on a clean Linux server (Debian/Ubuntu), as root:**
