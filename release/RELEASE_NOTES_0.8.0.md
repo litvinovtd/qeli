@@ -453,7 +453,7 @@ exact files prepared on 2026-09-02. Опубликованный набор qeli
 |---|---:|---|
 | `qeli-android-0.8.0.apk` | 9.8 MB | `d2aa97de709e65f5` |
 | `qeli-linux-amd64` | 12.6 MB | `e376bc27eaae3059` |
-| `qeli_0.8.0_amd64.deb` | 4.0 MB | `015468661143b7d2` |
+| `qeli_0.8.0_amd64.deb` | 4.0 MB | `27c5718f6e2c27bc` |
 | `Qeli-macOS-universal.zip` | 57.9 MB | `93fb1f1c5e17521e` |
 | `QeliWin-net-required.exe` | 8.0 MB | `cade58d88750b399` |
 | `QeliWin-standalone.exe` | 72.7 MB | `153b8cb98c6ceff1` |
