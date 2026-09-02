@@ -8,7 +8,7 @@
 [Artifacts](#artifacts--артефакты)
 
 This document describes the fixes made after `v0.7.15` and released in `v0.7.16`. The
-canonical itemised history is [CHANGELOG.md](../CHANGELOG.md); these notes explain the user and
+canonical itemised history is [CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/v0.7.16/CHANGELOG.md); these notes explain the user and
 operator impact.
 
 ---
@@ -486,8 +486,8 @@ byte-identical. Полностью совпадающие хеши этих па
 
 ### Install · Установка
 
-See the [README](https://github.com/litvinovtd/qeli/blob/main/README.md) for complete instructions.
-Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/main/README.md).
+See the [README](https://github.com/litvinovtd/qeli/blob/v0.7.16/README.md) for complete instructions.
+Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/v0.7.16/README.md).
 
 - Linux DEB: `sudo dpkg -i qeli_0.7.16_amd64.deb`
 - Verify downloads · Проверить файлы: `sha256sum -c SHA256SUMS`

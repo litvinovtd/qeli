@@ -10,7 +10,7 @@
 [Artifacts](#artifacts--артефакты)
 
 This document describes the fundamental changes since `v0.7.16`. The canonical itemised history,
-including smaller fixes, is available in [CHANGELOG.md](../CHANGELOG.md).
+including smaller fixes, is available in [CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/v0.8.0/CHANGELOG.md).
 
 ---
 
@@ -54,7 +54,7 @@ fail-closed decisions and platform path changes on the same terms as IPv4.
   Linux, Windows, macOS, Android, iOS and router clients.
 
 The result is a real dual-stack VPN path rather than IPv6 traffic being leaked, ignored or handled by
-platform-specific exceptions. See the [IPv6 guide](../docs/eng/manuals/IPV6.md) for deployment and
+platform-specific exceptions. See the [IPv6 guide](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/eng/manuals/IPV6.md) for deployment and
 migration details.
 
 ### Roaming separates the session from the connection
@@ -84,7 +84,7 @@ and can move to a new network path without being equated with one TCP connection
 Newly generated server profiles enable roaming with bounded limits and clients default to
 `roaming = auto`. Existing profiles keep roaming disabled when `roaming.enabled` is absent, so the
 feature is never activated silently. The full state and compatibility contract is documented in the
-[roaming plan](../docs/eng/plans/ROAMING.md).
+[roaming plan](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/eng/plans/ROAMING.md).
 
 ### Recordizer changes traffic morphology across transports
 
@@ -187,7 +187,7 @@ detailed individual changes remain in the changelog.
 ### Benchmark
 
 The final laboratory comparison covered 34 VPN modes, with repeat runs for 25 masked modes.
-[Read the full English benchmark report](../docs/eng/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
+[Read the full English benchmark report](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/eng/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
 With Recordizer set to `required` and its runtime activation confirmed for all 12 Qeli profiles,
 the fast TCP group averaged **1767 Mbit/s at TCP P=4** and a **1365 Mbit/s UDP rep1 ceiling**;
 the heavyweight TCP group averaged **1274 / 1048 Mbit/s**, and the native UDP group
@@ -207,8 +207,8 @@ configurations and methodology.
 5. Enable `roaming = required` or recordizer `required` only after every required peer and platform is
    known to support the complete contract.
 
-For all configuration fields see the [configuration reference](../docs/eng/manuals/CONFIG.md) and
-[transport-core reference](../docs/eng/reference/TRANSPORT-CORE.md).
+For all configuration fields see the [configuration reference](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/eng/manuals/CONFIG.md) and
+[transport-core reference](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/eng/reference/TRANSPORT-CORE.md).
 
 ### Release verification
 
@@ -267,7 +267,7 @@ IPv6 больше не рассматривается как необязате�
 
 В результате qeli предоставляет настоящий dual-stack VPN-путь, а не пропускает IPv6 мимо туннеля и
 не полагается на отдельные исключения каждой платформы. Порядок развёртывания и миграции описан в
-[руководстве по IPv6](../docs/ru/manuals/IPV6.md).
+[руководстве по IPv6](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/ru/manuals/IPV6.md).
 
 ### Роуминг отделяет сессию от соединения
 
@@ -297,7 +297,7 @@ IPv6 больше не рассматривается как необязате�
 Новые серверные профили включают роуминг с ограниченными лимитами, а клиенты по умолчанию используют
 `roaming = auto`. В существующем профиле отсутствие `roaming.enabled` по-прежнему означает `false`,
 поэтому функция не активируется молча. Полный контракт состояний и совместимости приведён в
-[плане роуминга](../docs/ru/plans/ROAMING.md).
+[плане роуминга](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/ru/plans/ROAMING.md).
 
 ### Recordizer меняет морфологию трафика для всех транспортов
 
@@ -403,7 +403,7 @@ carrier больше не нужен, shaping работает с настоящ
 ### Бенчмарк
 
 В финальном лабораторном сравнении измерены 34 VPN-режима, а для 25 маскируемых режимов выполнены
-повторные прогоны. [Полный отчёт бенчмарка на русском](../docs/ru/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
+повторные прогоны. [Полный отчёт бенчмарка на русском](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/ru/reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
 При политике Recordizer `required` и подтверждённой runtime-активации во всех 12 профилях Qeli
 группа быстрых TCP-профилей в среднем показала **1767 Mbit/s при TCP P=4** и
 **1365 Mbit/s UDP rep1 ceiling**; тяжёлые TCP-профили — **1274 / 1048 Mbit/s**, а нативные
@@ -423,8 +423,8 @@ UDP-профили — **496 / 409 Mbit/s** для той же пары метр
 5. Включайте `roaming = required` или recordizer `required` только после подтверждения полного
    контракта на всех обязательных peer и платформах.
 
-Все параметры приведены в [справочнике конфигурации](../docs/ru/manuals/CONFIG.md) и
-[описании transport core](../docs/ru/reference/TRANSPORT-CORE.md).
+Все параметры приведены в [справочнике конфигурации](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/ru/manuals/CONFIG.md) и
+[описании transport core](https://github.com/litvinovtd/qeli/blob/v0.8.0/docs/ru/reference/TRANSPORT-CORE.md).
 
 ### Проверка релиза
 

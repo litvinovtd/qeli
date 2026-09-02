@@ -3,7 +3,8 @@
 
 Guards the documentation structure so it cannot silently rot:
 
-  1. links     — every relative Markdown link resolves to a real file
+  1. links     — every relative Markdown link resolves to a real file; release-note
+                 repository links are absolute and pinned to their release tag
   2. index     — every document under docs/<lang>/ is reachable from that
                  language's index.md (no orphaned pages)
   3. parity    — docs/ru and docs/eng contain the SAME set of files
@@ -80,6 +81,7 @@ def tracked_markdown() -> list[Path]:
 
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+RELEASE_NOTES_FILE_RE = re.compile(r"RELEASE_NOTES_(\d+\.\d+\.\d+)\.md")
 
 
 # Fenced blocks and inline code spans, in that order. Link syntax inside either is
@@ -103,9 +105,34 @@ def check_links(files: list[Path]) -> None:
             fail("links", f"cannot read {f.relative_to(ROOT)}: {e}")
             continue
         text = strip_code(text)
+        release_match = (
+            RELEASE_NOTES_FILE_RE.fullmatch(f.name)
+            if f.parent == ROOT / "release"
+            else None
+        )
         for target in LINK_RE.findall(text):
             t = target.strip()
             if t.startswith(("http://", "https://", "mailto:", "#")):
+                if release_match and t.startswith(
+                    "https://github.com/litvinovtd/qeli/blob/"
+                ):
+                    expected = (
+                        "https://github.com/litvinovtd/qeli/blob/"
+                        f"v{release_match.group(1)}/"
+                    )
+                    if not t.startswith(expected):
+                        fail(
+                            "links",
+                            f"{f.relative_to(ROOT)} -> {t} is not pinned to "
+                            f"v{release_match.group(1)}",
+                        )
+                continue
+            if release_match:
+                fail(
+                    "links",
+                    f"{f.relative_to(ROOT)} -> {t}: GitHub Release bodies require "
+                    "an absolute repository URL pinned to the release tag",
+                )
                 continue
             path = (f.parent / t.split("#", 1)[0]).resolve()
             if not path.exists():

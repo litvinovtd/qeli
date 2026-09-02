@@ -120,7 +120,7 @@ structured runtime state rather than log-text guesses.
   watching: a padding loss outlier at 500 Mbit/s and higher RSS than 0.7.14.
 
 The complete technical record and the reasoning behind individual changes are in
-[CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/main/CHANGELOG.md). This release contains
+[CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/v0.7.15/CHANGELOG.md). This release contains
 **245 commits across 547 files** relative to 0.7.14.
 
 ---
@@ -228,7 +228,7 @@ The complete technical record and the reasoning behind individual changes are in
   на 500 Мбит/с и более высокий RSS относительно 0.7.14.
 
 Полная техническая история и обоснование отдельных решений находятся в
-[CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/main/CHANGELOG.md). Относительно 0.7.14 этот
+[CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/v0.7.15/CHANGELOG.md). Относительно 0.7.14 этот
 релиз содержит **245 коммитов и изменения в 547 файлах**.
 
 ---
@@ -262,8 +262,8 @@ byte-identical. Полностью совпадающие хеши этих па
 
 ### Install · Установка
 
-See the [README](https://github.com/litvinovtd/qeli/blob/main/README.md) for complete instructions.
-Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/main/README.md).
+See the [README](https://github.com/litvinovtd/qeli/blob/v0.7.15/README.md) for complete instructions.
+Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/v0.7.15/README.md).
 
 - Linux DEB: `sudo dpkg -i qeli_0.7.15_amd64.deb`
 - Verify downloads · Проверить файлы: `sha256sum -c SHA256SUMS`
