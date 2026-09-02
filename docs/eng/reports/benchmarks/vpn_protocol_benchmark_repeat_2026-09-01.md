@@ -265,9 +265,9 @@ Preflight artifact: `release\competitor_repeat_080_preflight.json`.
 - Raw results: `release\competitor_repeat_080_results_2026-09-01.json`, SHA256 `09cbfdf33ec9bdbfae2f769e0b91d0f7d8144b295a687ea93c362c6df434c435`.
 - CSV summary: `release\competitor_repeat_080_summary_2026-09-01.csv`.
 - Short Markdown summary: `release\competitor_repeat_080_summary_2026-09-01.md`.
-- Runner: `scripts/competitor_bench/repeat_080_benchmark.py`.
-- Runtime: `scripts/competitor_bench/repeat_080_runtime_ext.py`.
-- Qeli profiles: `scripts/competitor_bench/repeat_080_qeli.py`.
+- Benchmark runner (lab-local, not published in the repository): `repeat_080_benchmark.py`.
+- Runtime extension (lab-local, not published in the repository): `repeat_080_runtime_ext.py`.
+- Qeli profile generator (lab-local, not published in the repository): `repeat_080_qeli.py`.
 - Reboot evidence: `release\competitor_repeat_080_reboot_2026-09-01.json`.
 - Preflight/PCAP evidence: `release\competitor_repeat_080_preflight.json`.
 - Preparation and hashes: `release\competitor_repeat_080_prepare.json` and `release\competitor_artifacts_lock.json`.

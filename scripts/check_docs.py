@@ -13,7 +13,7 @@ Guards the documentation structure so it cannot silently rot:
                  (client.rs::from_ini) is mentioned in CONFIG.md, in BOTH
                  languages. Runtime-built keys (`pool.reservation.<user>`) are
                  checked by their literal prefix
-  5. source    — every source file a doc names in backticks still exists
+  5. source    — tracked docs only name source files tracked by Git
                  (frozen records — archive/, CHANGELOG — are out of scope)
   6. placeholder — no GitHub URL left with `<owner>` unfilled; these hide in
                  fenced code blocks where check 1 never looks
@@ -304,6 +304,22 @@ SRC_REF_SKIP = ("archive/", "CHANGELOG.md", "AUDIT-FIXES-")
 
 
 def check_source_refs(files: list[Path]) -> None:
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
+        )
+    except OSError as e:
+        raise SystemExit(
+            f"cannot run git ({e}) — refusing to validate source references against "
+            "an unknown committed tree"
+        )
+    if proc.returncode != 0:
+        raise SystemExit(
+            "git ls-files failed while validating source references "
+            f"(exit {proc.returncode}): {proc.stderr.strip() or 'no stderr'}"
+        )
+    tracked = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+
     for f in files:
         rel = f.relative_to(ROOT).as_posix()
         if any(s in rel for s in SRC_REF_SKIP):
@@ -312,8 +328,14 @@ def check_source_refs(files: list[Path]) -> None:
             # `qeli-android/.../QeliService.kt` — deliberate elision, not a real path.
             if "/.../" in ref:
                 continue
-            if not (ROOT / ref).exists():
-                fail("source", f"{rel} points at `{ref}`, which does not exist")
+            source_exists = (ROOT / ref).exists()
+            if ref not in tracked and (rel in tracked or not source_exists):
+                state = (
+                    "missing from the tracked Git tree"
+                    if rel in tracked
+                    else "does not exist"
+                )
+                fail("source", f"{rel} points at `{ref}`, which {state}")
 
 
 SOURCE_LINE_ANCHOR_RE = re.compile(

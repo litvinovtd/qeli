@@ -265,9 +265,9 @@ CPU VM — общая загрузка двухъядерной VM. Таблиц
 - Сырые результаты: `release\competitor_repeat_080_results_2026-09-01.json`, SHA256 `09cbfdf33ec9bdbfae2f769e0b91d0f7d8144b295a687ea93c362c6df434c435`.
 - CSV-сводка: `release\competitor_repeat_080_summary_2026-09-01.csv`.
 - Краткая Markdown-сводка: `release\competitor_repeat_080_summary_2026-09-01.md`.
-- Runner: `scripts/competitor_bench/repeat_080_benchmark.py`.
-- Runtime: `scripts/competitor_bench/repeat_080_runtime_ext.py`.
-- Qeli profiles: `scripts/competitor_bench/repeat_080_qeli.py`.
+- Runner прогона (lab-local, не опубликован в репозитории): `repeat_080_benchmark.py`.
+- Runtime-расширение (lab-local, не опубликовано в репозитории): `repeat_080_runtime_ext.py`.
+- Генератор профилей Qeli (lab-local, не опубликован в репозитории): `repeat_080_qeli.py`.
 - Reboot evidence: `release\competitor_repeat_080_reboot_2026-09-01.json`.
 - Preflight/PCAP evidence: `release\competitor_repeat_080_preflight.json`.
 - Preparation and hashes: `release\competitor_repeat_080_prepare.json` и `release\competitor_artifacts_lock.json`.
