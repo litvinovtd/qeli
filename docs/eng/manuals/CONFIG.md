@@ -205,18 +205,58 @@ route_file = C:\qeli\openvpn-routes.txt
 exclude = 192.168.50.0/24, 10.20.0.0/16
 ```
 
-`route_file` format — one CIDR per line (blank lines and `#`/`;` comments are ignored):
+#### How to attach and populate `route_file`
 
+`route_file` sends the listed networks **into the tunnel**. It is not a bypass list; use
+`exclude` for destinations that must stay outside. The normal setup is Windows/macOS in
+split-tunnel mode:
+
+1. Open the profile's manual INI editor.
+2. Set `gateway = false`.
+3. Add one `route_file = <path>` line per file. The key is repeatable; files are read in
+   declaration order and duplicate networks are installed once.
+4. Save and connect. An unreadable file or invalid line aborts the connection fail-closed so
+   traffic cannot escape merely because a requested route was omitted.
+
+Use an absolute path where possible. Windows backslashes are literal and the whole value after
+`=` is the path, so even a path containing spaces is written **without quotes**:
+
+```ini
+[qeli]
+gateway = false
+route_file = C:\Users\Alice\Qeli routes\corp-cidrs.txt
+route_file = C:\Users\Alice\Qeli routes\openvpn-routes.txt
 ```
-10.20.0.0/16      # office LAN
-192.0.2.0/24
-```
-OpenVPN route exports are accepted directly too:
+
+Each route file accepts these forms:
+
+| Form | Example | Result |
+|---|---|---|
+| IPv4/IPv6 CIDR | `10.20.0.0/16` | network is sent into the tunnel |
+| OpenVPN IPv4 + netmask | `route 172.16.9.7 255.255.0.0` | canonicalized to `172.16.0.0/16` |
+| OpenVPN CIDR | `route 192.0.2.0/24` | `192.0.2.0/24` |
+| OpenVPN host route | `route 192.0.2.7` | `192.0.2.7/32` |
+| OpenVPN IPv6 | `route-ipv6 2001:db8:42::/48` | `2001:db8:42::/48` |
+
+Exported OpenVPN `[gateway] [metric]` fields may follow an IPv4 netmask, for example
+`route 172.16.0.0 255.255.0.0 vpn_gateway 10`. They are accepted for compatibility but do not
+select the next hop: the client always uses the authenticated tunnel gateway.
+
+Blank lines and full-line or inline `#`/`;` comments are ignored:
 
 ```text
+# Office networks
+10.20.0.0/16      # office LAN
+192.0.2.0/24      ; test segment
 route 172.16.0.0 255.255.0.0 vpn_gateway
 route-ipv6 2001:db8:42::/48
 ```
+
+Addresses with host bits are canonicalized and duplicates across all files are removed. IPv4
+netmasks must be contiguous; arbitrary text, a bare IP without `route`, a malformed mask, or
+more than 250,000 total routes is an error. Reading and installation can be interrupted with
+Disconnect. In full-tunnel mode `route_file` is unnecessary and is not applied (except desktop
+per-app mode).
 
 Keepalive, graceful FIN on disconnect, the amber connecting indicator, ISO-8601 log timestamps and
 the per-profile Wintun adapter name work **automatically** — no configuration needed.
