@@ -1551,37 +1551,78 @@ pub(crate) async fn run_udp_server(
             ))
             .map_err(|_| anyhow::anyhow!("could not initialize UDP receive pool"))?;
     }
-    let (received_tx, mut received_rx) =
-        mpsc::channel(crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS);
+    // Capacity counts batches now, so divide to keep the same bound in DATAGRAMS.
+    let (received_tx, mut received_rx) = mpsc::channel(
+        crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS
+            .div_ceil(crate::transport_core::udp_batch::MAX_BATCH)
+            .max(2),
+    );
     let receive_socket = socket.clone();
     let receive_recycler_task = receive_recycler.clone();
     let receive_profile = profile.name.clone();
     if !tasks.spawn(async move {
-        while let Some(mut datagram) = recycled_receivers.recv().await {
-            match receive_socket.recv_buf_from(&mut datagram).await {
-                Ok((0, _)) => {
-                    datagram.clear();
-                    if receive_recycler_task.send(datagram).await.is_err() {
-                        break;
+        // One `recvmmsg` instead of one `recvfrom` per datagram. Order inside a batch is the
+        // order the kernel queued them, so the strict wire ordering the consumer relies on for
+        // replay and recordizer state is preserved exactly as before.
+        let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(
+            crate::transport_core::udp_batch::MAX_BATCH,
+        );
+        let mut slots: Vec<bytes::BytesMut> =
+            Vec::with_capacity(crate::transport_core::udp_batch::MAX_BATCH);
+        let mut addrs = vec![
+            std::net::SocketAddr::from(([0, 0, 0, 0], 0));
+            crate::transport_core::udp_batch::MAX_BATCH
+        ];
+        loop {
+            // Block only for the first buffer; take whatever else is already recycled. The
+            // batch is never padded out by waiting, so this costs no latency.
+            while slots.len() < crate::transport_core::udp_batch::MAX_BATCH {
+                if slots.is_empty() {
+                    match recycled_receivers.recv().await {
+                        Some(buffer) => slots.push(buffer),
+                        None => return,
                     }
+                } else if let Ok(buffer) = recycled_receivers.try_recv() {
+                    slots.push(buffer);
+                } else {
+                    break;
                 }
-                Ok((_, addr)) => {
-                    let datagram = crate::transport::udp::PooledUdpDatagram::new(
-                        datagram,
-                        receive_recycler_task.clone(),
-                    );
-                    if received_tx.send((datagram, addr)).await.is_err() {
-                        break;
-                    }
-                }
+            }
+            for slot in slots.iter_mut() {
+                slot.clear();
+            }
+
+            let received = match receive_socket
+                .recv_batch(&mut slots, Some(&mut addrs), &mut scratch)
+                .await
+            {
+                Ok(received) => received,
                 Err(error) => {
                     log::error!("UDP recv error on profile '{}': {}", receive_profile, error);
-                    datagram.clear();
-                    if receive_recycler_task.send(datagram).await.is_err() {
-                        break;
-                    }
                     tokio::task::yield_now().await;
+                    continue;
                 }
+            };
+
+            let mut batch = Vec::with_capacity(received);
+            for (index, slot) in slots.drain(..received).enumerate() {
+                if slot.is_empty() {
+                    // Malformed obfs frame: recycle without forwarding, as `Ok((0, _))` did.
+                    if receive_recycler_task.send(slot).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                batch.push((
+                    crate::transport::udp::PooledUdpDatagram::new(
+                        slot,
+                        receive_recycler_task.clone(),
+                    ),
+                    addrs[index],
+                ));
+            }
+            if !batch.is_empty() && received_tx.send(batch).await.is_err() {
+                return;
             }
         }
     }) {
@@ -1647,6 +1688,10 @@ pub(crate) async fn run_udp_server(
         handler::server_wire_buffer_capacity(pcfg) + crate::protocol::roaming::UDP_SHORT_HEADER_LEN,
     );
 
+    let mut pending_batch = std::collections::VecDeque::<(
+        crate::transport::udp::PooledUdpDatagram,
+        std::net::SocketAddr,
+    )>::new();
     loop {
         tokio::select! {
             roaming = roaming_worker.recv() => {
@@ -1666,7 +1711,21 @@ pub(crate) async fn run_udp_server(
                 match event {}
             }
 
-            received = received_rx.recv() => {
+            received = async {
+                // Drain the current batch one datagram at a time: the arm below is unchanged
+                // and still reasons about exactly one datagram.
+                if let Some(next) = pending_batch.pop_front() {
+                    Some(next)
+                } else {
+                    match received_rx.recv().await {
+                        Some(batch) => {
+                            pending_batch.extend(batch);
+                            pending_batch.pop_front()
+                        }
+                        None => None,
+                    }
+                }
+            } => {
                 let Some((recv_buf, addr)) = received else {
                     return Err(anyhow::anyhow!(
                         "UDP receive pump stopped on profile '{}'",

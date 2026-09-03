@@ -7971,7 +7971,7 @@ impl std::ops::Deref for ClientUdpReceivedDatagram {
 fn spawn_client_udp_receive_pump(
     socket: Arc<crate::protocol::obfs::ObfsUdp>,
     path_epoch: u64,
-    received_tx: mpsc::Sender<ClientUdpReceivedDatagram>,
+    received_tx: mpsc::Sender<Vec<ClientUdpReceivedDatagram>>,
 ) -> tokio::task::JoinHandle<()> {
     let receive_slots = crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS + 1;
     let (receive_recycler, mut recycled_receivers) = mpsc::channel(receive_slots);
@@ -7983,35 +7983,67 @@ fn spawn_client_udp_receive_pump(
             .expect("fresh UDP receive recycler has exact advertised capacity");
     }
     tokio::spawn(async move {
-        while let Some(mut datagram) = recycled_receivers.recv().await {
-            match socket.recv_buf(&mut datagram).await {
-                Ok(0) => {
-                    datagram.clear();
-                    if receive_recycler.send(datagram).await.is_err() {
-                        break;
+        // One syscall per datagram was the UDP data plane's dominant cost: at MTU 1400 a
+        // 500 Mbit/s stream is ~45 000 `recvfrom` per second, and an `strace` of a live run
+        // matched datagrams to calls almost exactly. The TCP transport never paid it — one
+        // `read` returns many records — which is the whole of the 3.5x gap between them.
+        let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(
+            crate::transport_core::udp_batch::MAX_BATCH,
+        );
+        let mut slots: Vec<bytes::BytesMut> =
+            Vec::with_capacity(crate::transport_core::udp_batch::MAX_BATCH);
+        loop {
+            // Wait only for the FIRST buffer. Taking whatever else the recycler already holds
+            // keeps the batch opportunistic: it is never padded out by waiting, so batching
+            // removes syscalls without adding a millisecond of latency.
+            while slots.len() < crate::transport_core::udp_batch::MAX_BATCH {
+                if slots.is_empty() {
+                    match recycled_receivers.recv().await {
+                        Some(buffer) => slots.push(buffer),
+                        None => return,
                     }
-                }
-                Ok(_) => {
-                    let datagram = crate::transport_core::udp_receive::PooledUdpDatagram::new(
-                        datagram,
-                        receive_recycler.clone(),
-                    );
-                    if received_tx
-                        .send(ClientUdpReceivedDatagram {
-                            path_epoch,
-                            datagram,
-                            authenticated_plaintext: None,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    log::debug!("UDP receive pump stopped: {error}");
+                } else if let Ok(buffer) = recycled_receivers.try_recv() {
+                    slots.push(buffer);
+                } else {
                     break;
                 }
+            }
+            for slot in slots.iter_mut() {
+                slot.clear();
+            }
+
+            let received = match socket.recv_batch(&mut slots, None, &mut scratch).await {
+                Ok(received) => received,
+                Err(error) => {
+                    log::debug!("UDP receive pump stopped: {error}");
+                    return;
+                }
+            };
+
+            // Hand the whole batch over once. Per-datagram channel sends were the second
+            // per-packet cost after the syscall, and the consumer drains this exactly like
+            // the early-data queue it already keeps.
+            let mut batch = Vec::with_capacity(received);
+            for slot in slots.drain(..received) {
+                if slot.is_empty() {
+                    // Malformed obfs frame (or a zero-length datagram): recycle, do not
+                    // forward — same outcome the single-datagram path gave for `Ok(0)`.
+                    if receive_recycler.send(slot).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                batch.push(ClientUdpReceivedDatagram {
+                    path_epoch,
+                    datagram: crate::transport_core::udp_receive::PooledUdpDatagram::new(
+                        slot,
+                        receive_recycler.clone(),
+                    ),
+                    authenticated_plaintext: None,
+                });
+            }
+            if !batch.is_empty() && received_tx.send(batch).await.is_err() {
+                return;
             }
         }
     })
@@ -9235,8 +9267,19 @@ pub(crate) async fn run_udp_tunnel(
     // while this task performs decrypt/reassembly/TUN work. The bounded FIFO preserves packet
     // order and does not touch DATA_FRAG or either PMTU state machine.
     drop(recv_buf);
-    let (received_tx, mut received_rx) =
-        mpsc::channel(crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS);
+    // Capacity is in batches now, so divide to keep the same bound in DATAGRAMS: a queue of
+    // 128 batches would be 4096 packets of hidden buffering and a matching latency tail.
+    let (received_tx, mut received_rx) = mpsc::channel(
+        crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS
+            .div_ceil(crate::transport_core::udp_batch::MAX_BATCH)
+            .max(2),
+    );
+    // Drained one datagram at a time by the receive arm below, exactly like the early-data
+    // queue beside it: the arm's body is unchanged and still handles a single datagram.
+    let mut pending_batch = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
+    let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
+        crate::transport_core::udp_batch::MAX_BATCH,
+    );
     #[cfg_attr(
         not(all(feature = "experimental-roaming", any(unix, windows))),
         allow(unused_mut)
@@ -9916,18 +9959,42 @@ pub(crate) async fn run_udp_tunnel(
                                 break;
                             }
                         };
+                        // Fragments of one record are the only uplink datagrams already
+                        // available as a group — the pacing/shaping loop emits every other
+                        // packet as it arrives. Send them in one `sendmmsg`; a short write is
+                        // normal there, so the remainder is retried rather than assumed sent.
                         let mut send_failed = None;
+                        let mut wire: Vec<Vec<u8>> = Vec::with_capacity(fragments.len());
                         for fragment in fragments {
-                            let send_data =
+                            wire.push(
                                 crate::transport_core::udp_client_framing::wrap_next_udp_record(
                                     udp_framing,
                                     &fragment,
                                     &mut quic_pn,
                                     &mut quic_record,
-                                );
-                            if let Err(error) = socket.send(send_data).await {
-                                send_failed = Some(error);
-                                break;
+                                )
+                                .to_vec(),
+                            );
+                        }
+                        let mut offset = 0;
+                        while offset < wire.len() {
+                            let chunk: Vec<&[u8]> = wire[offset..]
+                                .iter()
+                                .map(|datagram| datagram.as_slice())
+                                .collect();
+                            match socket.send_batch(&chunk, &mut udp_send_scratch).await {
+                                Ok(0) => {
+                                    send_failed = Some(std::io::Error::new(
+                                        std::io::ErrorKind::WriteZero,
+                                        "UDP socket accepted no fragment of the record",
+                                    ));
+                                    break;
+                                }
+                                Ok(sent) => offset += sent,
+                                Err(error) => {
+                                    send_failed = Some(error);
+                                    break;
+                                }
                             }
                         }
                         if let Some(error) = send_failed {
@@ -9993,8 +10060,16 @@ pub(crate) async fn run_udp_tunnel(
             received = async {
                 if let Some(buffered) = committed_early_data.pop_front() {
                     Some(buffered)
+                } else if let Some(next) = pending_batch.pop_front() {
+                    Some(next)
                 } else {
-                    received_rx.recv().await
+                    match received_rx.recv().await {
+                        Some(batch) => {
+                            pending_batch.extend(batch);
+                            pending_batch.pop_front()
+                        }
+                        None => None,
+                    }
                 }
             } => {
                 #[cfg_attr(

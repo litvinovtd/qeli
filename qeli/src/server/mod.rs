@@ -3341,6 +3341,17 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         });
     }
 
+    // UDP loss report. The per-reason counters were already maintained by the datagram
+    // handler but nothing ever read the snapshot, so the server side of a loss was
+    // invisible: only the client published a breakdown, and half of a UDP path is not
+    // enough to tell an exhausted pool from a queue that cannot drain.
+    {
+        let drops_state = state.clone();
+        tokio::spawn(async move {
+            udp_drop_report(drops_state).await;
+        });
+    }
+
     // Clear any leaked NAT rules from a previous run whose profile has since been
     // REMOVED from the config (its per-profile cleanup never runs again). Active
     // profiles re-install their own rules in run_profile right below.
@@ -3519,6 +3530,43 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 /// and disconnect any user over their data cap or past expiry. Runs off the data
 /// path (O(sessions) per tick, reusing counters the data plane already maintains)
 /// so it adds zero per-packet cost — tunnel throughput is unaffected.
+/// Periodic per-profile UDP loss breakdown. Off the data path entirely: one snapshot of
+/// counters the handler already maintains, once per interval, per profile. Silent while
+/// nothing is lost, so a healthy server does not gain a log line.
+async fn udp_drop_report(state: Arc<ServerState>) {
+    use crate::transport_core::udp_buffer::UdpBufferSnapshot;
+
+    let mut tick = tokio::time::interval(Duration::from_secs(10));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut previous: HashMap<String, UdpBufferSnapshot> = HashMap::new();
+    loop {
+        tick.tick().await;
+        let profiles = state.profiles.read().await;
+        for (name, profile) in profiles.iter() {
+            let now = profile.udp_buffer_counters.snapshot();
+            let was = previous.insert(name.clone(), now).unwrap_or_default();
+            let internal = now.internal_drops.saturating_sub(was.internal_drops);
+            let kernel = now.kernel_drops.saturating_sub(was.kernel_drops);
+            if internal == 0 && kernel == 0 {
+                continue;
+            }
+            log::warn!(
+                "UDP loss on profile '{}': kernel +{}, internal +{} (pool_exhausted +{}, queue_full +{}, oversize +{}, unsupported +{}, tun_write +{}), buffer={} KiB, grows={}",
+                name,
+                kernel,
+                internal,
+                now.pool_exhausted_drops.saturating_sub(was.pool_exhausted_drops),
+                now.queue_full_drops.saturating_sub(was.queue_full_drops),
+                now.oversize_drops.saturating_sub(was.oversize_drops),
+                now.unsupported_drops.saturating_sub(was.unsupported_drops),
+                now.tun_write_drops.saturating_sub(was.tun_write_drops),
+                now.granted_recv_bytes / 1024,
+                now.grow_events
+            );
+        }
+    }
+}
+
 async fn usage_sweep(state: Arc<ServerState>) {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

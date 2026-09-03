@@ -1185,6 +1185,70 @@ impl ObfsUdp {
         }
     }
 
+    /// Batched counterpart of [`Self::recv_buf`] / [`Self::recv_buf_from`].
+    ///
+    /// Waits for readiness once, then takes every datagram already queued in a single
+    /// `recvmmsg` (one `recv_from` per datagram on platforms without it). It never waits for
+    /// the batch to fill, so this removes syscalls without adding latency.
+    ///
+    /// `slots` must be empty and hold spare capacity. On return the first `n` carry opened
+    /// plaintext; a slot left empty is a malformed obfs frame the caller must skip, exactly as
+    /// `n == 0` means today on the single-datagram path.
+    pub(crate) async fn recv_batch(
+        &self,
+        slots: &mut [BytesMut],
+        mut addrs: Option<&mut [std::net::SocketAddr]>,
+        scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    ) -> io::Result<usize> {
+        let received = self
+            .sock
+            .async_io(tokio::io::Interest::READABLE, || {
+                crate::transport_core::udp_batch::recv_batch(
+                    &self.sock,
+                    &mut *slots,
+                    addrs.as_deref_mut(),
+                    scratch,
+                )
+            })
+            .await?;
+        if let Some(key) = &self.key {
+            for slot in slots.iter_mut().take(received) {
+                match obfs_datagram_open_in_place(key, &mut slot[..]) {
+                    Some(plain_len) => slot.truncate(plain_len),
+                    None => slot.clear(),
+                }
+            }
+        }
+        Ok(received)
+    }
+
+    /// Batched counterpart of [`Self::send`] for a connected socket.
+    ///
+    /// Returns how many datagrams the kernel accepted; a short count is normal under pressure
+    /// and the caller must retry the remainder. Sealing still happens per datagram, so keyed
+    /// `obfs` behaves exactly as on the single-datagram path.
+    pub(crate) async fn send_batch(
+        &self,
+        datagrams: &[&[u8]],
+        scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    ) -> io::Result<usize> {
+        let sealed: Option<Vec<Vec<u8>>> = self.key.as_ref().map(|key| {
+            datagrams
+                .iter()
+                .map(|d| obfs_datagram_seal(key, d))
+                .collect()
+        });
+        let wire: Vec<&[u8]> = match &sealed {
+            Some(sealed) => sealed.iter().map(|d| d.as_slice()).collect(),
+            None => datagrams.to_vec(),
+        };
+        self.sock
+            .async_io(tokio::io::Interest::WRITABLE, || {
+                crate::transport_core::udp_batch::send_batch(&self.sock, &wire, scratch)
+            })
+            .await
+    }
+
     /// Raw fd of the underlying UDP socket — used by the client to toggle
     /// `IP_MTU_DISCOVER` (DF) around active path-MTU probing.
     #[cfg(unix)]
