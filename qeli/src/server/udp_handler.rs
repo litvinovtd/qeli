@@ -1551,12 +1551,11 @@ pub(crate) async fn run_udp_server(
             ))
             .map_err(|_| anyhow::anyhow!("could not initialize UDP receive pool"))?;
     }
-    // Capacity counts batches now, so divide to keep the same bound in DATAGRAMS.
-    let (received_tx, mut received_rx) = mpsc::channel(
-        crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS
-            .div_ceil(crate::transport_core::udp_batch::MAX_BATCH)
-            .max(2),
-    );
+    // A batch is variable-sized. Retain the old message depth so short bursts do not collapse to
+    // four queued datagrams; the fixed recycler above, not channel capacity multiplied by
+    // MAX_BATCH, bounds the actual number and memory of datagrams owned by this receive pump.
+    let (received_tx, mut received_rx) =
+        mpsc::channel(crate::transport::udp::UDP_RECEIVE_QUEUE_PACKETS);
     let receive_socket = socket.clone();
     let receive_recycler_task = receive_recycler.clone();
     let receive_profile = profile.name.clone();

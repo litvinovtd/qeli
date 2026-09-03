@@ -1992,6 +1992,53 @@ mod tests {
         assert!(obfs_datagram_open(&key, &[0u8; 4]).is_none());
     }
 
+    #[tokio::test]
+    async fn keyed_udp_batch_roundtrips_different_sizes() {
+        let a = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let b = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        a.connect(b.local_addr().unwrap()).await.unwrap();
+        b.connect(a.local_addr().unwrap()).await.unwrap();
+        let key = derive_obfs_key("keyed-udp-batch");
+        let sender = ObfsUdp::new(a, Some(key));
+        let receiver = ObfsUdp::new(b, Some(key));
+        let payloads: Vec<Vec<u8>> = (1..=8).map(|i| vec![i as u8; i * 137]).collect();
+
+        let mut send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
+            crate::transport_core::udp_batch::MAX_BATCH,
+        );
+        let mut offset = 0;
+        while offset < payloads.len() {
+            let remaining: Vec<&[u8]> = payloads[offset..]
+                .iter()
+                .map(|payload| payload.as_slice())
+                .collect();
+            let sent = sender
+                .send_batch(&remaining, &mut send_scratch)
+                .await
+                .unwrap();
+            assert!(sent > 0, "a writable UDP socket must make progress");
+            offset += sent;
+        }
+
+        let mut received = Vec::new();
+        let mut receive_scratch = crate::transport_core::udp_batch::BatchScratch::new(
+            crate::transport_core::udp_batch::MAX_BATCH,
+        );
+        while received.len() < payloads.len() {
+            let mut slots: Vec<BytesMut> = (0..crate::transport_core::udp_batch::MAX_BATCH)
+                .map(|_| BytesMut::with_capacity(4096))
+                .collect();
+            let count = receiver
+                .recv_batch(&mut slots, None, &mut receive_scratch)
+                .await
+                .unwrap();
+            received.extend(slots.into_iter().take(count));
+        }
+        for (actual, expected) in received.iter().zip(payloads.iter()) {
+            assert_eq!(actual.as_ref(), expected.as_slice());
+        }
+    }
+
     #[test]
     fn outer_datagram_tamper_is_rejected_by_inner_aead() {
         let packet_key = [0x5au8; 32];

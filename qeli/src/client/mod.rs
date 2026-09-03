@@ -7983,10 +7983,12 @@ fn spawn_client_udp_receive_pump(
             .expect("fresh UDP receive recycler has exact advertised capacity");
     }
     tokio::spawn(async move {
-        // One syscall per datagram was the UDP data plane's dominant cost: at MTU 1400 a
+        // One syscall per datagram was a measured UDP data-plane cost: at MTU 1400 a
         // 500 Mbit/s stream is ~45 000 `recvfrom` per second, and an `strace` of a live run
         // matched datagrams to calls almost exactly. The TCP transport never paid it — one
-        // `read` returns many records — which is the whole of the 3.5x gap between them.
+        // `read` returns many records. A same-window old/new lab A/B found no meaningful goodput
+        // gain but about 10–12% lower process CPU on the receiving qeli side, so batching here is
+        // CPU/syscall headroom rather than a claim that it closes the UDP/TCP throughput gap.
         let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(
             crate::transport_core::udp_batch::MAX_BATCH,
         );
@@ -9267,13 +9269,13 @@ pub(crate) async fn run_udp_tunnel(
     // while this task performs decrypt/reassembly/TUN work. The bounded FIFO preserves packet
     // order and does not touch DATA_FRAG or either PMTU state machine.
     drop(recv_buf);
-    // Capacity is in batches now, so divide to keep the same bound in DATAGRAMS: a queue of
-    // 128 batches would be 4096 packets of hidden buffering and a matching latency tail.
-    let (received_tx, mut received_rx) = mpsc::channel(
-        crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS
-            .div_ceil(crate::transport_core::udp_batch::MAX_BATCH)
-            .max(2),
-    );
+    // A channel slot is one variable-size batch, so dividing the old packet capacity by the
+    // maximum batch size would collapse the common short-batch queue to four datagrams. Keep the
+    // original message depth. This cannot create 128 full batches: each receive pump owns only
+    // UDP_RECEIVE_QUEUE_PACKETS + 1 reusable datagram buffers, and that fixed recycler remains
+    // the actual memory/datagram bound.
+    let (received_tx, mut received_rx) =
+        mpsc::channel(crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS);
     // Drained one datagram at a time by the receive arm below, exactly like the early-data
     // queue beside it: the arm's body is unchanged and still handles a single datagram.
     let mut pending_batch = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();

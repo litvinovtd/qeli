@@ -5,8 +5,10 @@
 //! 500 Mbit/s, and an `strace` of a live run confirmed the ratio almost exactly (67 194
 //! datagrams received against 67 208 `recvfrom` calls). The TCP transport never paid this:
 //! one `read` returns tens of kilobytes holding many records, so its per-byte syscall cost is
-//! two orders of magnitude lower. That difference — not the obfuscation, which measured
-//! identical across all four UDP profiles — is what left the UDP modes at ~1/3.5 of TCP.
+//! two orders of magnitude lower. A same-window old/new lab A/B did not show a meaningful
+//! goodput gain, but did reduce the receiving qeli process CPU by roughly 10–12 percent. Treat
+//! batching as syscall/CPU headroom rather than a throughput promise; framing, crypto and the
+//! serial consumer remain separate costs.
 //!
 //! `recvmmsg`/`sendmmsg` move up to [`MAX_BATCH`] datagrams per syscall. Unlike `UDP_SEGMENT`
 //! (GSO) they place **no constraint on datagram sizes**, so the Recordizer's deliberately
@@ -24,6 +26,15 @@ use std::net::SocketAddr;
 /// Datagrams per syscall. Sized to cover a full receive burst at line rate without making one
 /// wakeup arbitrarily long: 32 x 1400 B is ~45 KiB, about 0.7 ms of traffic at 500 Mbit/s.
 pub(crate) const MAX_BATCH: usize = 32;
+
+/// The portable fallback may return a useful partial batch only when the next non-blocking
+/// operation says that the socket is drained. A permanent carrier error must not be hidden merely
+/// because an earlier datagram in the same loop succeeded: on some platforms that error is
+/// one-shot, so swallowing it can postpone failure detection indefinitely.
+#[cfg(any(test, not(any(target_os = "linux", target_os = "android"))))]
+fn finishes_partial_batch(error: &io::Error, completed: usize) -> bool {
+    completed > 0 && error.kind() == io::ErrorKind::WouldBlock
+}
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod imp {
@@ -278,8 +289,8 @@ mod imp {
             match outcome {
                 Ok(_) => filled += 1,
                 // Drain only what is already queued: never wait to fill the batch.
-                Err(error) if filled == 0 => return Err(error),
-                Err(_) => break,
+                Err(error) if finishes_partial_batch(&error, filled) => break,
+                Err(error) => return Err(error),
             }
         }
         if filled == 0 {
@@ -298,9 +309,11 @@ mod imp {
         while sent < count {
             match socket.try_send(datagrams[sent]) {
                 Ok(_) => sent += 1,
-                Err(error) if sent == 0 => return Err(error),
-                // A partial batch is a normal outcome; the caller retries the remainder.
-                Err(_) => break,
+                // A partial batch is normal only when the socket is temporarily full; the
+                // caller retries the remainder after writable readiness. Real carrier errors
+                // remain visible even if this loop already sent an earlier datagram.
+                Err(error) if finishes_partial_batch(&error, sent) => break,
+                Err(error) => return Err(error),
             }
         }
         Ok(sent)
@@ -326,6 +339,15 @@ mod tests {
         (0..count)
             .map(|_| BytesMut::with_capacity(capacity))
             .collect()
+    }
+
+    #[test]
+    fn portable_partial_batch_policy_never_hides_carrier_errors() {
+        let would_block = io::Error::from(io::ErrorKind::WouldBlock);
+        let connection_reset = io::Error::from(io::ErrorKind::ConnectionReset);
+        assert!(finishes_partial_batch(&would_block, 1));
+        assert!(!finishes_partial_batch(&would_block, 0));
+        assert!(!finishes_partial_batch(&connection_reset, 1));
     }
 
     #[tokio::test]
