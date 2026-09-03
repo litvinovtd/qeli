@@ -282,6 +282,10 @@ impl WintunPump {
         self.from_wintun.recv().await
     }
 
+    fn try_recv_from_tun(&mut self) -> Result<WintunPacket, mpsc::error::TryRecvError> {
+        self.from_wintun.try_recv()
+    }
+
     async fn shutdown(mut self) {
         self.request_stop();
         let reader = self.reader.take();
@@ -481,6 +485,13 @@ impl WindowsTunPump {
         match self {
             Self::Ring(pump) => pump.recv_from_tun().await.map(TunPacket::Ring),
             Self::Packet(pump) => pump.recv_from_tun().await.map(TunPacket::Packet),
+        }
+    }
+
+    pub(crate) fn try_recv_from_tun(&mut self) -> Result<TunPacket, mpsc::error::TryRecvError> {
+        match self {
+            Self::Ring(pump) => pump.try_recv_from_tun().map(TunPacket::Ring),
+            Self::Packet(pump) => pump.try_recv_from_tun().map(TunPacket::Packet),
         }
     }
 

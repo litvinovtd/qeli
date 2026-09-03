@@ -7385,9 +7385,36 @@ enum ClientUdpPayloadSendOutcome {
     CarrierFailed,
 }
 
+async fn flush_client_udp_datagrams(
+    datagrams: &mut Vec<Vec<u8>>,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+) -> std::io::Result<()> {
+    let mut offset = 0;
+    while offset < datagrams.len() {
+        let chunk: Vec<&[u8]> = datagrams[offset..]
+            .iter()
+            .take(crate::transport_core::udp_batch::MAX_BATCH)
+            .map(|datagram| datagram.as_slice())
+            .collect();
+        match socket.send_batch(&chunk, scratch).await {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "UDP socket accepted no datagram from a writable batch",
+                ));
+            }
+            Ok(sent) => offset += sent,
+            Err(error) => return Err(error),
+        }
+    }
+    datagrams.clear();
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn send_client_udp_payload(
-    payload: &[u8],
+async fn send_client_udp_payloads(
+    payloads: &[Vec<u8>],
     client_tx: &mut PacketCodec,
     obfuscation: &crate::config::client::ClientObfuscationConfig,
     payload_budget: usize,
@@ -7404,115 +7431,153 @@ async fn send_client_udp_payload(
     cover_record: &mut Vec<u8>,
     quic_record: &mut Vec<u8>,
     padding: &mut Vec<u8>,
+    send_scratch: &mut crate::transport_core::udp_batch::BatchScratch,
 ) -> ClientUdpPayloadSendOutcome {
-    let mut obf = Obfuscator::new();
-    let normalization_padding = if obfuscation.traffic_normalization.enabled
-        && !obfuscation.traffic_normalization.round_sizes.is_empty()
-    {
-        Obfuscator::normalization_padding_len(
-            payload.len(),
-            &obfuscation.traffic_normalization.round_sizes,
-            payload_budget,
-        )
-    } else {
-        0
-    };
-    let pad_cap = (obfuscation.padding.max_bytes as usize)
-        .min(payload_budget.saturating_sub(payload.len().saturating_add(normalization_padding)))
-        as u16;
-    obf.generate_padding_opts_into(
-        obfuscation.padding.enabled,
-        obfuscation.padding.min_bytes,
-        pad_cap,
-        obfuscation.padding.randomize,
-        obfuscation.padding.probability,
-        padding,
-    );
-    if normalization_padding != 0 {
-        obf.append_normalization_padding_into(
-            payload.len(),
-            &obfuscation.traffic_normalization.round_sizes,
-            payload_budget,
+    let mut datagrams = Vec::with_capacity(crate::transport_core::udp_batch::MAX_BATCH);
+    for payload in payloads {
+        let mut obf = Obfuscator::new();
+        let normalization_padding = if obfuscation.traffic_normalization.enabled
+            && !obfuscation.traffic_normalization.round_sizes.is_empty()
+        {
+            Obfuscator::normalization_padding_len(
+                payload.len(),
+                &obfuscation.traffic_normalization.round_sizes,
+                payload_budget,
+            )
+        } else {
+            0
+        };
+        let pad_cap = (obfuscation.padding.max_bytes as usize)
+            .min(payload_budget.saturating_sub(payload.len().saturating_add(normalization_padding)))
+            as u16;
+        obf.generate_padding_opts_into(
+            obfuscation.padding.enabled,
+            obfuscation.padding.min_bytes,
+            pad_cap,
+            obfuscation.padding.randomize,
+            obfuscation.padding.probability,
             padding,
         );
-    }
-    if client_tx
-        .encrypt_packet_into(payload, padding, wire_record)
-        .is_err()
-    {
-        return ClientUdpPayloadSendOutcome::EncodeFailed;
-    }
+        if normalization_padding != 0 {
+            obf.append_normalization_padding_into(
+                payload.len(),
+                &obfuscation.traffic_normalization.round_sizes,
+                payload_budget,
+                padding,
+            );
+        }
+        if client_tx
+            .encrypt_packet_into(payload, padding, wire_record)
+            .is_err()
+        {
+            if flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
+                .await
+                .is_err()
+            {
+                return ClientUdpPayloadSendOutcome::CarrierFailed;
+            }
+            return ClientUdpPayloadSendOutcome::EncodeFailed;
+        }
 
-    let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
-    if shaper.stealth() && !delay.is_zero() {
-        let mut remaining = delay;
-        while remaining > Duration::from_millis(6) {
-            let cover_size = shaper
-                .next_size(&mut rand::rng())
-                .min(max_empty_record_padding);
-            if shaper.try_spend(cover_size, std::time::Instant::now()) {
-                let mut cover_obf = Obfuscator::new();
-                cover_obf.generate_padding_into(cover_size as u16, cover_size as u16, padding);
-                if client_tx
-                    .encrypt_packet_into(&[], padding, cover_record)
-                    .is_ok()
+        let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
+        if !delay.is_zero()
+            && flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
+                .await
+                .is_err()
+        {
+            return ClientUdpPayloadSendOutcome::CarrierFailed;
+        }
+        if shaper.stealth() && !delay.is_zero() {
+            let mut remaining = delay;
+            while remaining > Duration::from_millis(6) {
+                let cover_size = shaper
+                    .next_size(&mut rand::rng())
+                    .min(max_empty_record_padding);
+                if shaper.try_spend(cover_size, std::time::Instant::now()) {
+                    let mut cover_obf = Obfuscator::new();
+                    cover_obf.generate_padding_into(cover_size as u16, cover_size as u16, padding);
+                    if client_tx
+                        .encrypt_packet_into(&[], padding, cover_record)
+                        .is_ok()
+                    {
+                        let send_data =
+                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                                framing,
+                                cover_record,
+                                quic_pn,
+                                quic_record,
+                            );
+                        let _ = socket.send(send_data).await;
+                    }
+                }
+                let step = Duration::from_millis(rand::rng().random_range(4..=18));
+                let sleep = step.min(remaining);
+                tokio::time::sleep(sleep).await;
+                remaining = remaining.saturating_sub(sleep);
+            }
+        } else if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+
+        if data_frag_enabled && wire_record.len() > data_record_budget {
+            let record_id = *tx_record_id;
+            *tx_record_id = tx_record_id.wrapping_add(1);
+            let fragments = match crate::protocol::data_frag::fragment_record(
+                wire_record,
+                tx_data_frag_key,
+                record_id,
+                data_record_budget - crate::protocol::data_frag::HEADER_LEN,
+            ) {
+                Ok(fragments) => fragments,
+                Err(error) => {
+                    log::warn!("UDP data fragmentation failed: {error}");
+                    if flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
+                        .await
+                        .is_err()
+                    {
+                        return ClientUdpPayloadSendOutcome::CarrierFailed;
+                    }
+                    return ClientUdpPayloadSendOutcome::EncodeFailed;
+                }
+            };
+            for fragment in fragments {
+                let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                    framing,
+                    &fragment,
+                    quic_pn,
+                    quic_record,
+                );
+                datagrams.push(send_data.to_vec());
+                if datagrams.len() == crate::transport_core::udp_batch::MAX_BATCH
+                    && flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
+                        .await
+                        .is_err()
                 {
-                    let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                        framing,
-                        cover_record,
-                        quic_pn,
-                        quic_record,
-                    );
-                    let _ = socket.send(send_data).await;
+                    log::warn!("UDP carrier fragment batch send failed");
+                    return ClientUdpPayloadSendOutcome::CarrierFailed;
                 }
             }
-            let step = Duration::from_millis(rand::rng().random_range(4..=18));
-            let sleep = step.min(remaining);
-            tokio::time::sleep(sleep).await;
-            remaining = remaining.saturating_sub(sleep);
-        }
-    } else if !delay.is_zero() {
-        tokio::time::sleep(delay).await;
-    }
-
-    if data_frag_enabled && wire_record.len() > data_record_budget {
-        let record_id = *tx_record_id;
-        *tx_record_id = tx_record_id.wrapping_add(1);
-        let fragments = match crate::protocol::data_frag::fragment_record(
-            wire_record,
-            tx_data_frag_key,
-            record_id,
-            data_record_budget - crate::protocol::data_frag::HEADER_LEN,
-        ) {
-            Ok(fragments) => fragments,
-            Err(error) => {
-                log::warn!("UDP data fragmentation failed: {error}");
-                return ClientUdpPayloadSendOutcome::EncodeFailed;
-            }
-        };
-        for fragment in fragments {
+        } else {
             let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
                 framing,
-                &fragment,
+                wire_record,
                 quic_pn,
                 quic_record,
             );
-            if let Err(error) = socket.send(send_data).await {
-                log::warn!("UDP carrier fragment send failed: {error}");
+            datagrams.push(send_data.to_vec());
+            if datagrams.len() == crate::transport_core::udp_batch::MAX_BATCH
+                && flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
+                    .await
+                    .is_err()
+            {
+                log::warn!("UDP carrier batch send failed");
                 return ClientUdpPayloadSendOutcome::CarrierFailed;
             }
         }
-    } else {
-        let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
-            framing,
-            wire_record,
-            quic_pn,
-            quic_record,
-        );
-        if let Err(error) = socket.send(send_data).await {
-            log::warn!("UDP carrier send failed: {error}");
-            return ClientUdpPayloadSendOutcome::CarrierFailed;
-        }
+    }
+    if let Err(error) = flush_client_udp_datagrams(&mut datagrams, socket, send_scratch).await {
+        log::warn!("UDP carrier batch send failed: {error}");
+        return ClientUdpPayloadSendOutcome::CarrierFailed;
     }
     ClientUdpPayloadSendOutcome::Sent
 }
@@ -7584,35 +7649,31 @@ async fn send_client_udp_control_frame(
     cover_record: &mut Vec<u8>,
     quic_record: &mut Vec<u8>,
     padding: &mut Vec<u8>,
+    send_scratch: &mut crate::transport_core::udp_batch::BatchScratch,
 ) -> Result<bool, crate::protocol::recordizer::RecordizerError> {
     let payloads = prepare_client_udp_control_payloads(frame, recordizer)?;
-    for payload in payloads {
-        if send_client_udp_payload(
-            &payload,
-            client_tx,
-            obfuscation,
-            payload_budget,
-            data_record_budget,
-            data_frag_enabled,
-            tx_data_frag_key,
-            tx_record_id,
-            shaper,
-            socket,
-            framing,
-            quic_pn,
-            max_empty_record_padding,
-            wire_record,
-            cover_record,
-            quic_record,
-            padding,
-        )
-        .await
-            != ClientUdpPayloadSendOutcome::Sent
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    Ok(send_client_udp_payloads(
+        &payloads,
+        client_tx,
+        obfuscation,
+        payload_budget,
+        data_record_budget,
+        data_frag_enabled,
+        tx_data_frag_key,
+        tx_record_id,
+        shaper,
+        socket,
+        framing,
+        quic_pn,
+        max_empty_record_padding,
+        wire_record,
+        cover_record,
+        quic_record,
+        padding,
+        send_scratch,
+    )
+    .await
+        == ClientUdpPayloadSendOutcome::Sent)
 }
 
 #[cfg(test)]
@@ -9189,6 +9250,9 @@ pub(crate) async fn run_udp_tunnel(
                 > crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
         });
     let client_info_frame = crate::protocol::ctrl::this_build();
+    let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
+        crate::transport_core::udp_batch::MAX_BATCH,
+    );
     macro_rules! send_udp_control {
         ($frame:expr) => {
             send_client_udp_control_frame(
@@ -9210,6 +9274,7 @@ pub(crate) async fn run_udp_tunnel(
                 &mut cover_record,
                 &mut quic_record,
                 &mut padding,
+                &mut udp_send_scratch,
             )
             .await
         };
@@ -9281,9 +9346,6 @@ pub(crate) async fn run_udp_tunnel(
     // Drained one datagram at a time by the receive arm below, exactly like the early-data
     // queue beside it: the arm's body is unchanged and still handles a single datagram.
     let mut pending_batch = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
-    let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
-        crate::transport_core::udp_batch::MAX_BATCH,
-    );
     #[cfg_attr(
         not(all(feature = "experimental-roaming", any(unix, windows))),
         allow(unused_mut)
@@ -9614,8 +9676,8 @@ pub(crate) async fn run_udp_tunnel(
                     .as_mut()
                     .and_then(|mux| mux.flush_due(std::time::Instant::now()))
                 {
-                    let send_outcome = send_client_udp_payload(
-                        &payload,
+                    let send_outcome = send_client_udp_payloads(
+                        std::slice::from_ref(&payload),
                         &mut client_tx,
                         &eff_obf,
                         mux_payload_budget,
@@ -9632,6 +9694,7 @@ pub(crate) async fn run_udp_tunnel(
                         &mut cover_record,
                         &mut quic_record,
                         &mut padding,
+                        &mut udp_send_scratch,
                     )
                     .await;
                     match send_outcome {
@@ -9794,7 +9857,7 @@ pub(crate) async fn run_udp_tunnel(
                         Duration::from_millis(hb_config.jitter_ms),
                     );
                 if let Some(mux) = udp_tx_recordizer.as_mut() {
-                    let payloads = match mux.push(
+                    let mut payloads = match mux.push(
                         ip_packet.as_ref(),
                         std::time::Instant::now(),
                     ) {
@@ -9805,54 +9868,117 @@ pub(crate) async fn run_udp_tunnel(
                         }
                     };
                     drop(ip_packet);
-                    for payload in payloads {
-                        let send_outcome = send_client_udp_payload(
-                            &payload,
-                            &mut client_tx,
-                            &eff_obf,
-                            mux_payload_budget,
-                            data_record_budget,
-                            data_frag_enabled,
-                            &tx_data_frag_key,
-                            &mut tx_record_id,
-                            &mut shaper,
-                            &socket,
-                            udp_framing,
-                            &mut quic_pn,
-                            max_empty_record_padding,
-                            &mut wire_record,
-                            &mut cover_record,
-                            &mut quic_record,
-                            &mut padding,
-                        )
-                        .await;
-                        match send_outcome {
-                            ClientUdpPayloadSendOutcome::Sent => {}
-                            ClientUdpPayloadSendOutcome::EncodeFailed => break 'udp,
-                            ClientUdpPayloadSendOutcome::CarrierFailed => {
-                                #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
-                                if udp_handover_enabled {
-                                    let path_controller = path_controller
-                                        .as_deref()
-                                        .expect("enabled UDP handover retains path controller");
-                                    let candidate_in_flight = live_udp_candidate.is_some()
-                                        || candidate_connect_task.is_some()
-                                        || path_controller.prepared_candidate().is_some();
-                                    if begin_udp_carrier_failure_recovery(
-                                        &mut same_network_nat_recovery,
-                                        udp_roaming
-                                            .as_ref()
-                                            .expect("enabled UDP handover retains roaming state"),
-                                        path_controller,
-                                        candidate_in_flight,
-                                        "recordizer data send",
-                                    ) {
-                                        continue 'udp;
-                                    }
-                                }
-                                break 'udp;
+                    // The first packet was awaited by select. Drain only packets that the TUN
+                    // worker has already queued, bounded to one socket batch. This adds no
+                    // coalescing timer and keeps cancellation/roaming latency bounded, while
+                    // giving sendmmsg real work instead of one record at a time.
+                    let mut drained_packets = 1usize;
+                    let mut tun_disconnected = false;
+                    while drained_packets < crate::transport_core::udp_batch::MAX_BATCH {
+                        let next_packet = match tun_pump.try_recv_from_tun() {
+                            Ok(packet) => packet,
+                            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                tun_disconnected = true;
+                                break;
+                            }
+                        };
+                        drained_packets += 1;
+                        if !is_supported_inner_packet(
+                            next_packet.as_ref(),
+                            negotiated_family_mode,
+                        ) {
+                            unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+                            udp_buffer.note_internal_drop(InternalDrop::Unsupported);
+                            if unsupported_inner_drops.is_power_of_two() {
+                                log::debug!(
+                                    "UDP client dropped invalid or non-negotiated-family inner packet (total {})",
+                                    unsupported_inner_drops
+                                );
+                            }
+                            continue;
+                        }
+                        if mtu != 0 && next_packet.len() > mtu {
+                            oversize_tun_drops = oversize_tun_drops.saturating_add(1);
+                            udp_buffer.note_internal_drop(InternalDrop::Oversize);
+                            if oversize_tun_drops.is_power_of_two() {
+                                log::warn!(
+                                    "UDP client dropped inner packet larger than tunnel MTU: {} > {} bytes (total {})",
+                                    next_packet.len(), mtu, oversize_tun_drops
+                                );
+                            }
+                            continue;
+                        }
+                        trace::record(trace::Dir::Tx, "client.udp", next_packet.len(), 0);
+                        runtime_counters.tx_packets.fetch_add(1, Ordering::Relaxed);
+                        runtime_counters
+                            .tx_bytes
+                            .fetch_add(next_packet.len() as u64, Ordering::Relaxed);
+                        last_activity = tokio::time::Instant::now();
+                        last_tx_inst = last_activity;
+                        heartbeat_deadline = tokio::time::Instant::now()
+                            + crate::protocol::randomized_heartbeat_delay(
+                                heartbeat_interval,
+                                Duration::from_millis(hb_config.jitter_ms),
+                            );
+                        match mux.push(next_packet.as_ref(), std::time::Instant::now()) {
+                            Ok(ready) => payloads.extend(ready),
+                            Err(error) => {
+                                log::debug!("client UDP recordizer dropped a packet: {error}");
                             }
                         }
+                    }
+                    let send_outcome = send_client_udp_payloads(
+                        &payloads,
+                        &mut client_tx,
+                        &eff_obf,
+                        mux_payload_budget,
+                        data_record_budget,
+                        data_frag_enabled,
+                        &tx_data_frag_key,
+                        &mut tx_record_id,
+                        &mut shaper,
+                        &socket,
+                        udp_framing,
+                        &mut quic_pn,
+                        max_empty_record_padding,
+                        &mut wire_record,
+                        &mut cover_record,
+                        &mut quic_record,
+                        &mut padding,
+                        &mut udp_send_scratch,
+                    )
+                    .await;
+                    match send_outcome {
+                        ClientUdpPayloadSendOutcome::Sent => {}
+                        ClientUdpPayloadSendOutcome::EncodeFailed => break 'udp,
+                        ClientUdpPayloadSendOutcome::CarrierFailed => {
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                            if udp_handover_enabled {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if begin_udp_carrier_failure_recovery(
+                                    &mut same_network_nat_recovery,
+                                    udp_roaming
+                                        .as_ref()
+                                        .expect("enabled UDP handover retains roaming state"),
+                                    path_controller,
+                                    candidate_in_flight,
+                                    "recordizer data send",
+                                ) {
+                                    continue 'udp;
+                                }
+                            }
+                            break 'udp;
+                        }
+                    }
+                    if tun_disconnected {
+                        log::warn!("UDP: TUN reader stopped — reconnecting");
+                        break 'udp;
                     }
                     continue;
                 }

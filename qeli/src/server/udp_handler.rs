@@ -5008,6 +5008,10 @@ async fn handle_udp_auth(
                 + crate::protocol::packet::MAX_RECORD_SIZE);
         let mut recordizer =
             writer_recordizer_runtime.map(crate::protocol::recordizer::Recordizer::new);
+        let mut udp_send_scratch =
+            crate::transport_core::udp_batch::BatchScratch::new(
+                crate::transport_core::udp_batch::MAX_BATCH,
+            );
         let mut active_mux_payload_budget = writer_mux_payload_budget;
         'writer: loop {
             let (current_egress, current_udp_payload_budget) =
@@ -5131,22 +5135,50 @@ async fn handle_udp_auth(
                 msg = writer_rx.recv() => {
                     match msg {
                         Some(packet) => {
-                            let priority_control =
+                            let mut priority_control =
                                 crate::protocol::control_v2::is_control_v2(packet.as_ref());
-                            let mut payloads = if let Some(mux) = recordizer.as_mut() {
-                                match mux.push(packet.as_ref(), std::time::Instant::now()) {
-                                    Ok(payloads) => payloads,
-                                    Err(error) => {
-                                        log::debug!("server UDP recordizer dropped a packet: {error}");
-                                        writer_session
-                                            .dropped
-                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        continue;
+                            let mut queued_packets = vec![packet];
+                            if !priority_control {
+                                while queued_packets.len()
+                                    < crate::transport_core::udp_batch::MAX_BATCH
+                                {
+                                    match writer_rx.try_recv() {
+                                        Ok(packet) => {
+                                            let is_priority =
+                                                crate::protocol::control_v2::is_control_v2(
+                                                    packet.as_ref(),
+                                                );
+                                            queued_packets.push(packet);
+                                            if is_priority {
+                                                priority_control = true;
+                                                break;
+                                            }
+                                        }
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                            break;
+                                        }
                                     }
                                 }
-                            } else {
-                                vec![packet.to_vec()]
-                            };
+                            }
+                            let mut payloads = Vec::new();
+                            for packet in queued_packets {
+                                if let Some(mux) = recordizer.as_mut() {
+                                    match mux.push(packet.as_ref(), std::time::Instant::now()) {
+                                        Ok(ready) => payloads.extend(ready),
+                                        Err(error) => {
+                                            log::debug!(
+                                                "server UDP recordizer dropped a packet: {error}"
+                                            );
+                                            writer_session
+                                                .dropped
+                                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                    }
+                                } else {
+                                    payloads.push(packet.to_vec());
+                                }
+                            }
                             if priority_control {
                                 if let Some(payload) = recordizer.as_mut().and_then(|mux| mux.flush()) {
                                     payloads.push(payload);
@@ -5161,6 +5193,7 @@ async fn handle_udp_auth(
                     }
                 }
             };
+            let mut encrypted_records = Vec::with_capacity(payloads.len());
             for payload in payloads {
                 if !handler::encrypt_server_stream_payload(
                     &writer_task_codec,
@@ -5175,13 +5208,88 @@ async fn handle_udp_auth(
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     continue;
                 }
-                let data: &[u8] = &encrypted_record;
-                    // Aggregate per-session DOWNLOAD throttle. The independent upload
-                    // pacing task applies the same limit concurrently. Also account
-                    // outbound bytes for list-clients and quota tracking.
-                    let limit = writer_session
-                        .bandwidth_limit_mbps
-                        .load(std::sync::atomic::Ordering::Relaxed);
+                encrypted_records.push(encrypted_record.clone());
+            }
+            // Aggregate per-session DOWNLOAD throttle. The independent upload pacing task
+            // applies the same limit concurrently. Limited sessions keep per-record pacing;
+            // only an unlimited burst that is already queued is eligible for sendmmsg.
+            let limit = writer_session
+                .bandwidth_limit_mbps
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let mut batch_sent = 0usize;
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            if limit == 0 && encrypted_records.len() > 1 {
+                // One immutable egress snapshot owns the complete batch. A concurrent roaming
+                // commit applies to the next batch and cannot split this one between paths.
+                let (egress, current_udp_payload_budget) =
+                    writer_egress.snapshot_with_payload_budget(&writer_udp_payload_budget);
+                let safe_udp_payload_budget = egress.safe_payload_budget();
+                let writer_record_budget = egress
+                    .record_budget(current_udp_payload_budget)
+                    .or_else(|| egress.record_budget(safe_udp_payload_budget))
+                    .expect("conservative UDP budget fits the active path framing");
+                if encrypted_records
+                    .iter()
+                    .all(|record| record.len() <= writer_record_budget)
+                {
+                    let wire_datagrams: Vec<Vec<u8>> = encrypted_records
+                        .iter()
+                        .map(|record| {
+                            let packet_number = if egress.framing.uses_packet_number() {
+                                writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            } else {
+                                0
+                            };
+                            egress
+                                .framing
+                                .wrap_into(record, packet_number, &mut quic_record)
+                                .to_vec()
+                        })
+                        .collect();
+                    let mut sent_wire_len = 0u64;
+                    while batch_sent < wire_datagrams.len() {
+                        let end = (batch_sent + crate::transport_core::udp_batch::MAX_BATCH)
+                            .min(wire_datagrams.len());
+                        let datagrams: Vec<&[u8]> = wire_datagrams[batch_sent..end]
+                            .iter()
+                            .map(Vec::as_slice)
+                            .collect();
+                        match egress
+                            .socket
+                            .send_batch_to(&datagrams, egress.peer, &mut udp_send_scratch)
+                            .await
+                        {
+                            Ok(0) => break,
+                            Ok(sent) => {
+                                sent_wire_len += wire_datagrams[batch_sent..batch_sent + sent]
+                                    .iter()
+                                    .map(|packet| {
+                                        (packet.len() + egress.socket.seal_overhead()) as u64
+                                    })
+                                    .sum::<u64>();
+                                batch_sent += sent;
+                            }
+                            Err(error) => {
+                                log::debug!(
+                                    "UDP writer batch send to {} stopped after {}/{} records: {}",
+                                    egress.peer,
+                                    batch_sent,
+                                    wire_datagrams.len(),
+                                    error
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    if sent_wire_len > 0 {
+                        writer_session
+                            .bytes_sent
+                            .fetch_add(sent_wire_len, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+            for encrypted_record in encrypted_records.into_iter().skip(batch_sent) {
+                let data = encrypted_record.as_slice();
                     let mut retried_at_floor = false;
                     'budget_attempt: loop {
                         // One complete encrypted record uses one immutable egress snapshot. A
@@ -5231,21 +5339,58 @@ async fn handle_udp_auth(
                             if !delay.is_zero() {
                                 tokio::time::sleep(delay).await;
                             }
+                            let wire_datagrams: Vec<Vec<u8>> = fragments
+                                .into_iter()
+                                .map(|fragment| {
+                                    let packet_number = if egress.framing.uses_packet_number() {
+                                        writer_pn.fetch_add(
+                                            1,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        )
+                                    } else {
+                                        0
+                                    };
+                                    egress
+                                        .framing
+                                        .wrap_into(&fragment, packet_number, &mut quic_record)
+                                        .to_vec()
+                                })
+                                .collect();
                             let mut sent_wire_len = 0u64;
                             let mut send_error = None;
-                            for fragment in fragments {
-                                let packet_number = if egress.framing.uses_packet_number() {
-                                    writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                                } else {
-                                    0
-                                };
-                                let pkt = egress.framing.wrap_into(
-                                    &fragment,
-                                    packet_number,
-                                    &mut quic_record,
-                                );
-                                match egress.socket.send_to(pkt, egress.peer).await {
-                                    Ok(sent) => sent_wire_len += sent as u64,
+                            let mut offset = 0usize;
+                            while offset < wire_datagrams.len() {
+                                let end = (offset + crate::transport_core::udp_batch::MAX_BATCH)
+                                    .min(wire_datagrams.len());
+                                let datagrams: Vec<&[u8]> = wire_datagrams[offset..end]
+                                    .iter()
+                                    .map(Vec::as_slice)
+                                    .collect();
+                                match egress
+                                    .socket
+                                    .send_batch_to(
+                                        &datagrams,
+                                        egress.peer,
+                                        &mut udp_send_scratch,
+                                    )
+                                    .await
+                                {
+                                    Ok(0) => {
+                                        send_error = Some(std::io::Error::new(
+                                            std::io::ErrorKind::WriteZero,
+                                            "UDP batch send made no progress",
+                                        ));
+                                        break;
+                                    }
+                                    Ok(sent) => {
+                                        sent_wire_len += wire_datagrams[offset..offset + sent]
+                                            .iter()
+                                            .map(|packet| {
+                                                (packet.len() + egress.socket.seal_overhead()) as u64
+                                            })
+                                            .sum::<u64>();
+                                        offset += sent;
+                                    }
                                     Err(error) => {
                                         send_error = Some(error);
                                         break;

@@ -324,6 +324,12 @@ impl LinuxTunPump {
         self.from_tun.recv().await
     }
 
+    pub(crate) fn try_recv_from_tun(
+        &mut self,
+    ) -> Result<TunPacket, tokio::sync::mpsc::error::TryRecvError> {
+        self.from_tun.try_recv()
+    }
+
     /// Stop both workers, close their descriptors and wait until ownership is released.
     pub async fn shutdown(mut self) {
         self.request_stop();

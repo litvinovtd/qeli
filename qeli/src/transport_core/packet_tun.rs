@@ -263,6 +263,10 @@ impl PacketTunPump {
         self.from_platform.recv().await
     }
 
+    pub(crate) fn try_recv_from_tun(&mut self) -> Result<PooledBuffer, mpsc::error::TryRecvError> {
+        self.from_platform.try_recv()
+    }
+
     pub(crate) async fn shutdown(mut self) {
         self.active.store(false, Ordering::Release);
         self.from_platform.close();
