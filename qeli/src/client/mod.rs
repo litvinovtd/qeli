@@ -7986,9 +7986,11 @@ fn spawn_client_udp_receive_pump(
         // One syscall per datagram was a measured UDP data-plane cost: at MTU 1400 a
         // 500 Mbit/s stream is ~45 000 `recvfrom` per second, and an `strace` of a live run
         // matched datagrams to calls almost exactly. The TCP transport never paid it — one
-        // `read` returns many records. A same-window old/new lab A/B found no meaningful goodput
-        // gain but about 10–12% lower process CPU on the receiving qeli side, so batching here is
-        // CPU/syscall headroom rather than a claim that it closes the UDP/TCP throughput gap.
+        // `read` returns many records. Repeated same-window old/new lab A/B found no stable
+        // goodput or process-CPU change. A syscall trace nevertheless confirmed successful
+        // receive batches averaging 3.55 datagrams on server upload ingress and 4.46 on client
+        // download ingress. This is verified syscall batching, not a claim that it closes the
+        // UDP/TCP throughput gap by itself.
         let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(
             crate::transport_core::udp_batch::MAX_BATCH,
         );

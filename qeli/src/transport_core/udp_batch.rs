@@ -6,9 +6,11 @@
 //! datagrams received against 67 208 `recvfrom` calls). The TCP transport never paid this:
 //! one `read` returns tens of kilobytes holding many records, so its per-byte syscall cost is
 //! two orders of magnitude lower. A same-window old/new lab A/B did not show a meaningful
-//! goodput gain, but did reduce the receiving qeli process CPU by roughly 10–12 percent. Treat
-//! batching as syscall/CPU headroom rather than a throughput promise; framing, crypto and the
-//! serial consumer remain separate costs.
+//! goodput gain; a repeated per-thread run also did not reproduce the first run's apparent CPU
+//! reduction. A syscall trace did confirm successful receive batches averaging 3.55 datagrams
+//! on server upload ingress and 4.46 on client download ingress. Treat batching as a verified
+//! reduction in receive syscalls rather than a throughput or CPU promise; framing, crypto, the
+//! serial consumer and the still-per-record egress path remain separate costs.
 //!
 //! `recvmmsg`/`sendmmsg` move up to [`MAX_BATCH`] datagrams per syscall. Unlike `UDP_SEGMENT`
 //! (GSO) they place **no constraint on datagram sizes**, so the Recordizer's deliberately
