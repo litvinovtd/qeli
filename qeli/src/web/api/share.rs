@@ -195,17 +195,25 @@ pub async fn share_link(
 
 /// Render a `qeli://` URI to a self-contained SVG QR code (no JS/CDN needed —
 /// the UI percent-encodes it into an `<img>` data URI; it is never injected as HTML).
-/// Returns `null` on the rare
-/// failure (e.g. payload exceeds QR capacity), so the UI can still show the URI.
+/// The returned markup STARTS at `<svg`: the panel's `svgDataUri` guard
+/// (`web/templates/users.html`) refuses anything that does not, because an `<img>` data
+/// URI is the only thing it will build. Returns `null` on the rare failure (e.g. payload
+/// exceeds QR capacity), so the UI can still show the URI.
 fn render_qr_svg(data: &str) -> Option<String> {
     use qrcode::{render::svg, QrCode};
     let code = QrCode::new(data.as_bytes()).ok()?;
-    Some(
-        code.render::<svg::Color>()
-            .min_dimensions(240, 240)
-            .quiet_zone(true)
-            .build(),
-    )
+    let markup = code
+        .render::<svg::Color>()
+        .min_dimensions(240, 240)
+        .quiet_zone(true)
+        .build();
+    // The renderer prefixes an XML prolog (`<?xml version="1.0" standalone="yes"?>`).
+    // The panel requires the payload to BEGIN with `<svg`, so that prolog turned every
+    // share into a blank <img> next to a perfectly good link — a 200 whose failure was
+    // invisible on both sides. Searched rather than stripped as a fixed literal so a
+    // future crate release rewording the prolog cannot silently reintroduce this.
+    let start = markup.find("<svg")?;
+    Some(markup[start..].to_string())
 }
 
 #[cfg(test)]
@@ -217,10 +225,17 @@ mod tests {
         let uri = "qeli://alice:pw@vpn.example.com:443?proto=tcp&mode=fake-tls\
                    &key=0a33d308295d5dc49bff020ca8a73e86b3f6797cbcc7d3aa440eee754729223a";
         let svg = render_qr_svg(uri).expect("QR should render for a normal share URI");
+        // STARTS with, not merely contains. `contains` passed happily while the renderer's
+        // XML prolog sat in front of `<svg`, which is exactly what the panel's data-URI
+        // guard rejects — so the old assertion could not see the bug it was there to catch.
         assert!(
-            svg.contains("<svg"),
-            "output should be SVG markup: {}",
+            svg.starts_with("<svg"),
+            "output must begin with SVG markup, or the panel renders a blank <img>: {}",
             &svg[..svg.len().min(80)]
+        );
+        assert!(
+            !svg.contains("<?xml"),
+            "an XML prolog must not survive into the panel payload"
         );
         assert!(svg.contains("</svg>"));
         assert!(
