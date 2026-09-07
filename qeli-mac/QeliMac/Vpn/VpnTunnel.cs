@@ -373,14 +373,12 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         // leaves the machine as it was found. (C-18)
         try { RestoreIpForwarding(); }
         catch (Exception error) { failures.Add(error); }
-        var network = _net;
         try
         {
             // NetworkConfigurator deliberately throws when the physical service's DNS was
             // not restored. Keep the configurator referenced in that case so a second Stop
             // in this process can retry instead of forgetting the recovery action.
-            network?.Dispose();
-            if (ReferenceEquals(_net, network)) _net = null;
+            DisposeNetworkConfigurator();
         }
         catch (Exception error)
         {
@@ -471,12 +469,30 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         // the old host route to the carrier can make the next handshake follow a vanished
         // gateway. Remove only that platform network transaction; keep the utun descriptor
         // and transparent-proxy classifier for fail-closed in-place reconfiguration.
+        DisposeNetworkConfigurator();
+    }
+
+    /// <summary>Idempotent configurator teardown: replays surviving undo entries
+    /// (successful ones are removed inside Dispose; failed ones stay registered for
+    /// the next pass). Every teardown path funnels through here so the dispose/null-out
+    /// dance exists exactly once.</summary>
+    private void DisposeNetworkConfigurator()
+    {
         var network = _net;
         network?.Dispose();
         if (ReferenceEquals(_net, network)) _net = null;
     }
 
-    protected override void BeforeTunDispose() => _perApp?.Stop();
+    protected override void BeforeTunDispose()
+    {
+        _perApp?.Stop();
+        try { RestoreIpForwarding(); }
+        catch { /* best effort here; CleanupPlatform retries and collects failures */ }
+        // Reset DNS and routes BEFORE closing the utun descriptor: XNU destroys the
+        // interface on close and configd then holds SCPreferences for ~20 s (with DHCP
+        // probes), blocking networksetup.
+        DisposeNetworkConfigurator();
+    }
 
     // Firewall kill-switch (full-tunnel only) via pf. Create/reserve the next utun before
     // raising PF, so the allowlist names only interfaces actually owned by this tunnel.

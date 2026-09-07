@@ -251,7 +251,9 @@ internal sealed class DnsJournal
             return RecoveryResult.PreservedExternalChange;
         }
 
+        var sw = Stopwatch.StartNew();
         var restored = _write(state.Service, state.PreviousServers);
+        sw.Stop();
         if (!restored.Ok)
         {
             _log($"Failed to restore DNS on \"{state.Service}\": {restored.Error}; " +
@@ -264,7 +266,7 @@ internal sealed class DnsJournal
             return RecoveryResult.Failed;
         }
 
-        _log($"Restored DNS on \"{state.Service}\" to its pre-qeli value");
+        _log($"Restored DNS on \"{state.Service}\" to its pre-qeli value in {sw.ElapsedMilliseconds} ms");
         return RecoveryResult.Restored;
     }
 
