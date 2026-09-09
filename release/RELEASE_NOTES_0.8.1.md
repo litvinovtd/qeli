@@ -191,8 +191,8 @@ compatibility floor. В панели улучшены placeholder, IPv6-карт
 
 ## Artifacts · Артефакты
 
-The local qeli 0.8.1 release set contains 17 payloads plus `SHA256SUMS`. Набор локального релиза
-qeli 0.8.1 содержит 17 payload-файлов и `SHA256SUMS`.
+The qeli 0.8.1 release set contains 17 payloads plus `SHA256SUMS`. Набор релиза qeli 0.8.1
+содержит 17 payload-файлов и `SHA256SUMS`.
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|

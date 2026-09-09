@@ -1,6 +1,6 @@
 # Qeli — installation & getting started (step by step)
 
-> **Documentation status:** current development tree **0.8.1**; planned full-IPv6 release **0.8.1**;
+> **Documentation status:** current development tree **0.8.1**; planned full-IPv6 release **0.8.2**;
 > latest published release **0.8.1**. There will be no public 0.7.17 release.
 > `qeli --version` reports the version of the binary actually installed.
 
