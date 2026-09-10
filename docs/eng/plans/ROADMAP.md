@@ -2,7 +2,7 @@
 
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
-## 0.8.0 (development, 2026-08-26) — genuine H2 carrier for Reality
+## 0.8.0 (released, 2026-09-02) — genuine H2 carrier for Reality
 
 - ✅ `reality-tls` now carries the private qeli record stream in one long-lived genuine HTTP/2
   POST (`/v1/events/stream`, ALPN `h2`) with randomized 2–8 ms batching; the former second
@@ -36,8 +36,8 @@ Wire-compatible with 0.7.4; config defaults unchanged.
   retry with a fresh random GUID bypasses a poisoned stable-GUID registry ghost.
 - ✅ **Share link: clear error for an unloaded profile** (profiles, unlike users, don't
   hot-reload — restart the server).
-- ✅ **OpenWrt client** (procd + UCI + LuCI). The current 0.8.0 line has been verified
-  on real hardware and works. Versions → 0.7.5.
+- ✅ **OpenWrt client** (procd + UCI + LuCI). The 0.8.1 release line remains verified
+  on real hardware. Originally introduced in 0.7.5.
 
 ## 0.7.4 (2026-06-27) — UDP reliability on mobile
 
@@ -468,10 +468,11 @@ Remaining work is the mutating part of the channel:
    TUN because routes cannot be changed on a live interface;
 3. equivalent transactional apply/rollback integration is required for every other platform.
 
-`KICK`/`NOTICE` are complete for 0.8.0. Full live `PUSH_CONFIG` is explicitly deferred to 0.8.1.
-Completed roaming does not depend on it and uses separate negotiated path capabilities.
+`KICK`/`NOTICE` shipped in 0.8.0. Full live `PUSH_CONFIG` did not ship in 0.8.1 and remains a
+later roadmap item. Completed roaming does not depend on it and uses separate negotiated path
+capabilities.
 
-### Full IPv6 support (0.8.0 development line; certification pending)
+### Full IPv6 support (0.8.1 automated certification complete; physical qualification continues)
 
 **Full plan: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** An IPv6 server
 endpoint is only an outer carrier and is not IPv6 support on its own. The scope includes
@@ -484,26 +485,29 @@ upstream treats as on-link. In source-preserving `route` mode the server respond
 live-session addresses and active non-default IPv6 `client_subnet` prefixes; the
 `off|auto|required` modes preserve the safe default for existing configurations.
 
-The source implementation is now the 0.8.0 development line. The automated Linux base matrix
-passed 14/14 outer/inner/transport cases on 2026-08-31, including cross-family leak and cleanup
-checks. Special DNS/PMTU/PTB/TAP/legacy cases and the physical/native certification matrix remain.
-Until those gates pass against final artifacts, this is development code, not a release.
+The source implementation ships in the 0.8.1 line. On 2026-09-10 the exact release candidate passed
+all 20 required automated cases, including cross-family leak/cleanup, DNS, PMTU/PTB, TAP/NDP,
+legacy interoperability and 100 successful same-session roaming flips for TCP and UDP/QUIC. The 21
+physical/native qualification rows remain an explicit advisory backlog. The broader “fully qualified
+on every platform” milestone is therefore still targeted at 0.8.2 rather than being implied by 0.8.1.
 
 Intermediate stages are development-only. The feature cannot ship or be called complete
 until the entire IPv6-only/dual-stack release matrix passes. User configuration remains
 flat INI; internal wire/FFI messages are not JSON configuration.
 
-### Roaming — seamless network change (after IPv6; target 0.8.x, initial Linux live slice complete)
+### Roaming — seamless network change (after IPv6; target 0.8.x, automated Linux matrix complete)
 
 **Normative plan: [ROAMING.md](ROAMING.md).** Supported builds include the shared TCP/UDP roaming
 core under an internal compile gate. Disabled profiles, legacy peers and unsupported adapters use
 a fast reconnect with a new handshake and Argon2 on Wi-Fi↔LTE/IP changes. Path executors for
-Linux/OpenWrt, Android, Windows, macOS and iOS are source-complete; Linux TCP/UDP+QUIC and Android TCP/UDP have partial live acceptance while
-preserving session id, inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP, routes and quota state.
+Linux/OpenWrt, Android, Windows, macOS and iOS are source-complete. The automated Linux release
+matrix now covers TCP/UDP+QUIC, address-family combinations, full/split routing and the 100-flip
+same-session soak while preserving session id, inner IPv4/IPv6 addresses, NetworkPlan, TUN/TAP,
+routes and quota state; physical platform acceptance remains outstanding.
 The server has profile-scoped rollout configuration: new profiles enable roaming, while sparse
 existing profiles remain disabled for compatibility. Client `off|auto|required`
 policy, its flat-INI/`qeli://` round-trip, and shared transport-specific gates are source-complete
-across all clients. Panel and GUI controls are implemented; the remaining platform/race/soak matrix and staged rollout remain in Stage 6.
+across all clients. Panel and GUI controls are implemented; physical platform/race qualification and staged rollout remain in Stage 6.
 
 - Common foundations are negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V2`, and
   `TCP_HANDOVER_V2`; domain-separated resume/CID secrets; and a generation-scoped

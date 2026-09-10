@@ -13,11 +13,12 @@ multipath, автоматический fallback и обработку конф�
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
 общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.15. ABI 1.15 добавляет
 типизированные серверные события `NOTICE`/`KICK` и capability `MANAGEMENT_EVENTS`, не меняя
-фиксированный event header и число экспортов. Закоммиченные `.so`/`.dll`/`.dylib` пока остаются
-последним сертифицированным набором ABI 1.14; перед упаковкой их нужно пересобрать из финального
-коммита 0.8.0. Финальные приложения всё равно должны пройти signing/platform/E2E gates. Остались также
+фиксированный event header и число экспортов. Закоммиченные Android `.so`, Windows `.dll` и macOS
+`.dylib` теперь являются независимо пересобранным и побайтно совпавшим набором ABI 1.15 для 0.8.1.
+Их SHA, экспорты и provenance прошли native-core gates; финальные приложения также прошли доступные
+build, signing и platform-проверки. Из физических acceptance gates остаются
 administrator Wintun full-tunnel, живой macOS utun и physical-device iOS/Xcode.
-Составлено 2026-07-30; статус native cores актуализирован 2026-08-31.
+Составлено 2026-07-30; статус native cores актуализирован 2026-09-10.
 **Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
 общему Rust-ядру, а не платформенному UI-коду. Платформа получает его только после пересборки
 native `.so`/`.dll`/`.dylib` либо XCFramework из обновлённых исходников, упаковки в приложение
@@ -607,7 +608,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Предыдущая матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с 6 Reality + 20 client exports; source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export. ABI 1.13 добавляет только event/capability values и сохраняет эти числа экспортов; ABI 1.14 добавляет типизированные path results без новых экспортов. Базовый compatibility floor iOS остаётся ABI 1.11, а fail-closed path transactions вместе с `PATH_REFRESH` требуют 1.14; `build_native.sh` теперь по умолчанию включает `transport-core-ffi experimental-roaming`. Feature Clippy для `aarch64-apple-ios` зелёный, но реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Матрица whole-client кросс-сборок проходит для Android arm64/x86_64, Windows x64 и macOS universal2. Source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export; ABI 1.13–1.15 добавляют capability/event/path-result semantics без изменения этих чисел. Артефакты ABI 1.15 для 0.8.1 прошли независимые побайтно идентичные A/B-сборки. Базовый compatibility floor iOS остаётся ABI 1.11, а fail-closed path transactions вместе с `PATH_REFRESH` требуют 1.14; `build_native.sh` по умолчанию включает `transport-core-ffi experimental-roaming`. Feature Clippy для `aarch64-apple-ios` зелёный, но реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 

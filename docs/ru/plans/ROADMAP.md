@@ -2,7 +2,7 @@
 
 Приоритеты: **P1** — заметно влияет на безопасность/функциональность, **P2** —
 качество, **P3** — long-term/экспериментальное.
-## 0.8.0 (dev, 2026-08-26) — настоящий H2 carrier для Reality
+## 0.8.0 (выпущен, 2026-09-02) — настоящий H2 carrier для Reality
 
 - ✅ `reality-tls` теперь несёт приватный поток qeli records в одном долгоживущем настоящем
   HTTP/2 POST (`/v1/events/stream`, ALPN `h2`) со случайным batching 2–8 мс; прежнего второго
@@ -36,8 +36,8 @@
   со свежим случайным GUID обходит отравленную stable-GUID запись.
 - ✅ **Share-ссылка: понятная ошибка для не-загруженного профиля** (профили, в отличие от
   пользователей, не хот-релоадятся — перезапустите сервер).
-- ✅ **OpenWrt-клиент** (procd + UCI + LuCI). Текущая линия 0.8.0 проверена на реальном
-  оборудовании и работает. Версии → 0.7.5.
+- ✅ **OpenWrt-клиент** (procd + UCI + LuCI). Релизная линия 0.8.1 по-прежнему проверена
+  на реальном оборудовании. Изначально добавлен в 0.7.5.
 
 ## 0.7.4 (2026-06-27) — надёжность UDP на мобильном
 
@@ -435,10 +435,11 @@ Rust-ядро и адаптеры Android, iOS, Windows, macOS и Linux. Адм�
    замену TUN, потому что живой интерфейс не умеет менять маршруты;
 3. эквивалентное транзакционное применение и rollback нужны для остальных платформ.
 
-`KICK`/`NOTICE` завершены для 0.8.0. Полный live `PUSH_CONFIG` явно перенесён в 0.8.1.
-Готовый roaming от него не зависит и использует отдельные negotiated path capabilities.
+`KICK`/`NOTICE` выпущены в 0.8.0. Полный live `PUSH_CONFIG` не вошёл в 0.8.1 и остаётся
+задачей следующих релизов. Готовый roaming от него не зависит и использует отдельные negotiated
+path capabilities.
 
-### Полная поддержка IPv6 (линия разработки 0.8.0; сертификация не завершена)
+### Полная поддержка IPv6 (автосертификация 0.8.1 завершена; физическая квалификация продолжается)
 
 **Полный план: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** IPv6-адрес
 сервера — лишь внешний carrier и не считается реализацией IPv6 сам по себе. Задача включает
@@ -451,26 +452,29 @@ Rust-ядро и адаптеры Android, iOS, Windows, macOS и Linux. Адм�
 за адреса живых сессий и активные non-default IPv6 `client_subnet`; режимы `off|auto|required`
 не меняют безопасный дефолт существующих конфигов.
 
-Исходная реализация теперь относится к линии разработки 0.8.0. Автоматическая базовая
-Linux-матрица 2026-08-31 прошла 14/14 сочетаний outer/inner/transport, включая cross-family
-leak и cleanup. Остаются специальные DNS/PMTU/PTB/TAP/legacy-сценарии и physical/native-матрица.
-До прохождения этих gate на финальных артефактах это development implementation, а не релиз.
+Исходная реализация входит в линию 0.8.1. Точный release candidate 2026-09-10 прошёл все 20
+обязательных автоматических сценариев, включая cross-family leak/cleanup, DNS, PMTU/PTB, TAP/NDP,
+legacy interoperability и по 100 подтверждённых roaming-переключений TCP и UDP/QUIC. Ещё 21 строка
+physical/native qualification остаётся явным advisory backlog. Поэтому более широкая цель «полностью
+квалифицировано на каждой платформе» остаётся за 0.8.2 и не подразумевается релизом 0.8.1.
 
 Промежуточные стадии используются только для разработки. Возможность нельзя выпускать или
 называть полной до прохождения всей IPv6-only/dual-stack release matrix. Пользовательские
 конфиги остаются flat INI; внутренние wire/FFI-сообщения не являются JSON-конфигами.
 
-### Роуминг — бесшовная смена сети (после IPv6; целевая ветка 0.8.x, Linux live-срез готов)
+### Роуминг — бесшовная смена сети (после IPv6; автоматическая Linux-матрица завершена)
 
 **Нормативный план: [ROAMING.md](ROAMING.md).** Поддерживаемые сборки включают общий TCP/UDP roaming
 core под внутренним compile gate. Выключенные профили, legacy peers и неподдерживаемые adapters при
 смене Wi-Fi↔LTE/IP выполняют быстрый reconnect с новым handshake и Argon2. Path executors
-Linux/OpenWrt, Android, Windows, macOS и iOS source-complete; Linux TCP/UDP+QUIC и Android TCP/UDP имеют частичную live-приёмку с
-сохранением session id, внутренних IPv4/IPv6, NetworkPlan, TUN/TAP, маршрутов и квоты.
+Linux/OpenWrt, Android, Windows, macOS и iOS source-complete. Автоматическая Linux release matrix
+теперь покрывает TCP/UDP+QUIC, сочетания семейств адресов, full/split routing и 100-flip
+same-session soak с сохранением session id, внутренних IPv4/IPv6, NetworkPlan, TUN/TAP,
+маршрутов и квоты; физическая приёмка платформ остаётся незавершённой.
 На сервере реализован профильный rollout: новые профили включают роуминг, а sparse старые
 профили остаются выключенными для совместимости. Клиентская политика `off|auto|required`,
 её flat-INI/`qeli://` round-trip и общие transport-specific gates source-complete во всех клиентах.
-Панель и явные GUI controls реализованы; оставшаяся platform/race/soak matrix и поэтапный rollout относятся к этапу 6.
+Панель и явные GUI controls реализованы; физическая platform/race qualification и поэтапный rollout относятся к этапу 6.
 
 - Общая основа: negotiated `CONTROL_V2`, `UDP_ROAM_V1`, `TCP_RESUME_V2` и
   `TCP_HANDOVER_V2`; domain-separated resume/CID secrets; generation-scoped динамический

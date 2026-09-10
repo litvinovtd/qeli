@@ -1,4 +1,4 @@
-# qeli 0.8.1 (beta) — faster UDP, safer routing and more resilient clients
+# qeli 0.8.1 (beta) — operational maturity for the 0.8 network architecture
 
 > ⚠️ **Beta — may be unstable.** The **1.0** line will be the first stable one.
 >
@@ -14,10 +14,31 @@ This document highlights the major changes since `v0.8.0`. The complete itemised
 
 ## English
 
-qeli 0.8.1 turns the network architecture introduced in 0.8.0 into a faster and more dependable
-daily build. The release removes the main syscall bottleneck in the ordinary UDP path, makes mobile
-sessions survive real connectivity gaps more cleanly, adds provider-facing IPv6 NDP support and
-hardens route import, DHCP, backup, signing and kill-switch edge cases.
+qeli 0.8.0 introduced a new network foundation: native IPv6, session roaming and the shared
+Recordizer-based transport architecture. qeli 0.8.1 is the consolidation release that makes that
+foundation substantially more practical under everyday load, real network changes and complex host
+configurations. Rather than adding another headline protocol, it closes the operational gaps found
+while the 0.8 architecture was exercised across servers, phones, desktops and routers.
+
+### What this release closes
+
+- **The performance gap between the new architecture and the available link:** the ordinary UDP
+  path no longer spends most of its time on one syscall per datagram. The measured bottleneck is
+  removed, taking the tested client path from roughly 320–360 to about 695 Mbit/s while reducing CPU.
+- **The continuity gap between “roaming supported” and real Wi-Fi/LTE transitions:** mobile clients
+  stop wasting reconnect attempts without a carrier, preserve fail-closed state across safe restarts
+  and keep healthy multipath flows stable while one path disappears or returns.
+- **The deployment gap on IPv6 and complicated desktop networks:** providers gain session-aware NDP
+  proxying, while large route lists, virtual adapters, IPv6-only interfaces and slow Windows process
+  ownership scans no longer turn valid configurations into stalls or unsafe partial operation.
+- **The operational trust gap around state changes:** DHCP leases, backup/restore, kill-switch rules,
+  credentials, signed mobile bundles and encrypted profile storage now validate and roll back more
+  consistently instead of silently accepting incomplete or damaged state.
+
+The result is a release about predictable behaviour as a whole: higher useful throughput, fewer
+avoidable reconnects and pauses, safer administration, and one more consistent experience across
+the qeli server and clients. It is not a wire reset; the server remains compatible with legacy peers,
+but applications should be updated together with their bundled native cores.
 
 ### UDP throughput and CPU efficiency
 
@@ -109,10 +130,31 @@ IPv6/NDP deployment details are in the
 
 ## Русский
 
-qeli 0.8.1 доводит сетевую архитектуру 0.8.0 до более быстрой и надёжной повседневной версии.
-Устранено основное syscall-ограничение обычного UDP-пути, мобильные сессии лучше переживают реальное
-исчезновение сети, добавлен провайдерский IPv6 NDP proxy, а пограничные сценарии маршрутов, DHCP,
-резервного копирования, подписи приложений и kill-switch переведены на более строгую fail-closed модель.
+qeli 0.8.0 заложила новую сетевую основу: нативный IPv6, roaming с сохранением сессии и общую
+Recordizer-архитектуру транспорта. qeli 0.8.1 — релиз закрепления этой основы для повседневной
+эксплуатации под нагрузкой, при реальной смене сетей и в сложных конфигурациях хоста. Вместо ещё
+одного громкого режима он закрывает практические разрывы, обнаруженные при использовании архитектуры
+0.8 на серверах, телефонах, компьютерах и роутерах.
+
+### Что закрывает этот релиз
+
+- **Разрыв между возможностями архитектуры и скоростью канала:** обычный UDP-путь больше не тратит
+  основное время на отдельный syscall для каждой датаграммы. На тестовом клиентском пути устранение
+  измеренного bottleneck подняло скорость примерно с 320–360 до 695 Мбит/с при меньшей нагрузке CPU.
+- **Разрыв между заявленным roaming и реальной сменой Wi-Fi/LTE:** мобильные клиенты не расходуют
+  reconnect без доступной сети, сохраняют fail-closed состояние при безопасном перезапуске и не
+  переназначают здоровые multipath-потоки при исчезновении или возвращении одного carrier.
+- **Разрыв в сложных IPv6 и desktop-развёртываниях:** появился session-aware NDP proxy, а большие
+  route-файлы, виртуальные и IPv6-only адаптеры и медленное определение владельцев сокетов Windows
+  больше не превращают корректную конфигурацию в паузы или небезопасное частичное состояние.
+- **Разрыв в надёжности административных операций:** DHCP, backup/restore, kill-switch, credentials,
+  подпись мобильных сборок и зашифрованные хранилища профилей строже проверяют данные и откатывают
+  незавершённые изменения вместо молчаливого принятия повреждённого состояния.
+
+В итоге 0.8.1 улучшает поведение qeli как единой системы: даёт больше полезной скорости, меньше
+лишних переподключений и пауз, безопаснее обслуживается и одинаковее ведёт себя на сервере и разных
+клиентах. Это не обрыв wire-совместимости: сервер продолжает принимать legacy peers, но приложения
+следует обновлять вместе с вложенными native cores.
 
 ### Скорость UDP и эффективность CPU
 
@@ -237,3 +279,14 @@ Windows x64 и macOS universal2. Linux release gate прошёл fmt, jemalloc, 
 conformance, **1041 Rust-тест** (3 ignored), 4 CLI-теста и 8 примеров конфигурации. Проверены подпись
 APK, Windows self-tests, ad-hoc подписи 19 Mach-O и сборка всех четырёх OpenWrt-архитектур.
 `SHA256SUMS` покрывает каждый публикуемый файл.
+
+The final candidate passed all **20 required automated IPv6/roaming release cases** on 2026-09-10,
+including TCP, UDP fake-TLS and UDP QUIC across outer/inner IPv4 and IPv6, split routing, DNS,
+MTU/PMTU/PTB, TAP/NDP, compatibility with 0.7.16 and 100 successful same-session roaming flips for TCP
+and UDP/QUIC. The 21 physical-platform cases remain visible as an advisory qualification backlog;
+they are not presented as device coverage that was not executed.
+
+Финальный кандидат 2026-09-10 прошёл все **20 обязательных автоматических IPv6/roaming-сценариев**,
+включая TCP, UDP fake-TLS и UDP QUIC, split routing, DNS, MTU/PMTU/PTB, TAP/NDP, совместимость с
+0.7.16 и по 100 подтверждённых roaming-переключений TCP и UDP/QUIC. Ещё 21 проверка на физических
+платформах честно остаётся advisory backlog и не выдаётся за фактически выполненное device-покрытие.

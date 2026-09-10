@@ -1,14 +1,15 @@
 # Full IPv6 support — implementation plan
 
-Status: source implementation complete; release certification is still in progress. Updated:
-2026-08-31.
+Status: source implementation complete; the qeli 0.8.1 automated release certification passed;
+cross-platform physical qualification continues for the planned full-IPv6 0.8.2 release. Updated:
+2026-09-10.
 
-The development runtime gate and authenticated capability negotiation are enabled. This is
-not yet a release-readiness claim. ABI 1.14 native cores have passed independent A/B builds
-and provenance. The automated Linux base matrix has passed 14/14 cases for outer IPv4/IPv6,
-inner IPv4/IPv6/dual, TCP/UDP/QUIC and full/split routing, including cross-family leak and
-cleanup checks. The special DNS/PMTU/PTB/TAP/legacy cases and the physical platform matrix in
-section 14 must still pass on the exact final candidate artifacts before release promotion.
+The runtime gate and authenticated capability negotiation are enabled. ABI 1.15 native cores passed
+independent byte-identical A/B builds and provenance checks. On 2026-09-10 the exact qeli 0.8.1
+candidate passed all 20 required automated release cases: outer IPv4/IPv6, inner IPv4/IPv6/dual,
+TCP/UDP/QUIC, full/split routing, leak and cleanup, DNS, PMTU/PTB, TAP/NDP, legacy interoperability
+and the bounded TCP plus UDP/QUIC roaming soak. The 21 physical-platform rows in section 14 remain
+an explicit advisory backlog; 0.8.1 does not claim device coverage that was not executed.
 
 This document defines **full**, not partial, IPv6 support in Qeli. The work may be split
 into internal development stages, but no intermediate stage may be advertised as IPv6
