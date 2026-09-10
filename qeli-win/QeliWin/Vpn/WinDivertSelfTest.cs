@@ -232,6 +232,51 @@ internal static class WinDivertSelfTest
             check("exclude: unknown owner is deferred without a policy leak",
                 d == PacketDisposition.Unknown);
         }
+        using (var refreshStarted = new ManualResetEventSlim(initialState: false))
+        using (var releaseRefresh = new ManualResetEventSlim(initialState: false))
+        {
+            const string selectedPath = @"C:\Program Files\Qeli Test\browser.exe";
+            var endpointToPid = new Dictionary<(byte proto, string local, ushort localPort,
+                string remote, ushort remotePort), uint>
+            {
+                [(6, "192.0.2.10", 50000, "198.51.100.20", 443)] = 424242,
+            };
+            var pidToPath = new Dictionary<uint, string>
+            {
+                [424242] = ProcessAppMap.NormalizePath(selectedPath),
+            };
+            var completedSnapshot =
+                new ProcessAppMap.OwnershipSnapshot(endpointToPid, pidToPath);
+            using var slowMap = new ProcessAppMap(
+                new[] { selectedPath },
+                includeMode: true,
+                snapshotBuilder: () =>
+                {
+                    refreshStarted.Set();
+                    releaseRefresh.Wait(TimeSpan.FromSeconds(5));
+                    return completedSnapshot;
+                });
+
+            bool started = refreshStarted.Wait(TimeSpan.FromSeconds(2));
+            var classification = Task.Run(() => slowMap.Classify(
+                6, IPAddress.Parse("192.0.2.10"), 50000,
+                IPAddress.Parse("198.51.100.20"), 443));
+            bool returnedWhileRefreshBlocked =
+                classification.Wait(TimeSpan.FromSeconds(1));
+            releaseRefresh.Set();
+            bool published = slowMap.WaitForPendingRefresh(2000);
+            check("owner map: slow refresh never blocks packet classification",
+                started
+                && returnedWhileRefreshBlocked
+                && classification.IsCompletedSuccessfully
+                && classification.Result == PacketDisposition.Unknown);
+            check("owner map: completed snapshot is published atomically",
+                published
+                && slowMap.Classify(
+                    6, IPAddress.Parse("192.0.2.10"), 50000,
+                    IPAddress.Parse("198.51.100.20"), 443)
+                    == PacketDisposition.Tunnel);
+        }
         check("family policy: active IPv6 tunnels selected traffic",
             WinDivertAdapter.DispositionForFamily(
                 PacketDisposition.Tunnel, familyAvailable: true, allowLeak: false)

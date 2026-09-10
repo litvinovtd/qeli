@@ -67,6 +67,9 @@ instead of silently imposing public resolvers.
   be cancelled without flooding the UI log.
 - Windows per-app mode now tolerates virtual, WFP/QoS and IPv6-only adapters. One unsupported adapter
   (`NetworkInformationException 10043`) no longer rejects an otherwise valid NetworkPlan.
+- Windows per-app socket ownership is now refreshed into a replacement snapshot outside packet
+  classification and published atomically. Slow endpoint scans and executable-path lookups no longer
+  pause the WinDivert capture path on hosts with many sockets or filter adapters.
 - macOS restores DNS, routes and the original `ip.forwarding` state before closing `utun`, eliminating
   the observed roughly 20-second disconnect delay and retaining failed cleanup for a retry.
 - Windows kill-switch allow rules and DDNS/roaming allowlist replacement are transactional; failed
@@ -156,6 +159,9 @@ DHCP получил точную обработку REQUEST/NAK, RELEASE и DECL
   формата, маски, чтения или лимита останавливает подключение fail-closed.
 - Windows per-app запускается при наличии виртуальных, WFP/QoS и IPv6-only адаптеров; ошибка 10043
   одного служебного интерфейса больше не отклоняет весь NetworkPlan.
+- Windows per-app теперь строит новый снимок принадлежности сокетов вне пути обработки пакетов и
+  публикует его атомарно. Медленное чтение endpoint/PID и путей процессов больше не останавливает
+  WinDivert-классификацию на системах с большим количеством сокетов или фильтрующих адаптеров.
 - macOS восстанавливает DNS, маршруты и прежний `ip.forwarding` до закрытия `utun`, устраняя
   наблюдавшуюся задержку отключения примерно на 20 секунд.
 - Начальные правила Windows kill-switch и обновление DDNS/roaming allowlist стали транзакционными.
