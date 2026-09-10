@@ -206,8 +206,8 @@ The qeli 0.8.1 release set contains 17 payloads plus `SHA256SUMS`. Набор р
 | `qeli-linux-amd64` | 12.19 MiB | `c9d35e92b93bf826` |
 | `qeli_0.8.1_amd64.deb` | 3.89 MiB | `cee6d7ebf6f3f964` |
 | `Qeli-macOS-universal.zip` | 55.33 MiB | `b90d2c5070f8d600` |
-| `QeliWin-net-required.exe` | 7.64 MiB | `570ba3b32c323099` |
-| `QeliWin-standalone.exe` | 69.37 MiB | `9f2bb61f59a47c5f` |
+| `QeliWin-net-required.exe` | 7.65 MiB | `ed31c52f0fc670b7` |
+| `QeliWin-standalone.exe` | 69.37 MiB | `15acb0b5d4b69bab` |
 | `qeli-client-keenetic-aarch64` | 3.82 MiB | `629ce39516bedd6b` |
 | `qeli-client-keenetic-mipsel` | 5.47 MiB | `94ff36b7008068af` |
 | `qeli-client-openwrt-aarch64` | 3.82 MiB | `629ce39516bedd6b` |
