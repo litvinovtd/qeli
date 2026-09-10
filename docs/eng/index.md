@@ -99,6 +99,9 @@ guidance. Start with the **[archive map](archive/README.md)**.
 ## Outside this directory
 
 - **[../../CHANGELOG.md](../../CHANGELOG.md)** — all changes by version.
+- **[../../release/RELEASE_NOTES_0.8.1.md](../../release/RELEASE_NOTES_0.8.1.md)** — bilingual
+  0.8 architecture consolidation, user-visible outcomes, upgrade order, artifacts and release
+  validation.
 - **[../../release/RELEASE_NOTES_0.8.0.md](../../release/RELEASE_NOTES_0.8.0.md)** — development
   Reality/H2 migration, defaults, upgrade order and verification.
 - **[../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md](../../release/dpi_audit_dev_0.8.0_h2_2026-08-26/REPORT.md)** — dated H2 PCAP/DPI result and limitations.
