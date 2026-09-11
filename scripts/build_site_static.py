@@ -13,7 +13,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SITE = REPO / "site"
 BASE = "https://qeli.ru"
-UPDATED = "2026-09-02"
+UPDATED = "2026-09-10"
 SITE_CONFIG = json.loads((SITE / "assets" / "site.json").read_text(encoding="utf-8"))
 SCHEMA_VERSION = SITE_CONFIG["versionJsonLd"]
 SCHEMA_DOWNLOAD_URL = f"https://github.com/litvinovtd/qeli/releases/tag/v{SCHEMA_VERSION}"
@@ -184,7 +184,7 @@ RAW_ENGLISH = {
     "# 1. скачать скрипт": "# 1. download the script",
     "# 2. прочитать его — и только потом запускать от root": "# 2. review it, then run it as root",
     "# готовый мульти-arch образ из GHCR (собирать не нужно):": "# prebuilt multi-arch image from GHCR (no build required):",
-    "# получить исходники опубликованной версии 0.8.0:": "# get the published 0.8.0 sources:",
+    "# получить исходники опубликованной версии 0.8.1:": "# get the published 0.8.1 sources:",
     "# собрать локальный образ из закреплённого тега:": "# build a local image from the pinned tag:",
     "# запустить сервер:": "# start the server:",
     "# имя, на которое ссылается compose": "# name referenced by Compose",
