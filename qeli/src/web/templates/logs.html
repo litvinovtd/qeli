@@ -3,13 +3,6 @@
   <!-- Toolbar -->
   <div class="flex flex-wrap items-center gap-3 mb-4">
     <div class="flex items-center gap-2 flex-1 min-w-0">
-      <select class="inp inp-compact inp-fit flex-shrink-0" x-model="level" @change="applyFilter()">
-        <option value="">All levels</option>
-        <option value="ERROR">ERROR</option>
-        <option value="WARN">WARN</option>
-        <option value="INFO">INFO</option>
-        <option value="DEBUG">DEBUG</option>
-      </select>
       <div class="relative flex-1 min-w-0 max-w-xs">
         <input class="inp h-8 text-xs w-full" style="padding-left:2rem" type="text" x-model="search" @input="applyFilter()" placeholder="Search logs…">
         <svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
@@ -44,15 +37,26 @@
   </div>
 
   <!-- Stats bar -->
-  <div class="flex items-center gap-4 text-xs mb-3">
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs mb-3">
     <span class="text-slate-500">
       Path: <code class="text-slate-400 font-mono" x-text="logPath || 'journald (no file)'"></code>
     </span>
     <span class="text-slate-600">·</span>
     <span class="text-slate-500">Showing <strong class="text-white" x-text="filtered.length"></strong> / <strong x-text="lines.length"></strong> lines</span>
-    <template x-for="[level, count] in levelCounts" :key="level">
-      <span class="badge" :class="levelBadge(level)" x-text="level + ' ' + count"></span>
-    </template>
+    <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Log level filters">
+      <button type="button" class="badge log-level-filter log-level-filter-all"
+        :aria-pressed="allLevelsSelected" @click="clearLevelFilter()">
+        <span>All levels</span>
+        <span x-text="searchMatchCount"></span>
+      </button>
+      <template x-for="[logLevel, count] in levelCounts" :key="logLevel">
+        <button type="button" class="badge log-level-filter" :class="levelBadge(logLevel)"
+          :aria-pressed="isLevelSelected(logLevel)"
+          :disabled="count === 0 && !isLevelSelected(logLevel)"
+          @click="toggleLevel(logLevel)"
+          x-text="logLevel + ' ' + count"></button>
+      </template>
+    </div>
   </div>
 
   <!-- Log output -->
@@ -61,11 +65,11 @@
       <div x-show="!loading && filtered.length === 0" class="text-center text-slate-600 text-sm py-12">
         No log entries match the current filter
       </div>
-      <template x-for="(line, i) in filtered" :key="i">
+      <template x-for="line in filtered" :key="line.index">
         <div class="flex hover:bg-white/5 group px-3 py-0.5" style="min-height:22px">
-          <div class="w-7 text-slate-700 text-right mr-3 flex-shrink-0 text-[10px] leading-[22px]" x-text="lineOffset + i + 1"></div>
+          <div class="w-7 text-slate-700 text-right mr-3 flex-shrink-0 text-[10px] leading-[22px]" x-text="line.index + 1"></div>
           <div class="flex-1 text-[11.5px] leading-[22px] whitespace-pre-wrap break-all"
-            :class="lineColor(line)" x-text="line"></div>
+            :class="lineColor(line.text)" x-text="line.text"></div>
         </div>
       </template>
     </div>
@@ -83,26 +87,39 @@ function logsPage() {
     autoRefresh: false,
     autoRefreshTimer: null,
     search: '',
-    level: '',
+    selectedLevels: [],
+    levelOrder: ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'],
     maxLines: 200,
-    lineOffset: 0,
 
     init() { this.load().then(() => this.scrollBottom()); },
 
+    get allLevelsSelected() {
+      return this.selectedLevels.length === 0;
+    },
+
+    get searchMatches() {
+      const query = this.search.trim().toLowerCase();
+      return this.lines
+        .map((text, index) => ({ text, index, level: this.parseLevel(text) }))
+        .filter(entry => !query || entry.text.toLowerCase().includes(query));
+    },
+
+    get searchMatchCount() {
+      return this.searchMatches.length;
+    },
+
     get levelCounts() {
-      const counts = {};
-      for (const l of this.lines) {
-        const m = l.match(/\b(ERROR|WARN|INFO|DEBUG|TRACE)\b/);
-        if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
+      const counts = Object.fromEntries(this.levelOrder.map(level => [level, 0]));
+      for (const entry of this.searchMatches) {
+        if (entry.level) counts[entry.level] += 1;
       }
-      return Object.entries(counts).sort((a,b) => b[1]-a[1]);
+      return this.levelOrder.map(level => [level, counts[level]]);
     },
 
     async load() {
       this.loading = true;
       try {
         const params = new URLSearchParams({ lines: this.maxLines });
-        if (this.search && !this.level) params.set('filter', this.search);
         const d = await apiFetch('api/logs?' + params);
         if (d.ok) {
           this.lines = d.lines || [];
@@ -110,25 +127,49 @@ function logsPage() {
           this.applyFilter();
         } else {
           this.lines = ['[Error: ' + (d.error || 'unknown') + ']'];
-          this.filtered = this.lines;
+          this.applyFilter();
         }
       } catch (e) {
         this.lines = ['[Network error: ' + e.message + ']'];
-        this.filtered = this.lines;
+        this.applyFilter();
       } finally {
         this.loading = false;
       }
     },
 
     applyFilter() {
-      let result = this.lines;
-      if (this.level) result = result.filter(l => l.includes(this.level));
-      if (this.search) {
-        const q = this.search.toLowerCase();
-        result = result.filter(l => l.toLowerCase().includes(q));
+      const selected = new Set(this.selectedLevels);
+      this.filtered = this.searchMatches.filter(
+        entry => selected.size === 0 || selected.has(entry.level),
+      );
+    },
+
+    parseLevel(line) {
+      // A qeli log line is <timestamp> LEVEL target: message (or starts with
+      // LEVEL when timestamps are disabled). Use the first severity token only:
+      // words such as "ERROR" inside an INFO message must not change its level.
+      const match = line.match(/(?:^|\s)(ERROR|WARN|INFO|DEBUG|TRACE)(?=\s)/);
+      return match ? match[1] : '';
+    },
+
+    isLevelSelected(level) {
+      return this.selectedLevels.includes(level);
+    },
+
+    clearLevelFilter() {
+      this.selectedLevels = [];
+      this.applyFilter();
+    },
+
+    toggleLevel(level) {
+      if (this.allLevelsSelected) {
+        this.selectedLevels = [level];
+      } else if (this.isLevelSelected(level)) {
+        this.selectedLevels = this.selectedLevels.filter(item => item !== level);
+      } else {
+        this.selectedLevels = [...this.selectedLevels, level];
       }
-      this.filtered = result;
-      this.lineOffset = this.lines.length - result.length;
+      this.applyFilter();
     },
 
     handleAutoRefresh() {
@@ -150,12 +191,13 @@ function logsPage() {
     },
 
     lineColor(line) {
-      if (line.includes(' ERROR ') || line.includes('ERROR]')) return 'text-red-400';
-      if (line.includes(' WARN ') || line.includes('WARN]')) return 'text-amber-400';
-      if (line.includes(' INFO ') || line.includes('INFO]')) return 'text-slate-300';
-      if (line.includes(' DEBUG ') || line.includes('DEBUG]')) return 'text-slate-500';
-      if (line.startsWith('[')) return 'text-slate-500';
-      return 'text-slate-400';
+      return {
+        ERROR: 'text-red-400',
+        WARN: 'text-amber-400',
+        INFO: 'text-slate-300',
+        DEBUG: 'text-slate-500',
+        TRACE: 'text-slate-500',
+      }[this.parseLevel(line)] || (line.startsWith('[') ? 'text-slate-500' : 'text-slate-400');
     },
 
     levelBadge(level) {
@@ -164,6 +206,7 @@ function logsPage() {
         WARN: 'bg-amber-900/40 text-amber-400',
         INFO: 'bg-blue-900/30 text-blue-400',
         DEBUG: 'bg-slate-700/50 text-slate-400',
+        TRACE: 'bg-slate-700/50 text-slate-500',
       }[level] || 'bg-slate-700/50 text-slate-400';
     },
   };

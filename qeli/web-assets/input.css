@@ -299,6 +299,15 @@ select.inp.inp-fit{ width:var(--qeli-select-fit-width,auto); max-width:100%; fle
 .badge-blue{ background:rgba(74,158,255,.14); color:var(--blue-2); }
 .badge-gray{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
 .badge-red{ background:rgba(255,93,108,.13); color:var(--red); }
+.log-level-filter{
+  border:1px solid transparent; opacity:.72; cursor:pointer;
+  transition:opacity .15s,border-color .15s,box-shadow .15s,transform .15s;
+}
+.log-level-filter:hover:not(:disabled){ opacity:1; transform:translateY(-1px); }
+.log-level-filter[aria-pressed=true]{ opacity:1; border-color:currentColor; box-shadow:inset 0 0 0 1px currentColor; }
+.log-level-filter:focus-visible{ outline:2px solid var(--blue); outline-offset:2px; }
+.log-level-filter:disabled{ opacity:.32; cursor:default; }
+.log-level-filter-all{ background:rgba(120,150,210,.1); color:var(--txt-mut); }
 
 /* Persistent server identity in the shared topbar. Truncation keeps long FQDNs
    from displacing the right-hand status controls; the full value remains in the

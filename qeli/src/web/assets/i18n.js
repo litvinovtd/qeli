@@ -911,6 +911,7 @@
 
       // ── logs ──
       'All levels': 'Все уровни',
+      'Log level filters': 'Фильтры уровней журнала',
       'ERROR': 'ERROR',
       'WARN': 'WARN',
       'INFO': 'INFO',
