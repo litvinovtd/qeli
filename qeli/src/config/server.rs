@@ -487,15 +487,6 @@ pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolS
     use std::net::Ipv6Addr;
 
     let carries_ipv6 = profile.tun.ip_mode != IpMode::Ipv4;
-    let has_any_ipv6_addressing = profile
-        .tun
-        .ipv6_address
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty())
-        || !profile.pool.ipv6.cidr.trim().is_empty()
-        || !profile.pool.ipv6.exclude.is_empty()
-        || !profile.pool.ipv6.static_reservations.is_empty();
-
     if !carries_ipv6
         && (profile.routing.ipv6.mode != Ipv6RoutingMode::Off
             || profile.routing.ipv6.ndp_proxy != Ipv6NdpProxyMode::Off)
@@ -514,7 +505,10 @@ pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolS
         ));
     }
 
-    if !carries_ipv6 && !has_any_ipv6_addressing {
+    // IPv4-only profiles deliberately retain dormant IPv6 addressing values so a panel
+    // mode switch is lossless. Active IPv6 routing/NDP was rejected above; the hidden
+    // address/pool subtree must not block an unrelated save or IPv4-only startup.
+    if !carries_ipv6 {
         return Ok(None);
     }
 
@@ -1315,6 +1309,8 @@ pub struct ServerObfuscationConfig {
 /// `min(its desired, max_streams)`. Mode-agnostic, but only useful for TCP modes
 /// (UDP has no head-of-line blocking) — leave disabled / max_streams=1 on UDP
 /// profiles. `max_clients * max_streams` bounds the server's total connections.
+pub const MULTIPATH_MAX_STREAMS: u32 = 16;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MultipathConfig {
     #[serde(default)]
@@ -1391,6 +1387,8 @@ pub struct RealityProxyConfig {
     #[serde(default = "default_peek_timeout_ms")]
     pub peek_timeout_ms: u64,
 }
+
+pub const REALITY_MIN_PEEK_TIMEOUT_MS: u64 = 300;
 
 fn default_peek_timeout_ms() -> u64 {
     1500
@@ -1530,6 +1528,208 @@ pub struct WebConfig {
     /// turn panel-login rate-limiting off entirely. See docs/*/manuals/CONFIG.md.
     #[serde(default)]
     pub brute_force: BruteForceConfig,
+}
+
+pub const WEB_SESSION_TTL_MIN_SECS: i64 = 60;
+pub const WEB_SESSION_TTL_MAX_SECS: i64 = 30 * 24 * 3600;
+
+impl WebConfig {
+    /// Validate only settings consumed while the panel is enabled. Hidden dormant values
+    /// are preserved losslessly and checked when the operator enables their parent feature.
+    pub fn validate_active(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        if self.port == 0 {
+            return Err(
+                "web.port = 0 would bind an ephemeral port while the log reports 0; set a port in 1..=65535"
+                    .into(),
+            );
+        }
+
+        let bind = self.bind.trim();
+        let unbracketed = bind
+            .strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+            .unwrap_or(bind);
+        if unbracketed != "localhost" && unbracketed.parse::<std::net::IpAddr>().is_err() {
+            return Err(format!(
+                "web.bind = {:?} is not a bare IPv4/IPv6 address or localhost; configure the port separately",
+                self.bind
+            ));
+        }
+
+        if !self.public_host.trim().is_empty() {
+            crate::config::share::supported_public_endpoint(&self.public_host, 443)?;
+        }
+
+        validate_web_network_list("web.allowed_ips", &self.allowed_ips)?;
+        validate_web_network_list("web.trusted_proxies", &self.trusted_proxies)?;
+
+        for raw in &self.allowed_origins {
+            validate_web_origin(raw)?;
+        }
+
+        let normalized_base = {
+            let value = self.base_path.trim().trim_end_matches('/');
+            if value.is_empty() {
+                String::new()
+            } else {
+                format!("/{}", value.trim_start_matches('/'))
+            }
+        };
+        if normalized_base.len() > 128
+            || !normalized_base.chars().all(|character| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '/' | '-' | '_' | '.' | '~' | '%')
+            })
+        {
+            return Err(format!(
+                "web.base_path = {:?} is not a plain URL path (example: /qeli)",
+                self.base_path
+            ));
+        }
+
+        if !(WEB_SESSION_TTL_MIN_SECS..=WEB_SESSION_TTL_MAX_SECS).contains(&self.session_ttl_secs) {
+            return Err(format!(
+                "web.session_ttl_secs must be in {}..={} (60 seconds to 30 days)",
+                WEB_SESSION_TTL_MIN_SECS, WEB_SESSION_TTL_MAX_SECS
+            ));
+        }
+
+        if self.tls && self.tls_cert.is_empty() != self.tls_key.is_empty() {
+            return Err(
+                "web.tls_cert and web.tls_key must either both be empty (auto self-signed) or both be set"
+                    .into(),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_web_network_list(label: &str, values: &[String]) -> Result<(), String> {
+    for raw in values {
+        let value = raw.trim();
+        if value.is_empty()
+            || (value.parse::<ipnet::IpNet>().is_err()
+                && value.parse::<std::net::IpAddr>().is_err())
+        {
+            return Err(format!(
+                "{label} entry {:?} is not a valid IP address or CIDR",
+                raw
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_web_origin(raw: &str) -> Result<(), String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err("web.allowed_origins contains an empty entry".into());
+    }
+    let host_port = if let Some((scheme, rest)) = value.split_once("://") {
+        if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+            return Err(format!(
+                "web.allowed_origins entry {:?} uses an unsupported scheme; use http or https",
+                raw
+            ));
+        }
+        rest.split('/').next().unwrap_or("")
+    } else {
+        if value
+            .chars()
+            .any(|character| matches!(character, '/' | '?' | '#'))
+        {
+            return Err(format!(
+                "web.allowed_origins entry {:?} must be host or host:port (a path requires a full http/https URL)",
+                raw
+            ));
+        }
+        value
+    };
+    crate::config::share::supported_public_endpoint(host_port, 443)
+        .map(|_| ())
+        .map_err(|error| format!("web.allowed_origins entry {:?}: {error}", raw))
+}
+
+#[cfg(test)]
+mod web_validation_tests {
+    use super::WebConfig;
+
+    fn active_web() -> WebConfig {
+        let mut web: WebConfig =
+            serde_json::from_str("{}").expect("serde defaults must build WebConfig");
+        web.enabled = true;
+        web
+    }
+
+    fn assert_rejected(web: &WebConfig, expected: &str) {
+        let error = web.validate_active().expect_err("configuration must fail");
+        assert!(error.contains(expected), "wrong error: {error}");
+    }
+
+    #[test]
+    fn disabled_panel_preserves_dormant_invalid_settings() {
+        let mut web = active_web();
+        web.enabled = false;
+        web.bind = "not a bind address".into();
+        web.port = 0;
+        web.allowed_ips = vec!["not-a-network".into()];
+        web.allowed_origins = vec!["ftp://bad.example".into()];
+        web.base_path = "# not a path".into();
+        web.session_ttl_secs = 0;
+        web.tls = true;
+        web.tls_cert = "/etc/qeli/cert.pem".into();
+        web.tls_key.clear();
+        web.validate_active()
+            .expect("a disabled panel must not validate hidden dormant settings");
+    }
+
+    #[test]
+    fn active_panel_validates_every_runtime_sensitive_field() {
+        active_web()
+            .validate_active()
+            .expect("serde defaults are a valid enabled panel");
+
+        let mut web = active_web();
+        web.bind = "panel.example.com".into();
+        assert_rejected(&web, "web.bind");
+
+        let mut web = active_web();
+        web.allowed_ips = vec!["10.0.0.0/8".into(), "broken".into()];
+        assert_rejected(&web, "web.allowed_ips");
+
+        let mut web = active_web();
+        web.trusted_proxies = vec!["300.1.1.1".into()];
+        assert_rejected(&web, "web.trusted_proxies");
+
+        let mut web = active_web();
+        web.allowed_origins = vec!["file://panel.example.com".into()];
+        assert_rejected(&web, "unsupported scheme");
+
+        let mut web = active_web();
+        web.base_path = "/panel?admin=1".into();
+        assert_rejected(&web, "web.base_path");
+
+        let mut web = active_web();
+        web.session_ttl_secs = 59;
+        assert_rejected(&web, "session_ttl_secs");
+
+        let mut web = active_web();
+        web.tls = true;
+        web.tls_cert = "/etc/qeli/cert.pem".into();
+        web.tls_key.clear();
+        assert_rejected(&web, "web.tls_cert");
+
+        let mut web = active_web();
+        web.bind = "[::1]".into();
+        web.allowed_origins = vec!["https://[2001:db8::1]:8443/panel".into()];
+        web.validate_active()
+            .expect("bracketed IPv6 bind and origin must validate");
+    }
 }
 
 fn default_session_ttl() -> i64 {

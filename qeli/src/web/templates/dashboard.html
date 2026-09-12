@@ -12,61 +12,93 @@
   <!-- Host load + live throughput (Tier-1 observability) -->
   <div class="grid lg:grid-cols-2 gap-4 mb-6">
     <!-- Host load -->
-    <div class="card p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold text-white">Host load<span x-show="metricsErr" class="text-xs font-normal text-amber-400" title="metrics sampler unreachable"> · unavailable</span></h3>
-        <div class="flex items-center gap-3">
-          <span class="text-xs" style="color:var(--txt-dim)" x-text="processId"></span>
+    <div class="card host-load-card">
+      <div class="host-load-header">
+        <div class="host-load-heading">
+          <span class="host-load-state" :class="hostHealthClass" aria-hidden="true"></span>
+          <div class="min-w-0">
+            <h3 class="host-load-title">Host load</h3>
+            <div class="host-load-status" x-text="hostHealthLabel"></div>
+          </div>
+        </div>
+        <div class="host-load-actions">
+          <span class="host-load-pid" x-text="processId"></span>
           <a href="api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
           <input type="file" x-ref="restoreFile" accept=".gz,.tgz,application/gzip" style="display:none" @change="restore($event)">
           <button class="btn btn-ghost btn-sm" @click="$refs.restoreFile.click()" title="Restore /etc/qeli from a backup .tar.gz">⤒ Restore</button>
         </div>
       </div>
-      <div class="flex items-center gap-5">
-        <svg viewBox="0 0 80 80" style="width:88px;height:88px;flex-shrink:0">
-          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
-          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--blue-2)" stroke-width="8" stroke-linecap="round"
-            transform="rotate(-90 40 40)" stroke-dasharray="188.5"
-            :stroke-dashoffset="cpuDashOffset"/>
-          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="cpuLabel"></text>
-          <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)" x-text="'CPU·' + (sys.cores || 1) + 'c'"></text>
-        </svg>
-        <svg viewBox="0 0 80 80" style="width:88px;height:88px;flex-shrink:0">
-          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
-          <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" stroke-width="8" stroke-linecap="round"
-            transform="rotate(-90 40 40)" stroke-dasharray="188.5"
-            :stroke-dashoffset="memoryDashOffset"/>
-          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="memoryLabel"></text>
-          <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)">RAM</text>
-        </svg>
-        <div class="flex-1 min-w-0" style="margin-left:6px">
-          <div class="grid grid-cols-2 text-xs" style="column-gap:1.75rem;row-gap:1rem">
+
+      <div class="host-load-body">
+        <div class="host-load-rings">
+          <div class="host-load-ring">
+            <svg viewBox="0 0 80 80" role="img" :aria-label="'CPU ' + cpuLabel">
+              <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
+              <circle cx="40" cy="40" r="30" fill="none" stroke="var(--blue-2)" stroke-width="8" stroke-linecap="round"
+                transform="rotate(-90 40 40)" stroke-dasharray="188.5"
+                :stroke-dashoffset="cpuDashOffset"/>
+              <text x="40" y="38" text-anchor="middle" class="host-load-ring-value" x-text="cpuLabel"></text>
+              <text x="40" y="52" text-anchor="middle" class="host-load-ring-label" x-text="cpuCoreLabel"></text>
+            </svg>
+          </div>
+          <div class="host-load-ring">
+            <svg viewBox="0 0 80 80" role="img" :aria-label="'RAM ' + memoryLabel">
+              <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
+              <circle cx="40" cy="40" r="30" fill="none" stroke="var(--amber)" stroke-width="8" stroke-linecap="round"
+                transform="rotate(-90 40 40)" stroke-dasharray="188.5"
+                :stroke-dashoffset="memoryDashOffset"/>
+              <text x="40" y="38" text-anchor="middle" class="host-load-ring-value" x-text="memoryLabel"></text>
+              <text x="40" y="52" text-anchor="middle" class="host-load-ring-label">RAM</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="host-resource-list">
+          <div class="host-load-average">
             <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">load avg</div>
-              <div class="font-mono text-white" x-text="(sys.load || [0,0,0]).join('  ')"></div>
+              <div class="host-load-label">load avg</div>
+              <div class="host-load-hint">1 / 5 / 15 min</div>
             </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">qeli proc</div>
-              <div class="font-mono text-white" x-text="processSummary"></div>
+            <div class="host-load-average-value" x-text="loadAverageSummary"></div>
+          </div>
+          <div class="host-resource-row">
+            <div class="host-resource-meta">
+              <span class="host-load-label">memory</span>
+              <span class="host-resource-value" x-text="memorySummary"></span>
             </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">memory</div>
-              <div class="font-mono text-white" x-text="memorySummary"></div>
+            <div class="host-resource-meter" role="progressbar" aria-label="Memory usage" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="memoryPercent">
+              <span class="host-resource-fill host-resource-fill-memory" :style="'width:' + memoryBarWidth"></span>
             </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">disk</div>
-              <div class="font-mono" :style="diskStyle" x-text="diskLabel"></div>
+          </div>
+          <div class="host-resource-row" :class="diskToneClass">
+            <div class="host-resource-meta">
+              <span class="host-load-label">disk</span>
+              <span class="host-resource-value" x-text="diskLabel"></span>
             </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">WAN net</div>
-              <div class="font-mono"><span style="color:var(--blue-2)" x-text="networkRx"></span> <span style="color:var(--green-2,#10b981)" x-text="networkTx"></span> <span style="color:var(--txt-dim)">Mbps</span></div>
-            </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">conns · uptime</div>
-              <div class="font-mono text-white" x-text="connectionsSummary"></div>
+            <div class="host-resource-meter" role="progressbar" aria-label="Disk usage" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="diskPercent">
+              <span class="host-resource-fill host-resource-fill-disk" :style="'width:' + diskBarWidth"></span>
             </div>
           </div>
         </div>
+
+        <dl class="host-runtime-grid">
+          <div class="host-runtime-item">
+            <dt>qeli proc</dt>
+            <dd><strong x-text="processCpuLabel"></strong><span x-text="processMemoryLabel"></span></dd>
+          </div>
+          <div class="host-runtime-item">
+            <dt>WAN net</dt>
+            <dd><strong class="host-network-down" x-text="networkRx"></strong><span class="host-network-up" x-text="networkTx"></span><span class="host-runtime-unit">Mbps</span></dd>
+          </div>
+          <div class="host-runtime-item">
+            <dt>Connections</dt>
+            <dd><strong x-text="'TCP ' + tcpConnections"></strong><span x-text="'UDP ' + udpConnections"></span></dd>
+          </div>
+          <div class="host-runtime-item">
+            <dt>Host uptime</dt>
+            <dd><strong x-text="upStr"></strong></dd>
+          </div>
+        </dl>
       </div>
     </div>
     <!-- Tunnel throughput chart -->
@@ -74,6 +106,7 @@
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-sm font-semibold text-white">Tunnel throughput</h3>
         <div class="flex items-center gap-3 text-xs" style="color:var(--txt-mut)">
+          <span x-show="metricsErr" class="text-red-400" x-text="qeliT('Metrics unavailable')"></span>
           <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--blue-2)"></span> ↓ <span class="text-white font-mono" x-text="sys.down_mbps || 0"></span></span>
           <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--green-2,#10b981)"></span> ↑ <span class="text-white font-mono" x-text="sys.up_mbps || 0"></span></span>
           <span style="color:var(--txt-dim)">Mbps</span>
@@ -324,6 +357,8 @@ function dashboard() {
     sys: {},
     points: [],
     metricsErr: false,
+    systemMetricsErr: false,
+    metricsLoaded: false,
     showLoad: false,
 
     refreshView() {
@@ -407,26 +442,79 @@ function dashboard() {
     },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
+    hasMetric(value) {
+      return value !== undefined && value !== null && Number.isFinite(Number(value));
+    },
+    metricPercent(value) {
+      return this.hasMetric(value) ? Math.min(100, Math.max(0, Number(value))) : 0;
+    },
     get processId() { return 'pid ' + ((this.sys.proc && this.sys.proc.pid) || '—'); },
-    get cpuDashOffset() { return 188.5 * (1 - Math.min(100, this.sys.cpu_pct || 0) / 100); },
-    get cpuLabel() { return Math.round(this.sys.cpu_pct || 0) + '%'; },
-    get memoryDashOffset() { return 188.5 * (1 - Math.min(100, this.sys.mem_pct || 0) / 100); },
-    get memoryLabel() { return Math.round(this.sys.mem_pct || 0) + '%'; },
-    get processSummary() {
-      const proc = this.sys.proc || {};
-      return (proc.cpu_pct || 0) + '% · ' + this.fmt(proc.rss_bytes || 0);
+    get hostHealthState() {
+      if (!this.metricsLoaded) return 'loading';
+      if (this.systemMetricsErr) return 'unavailable';
+      const values = [this.sys.cpu_pct, this.sys.mem_pct, this.sys.disk_pct]
+        .filter(value => this.hasMetric(value))
+        .map(Number);
+      if (!values.length) return 'unavailable';
+      return values.some(value => value >= 90) ? 'warning' : 'healthy';
     },
-    get memorySummary() { return this.fmt(this.sys.mem_used || 0) + ' / ' + this.fmt(this.sys.mem_total || 0); },
-    get diskStyle() {
-      const value = this.sys.disk_pct || 0;
-      return 'color:' + (value >= 90 ? '#ef4444' : value >= 75 ? '#f59e0b' : 'var(--txt)');
+    get hostHealthLabel() {
+      const labels = {
+        loading: 'Collecting metrics…',
+        unavailable: 'Metrics unavailable',
+        warning: 'Attention required',
+        healthy: 'Operating normally',
+      };
+      return this.qeliT(labels[this.hostHealthState]);
     },
-    get diskLabel() { return (this.sys.disk_pct === undefined || this.sys.disk_pct === null ? '—' : this.sys.disk_pct) + '%'; },
-    get networkRx() { return '↓' + ((this.sys.net && this.sys.net.rx_mbps) || 0); },
-    get networkTx() { return '↑' + ((this.sys.net && this.sys.net.tx_mbps) || 0); },
-    get connectionsSummary() {
-      const conns = this.sys.conns || {};
-      return 'T' + (conns.tcp || 0) + ' U' + (conns.udp || 0) + ' · ' + this.upStr;
+    get hostHealthClass() { return 'host-load-state-' + this.hostHealthState; },
+    get cpuPercent() { return this.metricPercent(this.sys.cpu_pct); },
+    get cpuDashOffset() { return 188.5 * (1 - this.cpuPercent / 100); },
+    get cpuLabel() { return this.hasMetric(this.sys.cpu_pct) ? Math.round(this.cpuPercent) + '%' : '—'; },
+    get cpuCoreLabel() { return this.hasMetric(this.sys.cores) ? 'CPU·' + Number(this.sys.cores) + 'c' : 'CPU'; },
+    get memoryPercent() { return this.metricPercent(this.sys.mem_pct); },
+    get memoryDashOffset() { return 188.5 * (1 - this.memoryPercent / 100); },
+    get memoryLabel() { return this.hasMetric(this.sys.mem_pct) ? Math.round(this.memoryPercent) + '%' : '—'; },
+    get memoryBarWidth() { return this.memoryPercent + '%'; },
+    get memorySummary() {
+      if (!this.hasMetric(this.sys.mem_used) || !this.hasMetric(this.sys.mem_total)) return '—';
+      return this.fmt(this.sys.mem_used) + ' / ' + this.fmt(this.sys.mem_total);
+    },
+    get diskPercent() { return this.metricPercent(this.sys.disk_pct); },
+    get diskBarWidth() { return this.diskPercent + '%'; },
+    get diskLabel() { return this.hasMetric(this.sys.disk_pct) ? Math.round(this.diskPercent) + '%' : '—'; },
+    get diskToneClass() {
+      return this.diskPercent >= 90
+        ? 'host-resource-danger'
+        : this.diskPercent >= 75 ? 'host-resource-warning' : '';
+    },
+    get loadAverageSummary() {
+      const load = Array.isArray(this.sys.load) ? this.sys.load.slice(0, 3) : [];
+      return load.length ? load.join(' · ') : '—';
+    },
+    get processCpuLabel() {
+      const value = this.sys.proc && this.sys.proc.cpu_pct;
+      return this.hasMetric(value) ? 'CPU ' + Number(value) + '%' : 'CPU —';
+    },
+    get processMemoryLabel() {
+      const value = this.sys.proc && this.sys.proc.rss_bytes;
+      return this.hasMetric(value) ? 'RSS ' + this.fmt(value) : 'RSS —';
+    },
+    get networkRx() {
+      const value = this.sys.net && this.sys.net.rx_mbps;
+      return '↓' + (this.hasMetric(value) ? Number(value) : '—');
+    },
+    get networkTx() {
+      const value = this.sys.net && this.sys.net.tx_mbps;
+      return '↑' + (this.hasMetric(value) ? Number(value) : '—');
+    },
+    get tcpConnections() {
+      const value = this.sys.conns && this.sys.conns.tcp;
+      return this.hasMetric(value) ? Number(value) : '—';
+    },
+    get udpConnections() {
+      const value = this.sys.conns && this.sys.conns.udp;
+      return this.hasMetric(value) ? Number(value) : '—';
     },
     get pageRangeLabel() { return 'Showing ' + this.pageFrom + '–' + this.pageTo + ' of ' + this.filtered.length + ' sessions'; },
     get pageLabel() { return 'Page ' + this.safePage + ' of ' + this.pageCount; },
@@ -485,11 +573,18 @@ function dashboard() {
         ]);
         if (s.ok) this.sys = s;
         if (m.ok) this.points = m.points || [];
+        this.systemMetricsErr = !s.ok;
         this.metricsErr = !(s.ok && m.ok);
-      } catch { this.metricsErr = true; }
+      } catch {
+        this.systemMetricsErr = true;
+        this.metricsErr = true;
+      } finally {
+        this.metricsLoaded = true;
+      }
     },
     get upStr() {
-      const s = this.sys.uptime_secs || 0, d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+      if (!this.hasMetric(this.sys.uptime_secs)) return '—';
+      const s = Number(this.sys.uptime_secs), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
       return d ? `${d}d ${h}h` : `${h}h ${Math.floor((s % 3600) / 60)}m`;
     },
     // Build the SVG path strings for the throughput chart from the 1 s ring buffer.

@@ -1336,15 +1336,17 @@ pub async fn put_config(
             }
         }
     }
-    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(
-            json!({ "ok": false, "error": format!("web.tls_cert: {}", e) }),
-        ));
-    }
-    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(
-            json!({ "ok": false, "error": format!("web.tls_key: {}", e) }),
-        ));
+    if parsed.web.enabled && parsed.web.tls {
+        if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
+            return Ok(Json(
+                json!({ "ok": false, "error": format!("web.tls_cert: {}", e) }),
+            ));
+        }
+        if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
+            return Ok(Json(
+                json!({ "ok": false, "error": format!("web.tls_key: {}", e) }),
+            ));
+        }
     }
 
     // Resolve and validate the write target. config_path is set at startup and
@@ -1890,11 +1892,13 @@ pub async fn put_config_raw(
             }
         }
     }
-    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(super::err_json(format!("web.tls_cert: {}", e))));
-    }
-    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(super::err_json(format!("web.tls_key: {}", e))));
+    if parsed.web.enabled && parsed.web.tls {
+        if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
+            return Ok(Json(super::err_json(format!("web.tls_cert: {}", e))));
+        }
+        if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
+            return Ok(Json(super::err_json(format!("web.tls_key: {}", e))));
+        }
     }
 
     let config_path = state.config_path.lock().await;

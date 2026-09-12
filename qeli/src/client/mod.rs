@@ -540,7 +540,565 @@ use tokio::sync::mpsc;
 pub(crate) type IdentityFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 pub(crate) type IdentityVerifier = Arc<dyn Fn([u8; 32]) -> IdentityFuture + Send + Sync + 'static>;
-pub(crate) type PendingLifecycleHook = (String, Vec<(String, String)>);
+pub(crate) struct PendingLifecycleHook {
+    command: String,
+    environment: Vec<(String, String)>,
+    positional_arguments: Vec<String>,
+    context_json: String,
+}
+
+/// Stable, secret-free process-lifecycle snapshot supplied to Linux client hooks.
+///
+/// The connection can rebuild its TUN several times while the outer client process remains
+/// alive. `post_up` consumes the first committed snapshot; this value is refreshed after every
+/// later committed NetworkPlan so the eventual `post_down` sees the latest generation.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+struct ClientHookContext {
+    profile: String,
+    config_path: String,
+    if_name: String,
+    if_index: String,
+    device_type: String,
+    tun_reused: bool,
+    server_host: String,
+    server_port: u16,
+    protocol: String,
+    wire_mode: String,
+    fronting: String,
+    roaming_policy: String,
+    configured_carrier_local_address: String,
+    carrier_if_name: String,
+    carrier_if_index: String,
+    carrier_gateway: String,
+    carrier_local_address: String,
+    route_local: bool,
+    gateway_nat: bool,
+    forward: bool,
+    exit_node: bool,
+    allow_ipv4_leak: bool,
+    allow_ipv6_leak: bool,
+    lan_subnet: String,
+    lan_subnet_ipv6: String,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    plan: Option<NetworkPlan>,
+}
+
+#[cfg(target_os = "linux")]
+fn hook_bool(value: bool) -> String {
+    value.to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_if_index(if_name: &str) -> String {
+    std::fs::read_to_string(format!("/sys/class/net/{if_name}/ifindex"))
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_address_cidr(address: &crate::transport_core::NetworkAddress) -> String {
+    format!("{}/{}", address.address, address.prefix_len)
+}
+
+#[cfg(target_os = "linux")]
+fn hook_address_subnet(address: &crate::transport_core::NetworkAddress) -> String {
+    address
+        .address
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .and_then(|value| ipnet::IpNet::new(value, address.on_link_prefix_len).ok())
+        .map(|network| network.trunc().to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_family_name(family: crate::transport_core::NetworkAddressFamily) -> &'static str {
+    match family {
+        crate::transport_core::NetworkAddressFamily::Ipv4 => "ipv4",
+        crate::transport_core::NetworkAddressFamily::Ipv6 => "ipv6",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn hook_family_mode(mode: crate::transport_core::NetworkFamilyMode) -> &'static str {
+    match mode {
+        crate::transport_core::NetworkFamilyMode::Ipv4 => "ipv4",
+        crate::transport_core::NetworkFamilyMode::Dual => "dual",
+        crate::transport_core::NetworkFamilyMode::Ipv6 => "ipv6",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn hook_recordizer_mode(plan: Option<&NetworkPlan>) -> String {
+    plan.and_then(|plan| plan.data_plane.recordizer_mode)
+        .map(|mode| match mode {
+            crate::transport_core::NetworkRecordizerMode::LegacyPacketPerRecord => {
+                "legacy_packet_per_record"
+            }
+            crate::transport_core::NetworkRecordizerMode::PacketMuxV1 => "packet_mux_v1",
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_roaming_mode(plan: Option<&NetworkPlan>) -> String {
+    plan.and_then(|plan| plan.data_plane.roaming_mode)
+        .map(|mode| match mode {
+            crate::transport_core::NetworkRoamingMode::Reconnect => "reconnect",
+            crate::transport_core::NetworkRoamingMode::UdpRoamV1 => "udp_roam_v1",
+            crate::transport_core::NetworkRoamingMode::TcpResumeV2 => "tcp_resume_v2",
+            crate::transport_core::NetworkRoamingMode::TcpHandoverV2 => "tcp_handover_v2",
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+impl ClientHookContext {
+    fn new(config: &crate::config::client::ClientConfig, config_path: &str) -> Self {
+        let canonical_path = std::fs::canonicalize(config_path)
+            .unwrap_or_else(|_| std::path::PathBuf::from(config_path));
+        let profile = canonical_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("default")
+            .to_string();
+        Self {
+            profile,
+            config_path: canonical_path.to_string_lossy().into_owned(),
+            if_name: config.tun.name.clone(),
+            if_index: hook_if_index(&config.tun.name),
+            device_type: config.tun.device_type.to_ascii_lowercase(),
+            tun_reused: config.tun.attach_existing,
+            server_host: config.server.address.clone(),
+            server_port: config.server.port,
+            protocol: config.server.protocol.clone(),
+            wire_mode: config.obfuscation.mode.clone(),
+            fronting: config.obfuscation.fronting.clone(),
+            roaming_policy: config.roaming.to_string(),
+            configured_carrier_local_address: config
+                .server
+                .local_address
+                .clone()
+                .unwrap_or_default(),
+            carrier_if_name: String::new(),
+            carrier_if_index: String::new(),
+            carrier_gateway: String::new(),
+            carrier_local_address: String::new(),
+            route_local: config.routing.route_local_networks,
+            gateway_nat: config.routing.gateway_nat,
+            forward: config.routing.forward,
+            exit_node: config.routing.exit_node,
+            allow_ipv4_leak: config.routing.allow_ipv4_leak,
+            allow_ipv6_leak: config.routing.allow_ipv6_leak,
+            lan_subnet: config.routing.lan_subnet.clone(),
+            lan_subnet_ipv6: config.routing.lan_subnet_ipv6.clone(),
+            include: config.routing.include.clone(),
+            exclude: config.routing.exclude.clone(),
+            plan: None,
+        }
+    }
+
+    fn refresh(&mut self, plan: &NetworkPlan, if_name: &str) {
+        self.if_name = if_name.to_string();
+        self.if_index = hook_if_index(if_name);
+        self.carrier_if_name.clear();
+        self.carrier_if_index.clear();
+        self.carrier_gateway.clear();
+        self.carrier_local_address = self.configured_carrier_local_address.clone();
+
+        if let Some(carrier) = plan
+            .carrier_address
+            .as_deref()
+            .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+        {
+            let requested_source = self
+                .configured_carrier_local_address
+                .parse::<std::net::IpAddr>()
+                .ok();
+            if let Some(path) = route::hook_physical_path_for(carrier, if_name, requested_source) {
+                self.carrier_if_index = hook_if_index(&path.device);
+                self.carrier_if_name = path.device;
+                self.carrier_gateway = path.gateway.unwrap_or_default();
+                if let Some(source) = path.source {
+                    self.carrier_local_address = source;
+                }
+            }
+        }
+        self.plan = Some(plan.clone());
+    }
+
+    fn primary_gateway(&self) -> String {
+        let Some(plan) = self.plan.as_ref() else {
+            return String::new();
+        };
+        plan.addresses
+            .iter()
+            .find(|address| {
+                address.family == crate::transport_core::NetworkAddressFamily::Ipv4
+                    && address.gateway.is_some()
+            })
+            .or_else(|| {
+                plan.addresses
+                    .iter()
+                    .find(|address| address.gateway.is_some())
+            })
+            .and_then(|address| address.gateway.clone())
+            .unwrap_or_else(|| plan.tunnel_gateway.clone())
+    }
+
+    fn invocation(
+        &self,
+        command: String,
+        event: &str,
+        reason: &str,
+        error_code: &str,
+        error_message: &str,
+        session_duration_seconds: u64,
+    ) -> PendingLifecycleHook {
+        let plan = self.plan.as_ref();
+        let primary_gateway = self.primary_gateway();
+        let server_endpoint = crate::util::join_host_port(&self.server_host, self.server_port);
+        let carrier_address = plan
+            .and_then(|plan| plan.carrier_address.clone())
+            .unwrap_or_default();
+        let carrier_endpoint = if carrier_address.is_empty() {
+            String::new()
+        } else {
+            crate::util::join_host_port(&carrier_address, self.server_port)
+        };
+        let ipv4 = plan.and_then(|plan| {
+            plan.addresses
+                .iter()
+                .find(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv4)
+        });
+        let ipv6 = plan.and_then(|plan| {
+            plan.addresses
+                .iter()
+                .find(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv6)
+        });
+        let value = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.address.clone())
+                .unwrap_or_default()
+        };
+        let prefix = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.prefix_len.to_string())
+                .unwrap_or_default()
+        };
+        let on_link_prefix = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.on_link_prefix_len.to_string())
+                .unwrap_or_default()
+        };
+        let gateway = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .and_then(|address| address.gateway.clone())
+                .unwrap_or_default()
+        };
+        let cidr = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address.map(hook_address_cidr).unwrap_or_default()
+        };
+        let subnet = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address.map(hook_address_subnet).unwrap_or_default()
+        };
+
+        let mut environment = vec![
+            ("QELI_HOOK_API".into(), "1".into()),
+            ("QELI_EVENT".into(), event.into()),
+            ("QELI_PROFILE".into(), self.profile.clone()),
+            ("QELI_PROFILE_NAME".into(), self.profile.clone()),
+            ("QELI_CONFIG_PATH".into(), self.config_path.clone()),
+            ("QELI_PID".into(), std::process::id().to_string()),
+            ("QELI_PLAN_AVAILABLE".into(), hook_bool(plan.is_some())),
+            (
+                "QELI_PLAN_GENERATION".into(),
+                plan.map(|plan| plan.generation.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_FAMILY_MODE".into(),
+                plan.map(|plan| hook_family_mode(plan.family_mode).to_string())
+                    .unwrap_or_default(),
+            ),
+            ("QELI_TUN".into(), self.if_name.clone()),
+            ("QELI_IFNAME".into(), self.if_name.clone()),
+            ("QELI_IFINDEX".into(), self.if_index.clone()),
+            ("QELI_DEVICE_TYPE".into(), self.device_type.clone()),
+            ("QELI_TUN_MODE".into(), self.device_type.clone()),
+            ("QELI_TUN_REUSED".into(), hook_bool(self.tun_reused)),
+            (
+                "QELI_MTU".into(),
+                plan.map(|plan| plan.mtu.to_string()).unwrap_or_default(),
+            ),
+            (
+                "QELI_TUNNEL_ADDRESS".into(),
+                plan.map(|plan| plan.tunnel_address.clone())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PREFIX_LEN".into(),
+                plan.map(|plan| plan.prefix_len.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_TUNNEL_GATEWAY".into(),
+                plan.map(|plan| plan.tunnel_gateway.clone())
+                    .unwrap_or_default(),
+            ),
+            ("QELI_GATEWAY".into(), primary_gateway.clone()),
+            ("QELI_IPV4_ADDRESS".into(), value(ipv4)),
+            ("QELI_IPV4_PREFIX".into(), prefix(ipv4)),
+            ("QELI_IPV4_PREFIX_LEN".into(), prefix(ipv4)),
+            ("QELI_IPV4_ON_LINK_PREFIX_LEN".into(), on_link_prefix(ipv4)),
+            ("QELI_IPV4_CIDR".into(), cidr(ipv4)),
+            ("QELI_IPV4_SUBNET".into(), subnet(ipv4)),
+            ("QELI_IPV4_GATEWAY".into(), gateway(ipv4)),
+            ("QELI_IPV6_ADDRESS".into(), value(ipv6)),
+            ("QELI_IPV6_PREFIX".into(), prefix(ipv6)),
+            ("QELI_IPV6_PREFIX_LEN".into(), prefix(ipv6)),
+            ("QELI_IPV6_ON_LINK_PREFIX_LEN".into(), on_link_prefix(ipv6)),
+            ("QELI_IPV6_CIDR".into(), cidr(ipv6)),
+            ("QELI_IPV6_SUBNET".into(), subnet(ipv6)),
+            ("QELI_IPV6_GATEWAY".into(), gateway(ipv6)),
+            ("QELI_SERVER".into(), self.server_host.clone()),
+            ("QELI_SERVER_HOST".into(), self.server_host.clone()),
+            ("QELI_SERVER_PORT".into(), self.server_port.to_string()),
+            ("QELI_SERVER_ENDPOINT".into(), server_endpoint),
+            ("QELI_CARRIER_ADDRESS".into(), carrier_address),
+            ("QELI_CARRIER_ENDPOINT".into(), carrier_endpoint),
+            (
+                "QELI_CARRIER_LOCAL_ADDRESS".into(),
+                self.carrier_local_address.clone(),
+            ),
+            ("QELI_CARRIER_IFNAME".into(), self.carrier_if_name.clone()),
+            ("QELI_CARRIER_IFINDEX".into(), self.carrier_if_index.clone()),
+            ("QELI_CARRIER_GATEWAY".into(), self.carrier_gateway.clone()),
+            ("QELI_PROTOCOL".into(), self.protocol.clone()),
+            ("QELI_WIRE_MODE".into(), self.wire_mode.clone()),
+            ("QELI_FRONTING".into(), self.fronting.clone()),
+            (
+                "QELI_ROUTING_MODE".into(),
+                plan.map(|plan| if plan.full_tunnel { "full" } else { "split" })
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+            (
+                "QELI_FULL_TUNNEL".into(),
+                hook_bool(plan.is_some_and(|plan| plan.full_tunnel)),
+            ),
+            (
+                "QELI_KILL_SWITCH".into(),
+                hook_bool(plan.is_some_and(|plan| plan.kill_switch)),
+            ),
+            ("QELI_ROUTE_LOCAL".into(), hook_bool(self.route_local)),
+            ("QELI_GATEWAY_NAT".into(), hook_bool(self.gateway_nat)),
+            ("QELI_FORWARD".into(), hook_bool(self.forward)),
+            ("QELI_EXIT_NODE".into(), hook_bool(self.exit_node)),
+            (
+                "QELI_ALLOW_IPV4_LEAK".into(),
+                hook_bool(self.allow_ipv4_leak),
+            ),
+            (
+                "QELI_ALLOW_IPV6_LEAK".into(),
+                hook_bool(self.allow_ipv6_leak),
+            ),
+            ("QELI_LAN_SUBNET".into(), self.lan_subnet.clone()),
+            ("QELI_LAN_SUBNET_IPV6".into(), self.lan_subnet_ipv6.clone()),
+            (
+                "QELI_ADDRESS_COUNT".into(),
+                plan.map(|plan| plan.addresses.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            (
+                "QELI_DNS_COUNT".into(),
+                plan.map(|plan| plan.dns_servers.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            (
+                "QELI_ROUTE_COUNT".into(),
+                plan.map(|plan| plan.routes.len()).unwrap_or(0).to_string(),
+            ),
+            (
+                "QELI_PUSHED_ROUTE_COUNT".into(),
+                plan.map(|plan| plan.pushed_routes.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            ("QELI_INCLUDE_COUNT".into(), self.include.len().to_string()),
+            ("QELI_EXCLUDE_COUNT".into(), self.exclude.len().to_string()),
+            (
+                "QELI_MAX_STREAMS".into(),
+                plan.map(|plan| plan.max_streams.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_ADAPTIVE".into(),
+                hook_bool(plan.is_some_and(|plan| plan.adaptive)),
+            ),
+            ("QELI_ROAMING_POLICY".into(), self.roaming_policy.clone()),
+            ("QELI_ROAMING_MODE".into(), hook_roaming_mode(plan)),
+            ("QELI_RECORDIZER_MODE".into(), hook_recordizer_mode(plan)),
+            (
+                "QELI_RECORDIZER_POLICY".into(),
+                plan.and_then(|plan| plan.data_plane.recordizer_policy.clone())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PADDING_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.padding_enabled)),
+            ),
+            (
+                "QELI_PADDING_MIN".into(),
+                plan.map(|plan| plan.data_plane.padding_min.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PADDING_MAX".into(),
+                plan.map(|plan| plan.data_plane.padding_max.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_NORMALIZATION_MAX".into(),
+                plan.map(|plan| plan.data_plane.normalization_max.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_HEARTBEAT_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.heartbeat_enabled)),
+            ),
+            (
+                "QELI_HEARTBEAT_INTERVAL_MS".into(),
+                plan.map(|plan| plan.data_plane.heartbeat_interval_ms.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_SHAPING_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.shaping_enabled)),
+            ),
+            ("QELI_REASON".into(), reason.into()),
+            ("QELI_STOP_REASON".into(), reason.into()),
+            ("QELI_ERROR_CODE".into(), error_code.into()),
+            ("QELI_ERROR_MESSAGE".into(), error_message.into()),
+            (
+                "QELI_SESSION_DURATION_SECONDS".into(),
+                session_duration_seconds.to_string(),
+            ),
+        ];
+
+        if let Some(plan) = plan {
+            for (index, address) in plan.addresses.iter().enumerate() {
+                let base = format!("QELI_ADDRESS_{index}");
+                environment.push((
+                    format!("{base}_FAMILY"),
+                    hook_family_name(address.family).into(),
+                ));
+                environment.push((format!("{base}_ADDRESS"), address.address.clone()));
+                environment.push((format!("{base}_PREFIX_LEN"), address.prefix_len.to_string()));
+                environment.push((
+                    format!("{base}_ON_LINK_PREFIX_LEN"),
+                    address.on_link_prefix_len.to_string(),
+                ));
+                environment.push((
+                    format!("{base}_GATEWAY"),
+                    address.gateway.clone().unwrap_or_default(),
+                ));
+                environment.push((format!("{base}_CIDR"), hook_address_cidr(address)));
+                environment.push((format!("{base}_SUBNET"), hook_address_subnet(address)));
+            }
+            for (index, dns) in plan.dns_servers.iter().enumerate() {
+                let base = format!("QELI_DNS_{index}");
+                environment.push((
+                    base.clone(),
+                    crate::util::join_host_port(&dns.address, dns.port),
+                ));
+                environment.push((format!("{base}_ADDRESS"), dns.address.clone()));
+                environment.push((format!("{base}_PORT"), dns.port.to_string()));
+            }
+            for (index, route) in plan.routes.iter().enumerate() {
+                let base = format!("QELI_ROUTE_{index}");
+                environment.push((format!("{base}_CIDR"), route.cidr.clone()));
+                environment.push((format!("{base}_GATEWAY"), route.gateway.clone()));
+                environment.push((format!("{base}_METRIC"), route.metric.to_string()));
+            }
+            for (index, route) in plan.pushed_routes.iter().enumerate() {
+                environment.push((format!("QELI_PUSHED_ROUTE_{index}"), route.clone()));
+            }
+        }
+        for (index, route) in self.include.iter().enumerate() {
+            environment.push((format!("QELI_INCLUDE_{index}"), route.clone()));
+        }
+        for (index, route) in self.exclude.iter().enumerate() {
+            environment.push((format!("QELI_EXCLUDE_{index}"), route.clone()));
+        }
+
+        let context_json = serde_json::to_string_pretty(&serde_json::json!({
+            "hook_api": 1,
+            "event": event,
+            "profile": self.profile,
+            "config_path": self.config_path,
+            "process_id": std::process::id(),
+            "interface": {
+                "name": self.if_name,
+                "index": self.if_index,
+                "device_type": self.device_type,
+                "reused": self.tun_reused,
+            },
+            "server": {
+                "configured_host": self.server_host,
+                "port": self.server_port,
+                "endpoint": crate::util::join_host_port(&self.server_host, self.server_port),
+                "protocol": self.protocol,
+                "wire_mode": self.wire_mode,
+                "fronting": self.fronting,
+            },
+            "carrier": {
+                "address": plan.and_then(|plan| plan.carrier_address.as_deref()),
+                "interface": self.carrier_if_name,
+                "interface_index": self.carrier_if_index,
+                "local_address": self.carrier_local_address,
+                "gateway": self.carrier_gateway,
+            },
+            "routing": {
+                "route_local": self.route_local,
+                "gateway_nat": self.gateway_nat,
+                "forward": self.forward,
+                "exit_node": self.exit_node,
+                "allow_ipv4_leak": self.allow_ipv4_leak,
+                "allow_ipv6_leak": self.allow_ipv6_leak,
+                "lan_subnet": self.lan_subnet,
+                "lan_subnet_ipv6": self.lan_subnet_ipv6,
+                "include": self.include,
+                "exclude": self.exclude,
+            },
+            "lifecycle": {
+                "reason": reason,
+                "error_code": error_code,
+                "error_message": error_message,
+                "session_duration_seconds": session_duration_seconds,
+            },
+            "network_plan": plan,
+        }))
+        .unwrap_or_else(|error| {
+            log::warn!("could not serialize client hook context: {error}");
+            String::new()
+        });
+
+        PendingLifecycleHook {
+            command,
+            environment,
+            positional_arguments: vec![self.if_name.clone(), primary_gateway],
+            context_json,
+        }
+    }
+}
 
 #[cfg(target_os = "linux")]
 fn cleanup_routing_features(
@@ -1098,19 +1656,41 @@ pub(crate) trait ClientPlatform {
 }
 
 async fn run_pending_post_up(core: &mut dyn ClientPlatform) {
-    let Some((command, environment)) = core.take_post_up() else {
+    let Some(hook) = core.take_post_up() else {
         return;
     };
     #[cfg(target_os = "linux")]
-    {
-        let hook_environment = environment
-            .iter()
-            .map(|(key, value)| (key.as_str(), value.clone()))
-            .collect::<Vec<_>>();
-        crate::hooks::run("post_up", &command, &hook_environment).await;
-    }
+    crate::hooks::run_with_context(
+        "post_up",
+        &hook.command,
+        &hook.environment,
+        &hook.positional_arguments,
+        (!hook.context_json.is_empty()).then_some(hook.context_json.as_str()),
+    )
+    .await;
     #[cfg(not(target_os = "linux"))]
-    let _ = (command, environment);
+    let _ = hook;
+}
+
+#[cfg(target_os = "linux")]
+async fn run_client_post_down(
+    core: &LinuxCoreAdapter,
+    command: &str,
+    reason: &str,
+    error_code: &str,
+    error_message: &str,
+) {
+    let Some(hook) = core.post_down_invocation(command, reason, error_code, error_message) else {
+        return;
+    };
+    crate::hooks::run_with_context(
+        "post_down",
+        &hook.command,
+        &hook.environment,
+        &hook.positional_arguments,
+        (!hook.context_json.is_empty()).then_some(hook.context_json.as_str()),
+    )
+    .await;
 }
 
 /// In-process Linux adapter for the same lifecycle contract exported over the C ABI.
@@ -1125,7 +1705,9 @@ struct LinuxCoreAdapter {
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     diagnostics: ClientStatusReporter,
-    post_up: Option<PendingLifecycleHook>,
+    post_up: Option<String>,
+    hook_context: Option<ClientHookContext>,
+    connected_since: Option<std::time::Instant>,
     #[cfg(feature = "experimental-roaming")]
     path_controller: Arc<LinuxPathController>,
 }
@@ -1384,6 +1966,8 @@ impl LinuxCoreAdapter {
                 counters,
                 diagnostics,
                 post_up: None,
+                hook_context: None,
+                connected_since: None,
                 #[cfg(feature = "experimental-roaming")]
                 path_controller,
             },
@@ -1417,17 +2001,40 @@ impl LinuxCoreAdapter {
         generation
     }
 
-    fn arm_post_up(&mut self, command: String, environment: &[(&str, String)]) {
+    fn configure_hooks(
+        &mut self,
+        config: &crate::config::client::ClientConfig,
+        config_path: &str,
+        post_up: String,
+    ) {
+        self.post_up = (!post_up.trim().is_empty()).then_some(post_up);
+        self.hook_context = Some(ClientHookContext::new(config, config_path));
+    }
+
+    fn post_down_invocation(
+        &self,
+        command: &str,
+        reason: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Option<PendingLifecycleHook> {
         if command.trim().is_empty() {
-            return;
+            return None;
         }
-        self.post_up = Some((
-            command,
-            environment
-                .iter()
-                .map(|(key, value)| ((*key).to_string(), value.clone()))
-                .collect(),
-        ));
+        let duration = self
+            .connected_since
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or(0);
+        self.hook_context.as_ref().map(|context| {
+            context.invocation(
+                command.to_string(),
+                "post_down",
+                reason,
+                error_code,
+                error_message,
+                duration,
+            )
+        })
     }
 
     fn apply_network_plan<T>(
@@ -1573,7 +2180,18 @@ impl ClientPlatform for LinuxCoreAdapter {
         plan: NetworkPlan,
         network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup> {
-        self.apply_network_plan(plan, |plan| setup_tunnel(config, plan, network))
+        let mut hook_context = self.hook_context.clone();
+        let (tunnel, hook_context) = self.apply_network_plan(plan, |plan| {
+            let tunnel = setup_tunnel(config, plan, network)?;
+            if let Some(context) = hook_context.as_mut() {
+                context.refresh(plan, &tunnel.if_name);
+            }
+            Ok((tunnel, hook_context))
+        })?;
+        self.hook_context = hook_context;
+        self.connected_since
+            .get_or_insert_with(std::time::Instant::now);
+        Ok(tunnel)
     }
 
     fn fallback_dns_servers(&self) -> &[String] {
@@ -1589,7 +2207,14 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
-        self.post_up.take()
+        let command = self.post_up.take()?;
+        let duration = self
+            .connected_since
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or(0);
+        self.hook_context
+            .as_ref()
+            .map(|context| context.invocation(command, "post_up", "connected", "", "", duration))
     }
 }
 
@@ -1861,17 +2486,11 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             }
         };
 
-    // Env passed to hooks (wg-quick-style context).
-    let hook_env: Vec<(&str, String)> = vec![
-        ("QELI_TUN", tun_if.clone()),
-        ("QELI_SERVER", config.server.address.clone()),
-        ("QELI_SERVER_PORT", config.server.port.to_string()),
-        ("QELI_LAN_SUBNET", lan_subnet.clone()),
-    ];
-    // Unlike `post_down`, `post_up` is tied to a successfully created tunnel. Keep the
-    // already-vetted command in the platform adapter and consume it after the first
-    // authenticated NetworkPlan has installed the TUN and its active-family firewall.
-    core_adapter.arm_post_up(post_up.clone(), &hook_env);
+    // Build a secret-free hook context before the first dial. It starts with configured
+    // values, then each committed authenticated NetworkPlan refreshes the actual interface,
+    // address, gateway, DNS, route, data-plane and physical-carrier facts. `post_up` consumes
+    // the first committed snapshot; `post_down` receives the latest one.
+    core_adapter.configure_hooks(&config, config_path, post_up.clone());
 
     // SIGINT/SIGTERM must enter the same cooperative cancellation path as GUI/native stop.
     // The previous signal task called process::exit after doing its own partial cleanup. That
@@ -1947,7 +2566,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                     &lan_subnet,
                     &lan_subnet_ipv6,
                 );
-                crate::hooks::run("post_down", &post_down, &hook_env).await;
+                run_client_post_down(
+                    &core_adapter,
+                    &post_down,
+                    "server_kick",
+                    "server_kick",
+                    &error.to_string(),
+                )
+                .await;
                 let terminal = match cleanup {
                     Ok(()) => anyhow::anyhow!("{error}"),
                     Err(cleanup) => anyhow::anyhow!("{error}; teardown also failed: {cleanup}"),
@@ -1967,7 +2593,19 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 &lan_subnet,
                 &lan_subnet_ipv6,
             );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let transport_error = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "shutdown_signal",
+                "shutdown",
+                &transport_error,
+            )
+            .await;
             let result = cleanup
                 .map_err(|error| anyhow::anyhow!("shutdown network cleanup failed: {error}"));
             core_adapter.diagnostics.terminal(result.as_ref().err());
@@ -2002,7 +2640,18 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 &lan_subnet,
                 &lan_subnet_ipv6,
             );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let (error_code, error_message) = match result.as_ref() {
+                Ok(()) => ("", String::new()),
+                Err(error) => ("transport_error", error.to_string()),
+            };
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "reconnect_disabled",
+                error_code,
+                &error_message,
+            )
+            .await;
             let result = match (result, cleanup) {
                 (Ok(()), Ok(())) => Ok(()),
                 (Err(error), Ok(())) => Err(error),
@@ -2026,7 +2675,19 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 &lan_subnet,
                 &lan_subnet_ipv6,
             );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let transport_error = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("max retries ({max_retries}) reached"));
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "max_retries",
+                "max_retries",
+                &transport_error,
+            )
+            .await;
             let error = match cleanup {
                 Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
                 Err(cleanup) => anyhow::anyhow!(
@@ -4481,11 +5142,28 @@ where
         fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
+    #[cfg(target_os = "linux")]
+    {
+        // Linux owns the socket and therefore knows the literal peer selected by DNS. Export
+        // that authoritative value in the NetworkPlan used by hooks instead of forcing scripts
+        // to resolve the configured hostname again (which can select another GSLB address).
+        plan.carrier_address = CONNECTED_PEER
+            .lock()
+            .ok()
+            .and_then(|peer| *peer)
+            .map(|peer| peer.to_string());
+    }
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_generation = plan.generation;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
     plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    // Genuine HTTP/2/TCP provides its own liveness and the runtime intentionally suppresses
+    // qeli's periodic heartbeat on Reality-TLS. Keep the exported NetworkPlan/hook fact equal
+    // to what the data plane will actually do rather than merely echoing the pushed setting.
+    if config.obfuscation.mode == "reality-tls" {
+        plan.data_plane.heartbeat_enabled = false;
+    }
     #[cfg(feature = "experimental-roaming")]
     let negotiated_roaming_mode = if tcp_handover_enabled {
         crate::transport_core::NetworkRoamingMode::TcpHandoverV2
@@ -9054,6 +9732,14 @@ pub(crate) async fn run_udp_tunnel(
         fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
+    #[cfg(target_os = "linux")]
+    {
+        plan.carrier_address = CONNECTED_PEER
+            .lock()
+            .ok()
+            .and_then(|peer| *peer)
+            .map(|peer| peer.to_string());
+    }
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_generation = plan.generation;
     plan.max_streams = max_streams_udp;
@@ -11647,6 +12333,94 @@ mod lifecycle_adapter_tests {
             data_plane: Default::default(),
             connection_log: Vec::new(),
         }
+    }
+
+    #[test]
+    fn client_hook_context_exports_effective_plan_without_secrets() {
+        let mut config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        config.tun.name = "vpn-test".into();
+        config.routing.lan_subnet = "192.168.50.0/24".into();
+        config.routing.include = vec!["198.51.100.0/24".into()];
+        config.routing.exclude = vec!["203.0.113.0/24".into()];
+
+        let mut effective = plan(7);
+        effective.addresses[0].prefix_len = 32;
+        effective.carrier_address = Some("192.0.2.44".into());
+        effective.data_plane.recordizer_mode =
+            Some(crate::transport_core::NetworkRecordizerMode::PacketMuxV1);
+        effective.data_plane.recordizer_policy = Some("balanced".into());
+        effective.data_plane.roaming_mode =
+            Some(crate::transport_core::NetworkRoamingMode::Reconnect);
+
+        let mut context = ClientHookContext::new(&config, "/etc/qeli/clients/office.conf");
+        context.refresh(&effective, "vpn-test");
+        let hook = context.invocation(
+            "/etc/qeli/hooks/up.sh \"$@\"".into(),
+            "post_up",
+            "connected",
+            "",
+            "",
+            12,
+        );
+        let env = hook
+            .environment
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(hook.positional_arguments, ["vpn-test", "10.20.0.1"]);
+        assert_eq!(env["QELI_HOOK_API"], "1");
+        assert_eq!(env["QELI_EVENT"], "post_up");
+        assert_eq!(env["QELI_PROFILE"], "office");
+        assert_eq!(env["QELI_IFNAME"], "vpn-test");
+        assert_eq!(env["QELI_GATEWAY"], "10.20.0.1");
+        assert_eq!(env["QELI_IPV4_CIDR"], "10.20.0.2/32");
+        assert_eq!(env["QELI_IPV4_SUBNET"], "10.20.0.0/24");
+        assert_eq!(env["QELI_DNS_0"], "10.20.0.1:53");
+        assert_eq!(env["QELI_ROUTE_0_CIDR"], "192.0.2.0/24");
+        assert_eq!(env["QELI_INCLUDE_0"], "198.51.100.0/24");
+        assert_eq!(env["QELI_RECORDIZER_MODE"], "packet_mux_v1");
+        assert_eq!(env["QELI_SESSION_DURATION_SECONDS"], "12");
+
+        let json: serde_json::Value = serde_json::from_str(&hook.context_json).unwrap();
+        assert_eq!(json["hook_api"], 1);
+        assert_eq!(json["event"], "post_up");
+        assert_eq!(json["network_plan"]["generation"], 7);
+        assert_eq!(json["network_plan"]["addresses"][0]["prefix_len"], 32);
+        assert!(!hook.context_json.contains("secret"));
+        assert!(!hook
+            .context_json
+            .contains("1111111111111111111111111111111111111111111111111111111111111111"));
+    }
+
+    #[test]
+    fn post_down_before_the_first_plan_is_explicitly_marked_unavailable() {
+        let config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        let context = ClientHookContext::new(&config, "client.conf");
+        let hook = context.invocation(
+            "true".into(),
+            "post_down",
+            "max_retries",
+            "max_retries",
+            "connection failed",
+            0,
+        );
+        let env = hook
+            .environment
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(env["QELI_PLAN_AVAILABLE"], "false");
+        assert_eq!(env["QELI_ADDRESS_COUNT"], "0");
+        assert_eq!(env["QELI_GATEWAY"], "");
+        assert_eq!(env["QELI_ERROR_MESSAGE"], "connection failed");
+        assert_eq!(hook.positional_arguments, ["vpn0", ""]);
     }
 
     #[cfg(feature = "experimental-roaming")]

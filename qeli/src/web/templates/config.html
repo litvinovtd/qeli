@@ -184,7 +184,7 @@
             <div>
               <label class="field-label">Bind address</label>
               <p class="field-desc">Interface to listen on (0.0.0.0 = all)</p>
-              <input class="inp" type="text" x-model="cfg.web.bind" @input="markDirty()">
+              <input class="inp" type="text" required x-model="cfg.web.bind" @input="markDirty()">
             </div>
             <div>
               <label class="field-label">Port</label>
@@ -323,8 +323,8 @@
             <div class="col-span-3 grid grid-cols-2 gap-4">
               <div>
                 <label class="field-label">Session lifetime (seconds)</label>
-                <p class="field-desc">How long an admin login stays valid before re-auth. Capped at 30 days. Default 86400 (1 day).</p>
-                <input class="inp" type="number" min="60" x-model.number="cfg.web.session_ttl_secs" @input="markDirty()" placeholder="86400">
+                <p class="field-desc">How long an admin login stays valid before re-auth. Valid range: 60 seconds to 30 days. Default 86400 (1 day).</p>
+                <input class="inp" type="number" min="60" max="2592000" x-model.number="cfg.web.session_ttl_secs" @input="markDirty()" placeholder="86400">
               </div>
               <div>
                 <label class="field-label">Reverse-proxy base path</label>
@@ -540,7 +540,7 @@
             <div>
               <label class="field-label">Protocol</label>
               <p class="field-desc">TCP — reliable, easier to route. UDP — lower latency, better for mobile.</p>
-              <select class="inp" x-model="cfg.profiles[activeTab].bind.transport" @change="markDirty()">
+              <select class="inp" x-model="cfg.profiles[activeTab].bind.transport" @change="onTransportChange(activeTab)">
                 <option value="tcp">TCP</option>
                 <option value="udp">UDP</option>
               </select>
@@ -624,7 +624,7 @@
             <div>
               <label class="field-label">Inner IP mode</label>
               <p class="field-desc">Address families carried inside the tunnel; independent of the outer listener address.</p>
-              <select class="inp" x-model="cfg.profiles[activeTab].tun.ip_mode" @change="markDirty()">
+              <select class="inp" x-model="cfg.profiles[activeTab].tun.ip_mode" @change="onIpModeChange(activeTab)">
                 <option value="ipv4">IPv4 only</option>
                 <option value="dual">IPv4 + IPv6</option>
                 <option value="ipv6">IPv6 only</option>
@@ -820,7 +820,7 @@
                 <div class="text-xs text-slate-500">Route traffic to 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 through VPN</div>
               </div>
             </div>
-            <div class="field-toggle">
+            <div class="field-toggle" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
               <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}, cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
@@ -985,7 +985,7 @@
         </div>
 
         <!-- ── DHCP ── -->
-        <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor">
+        <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
           <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for a local server-side TAP segment)</span></div>
           <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
             <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -1041,10 +1041,12 @@
             <div class="grid grid-cols-3 gap-4">
               <div>
                 <label class="field-label">Mode</label>
-                <p class="field-desc">fake-tls = mimic a TLS 1.3 handshake. obfs = ChaCha20 stream (structure-free). Must match the client.</p>
-                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.mode" @change="markDirty()">
+                <p class="field-desc">reality-tls = genuine browser-shaped TLS/HTTP/2; fake-tls = TLS-shaped compatibility framing; obfs = structure-free stream. Must match the client.</p>
+                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.mode" @change="onWireModeChange(activeTab)">
+                  <option value="reality-tls" :disabled="cfg.profiles[activeTab].bind.transport === 'udp'">reality-tls (genuine TLS/HTTP/2)</option>
                   <option value="fake-tls">fake-tls (mimic TLS)</option>
                   <option value="obfs">obfs (random stream)</option>
+                  <option value="plain" :disabled="cfg.profiles[activeTab].bind.transport === 'udp'">plain (raw TCP, no masking)</option>
                 </select>
               </div>
               <div>
@@ -1073,8 +1075,8 @@
               </div>
             </div>
 
-            <!-- AmneziaWG junk (obfs only) -->
-            <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs'" class="mt-4 pt-3 border-t border-[#21314e]">
+            <!-- AmneziaWG junk: TCP obfs, or any UDP wire mode -->
+            <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs' || cfg.profiles[activeTab].bind.transport === 'udp'" class="mt-4 pt-3 border-t border-[#21314e]">
               <div class="field-toggle">
                 <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.awg.enabled = !cfg.profiles[activeTab].obfuscation.awg.enabled, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'bg-blue-600' : 'bg-slate-700'">
@@ -1083,7 +1085,7 @@
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">AmneziaWG junk</div>
-                  <div class="text-xs text-slate-500">Prepend <span class="font-mono">jc</span> junk packets of random length (<span class="font-mono">jmin</span>…<span class="font-mono">jmax</span> bytes) before the handshake, mimicking AmneziaWG. The client must set the <strong>same jc</strong> or the tunnel will not come up.</div>
+                  <div class="text-xs text-slate-500">Prepend <span class="font-mono">jc</span> junk packets of random length (<span class="font-mono">jmin</span>…<span class="font-mono">jmax</span> bytes) before the handshake, mimicking AmneziaWG. TCP obfs requires the same <strong>jc</strong> on both ends; on UDP jc is sender-only and does not need to match.</div>
                 </div>
               </div>
               <div x-show="cfg.profiles[activeTab].obfuscation.awg.enabled" class="grid grid-cols-3 gap-4 mt-3">
@@ -1122,9 +1124,9 @@
               <p class="field-desc">Candidate camouflage hostnames. <strong>Not applied yet</strong> — SNI rotation currently draws from the built-in list in the code, so editing this pool changes nothing at runtime; it is stored for the follow-up that will consume it.</p>
             </div>
             <!-- REALITY — TCP-only TLS-shaped outer transport; hidden on UDP profiles (#11) -->
-            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
+            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') === 'tcp' && ['fake-tls', 'reality-tls'].includes(cfg.profiles[activeTab].obfuscation.mode)" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
-                <div class="toggle-wrap" @click="[ensureReality(activeTab), cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled, markDirty()]">
+                <div class="toggle-wrap" @click="toggleReality(activeTab)">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1144,12 +1146,12 @@
                   <div>
                     <label class="field-label">Target port</label>
                     <p class="field-desc">usually 443</p>
-                    <input class="inp" type="number" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target_port" @input="markDirty()">
+                    <input class="inp" type="number" min="1" max="65535" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target_port" @input="markDirty()">
                   </div>
                   <div>
                     <label class="field-label">Peek timeout (ms)</label>
                     <p class="field-desc">How long to read the ClientHello before classifying client vs probe (high-latency safe). Default 1500.</p>
-                    <input class="inp" type="number" min="100" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.peek_timeout_ms" @input="markDirty()">
+                    <input class="inp" type="number" min="300" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.peek_timeout_ms" @input="markDirty()">
                   </div>
                 </div>
 
@@ -1374,12 +1376,12 @@
               </div>
               <div>
                 <label class="field-label">Cover budget (bytes/sec)</label>
-                <p class="field-desc">Max cover traffic; 0 = none</p>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.budget_bytes_per_sec" @input="markDirty()">
+                <p class="field-desc">Maximum positive cover-traffic budget while shaping is enabled</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.budget_bytes_per_sec" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Idle gap min (ms)</label>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_min_ms" @input="markDirty()">
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_min_ms" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Idle gap max (ms)</label>
@@ -1562,7 +1564,7 @@
               <div>
                 <label class="field-label">Max streams</label>
                 <p class="field-desc">Server-enforced ceiling on parallel streams per session</p>
-                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
+                <input class="inp" type="number" min="1" max="16" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
                 <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath.adaptive, markDirty()]">
@@ -1935,6 +1937,91 @@ function configPage() {
     markDirty() {
       this.dirty = true;
       this.jsonText = JSON.stringify(this.cfg, null, 2);
+    },
+
+    onIpModeChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const mode = p.tun.ip_mode;
+      if (mode === 'ipv4') {
+        p.routing.ipv6 = p.routing.ipv6 || {};
+        p.routing.ipv6.mode = 'off';
+        p.routing.ipv6.ndp_proxy = 'off';
+        p.routing.ipv6.ndp_proxy_interface = '';
+      } else if (mode === 'ipv6') {
+        p.routing.nat = p.routing.nat || {};
+        p.routing.nat.enabled = false;
+        p.dhcp.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    onTransportChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const obf = p.obfuscation;
+      const transport = p.bind.transport || 'tcp';
+      this.ensureReality(pi);
+      if (transport === 'udp') {
+        if (obf.mode === 'plain' || obf.mode === 'reality-tls') obf.mode = 'fake-tls';
+        obf.tls.reality_proxy.enabled = false;
+        obf.multipath.enabled = false;
+      } else {
+        obf.quic.enabled = false;
+        if (obf.mode !== 'obfs') obf.awg.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    onWireModeChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const obf = p.obfuscation;
+      this.ensureReality(pi);
+      const rp = obf.tls.reality_proxy;
+      if (obf.mode === 'reality-tls') {
+        p.bind.transport = 'tcp';
+        obf.quic.enabled = false;
+        obf.awg.enabled = false;
+        rp.enabled = true;
+        rp.real_tls = true;
+        rp.handrolled = true;
+        if (!rp.short_ids.some(value => String(value).trim())) {
+          rp.short_ids = [this.randomHex(16)];
+        }
+      } else if (obf.mode === 'obfs' || obf.mode === 'plain') {
+        rp.enabled = false;
+        if (obf.mode === 'plain') {
+          p.bind.transport = 'tcp';
+          obf.quic.enabled = false;
+          obf.awg.enabled = false;
+        }
+      } else if (p.bind.transport === 'tcp') {
+        obf.awg.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    toggleReality(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      this.ensureReality(pi);
+      const obf = p.obfuscation;
+      const rp = obf.tls.reality_proxy;
+      if (rp.enabled) {
+        rp.enabled = false;
+        if (obf.mode === 'reality-tls') obf.mode = 'fake-tls';
+      } else {
+        p.bind.transport = 'tcp';
+        obf.quic.enabled = false;
+        obf.awg.enabled = false;
+        if (obf.mode !== 'fake-tls' && obf.mode !== 'reality-tls') obf.mode = 'fake-tls';
+        rp.enabled = true;
+        if (!rp.short_ids.some(value => String(value).trim())) {
+          rp.short_ids = [this.randomHex(16)];
+        }
+      }
+      this.markDirty();
     },
 
     normalizeProfiles() {

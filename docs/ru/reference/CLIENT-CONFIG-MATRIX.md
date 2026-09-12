@@ -42,7 +42,7 @@ fail-closed. Текущие GUI-клиенты сохраняют любой и�
 | `dev_node` `metric` | R→R | A→A | C→C | D→C | D→C | Wintun-ключи применяет только Windows, остальные GUI сохраняют их. |
 | `persist_tun` `route_file` | R→R | A→A | A→A | D→C | D→C | Desktop lifecycle/маршруты не применимы телефоном, но больше не исчезают после mobile round-trip. |
 | `kill_switch` | A→A | A→A | A→A | C→A | D→C | Android реализует fail-closed через системный Always-on VPN + lockdown и отказывается подключаться без подтверждённой политики. iOS сохраняет ключ, но применяет отдельную системную политику VPN On Demand. |
-| `gateway_nat` `exit_node` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only dual-family политика сохраняется всеми редакторами; команды GUI никогда не исполняют. |
+| `gateway_nat` `exit_node` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only dual-family политика сохраняется всеми редакторами; команды GUI не исполняют. CLI hooks получают `$1=ifname`, `$2=gateway`, versioned `QELI_*`, stop reason и временный JSON полного NetworkPlan. |
 | `forward` | A→A | A→A | A→A | D→C | D→C | Site-to-site forwarding остаётся CLI/desktop-функцией; мобильный round-trip больше не удаляет настройку. |
 | `allow_lan` | R→R | C→C | C→C | A→A | A→A | Мобильное исключение домашней LAN сохраняет прежнюю семантику; desktop хранит его для телефона. |
 | `apps` `apps_mode` | R→R | C→A | C→A | A→A | C→C | Windows использует пути к `.exe` и WinDivert; macOS — signing identifier и transparent+DNS Network Extension; Android — имена пакетов. iOS сохраняет выбор, но без MDM `NEAppRule` применить его не может. |

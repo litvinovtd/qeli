@@ -307,15 +307,17 @@ pub struct ClientRoutingConfig {
     /// only. Default false.
     #[serde(default = "default_false")]
     pub exit_node: bool,
-    /// Command run once after the first authenticated NetworkPlan has created the TUN
-    /// and installed its active-family gateway/exit firewall (Linux only, runs as the
-    /// client's user — typically root). Use
-    /// for custom routing/firewall. SECURITY: honoured ONLY from a trusted local
-    /// config file (root-owned, not world-writable); the panel/API never writes it.
+    /// Command run once after the first authenticated NetworkPlan has created the TUN,
+    /// installed routes/DNS and applied active-family gateway/exit firewall state (Linux
+    /// only, as the client's user). The shell receives `$1 = ifname`, `$2 = primary tunnel
+    /// gateway`, a versioned `QELI_*` environment and a temporary JSON context file. Use for
+    /// custom routing/firewall. SECURITY: honoured ONLY from a trusted local config file;
+    /// the panel/API never writes it.
     #[serde(default)]
     pub post_up: String,
-    /// Command run on a clean stop (SIGINT/SIGTERM / reconnect disabled), mirroring
-    /// `post_up`. Same security rules. A crash does NOT run it.
+    /// Command run on a clean terminal stop (SIGINT/SIGTERM, reconnect disabled, terminal
+    /// server kick or retry exhaustion), with the latest committed NetworkPlan snapshot and
+    /// stop reason. Same security rules. A crash/SIGKILL does NOT run it.
     #[serde(default)]
     pub post_down: String,
 }

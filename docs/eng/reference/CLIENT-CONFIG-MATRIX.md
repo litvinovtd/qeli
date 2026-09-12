@@ -42,7 +42,7 @@ can apply it; separately exposed controls are identified in the notes.
 | `dev_node` `metric` | R→R | A→A | C→C | D→C | D→C | Only Windows applies the Wintun fields; other GUIs preserve them. |
 | `persist_tun` `route_file` | R→R | A→A | A→A | D→C | D→C | Desktop lifecycle/routes do not apply to phones, but no longer vanish after a mobile round trip. |
 | `kill_switch` | A→A | A→A | A→A | C→A | D→C | Android implements fail-closed behavior through verified system Always-on VPN + lockdown and refuses to connect without it. iOS preserves the key but uses the separate system VPN On Demand policy. |
-| `gateway_nat` `exit_node` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only dual-family policy survives every editor; GUIs never execute the commands. |
+| `gateway_nat` `exit_node` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only dual-family policy survives every editor; GUIs never execute commands. CLI hooks receive `$1=ifname`, `$2=gateway`, versioned `QELI_*`, a stop reason and temporary full-NetworkPlan JSON. |
 | `forward` | A→A | A→A | A→A | D→C | D→C | Site-to-site forwarding remains CLI/desktop-only; a mobile round trip no longer deletes it. |
 | `allow_lan` | R→R | C→C | C→C | A→A | A→A | The mobile home-LAN carve-out keeps its semantics; desktop preserves it for phones. |
 | `apps` `apps_mode` | R→R | C→A | C→A | A→A | C→C | Windows uses executable paths with WinDivert; macOS uses signing identifiers with a transparent+DNS Network Extension; Android uses package names. iOS preserves the choice but cannot apply it without MDM `NEAppRule`. |

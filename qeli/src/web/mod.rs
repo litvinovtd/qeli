@@ -737,14 +737,6 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
                 return;
             }
         };
-        let sockaddr: SocketAddr = match addr.parse() {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!("Web panel bind '{addr}' is not a socket address: {e}");
-                report(false);
-                return;
-            }
-        };
         // Bind EXPLICITLY, before reporting success.
         //
         // `axum_server::bind_rustls` binds lazily inside `serve`, so the obvious version of
@@ -754,7 +746,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
         // says nothing about whether anything can listen on it. `from_tcp_rustls` takes a
         // listener we already own, which is what makes the report truthful.
         // (Audit 2026-08-01, §4.)
-        let listener = match std::net::TcpListener::bind(sockaddr) {
+        let listener = match std::net::TcpListener::bind(&addr) {
             Ok(l) => l,
             Err(e) => {
                 log::error!("Web UI failed to bind {addr}: {e}");

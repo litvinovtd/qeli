@@ -386,10 +386,14 @@ impl PushedObf {
                 || shaping.budget_bytes_per_sec == 0
                 || shaping.min_size == 0
                 || shaping.max_size == 0
-                || shaping.stealth_rate_mbps == 0
             {
                 anyhow::bail!(
-                    "{label}.traffic_shaping durations, sizes, budget and stealth rate must be positive"
+                    "{label}.traffic_shaping durations, sizes and budget must be positive"
+                );
+            }
+            if shaping.stealth && shaping.stealth_rate_mbps == 0 {
+                anyhow::bail!(
+                    "{label}.traffic_shaping.stealth_rate_mbps must be positive when stealth mode is enabled"
                 );
             }
             if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms {
@@ -534,6 +538,12 @@ impl RecordizerConfig {
         ) {
             anyhow::bail!("{label}.policy must be off, prefer or required");
         }
+        // `policy = off` selects the legacy packet-per-record path. Keep the dormant
+        // tuning losslessly in the config so an operator can switch back later, but do
+        // not let values hidden by every editor block an unrelated save/startup.
+        if self.is_off() {
+            return Ok(());
+        }
         if self.batch.delay_min_ms > self.batch.delay_max_ms {
             anyhow::bail!("{label}.batch.delay_min_ms must be <= delay_max_ms");
         }
@@ -642,7 +652,7 @@ pub struct TrafficShapingConfig {
     pub idle_gap_min_ms: u64,
     #[serde(default = "default_shaping_gap_max")]
     pub idle_gap_max_ms: u64,
-    /// Cover-traffic ceiling (bytes/sec); 0 disables cover even when `enabled`.
+    /// Positive cover-traffic ceiling (bytes/sec) while shaping is enabled.
     #[serde(default = "default_shaping_budget")]
     pub budget_bytes_per_sec: u32,
     #[serde(default = "default_shaping_min_size")]
@@ -1020,6 +1030,42 @@ enabled = true
         assert!(out.contains("brute_force.max_attempts = 4"));
         // Input had no trailing newline → output has none either.
         assert!(!out.ends_with('\n'));
+    }
+
+    #[test]
+    fn disabled_recordizer_ignores_dormant_tuning_until_reenabled() {
+        let mut recordizer = super::RecordizerConfig {
+            policy: "off".into(),
+            ..Default::default()
+        };
+        recordizer.batch.delay_min_ms = 10;
+        recordizer.batch.delay_max_ms = 1;
+        recordizer.batch.max_packets = 0;
+        recordizer.fragment.reassembly_timeout_ms = 0;
+        recordizer
+            .validate("recordizer")
+            .expect("policy=off must ignore dormant tuning");
+
+        recordizer.policy = "prefer".into();
+        assert!(
+            recordizer.validate("recordizer").is_err(),
+            "reenabling the feature must validate the retained tuning"
+        );
+    }
+
+    #[test]
+    fn shaping_stealth_rate_is_required_only_when_stealth_is_active() {
+        let mut pushed = super::PushedObf::default();
+        pushed.traffic_shaping.enabled = true;
+        pushed.traffic_shaping.stealth = false;
+        pushed.traffic_shaping.stealth_rate_mbps = 0;
+        pushed
+            .validate("obf")
+            .expect("inactive stealth rate is dormant");
+
+        pushed.traffic_shaping.stealth = true;
+        let error = pushed.validate("obf").unwrap_err().to_string();
+        assert!(error.contains("stealth_rate_mbps"), "wrong error: {error}");
     }
 }
 fn default_log_format() -> String {

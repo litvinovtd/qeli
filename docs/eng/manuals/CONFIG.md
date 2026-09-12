@@ -907,6 +907,8 @@ obf.traffic_shaping.stealth_rate_mbps = 2
 - When shaping is enabled, `budget_bytes_per_sec` must be at least `max_size`.
   The server rejects a smaller budget because even one scheduled cover record could
   never acquire enough tokens; that would silently disable cover and liveness.
+- `stealth_rate_mbps` must be positive only while `stealth = true`; its dormant value is retained
+  when stealth mode is off.
 - **Cost (without stealth)** — only cover-traffic bandwidth while idle (capped by
   `budget_bytes_per_sec`); no effect on real throughput.
 - **When to enable** — on profiles facing heavy DPI / an ML classifier; overkill for
@@ -1011,7 +1013,9 @@ you want into your config:
 ### `obfs_fronting` (anti-FET, only for `mode = obfs`)
 
 The key `obf.obfs_fronting` (server) / `front` in the qeli:// link and the `[qeli]`
-section (client). **Must match on server and client.**
+section (client). **Must match on server and client.** On a non-`obfs` server profile the
+field is dormant, preserved without validation, and checked again if the profile is switched
+to `obfs`.
 
 | Value | Behavior |
 |---|---|
@@ -1650,7 +1654,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `forward` (default `false`) | site-to-site **without NAT**: forward traffic between the tun and the LAN behind the client while preserving the original source IP (unlike `gateway_nat`, which masquerades it). Use it when a routed network sits behind the client and its addresses must stay visible on the server. See "Routing networks behind nodes WITHOUT NAT" below |
 | `exit_node` (default `false`) | **mirror of `gateway_nat`.** `gateway_nat` masquerades a LAN behind the client INTO the tunnel; `exit_node` masquerades traffic that arrived FROM the tunnel out the physical WAN — so other clients reach the internet under THIS host's IP (e.g. behind a grey/NAT'd line). See "Exit node (`exit_node`)" below. Linux/router-only |
 | `dev = <name>` + `dev_attach = true` | **attach to a pre-existing** interface instead of creating one. `dev` is literal: qeli does not rename TAP devices. The existing kind must match `device_type`, it must use `IFF_NO_PI`, and qeli detects its single/multi-queue mode automatically. qeli only opens it for packet IO: it does **not** create, address, route, or delete it — an external manager (router firmware, your own script) owns all of that. The assigned tunnel IP is written to `$QELI_TUNIP_FILE` (if set in the environment) so the external script can bring up the address/routes itself |
-| `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
+| `post_up` / `post_down` | standalone Linux client lifecycle commands. A committed NetworkPlan supplies `$1=ifname`, `$2=gateway`, the full versioned `QELI_*` environment and temporary JSON (`QELI_CONTEXT_FILE`); `post_down` gets the stop reason and latest plan. **SECURITY:** trusted file-only config; panel/API never write them |
 | `dns` | client DNS mode. `tunnel` (default) = route DNS through the tunnel: the client **rewrites `/etc/resolv.conf`** (Linux) to the tunnel resolver to prevent DNS leaks. `off` = **leave the system resolver untouched**, use the host's DNS as-is (for routers and any Linux host that already has DNS configured and shouldn't have `resolv.conf` touched). File-only; emitted to INI only when `!= tunnel` |
 | `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
 
@@ -2124,100 +2128,289 @@ rewrites its manually configured listener set.
 
 ## Lifecycle hooks: `post_up` / `post_down`
 
-> ⚠️ **Binary-only** (see the note above) and **Linux-only**. The GUI apps ignore them.
+> ⚠️ Client hooks are executed only by the standalone **Linux** binary, including
+> OpenWrt/Keenetic. Windows, macOS, Android and iOS preserve the keys when a profile is moved,
+> but never run the commands. These keys are **file-only**: they are excluded from `qeli://`
+> links and the panel/API cannot set them remotely.
 
-An arbitrary command (`/bin/sh -c …`) qeli runs at a tunnel lifecycle point — for rules
-`gateway_nat` doesn't cover: policy routing, mangle marks, site-to-site, custom
-firewall. The analogue of `wg-quick`'s `PostUp`/`PostDown`.
+A lifecycle hook is a local command for actions not covered by qeli's built-in routing: policy
+routing, extra firewall/mangle rules, integration with another network manager, local logging or
+notifications. It runs through `/bin/sh -c` with the same privileges as the qeli process.
 
-**Client** (`[qeli]`, file-only — NOT included in the `qeli://` link):
-- `post_up` — once, after the first authenticated NetworkPlan has created the TUN, applied
-  routes/DNS, and installed the active-family gateway/exit firewall. Authentication or plan
-  failures therefore do not run it; reconnects do not run it again;
-- `post_down` — only on a **clean** stop (SIGINT/SIGTERM, `reconnect.enabled=false`,
-  `max_retries` exhausted);
-- hook env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET`.
+### When client hooks run
 
-```ini
-[qeli]
-# … + policy routing for one subnet only (not full-tunnel for the whole router):
-post_up   = ip rule add from 192.168.254.0/24 table 100; ip route add default dev vpn0 table 100
-post_down = ip rule del from 192.168.254.0/24 table 100; ip route flush table 100
-```
+- `post_up` runs once after authentication and successful application of the first
+  `NetworkPlan`: TUN/TAP exists and addresses, routes, DNS and gateway/exit firewall state are
+  already applied. Packet forwarding starts immediately after the hook returns. Authentication
+  failures and rejected plans do not run it.
+- A normal reconnect creates a new network generation but does not run `post_up` again. Its
+  context snapshot is refreshed, so the eventual `post_down` receives the latest successfully
+  applied plan.
+- `post_down` runs once on a terminal clean stop: SIGINT/SIGTERM, reconnect disabled, a terminal
+  server kick, or exhausted `reconnect_retries`.
+- If no plan was ever applied, `post_down` may still run. `QELI_PLAN_AVAILABLE=false`,
+  plan-dependent values are empty, and JSON `network_plan` is `null`.
+- SIGKILL, process crashes and power loss cannot run `post_down`. A script must be idempotent and
+  able to repair its own stale state on the next start.
+- Current-generation network resources may already be gone by `post_down`. Use its snapshot to
+  remove state created by the hook; do not assume the interface still exists.
+- Every invocation has a hard 30-second timeout. Exit status, spawn failure and timeout are
+  logged, but hook failure neither rejects the tunnel nor prevents normal cleanup.
 
-**Server** (`[profile:*]`, per-profile):
-- `routing.post_up` — after this profile's TUN + NAT are up;
-- `routing.post_down` — on a clean server stop;
-- hook env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL_IPV4`, `QELI_POOL_IPV6`,
-  `QELI_WAN_IPV4`, `QELI_WAN_IPV6`, `QELI_BIND_PORT`. Compatibility aliases
-  `QELI_POOL`/`QELI_WAN` select IPv4 for IPv4/dual profiles and IPv6 for IPv6-only profiles.
-  WAN values are the interfaces actually selected by the running NAT/routed setup (including
-  auto-detection), and the same generation snapshot is passed to `post_down`.
-
-The server hook closes **site-to-site** (reaching a LAN behind a client) with no manual
-steps — the reverse route + NAT for the client's subnet:
-
-```ini
-[profile:tcp]
-# … the client needs a STATIC tun IP (pool.static_reservations / qeli add-client --static-ip 10.9.0.2)
-routing.post_up   = ip route add 192.168.254.0/24 via 10.9.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
-routing.post_down = ip route del 192.168.254.0/24 via 10.9.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
-```
-
-### External script
-A hook is `/bin/sh -c …`, so instead of an inline command you can point it at a
-**script path** (arguments / pipes / `;` work too):
+Minimal configuration:
 
 ```ini
 [qeli]
-post_up   = /etc/qeli/hooks/up.sh
-post_down = /etc/qeli/hooks/down.sh
+post_up   = /etc/qeli/hooks/client-route.sh "$@"
+post_down = /etc/qeli/hooks/client-route.sh "$@"
 ```
 
-`/etc/qeli/hooks/up.sh` (the env context is available to the script):
+The effective invocation is:
+
+```sh
+/bin/sh -c '<post_up/post_down value>' qeli-hook '<ifname>' '<gateway>'
+```
+
+Inside the shell command, `$1 = ifname` and `$2 = primary tunnel gateway` (IPv4 first, then IPv6;
+empty when no plan exists). Add `"$@"` after an external script path, as above, to forward those
+positional parameters into that script. New scripts should prefer named `QELI_*` variables: they
+are order-independent and expose the complete dual-stack context.
+
+### Complete client variable reference
+
+Every boolean is the string `true` or `false`. Every variable is defined; a fact that is not yet
+known or not applicable is an empty string. Array indices begin at zero and end at `COUNT - 1`.
+
+#### Lifecycle and identity
+
+| Variable | Meaning |
+|---|---|
+| `QELI_HOOK_API` | Environment/JSON contract version; currently `1`. Scripts should check it before depending on newer fields. |
+| `QELI_EVENT` | `post_up` or `post_down`, allowing one script to handle both events. |
+| `QELI_PROFILE`, `QELI_PROFILE_NAME` | Profile name derived from the config filename without its extension. The latter is an explicit alias. |
+| `QELI_CONFIG_PATH` | Canonical client INI path when canonicalization succeeds, otherwise the path supplied at launch. |
+| `QELI_PID` | PID of the qeli process invoking the hook. |
+| `QELI_PLAN_AVAILABLE` | `true` after at least one authenticated `NetworkPlan` was committed. |
+| `QELI_PLAN_GENERATION` | Generation number of the latest committed plan. |
+| `QELI_SESSION_DURATION_SECONDS` | Seconds since this process committed its first plan; `0` before that. Reconnect time between generations is included. |
+| `QELI_REASON`, `QELI_STOP_REASON` | Event reason. `post_up`: `connected`; `post_down`: `shutdown_signal`, `reconnect_disabled`, `server_kick` or `max_retries`. `QELI_REASON` is the generic alias. |
+| `QELI_ERROR_CODE` | Stable terminal category: empty, `shutdown`, `transport_error`, `server_kick` or `max_retries`. |
+| `QELI_ERROR_MESSAGE` | Human-readable final error with no secrets. It is not a stable machine-parsing API. |
+| `QELI_CONTEXT_FILE`, `QELI_NETWORK_PLAN_FILE` | Two names for the same temporary full-context JSON file. It is mode `0600` and removed as soon as the hook exits. Both values are empty if file creation failed. |
+
+#### TUN/TAP and addresses
+
+| Variable | Meaning |
+|---|---|
+| `QELI_TUN`, `QELI_IFNAME` | Actual interface name. `QELI_TUN` is the compatibility alias; prefer `QELI_IFNAME`. |
+| `QELI_IFINDEX` | Numeric Linux interface index captured when the latest plan was applied; empty if it has not been determined yet. |
+| `QELI_DEVICE_TYPE`, `QELI_TUN_MODE` | `tun` or `tap`; equivalent names. |
+| `QELI_TUN_REUSED` | `true` for `dev_attach=true`, meaning an external owner created/manages the interface. It does not mean reconnect. |
+| `QELI_MTU` | Effective negotiated MTU. |
+| `QELI_FAMILY_MODE` | `ipv4`, `ipv6` or `dual`. |
+| `QELI_TUNNEL_ADDRESS` | Legacy primary-address projection from `NetworkPlan`. Use the family-specific values below for exact dual-stack logic. |
+| `QELI_PREFIX_LEN` | Prefix length of the legacy projection. |
+| `QELI_TUNNEL_GATEWAY` | Legacy gateway projection from the plan. |
+| `QELI_GATEWAY` | Primary gateway also supplied as `$2`: IPv4 when present, otherwise IPv6. |
+| `QELI_IPV4_ADDRESS`, `QELI_IPV6_ADDRESS` | Assigned interface address without a prefix. |
+| `QELI_IPV4_PREFIX`, `QELI_IPV6_PREFIX` | Assigned address prefix-length aliases for `*_PREFIX_LEN`. |
+| `QELI_IPV4_PREFIX_LEN`, `QELI_IPV6_PREFIX_LEN` | Prefix applied to the interface address; normally `/32` and `/128` on an L3 TUN. |
+| `QELI_IPV4_ON_LINK_PREFIX_LEN`, `QELI_IPV6_ON_LINK_PREFIX_LEN` | Pool/on-link prefix, distinct from the host prefix. |
+| `QELI_IPV4_CIDR`, `QELI_IPV6_CIDR` | Interface address with its applied prefix, for example `10.9.0.2/32`. |
+| `QELI_IPV4_SUBNET`, `QELI_IPV6_SUBNET` | Calculated on-link network, for example `10.9.0.0/24`. |
+| `QELI_IPV4_GATEWAY`, `QELI_IPV6_GATEWAY` | Inner gateway for that address family. |
+
+Every address is also exported as an indexed group:
+
+- `QELI_ADDRESS_COUNT`;
+- `QELI_ADDRESS_N_FAMILY` (`ipv4`/`ipv6`);
+- `QELI_ADDRESS_N_ADDRESS`;
+- `QELI_ADDRESS_N_PREFIX_LEN`;
+- `QELI_ADDRESS_N_ON_LINK_PREFIX_LEN`;
+- `QELI_ADDRESS_N_GATEWAY`;
+- `QELI_ADDRESS_N_CIDR`;
+- `QELI_ADDRESS_N_SUBNET`.
+
+#### Server and physical carrier
+
+| Variable | Meaning |
+|---|---|
+| `QELI_SERVER`, `QELI_SERVER_HOST` | Host from `server = ...`, possibly a DNS name. `QELI_SERVER` is the compatibility alias. |
+| `QELI_SERVER_PORT` | Profile port. |
+| `QELI_SERVER_ENDPOINT` | Correctly formatted `host:port`, including brackets around an IPv6 literal. |
+| `QELI_CARRIER_ADDRESS` | Actual socket peer selected after DNS; this is the address whose physical bypass is pinned. |
+| `QELI_CARRIER_ENDPOINT` | Actual `IP:port`. |
+| `QELI_CARRIER_LOCAL_ADDRESS` | Source selected by `ip route get`, or the configured `local`; empty when unavailable. |
+| `QELI_CARRIER_IFNAME`, `QELI_CARRIER_IFINDEX` | Physical uplink and its ifindex, never the TUN. |
+| `QELI_CARRIER_GATEWAY` | Physical next hop to the carrier; empty for an on-link peer. |
+| `QELI_PROTOCOL` | Outer transport: `tcp` or `udp`. |
+| `QELI_WIRE_MODE` | `plain`, `fake-tls`, `obfs` or `reality-tls`. |
+| `QELI_FRONTING` | Configured fronting mode (`websocket`/`none`). |
+
+Do not resolve `QELI_SERVER_HOST` again when current-carrier identity matters: round-robin DNS may
+return another address. Use `QELI_CARRIER_ADDRESS` for bypass rules.
+
+#### Routing and client mode
+
+| Variable | Meaning |
+|---|---|
+| `QELI_ROUTING_MODE` | Effective `full` or `split` mode. |
+| `QELI_FULL_TUNNEL` | Whether all client traffic is captured into the tunnel. |
+| `QELI_KILL_SWITCH` | Whether the committed plan includes a kill switch. |
+| `QELI_ROUTE_LOCAL` | Configured `route_local`. |
+| `QELI_GATEWAY_NAT` | Configured `gateway_nat`. |
+| `QELI_FORWARD` | Pure L3 forwarding is enabled. |
+| `QELI_EXIT_NODE` | This client is an exit node for other peers. |
+| `QELI_ALLOW_IPV4_LEAK`, `QELI_ALLOW_IPV6_LEAK` | Explicit fail-closed escape hatches for a missing family. |
+| `QELI_LAN_SUBNET`, `QELI_LAN_SUBNET_IPV6` | Configured IPv4/IPv6 router-mode source networks. |
+
+Lists:
+
+- `QELI_ROUTE_COUNT`, then `QELI_ROUTE_N_CIDR`, `QELI_ROUTE_N_GATEWAY`,
+  `QELI_ROUTE_N_METRIC`: final plan routes;
+- `QELI_PUSHED_ROUTE_COUNT`, then `QELI_PUSHED_ROUTE_N`: original validated server-pushed routes;
+- `QELI_INCLUDE_COUNT`, then `QELI_INCLUDE_N`: local `include` entries;
+- `QELI_EXCLUDE_COUNT`, then `QELI_EXCLUDE_N`: local `exclude` entries.
+
+#### DNS and negotiated data-plane facts
+
+| Variable | Meaning |
+|---|---|
+| `QELI_DNS_COUNT` | Number of applied resolver endpoints. |
+| `QELI_DNS_N` | Correctly formatted `address:port`, including IPv6 brackets. |
+| `QELI_DNS_N_ADDRESS`, `QELI_DNS_N_PORT` | Resolver address and port separately. |
+| `QELI_MAX_STREAMS` | Negotiated bonded-stream limit. |
+| `QELI_ADAPTIVE` | Whether adaptive stream-count control is enabled. |
+| `QELI_ROAMING_POLICY` | Client policy: `off`, `auto` or `required`. |
+| `QELI_ROAMING_MODE` | Negotiated `reconnect`, `udp_roam_v1`, `tcp_resume_v2` or `tcp_handover_v2`. |
+| `QELI_RECORDIZER_MODE` | `packet_mux_v1` or `legacy_packet_per_record`. |
+| `QELI_RECORDIZER_POLICY` | Negotiated Recordizer policy; empty for legacy mode. |
+| `QELI_PADDING_ENABLED`, `QELI_PADDING_MIN`, `QELI_PADDING_MAX` | Effective padding and byte range. |
+| `QELI_NORMALIZATION_MAX` | Largest negotiated normalization target, or `0` when disabled. |
+| `QELI_HEARTBEAT_ENABLED`, `QELI_HEARTBEAT_INTERVAL_MS` | Effective heartbeat and interval. |
+| `QELI_SHAPING_ENABLED` | Whether traffic shaping is enabled. |
+
+### JSON context and list processing
+
+Use `QELI_CONTEXT_FILE` for complex logic. Indexed environment variables are convenient for
+small shell commands; JSON preserves types, arrays and the complete canonical `NetworkPlan`
+without indirect `eval`.
+
+Top-level schema:
+
+```json
+{
+  "hook_api": 1,
+  "event": "post_up",
+  "profile": "office",
+  "config_path": "/etc/qeli/clients/office.conf",
+  "process_id": 1234,
+  "interface": { "name": "vpn0", "index": "17", "device_type": "tun", "reused": false },
+  "server": { "configured_host": "vpn.example.com", "port": 443, "endpoint": "vpn.example.com:443", "protocol": "tcp", "wire_mode": "reality-tls", "fronting": "none" },
+  "carrier": { "address": "203.0.113.10", "interface": "eth0", "interface_index": "2", "local_address": "192.0.2.20", "gateway": "192.0.2.1" },
+  "routing": { "route_local": false, "gateway_nat": false, "forward": false, "exit_node": false, "allow_ipv4_leak": false, "allow_ipv6_leak": false, "lan_subnet": "", "lan_subnet_ipv6": "", "include": [], "exclude": [] },
+  "lifecycle": { "reason": "connected", "error_code": "", "error_message": "", "session_duration_seconds": 0 },
+  "network_plan": { "generation": 1, "family_mode": "dual", "addresses": [], "routes": [], "pushed_routes": [], "dns_servers": [] }
+}
+```
+
+Examples:
+
+```sh
+# Every final route
+jq -r '.network_plan.routes[] | "\(.cidr) via \(.gateway) metric \(.metric)"' "$QELI_CONTEXT_FILE"
+
+# First IPv4 gateway without assuming address order
+jq -r '.network_plan.addresses[] | select(.family == "ipv4") | .gateway // empty' "$QELI_CONTEXT_FILE" | head -n1
+```
+
+The file exists only until the command returns. A background process that needs the snapshot must
+copy it to a protected location inside the hook. JSON and `QELI_*` deliberately exclude the
+password, `password_command`, obfs/reality secrets, private/public identity keys, session token and
+data-plane key material.
+
+### One idempotent script for both events
 
 ```sh
 #!/bin/sh
-set -e
-iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o "$QELI_TUN" -j MASQUERADE
-ip rule add from 192.168.254.0/24 table 100
-ip route add default dev "$QELI_TUN" table 100
+set -eu
+
+IFNAME=${QELI_IFNAME:?QELI_IFNAME is required}
+LAN=192.168.50.0/24
+TABLE=100
+
+case "$QELI_EVENT" in
+  post_up)
+    GATEWAY=${QELI_IPV4_GATEWAY:?IPv4 gateway is required}
+    ip rule add from "$LAN" table "$TABLE" 2>/dev/null || true
+    ip route replace default via "$GATEWAY" dev "$IFNAME" table "$TABLE"
+    ;;
+  post_down)
+    ip rule del from "$LAN" table "$TABLE" 2>/dev/null || true
+    ip route flush table "$TABLE" 2>/dev/null || true
+    ;;
+  *)
+    echo "unsupported QELI_EVENT=$QELI_EVENT" >&2
+    exit 2
+    ;;
+esac
 ```
 
-> ⚠️ qeli checks the permissions of **the config file only**, not of the script it
-> calls. Protect the script the same way, or a world-writable script can be swapped to
-> bypass the file-only guard:
-> ```sh
-> chown root:root /etc/qeli/hooks/*.sh && chmod 700 /etc/qeli/hooks/*.sh
-> ```
-> This is the standard model (like `systemd ExecStart=`, `cron`, `wg-quick PostUp` — the
-> called script's permissions are the operator's responsibility).
+Install and validate it:
 
-### Hook security (important)
-A hook runs **as whichever user the process runs as**, which is not always root: the unit
-shipped in the `.deb` is `User=qeli`, so the hook runs as `qeli` with the ambient
-`CAP_NET_ADMIN`/`CAP_NET_RAW`/`CAP_NET_BIND_SERVICE` capabilities. That is enough for
-networking commands (`ip`, `iptables`) but not for writing to `/etc` or anything else
-root-only. A hook does run as root when the service was deliberately moved there
-(`qeli set-service-user root`, see [GETTING-STARTED.md](GETTING-STARTED.md)), inside a
-container (the process is root there anyway), and when started by hand from root. To keep
-that from becoming RCE —
-**two barriers**:
+```sh
+sudo install -o root -g root -m 0700 client-route.sh /etc/qeli/hooks/client-route.sh
+sudo chown root:root /etc/qeli/clients/office.conf
+sudo chmod 0600 /etc/qeli/clients/office.conf
+sudo qeli check-config --client /etc/qeli/clients/office.conf
+```
 
-1. **File-permission check.** If the config is **group/world-writable**
-   (`mode & 0o022 ≠ 0`), hooks **are not run** — the log says `Ignoring
-   post_up/post_down — …`. Rationale: only the owner should be able to edit the file.
-   Fix with `chmod 600`.
-2. **The panel/API never write hooks.** The structured `PUT /api/config` restores
-   `post_up`/`post_down` from the on-disk file (discarding what the panel sent); the
-   raw `PUT /api/config/raw` rejects a config that changes hooks. Hooks can be set or
-   changed **only by editing the file** on the server (like `systemd ExecStartPost`),
-   never over the network.
+A temporary diagnostic hook can inspect the contract without changing networking:
 
-### Semantics
-- **A crash (SIGKILL/panic) does NOT run `post_down`** — only a clean stop (fail-safe).
-- **A 30 s timeout** per hook (`kill_on_drop`) — a hung hook can't wedge start/stop.
-- A hook failure **does not abort the tunnel** — it's logged (`hook[post_up]: exited …`).
+```sh
+#!/bin/sh
+set -eu
+{
+  echo "event=$QELI_EVENT if=$QELI_IFNAME gateway=$QELI_GATEWAY reason=$QELI_REASON"
+  env | grep '^QELI_' | sort
+  [ -n "${QELI_CONTEXT_FILE:-}" ] && jq . "$QELI_CONTEXT_FILE"
+} >> /var/log/qeli-client-hooks.log
+```
+
+### Security
+
+1. A config containing hooks must be a regular non-symlink file, owned by root or the process's
+   effective UID, and have no group/world write bits (`mode & 0022 == 0`). Otherwise both hooks
+   are ignored and the reason is logged. `0600` is the usual mode.
+2. The panel/API deliberately cannot create or change `post_up`, `post_down` or
+   `password_command`: remote shell-command editing would turn the panel into an RCE path.
+3. Protect the called script and everything it reads. Qeli warns about a world-writable executable
+   file, but the operator owns the complete trust chain.
+4. The value is a shell command. Never concatenate untrusted data into it; use the separately
+   supplied and quoted variables, for example `"$QELI_IFNAME"`.
+5. A hook runs as the qeli process user. The packaged `.deb` service normally runs as `qeli` with
+   networking capabilities: these cover many `ip`/firewall operations but not arbitrary writes to
+   `/etc`. A manual root launch or root container also runs hooks as root.
+
+### Server hooks
+
+Server hooks remain a separate per-profile contract:
+
+- `routing.post_up`: after the profile TUN and NAT/routed state are up;
+- `routing.post_down`: on clean profile/server shutdown;
+- env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL`, `QELI_POOL_IPV4`, `QELI_POOL_IPV6`,
+  `QELI_WAN`, `QELI_WAN_IPV4`, `QELI_WAN_IPV6`, `QELI_BIND_PORT`.
+
+The extended client `QELI_ADDRESS_N_*`, carrier and JSON values do not apply to server hooks. The
+server retains one snapshot of the actual WAN interfaces selected for a generation and supplies
+that same snapshot to `routing.post_down`.
+
+```ini
+[profile:tcp]
+# The client needs a static tunnel IP.
+routing.post_up   = ip route add 192.168.254.0/24 via 10.9.0.2
+routing.post_down = ip route del 192.168.254.0/24 via 10.9.0.2
+```
 
 ## Authentication: tokens and anti-brute-force (`[auth]`)
 
@@ -2355,6 +2548,9 @@ omit the key, while shipped templates, Quick Start and profiles newly added in t
 `prefer` so current clients get the new shape without breaking legacy clients. After the whole fleet
 is upgraded an operator may switch to `required`. Negotiation is per-session, so a config
 change requires reconnecting sessions, not merely editing the file.
+When `policy = off`, the nested `batch`, `record` and `fragment` values are dormant: they are
+preserved without blocking an unrelated panel save and are validated again when policy changes to
+`prefer` or `required`. This makes disabling and later restoring a tuned profile lossless.
 
 The recordizer removes the “one IP packet = one qeli record” relation from every mode, but it does
 not make their carriers identical: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoints and outer timing
@@ -2406,6 +2602,10 @@ In `tun.ip_mode = ipv6`, the legacy IPv4 shadow fields `tun.address`, `pool.cidr
 `dns.listen` are not parsed or used. `routing.nat.enabled` is NAT44 and is rejected in this
 mode; `routing.forward_private` is also IPv4-only. Configure IPv6 egress explicitly through
 `routing.ipv6.mode = route` or `nat66`.
+Conversely, an IPv4-only profile preserves dormant `tun.ipv6_address` and `pool.ipv6.*` values
+without validating them. They become active and are checked after switching to `dual`/`ipv6`.
+`routing.ipv6.mode` and `routing.ipv6.ndp_proxy` are operational switches rather than dormant
+address fields, so they must remain `off` in an IPv4-only profile.
 
 Every profile carrying inner IPv6 requires `ip6tables`, including
 `routing.ipv6.mode = off`. In `off`, qeli installs a verified per-profile drop for packets
@@ -2449,6 +2649,12 @@ unreadable chain fails profile startup.
 | `dns.timeout_secs` | `5` | one total deadline across all upstream attempts, 1–300 seconds |
 | `dns.blocklist` | `[]` | ASCII/punycode domains answered with `NXDOMAIN` (the name and all subdomains); no `*` wildcard, maximum 10000 unique names |
 | `dns.push_servers` | `[]` | hand clients IPv4/IPv6 resolvers **without** running the proxy. Empty = the active proxy listeners when `dns.enabled`, else nothing. Every address is strict-IP-validated and must belong to an active inner family |
+
+When `dns.enabled = false`, proxy-only fields (`listen`, `listen_ipv6`, `port`, `upstream`,
+`upstream_protocol`, cache, timeout and blocklist) are dormant and preserved without validation;
+they are validated again when the proxy is enabled. `dns.push_servers` is intentionally independent:
+it remains active and is always validated because it can distribute resolvers even when the local
+proxy is off.
 
 ## DHCP server (`dhcp.*`)
 
@@ -2525,7 +2731,7 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 | `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env includes `QELI_PROFILE`, `QELI_TUN`, explicit `QELI_POOL_IPV4`/`QELI_POOL_IPV6`, actual `QELI_WAN_IPV4`/`QELI_WAN_IPV6`, `QELI_BIND_PORT`; legacy `QELI_POOL`/`QELI_WAN` select the profile's primary family |
 | `routing.post_down` | — | command run on a clean profile/server stop (mirrors `routing.post_up`; a crash doesn't run it) |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
-| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe |
+| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe; minimum `300` while Reality is enabled |
 
 ## Web panel (`[web]`)
 
@@ -2586,23 +2792,23 @@ brute_force.lockout_secs = 900
 
 | Key | Default | Purpose |
 |---|---|---|
-| `enabled` | `false` | enable the web panel |
-| `bind` | `127.0.0.1` | listen interface (a public IP for public access) |
-| `port` | `8080` | panel HTTP/HTTPS port |
+| `enabled` | `false` | enable the web panel. While disabled, the entire hidden `[web]` subtree is preserved without blocking unrelated saves; it is validated when enabled |
+| `bind` | `127.0.0.1` | bare IPv4/IPv6 listen address or `localhost` (a public IP for public access); configure the port separately |
+| `port` | `8080` | panel HTTP/HTTPS port, `1..=65535` while enabled |
 | `username` | `admin` | admin login |
 | `password_hash` | `""` | argon2id password hash. **Required — the panel refuses to start without one on ANY bind, loopback included** (since 0.7.12; it used to be required only off-loopback). Set it with `qeli set-web-password`, or opt out deliberately with `insecure_no_auth` below |
 | `tls` | `false` | serve HTTPS directly (rustls/`ring`). Auto `Secure` cookie |
-| `tls_cert` / `tls_key` | `""` | PEM cert/key; empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
-| `allowed_ips` | `[]` | source-IP/CIDR allowlist. Omitted, empty (`allowed_ips =`) or `""` all mean **no restriction** — surrounding quotes are stripped, so `""` is just an explicit "empty". A blocked source gets a **bare 403 on every route**, so a 403 when merely opening the panel is this filter, never CSRF (which exempts `GET`). **Duplicate lines are folded into one list** (not last-one-wins), so a stray earlier `allowed_ips` keeps the filter active; startup logs `Web panel source-IP allowlist active (N entries)` when non-empty |
+| `tls_cert` / `tls_key` | `""` | PEM cert/key; both empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost), otherwise both paths must be set |
+| `allowed_ips` | `[]` | strict source-IP/CIDR allowlist. Omitted, empty (`allowed_ips =`) or `""` all mean **no restriction** — surrounding quotes are stripped, so `""` is just an explicit "empty". A blocked source gets a **bare 403 on every route**, so a 403 when merely opening the panel is this filter, never CSRF (which exempts `GET`). **Duplicate lines are folded into one list** (not last-one-wins), so a stray earlier `allowed_ips` keeps the filter active; startup logs `Web panel source-IP allowlist active (N entries)` when non-empty |
 | `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
-| `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
+| `allowed_origins` | `[]` | extra browser origins as `host[:port]` or full `http(s)://host[:port][/path]`, strictly validated and accepted by CSRF when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
 | `insecure_no_auth` | `false` | **since 0.7.12** — serve the panel with NO authentication. An empty `password_hash` no longer opens the panel by itself: without a password it refuses to start anywhere (it used to open on loopback, which handed full admin to every local process and to any SSRF on the host). Set a password with `qeli set-web-password`; this key is only for deliberately wanting an open panel. A warning is logged at startup |
 | `persist_session_key` | `true` | persist the panel session-signing secret to a `0600` file (in `$STATE_DIRECTORY`, else `/etc/qeli/.session_key`) so panel logins **survive a full process restart**. Emitted only when `false`. Set `false` for a per-process-random key (stricter, H-4) — a full restart then logs everyone out. The key is not in the config or the panel-generated `/etc/qeli` archive under systemd; a full manual backup that includes `/var/lib/qeli` does contain it and must be protected accordingly |
-| `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
+| `base_path` | `""` | plain reverse-proxy URL path (e.g. `/qeli`, max 128 characters); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
-| `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
-| `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. **Clamped to 30 days** (`2592000`) — a larger value can't mint a near-eternal token; a value `≤ 0` falls back to the `86400` default rather than minting an already-expired or never-expiring one. Emitted only when non-default (`≠ 86400`) |
+| `trusted_proxies` | `[]` | strictly validated reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
+| `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds; active configuration accepts `60..=2592000` (30 days). Emitted only when non-default (`≠ 86400`) |
 | `update_check` | `false` | let the panel query GitHub Releases and show an "update available" banner (opt-in, notify-only). Emitted only when `true` |
 | `brute_force.enabled` | `true` | master switch for **panel-login** rate-limiting (independent of `[auth] brute_force`); `false` = off entirely |
 | `brute_force.max_attempts` | `5` | failed panel logins before lockout (per source IP) |

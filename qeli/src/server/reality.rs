@@ -131,7 +131,12 @@ pub(crate) async fn handle_connection(
     // cannot mean "wait forever". (S-01 follow-up)
     let handshake_timeout =
         Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs.max(5));
-    let peek_ms = pcfg.obfuscation.tls.reality_proxy.peek_timeout_ms.max(300);
+    let peek_ms = pcfg
+        .obfuscation
+        .tls
+        .reality_proxy
+        .peek_timeout_ms
+        .max(crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS);
     let header = match tokio::time::timeout(
         Duration::from_millis(peek_ms + 300),
         recv_peek(&stream, 6, peek_ms),

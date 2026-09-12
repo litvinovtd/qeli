@@ -893,6 +893,8 @@ obf.traffic_shaping.stealth_rate_mbps = 2
 - При включённом shaping `budget_bytes_per_sec` должен быть не меньше `max_size`.
   Сервер отклоняет меньший бюджет: иначе даже одна запланированная cover-запись никогда
   не накопит достаточно токенов, то есть cover и liveness молча перестанут работать.
+- `stealth_rate_mbps` обязан быть положительным только при `stealth = true`; при выключенном
+  stealth его неактивное значение сохраняется.
 - **Цена (без stealth)** — только полоса cover-трафика в простое (ограничена
   `budget_bytes_per_sec`); на скорость реальной передачи не влияет.
 - **Когда включать** — на профилях под жёсткий DPI/ML-классификатор; для домашнего
@@ -997,6 +999,8 @@ uplink (только TCP).
 
 Ключ `obf.obfs_fronting` (сервер) / `front` в qeli://-ссылке и `[qeli]`-секции
 (клиент). **Должен совпадать на сервере и клиенте.**
+В серверном профиле не-`obfs` это поле неактивно, сохраняется без валидации и снова
+проверяется после переключения профиля на `obfs`.
 
 | Значение | Поведение |
 |---|---|
@@ -1602,7 +1606,7 @@ route = 192.168.50.0/24 gateway=10.9.0.1 metric=50
 | `forward` (дефолт `false`) | site-to-site **без NAT**: форвардить трафик между tun и LAN за клиентом с сохранением исходного IP (в отличие от `gateway_nat`, который его маскирует). Нужен, когда за клиентом маршрутизируемая сеть и адреса должны оставаться видимыми на сервере. Подробнее — раздел «Маршрутизация сетей за узлами БЕЗ NAT» ниже |
 | `exit_node` (дефолт `false`) | **зеркало `gateway_nat`.** `gateway_nat` маскарадит LAN за клиентом В туннель; `exit_node` маскарадит трафик, пришедший ИЗ туннеля, в физический WAN — так другие клиенты выходят в интернет под IP **этого** хоста (например, за серым/NAT-адресом). Подробнее — раздел «Выходной узел (`exit_node`)» ниже. Linux/router-only |
 | `dev = <имя>` + `dev_attach = true` | **подключиться к уже существующему** интерфейсу вместо создания своего. `dev` используется буквально: qeli не переименовывает TAP. Тип готового интерфейса должен совпадать с `device_type`; интерфейс должен быть создан с `IFF_NO_PI`, а single/multi-queue режим определяется автоматически. qeli только открывает его для пакетного ввода-вывода: **не** создаёт, **не** адресует, **не** маршрутизирует и **не** удаляет его — всё это делает внешний управляющий (прошивка роутера, свой скрипт). Выданный туннельный IP пишется в файл `$QELI_TUNIP_FILE` (если задан в окружении), чтобы внешний скрипт мог поднять адрес/маршруты сам |
-| `post_up` / `post_down` | команда при старте / чистой остановке (Linux, root) — для своих правил маршрутизации/firewall. **БЕЗОПАСНОСТЬ:** берётся ТОЛЬКО из доверенного файла (root-owned, не group/world-writable); панель/API их никогда не пишут (иначе RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
+| `post_up` / `post_down` | lifecycle-команды standalone Linux-клиента. После применённого NetworkPlan доступны `$1=ifname`, `$2=gateway`, полный versioned `QELI_*` env и временный JSON (`QELI_CONTEXT_FILE`); `post_down` получает причину и последний план. **БЕЗОПАСНОСТЬ:** только доверенный file-only конфиг, панель/API их не пишут |
 | `dns` (дефолт `tunnel`) | режим клиентского DNS. `tunnel` — вести DNS через туннель: клиент **переписывает `/etc/resolv.conf`** (Linux) на туннельный резолвер, чтобы избежать DNS-leak. `off` — **не трогать системный резолвер**, использовать DNS хоста как есть (для роутеров и любых Linux-хостов, где DNS уже настроен и лезть в `resolv.conf` не нужно). File-only; эмитится в INI только при `!= tunnel` |
 | `autostart` (дефолт `false`) | авто-подключение этого профиля при старте супервизора/панели; читает панель-клиент-менеджер, рантайм `qeli client` игнорирует. Принимает `true`/`1`/`yes`/`on` |
 
@@ -2078,97 +2082,295 @@ listener'ы продолжают работать.
 
 ## Lifecycle-хуки: `post_up` / `post_down`
 
-> ⚠️ **Только в бинарнике** (см. оговорку выше) и **только на Linux**. GUI-приложения
-> ключи игнорируют.
+> ⚠️ Клиентские хуки исполняет только standalone-бинарник на **Linux** (включая
+> OpenWrt/Keenetic). Windows, macOS, Android и iOS сохраняют эти ключи при переносе
+> профиля, но команды не запускают. Ключи являются **file-only**: в `qeli://` они не
+> включаются, а панель/API не позволяют задавать их удалённо.
 
-Произвольная команда (`/bin/sh -c …`), которую qeli выполняет в нужный момент
-жизненного цикла туннеля — для правил, которые `gateway_nat` не покрывает:
-policy-routing, mangle-метки, site-to-site, кастомный firewall. Аналог
-`PostUp`/`PostDown` у `wg-quick`.
+Lifecycle-хук — локальная команда для действий, которых нет в штатной маршрутизации qeli:
+policy routing, дополнительные firewall/mangle-правила, интеграция с другим сетевым менеджером,
+логирование или уведомление локальной службы. Команда выполняется через `/bin/sh -c` с теми же
+правами, что и процесс qeli.
 
-**Клиент** (`[qeli]`, file-only — в `qeli://`-ссылку НЕ входят):
-- `post_up` — один раз после того, как первый успешно проверенный NetworkPlan создал TUN,
-  применил маршруты/DNS и поставил gateway/exit firewall только для активных семейств.
-  Ошибка аутентификации/плана хук не запускает; реконнекты повторно его не запускают;
-- `post_down` — только на **чистой** остановке (SIGINT/SIGTERM, `reconnect.enabled=false`,
-  исчерпание `max_retries`);
-- env хука: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET`.
+### Когда выполняются клиентские хуки
 
-```ini
-[qeli]
-# … + policy-routing только для одной подсети (а не full-tunnel всего роутера):
-post_up   = ip rule add from 192.168.254.0/24 table 100; ip route add default dev vpn0 table 100
-post_down = ip rule del from 192.168.254.0/24 table 100; ip route flush table 100
-```
+- `post_up` запускается один раз после аутентификации и успешного применения первого
+  `NetworkPlan`: TUN/TAP уже создан, адреса, маршруты, DNS и gateway/exit firewall применены.
+  Передача пакетов начинается сразу после завершения хука. Ошибка аутентификации или отклонённый
+  план `post_up` не запускают.
+- Обычный reconnect пересоздаёт сетевое поколение, но повторно `post_up` не запускает. Снимок
+  контекста при этом обновляется, поэтому `post_down` получит последний успешно применённый план.
+- `post_down` запускается один раз при терминальной чистой остановке: SIGINT/SIGTERM, отключённом
+  reconnect, терминальном kick сервера либо исчерпании `reconnect_retries`.
+- Если ни один план не был применён, `post_down` всё равно может выполниться: тогда
+  `QELI_PLAN_AVAILABLE=false`, зависящие от плана значения пусты, а в JSON поле
+  `network_plan` равно `null`.
+- SIGKILL, аварийное завершение процесса и отключение питания не дают выполнить `post_down`.
+  Скрипт обязан быть идемпотентным и уметь восстанавливать оставшееся состояние при следующем
+  запуске.
+- К моменту `post_down` сетевые ресурсы текущего поколения уже могут быть удалены. Это хук для
+  удаления созданных самим скриптом правил; используйте переданный снимок и не рассчитывайте,
+  что интерфейс ещё существует.
+- На каждый вызов действует жёсткий таймаут 30 секунд. Код возврата, ошибка запуска и таймаут
+  пишутся в журнал, но не отменяют поднятие туннеля и не блокируют штатный cleanup.
 
-**Сервер** (`[profile:*]`, per-profile):
-- `routing.post_up` — после поднятия TUN + NAT профиля;
-- `routing.post_down` — при чистой остановке сервера;
-- env хука: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL_IPV4`, `QELI_POOL_IPV6`,
-  `QELI_WAN_IPV4`, `QELI_WAN_IPV6`, `QELI_BIND_PORT`. Совместимые алиасы
-  `QELI_POOL`/`QELI_WAN` выбирают IPv4 для IPv4/dual-профилей и IPv6 для IPv6-only.
-  В WAN передаётся интерфейс, реально выбранный работающим NAT/routed-механизмом (включая
-  автоопределение); тот же снимок поколения используется для `post_down`.
-
-Серверный хук закрывает **site-to-site** (доступ к LAN за клиентом) без ручных шагов —
-обратный маршрут + NAT для подсети клиента:
-
-```ini
-[profile:tcp]
-# … клиенту нужен СТАТИЧЕСКИЙ tun-IP (pool.static_reservations / qeli add-client --static-ip 10.9.0.2)
-routing.post_up   = ip route add 192.168.254.0/24 via 10.9.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
-routing.post_down = ip route del 192.168.254.0/24 via 10.9.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
-```
-
-### Внешний скрипт
-Хук — это `/bin/sh -c …`, поэтому вместо инлайн-команды можно указать **путь к скрипту**
-(с аргументами/пайпами/`;` тоже работает):
+Минимальная конфигурация:
 
 ```ini
 [qeli]
-post_up   = /etc/qeli/hooks/up.sh
-post_down = /etc/qeli/hooks/down.sh
+post_up   = /etc/qeli/hooks/client-route.sh "$@"
+post_down = /etc/qeli/hooks/client-route.sh "$@"
 ```
 
-`/etc/qeli/hooks/up.sh` (env-контекст доступен скрипту):
+Фактический вызов имеет форму:
+
+```sh
+/bin/sh -c '<значение post_up/post_down>' qeli-hook '<ifname>' '<gateway>'
+```
+
+Внутри shell-команды доступны `$1 = ifname` и `$2 = основной туннельный gateway` (IPv4 имеет
+приоритет, затем IPv6; если плана нет — пустая строка). Чтобы отдельный файл-скрипт получил эти
+позиционные параметры, добавьте `"$@"` после пути, как в примере выше. Для новых скриптов
+рекомендуется использовать именованные `QELI_*`: они понятнее, не зависят от порядка и содержат
+полный dual-stack контекст.
+
+### Полный список переменных клиента
+
+Все булевы значения записаны как `true`/`false`. Переменная всегда определена; если факт ещё не
+известен или неприменим, её значение пустое. Индексы массивов начинаются с нуля и заканчиваются
+на `COUNT - 1`.
+
+#### Lifecycle и идентификация
+
+| Переменная | Значение |
+|---|---|
+| `QELI_HOOK_API` | Версия контракта переменных и JSON; сейчас `1`. Скрипту стоит проверять её перед разбором новых полей. |
+| `QELI_EVENT` | `post_up` или `post_down`. Позволяет использовать один файл для обоих событий. |
+| `QELI_PROFILE`, `QELI_PROFILE_NAME` | Имя профиля, полученное из имени файла конфигурации без расширения. Второе имя — явный алиас. |
+| `QELI_CONFIG_PATH` | Канонический путь к клиентскому INI-файлу, если его удалось канонизировать; иначе путь запуска. |
+| `QELI_PID` | PID процесса qeli, вызвавшего хук. |
+| `QELI_PLAN_AVAILABLE` | `true`, если хотя бы один authenticated `NetworkPlan` был успешно применён. |
+| `QELI_PLAN_GENERATION` | Номер последнего применённого поколения плана. |
+| `QELI_SESSION_DURATION_SECONDS` | Секунды с момента первого успешно применённого плана в этом процессе; до него `0`. Включает время reconnect между поколениями. |
+| `QELI_REASON`, `QELI_STOP_REASON` | Причина события. Для `post_up` — `connected`; для `post_down` — `shutdown_signal`, `reconnect_disabled`, `server_kick` или `max_retries`. `QELI_REASON` — короткий универсальный алиас. |
+| `QELI_ERROR_CODE` | Машиночитаемая категория терминальной ошибки: пусто, `shutdown`, `transport_error`, `server_kick` или `max_retries`. |
+| `QELI_ERROR_MESSAGE` | Текст последней ошибки без секретов; пусто при штатном завершении. Не разбирайте его как стабильный API. |
+| `QELI_CONTEXT_FILE`, `QELI_NETWORK_PLAN_FILE` | Два имени одного временного JSON-файла с полным контекстом. Файл имеет режим `0600` и удаляется сразу после завершения хука. При ошибке создания обе переменные пусты. |
+
+#### TUN/TAP и адреса
+
+| Переменная | Значение |
+|---|---|
+| `QELI_TUN`, `QELI_IFNAME` | Фактическое имя интерфейса. `QELI_TUN` сохранён для совместимости, `QELI_IFNAME` предпочтителен в новых скриптах. |
+| `QELI_IFINDEX` | Числовой Linux ifindex, сохранённый при применении последнего плана; пусто, если его ещё не удалось определить. |
+| `QELI_DEVICE_TYPE`, `QELI_TUN_MODE` | `tun` или `tap`; два равнозначных имени. |
+| `QELI_TUN_REUSED` | `true` при `dev_attach=true`, то есть интерфейс создан и управляется внешней системой; это не признак reconnect. |
+| `QELI_MTU` | Фактически согласованный MTU. |
+| `QELI_FAMILY_MODE` | `ipv4`, `ipv6` или `dual`. |
+| `QELI_TUNNEL_ADDRESS` | Legacy-проекция основного адреса из `NetworkPlan`. Для точного dual-stack кода используйте семейные переменные ниже. |
+| `QELI_PREFIX_LEN` | Prefix length legacy-проекции. |
+| `QELI_TUNNEL_GATEWAY` | Legacy-проекция gateway плана. |
+| `QELI_GATEWAY` | Основной gateway, одновременно передаваемый как `$2`: IPv4, иначе IPv6. |
+| `QELI_IPV4_ADDRESS`, `QELI_IPV6_ADDRESS` | Назначенный интерфейсу IPv4/IPv6-адрес без prefix. |
+| `QELI_IPV4_PREFIX`, `QELI_IPV6_PREFIX` | Prefix length назначенного host/interface address; алиасы для `*_PREFIX_LEN`. |
+| `QELI_IPV4_PREFIX_LEN`, `QELI_IPV6_PREFIX_LEN` | Prefix length, применённый к адресу интерфейса. Для L3 TUN обычно `/32` и `/128`. |
+| `QELI_IPV4_ON_LINK_PREFIX_LEN`, `QELI_IPV6_ON_LINK_PREFIX_LEN` | Prefix пула/on-link сети, отдельно от host-prefix интерфейса. |
+| `QELI_IPV4_CIDR`, `QELI_IPV6_CIDR` | Адрес интерфейса вместе с применённым prefix, например `10.9.0.2/32`. |
+| `QELI_IPV4_SUBNET`, `QELI_IPV6_SUBNET` | Вычисленная on-link сеть, например `10.9.0.0/24`. |
+| `QELI_IPV4_GATEWAY`, `QELI_IPV6_GATEWAY` | Gateway соответствующего внутреннего семейства. |
+
+Для каждого адреса также создаётся индексированная группа:
+
+- `QELI_ADDRESS_COUNT`;
+- `QELI_ADDRESS_N_FAMILY` (`ipv4`/`ipv6`);
+- `QELI_ADDRESS_N_ADDRESS`;
+- `QELI_ADDRESS_N_PREFIX_LEN`;
+- `QELI_ADDRESS_N_ON_LINK_PREFIX_LEN`;
+- `QELI_ADDRESS_N_GATEWAY`;
+- `QELI_ADDRESS_N_CIDR`;
+- `QELI_ADDRESS_N_SUBNET`.
+
+#### Сервер и физическая несущая
+
+| Переменная | Значение |
+|---|---|
+| `QELI_SERVER`, `QELI_SERVER_HOST` | Хост из `server = ...`; это может быть DNS-имя. `QELI_SERVER` — совместимый алиас. |
+| `QELI_SERVER_PORT` | Порт профиля. |
+| `QELI_SERVER_ENDPOINT` | Корректно отформатированный `host:port`, включая скобки для IPv6 literal. |
+| `QELI_CARRIER_ADDRESS` | Реальный IP, к которому подключился socket после DNS; именно для него закрепляется bypass-маршрут. |
+| `QELI_CARRIER_ENDPOINT` | Реальный `IP:port`. |
+| `QELI_CARRIER_LOCAL_ADDRESS` | Source address, выбранный `ip route get`, либо явно заданный `local`; пусто, если определить его нельзя. |
+| `QELI_CARRIER_IFNAME`, `QELI_CARRIER_IFINDEX` | Физический uplink и его ifindex, не TUN. |
+| `QELI_CARRIER_GATEWAY` | Физический next-hop до carrier; пусто для on-link назначения. |
+| `QELI_PROTOCOL` | Внешний транспорт: `tcp` или `udp`. |
+| `QELI_WIRE_MODE` | Wire mode профиля: `plain`, `fake-tls`, `obfs` или `reality-tls`. |
+| `QELI_FRONTING` | Настроенный режим fronting (`websocket`/`none`). |
+
+Не разрешайте `QELI_SERVER_HOST` повторно, когда нужен текущий carrier: round-robin DNS может
+вернуть другой IP. Для правил bypass используйте `QELI_CARRIER_ADDRESS`.
+
+#### Маршрутизация и режим клиента
+
+| Переменная | Значение |
+|---|---|
+| `QELI_ROUTING_MODE` | Фактический режим `full` или `split`. |
+| `QELI_FULL_TUNNEL` | Весь клиентский трафик захватывается туннелем. |
+| `QELI_KILL_SWITCH` | Kill switch присутствует в применённом плане. |
+| `QELI_ROUTE_LOCAL` | Значение `route_local`. |
+| `QELI_GATEWAY_NAT` | Значение `gateway_nat`. |
+| `QELI_FORWARD` | Включён чистый L3 forwarding. |
+| `QELI_EXIT_NODE` | Клиент работает exit node для других участников. |
+| `QELI_ALLOW_IPV4_LEAK`, `QELI_ALLOW_IPV6_LEAK` | Явные исключения fail-closed политики для отсутствующего семейства. |
+| `QELI_LAN_SUBNET`, `QELI_LAN_SUBNET_IPV6` | Настроенные IPv4/IPv6 source-сети router-режима. |
+
+Списки:
+
+- `QELI_ROUTE_COUNT`, затем `QELI_ROUTE_N_CIDR`, `QELI_ROUTE_N_GATEWAY`,
+  `QELI_ROUTE_N_METRIC` — итоговые маршруты плана;
+- `QELI_PUSHED_ROUTE_COUNT`, затем `QELI_PUSHED_ROUTE_N` — исходные валидированные маршруты,
+  присланные сервером;
+- `QELI_INCLUDE_COUNT`, затем `QELI_INCLUDE_N` — локальные `include`;
+- `QELI_EXCLUDE_COUNT`, затем `QELI_EXCLUDE_N` — локальные `exclude`.
+
+#### DNS и согласованные параметры data plane
+
+| Переменная | Значение |
+|---|---|
+| `QELI_DNS_COUNT` | Количество применённых resolver endpoints. |
+| `QELI_DNS_N` | Endpoint `address:port` с корректными IPv6-скобками. |
+| `QELI_DNS_N_ADDRESS`, `QELI_DNS_N_PORT` | Адрес и порт resolver раздельно. |
+| `QELI_MAX_STREAMS` | Согласованный предел bonded streams. |
+| `QELI_ADAPTIVE` | Включено ли adaptive управление количеством streams. |
+| `QELI_ROAMING_POLICY` | Политика клиента `off`, `auto` или `required`. |
+| `QELI_ROAMING_MODE` | Фактически согласованный `reconnect`, `udp_roam_v1`, `tcp_resume_v2` или `tcp_handover_v2`. |
+| `QELI_RECORDIZER_MODE` | `packet_mux_v1` или `legacy_packet_per_record`. |
+| `QELI_RECORDIZER_POLICY` | Согласованная политика Recordizer; пусто для legacy. |
+| `QELI_PADDING_ENABLED`, `QELI_PADDING_MIN`, `QELI_PADDING_MAX` | Фактический padding и диапазон байт. |
+| `QELI_NORMALIZATION_MAX` | Максимальный согласованный размер нормализации; `0`, если она выключена. |
+| `QELI_HEARTBEAT_ENABLED`, `QELI_HEARTBEAT_INTERVAL_MS` | Фактический heartbeat и интервал. |
+| `QELI_SHAPING_ENABLED` | Включён ли traffic shaping. |
+
+### JSON-контекст и работа со списками
+
+Для сложной логики используйте `QELI_CONTEXT_FILE`: индексированные env-переменные удобны для
+простых shell-команд, а JSON сохраняет типы, массивы и весь канонический `NetworkPlan` без
+косвенного `eval`.
+
+Схема верхнего уровня:
+
+```json
+{
+  "hook_api": 1,
+  "event": "post_up",
+  "profile": "office",
+  "config_path": "/etc/qeli/clients/office.conf",
+  "process_id": 1234,
+  "interface": { "name": "vpn0", "index": "17", "device_type": "tun", "reused": false },
+  "server": { "configured_host": "vpn.example.com", "port": 443, "endpoint": "vpn.example.com:443", "protocol": "tcp", "wire_mode": "reality-tls", "fronting": "none" },
+  "carrier": { "address": "203.0.113.10", "interface": "eth0", "interface_index": "2", "local_address": "192.0.2.20", "gateway": "192.0.2.1" },
+  "routing": { "route_local": false, "gateway_nat": false, "forward": false, "exit_node": false, "allow_ipv4_leak": false, "allow_ipv6_leak": false, "lan_subnet": "", "lan_subnet_ipv6": "", "include": [], "exclude": [] },
+  "lifecycle": { "reason": "connected", "error_code": "", "error_message": "", "session_duration_seconds": 0 },
+  "network_plan": { "generation": 1, "family_mode": "dual", "addresses": [], "routes": [], "pushed_routes": [], "dns_servers": [] }
+}
+```
+
+Примеры чтения:
+
+```sh
+# Все итоговые маршруты
+jq -r '.network_plan.routes[] | "\(.cidr) via \(.gateway) metric \(.metric)"' "$QELI_CONTEXT_FILE"
+
+# Первый IPv4 gateway без предположения о порядке addresses
+jq -r '.network_plan.addresses[] | select(.family == "ipv4") | .gateway // empty' "$QELI_CONTEXT_FILE" | head -n1
+```
+
+Файл существует только до выхода команды. Если фоновому процессу нужен снимок позже, скопируйте
+его в защищённый файл внутри самого хука. В JSON и `QELI_*` намеренно не передаются пароль,
+`password_command`, obfs/reality secrets, private/public identity keys, session token и ключевой
+материал data plane.
+
+### Пример одного идемпотентного скрипта
 
 ```sh
 #!/bin/sh
-set -e
-iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o "$QELI_TUN" -j MASQUERADE
-ip rule add from 192.168.254.0/24 table 100
-ip route add default dev "$QELI_TUN" table 100
+set -eu
+
+IFNAME=${QELI_IFNAME:?QELI_IFNAME is required}
+LAN=192.168.50.0/24
+TABLE=100
+
+case "$QELI_EVENT" in
+  post_up)
+    GATEWAY=${QELI_IPV4_GATEWAY:?IPv4 gateway is required}
+    ip rule add from "$LAN" table "$TABLE" 2>/dev/null || true
+    ip route replace default via "$GATEWAY" dev "$IFNAME" table "$TABLE"
+    ;;
+  post_down)
+    ip rule del from "$LAN" table "$TABLE" 2>/dev/null || true
+    ip route flush table "$TABLE" 2>/dev/null || true
+    ;;
+  *)
+    echo "unsupported QELI_EVENT=$QELI_EVENT" >&2
+    exit 2
+    ;;
+esac
 ```
 
-> ⚠️ qeli проверяет права **только самого конфига**, а не вызываемого скрипта. Поэтому
-> защитите скрипт так же — иначе подмена world-writable скрипта обходит file-only-защиту:
-> ```sh
-> chown root:root /etc/qeli/hooks/*.sh && chmod 700 /etc/qeli/hooks/*.sh
-> ```
-> Это стандартная модель (как `systemd ExecStart=`, `cron`, `wg-quick PostUp` — права
-> вызываемого скрипта на операторе).
+Установка:
 
-### Безопасность хуков (важно)
-Хук выполняется **от того пользователя, под которым идёт процесс**. Это не всегда root:
-поставляемый юнит `.deb` — `User=qeli`, и тогда хук работает от `qeli` с ambient-capability
-`CAP_NET_ADMIN`/`CAP_NET_RAW`/`CAP_NET_BIND_SERVICE`. Сетевых команд (`ip`, `iptables`) этого
-хватает, а вот записи в `/etc` или чего-то ещё root-ового — нет. От root хук идёт, если
-служба переведена туда явно (`qeli set-service-user root`, см.
-[GETTING-STARTED.md](GETTING-STARTED.md)), в контейнере (там процесс и так root) и при
-ручном запуске из-под root. Чтобы это не превратилось в RCE — **два барьера**:
+```sh
+sudo install -o root -g root -m 0700 client-route.sh /etc/qeli/hooks/client-route.sh
+sudo chown root:root /etc/qeli/clients/office.conf
+sudo chmod 0600 /etc/qeli/clients/office.conf
+sudo qeli check-config --client /etc/qeli/clients/office.conf
+```
 
-1. **Проверка прав файла.** Если конфиг **group/world-writable** (`mode & 0o022 ≠ 0`),
-   хуки **не выполняются** — в лог пишется `Ignoring post_up/post_down — …`. Логика:
-   если файл может править не-владелец, он бы внедрил туда команду. Лечится `chmod 600`.
-2. **Панель/API хуки НЕ пишут.** Структурный `PUT /api/config` восстанавливает
-   `post_up`/`post_down` из файла на диске (игнорируя присланное панелью), сырой
-   `PUT /api/config/raw` отклоняет изменение хуков. Задать/изменить хук можно **только
-   редактированием файла** на сервере (как `systemd ExecStartPost`), не из сети.
+Проверить доступный контекст без изменения сети можно временным диагностическим скриптом:
 
-### Семантика
-- **Краш (SIGKILL/паника) `post_down` НЕ выполняет** — только чистая остановка (fail-safe).
-- **Таймаут 30 с** на хук (`kill_on_drop`) — зависший хук не подвесит старт/стоп.
-- Ошибка хука **не валит туннель** — пишется в лог (`hook[post_up]: exited …`).
+```sh
+#!/bin/sh
+set -eu
+{
+  echo "event=$QELI_EVENT if=$QELI_IFNAME gateway=$QELI_GATEWAY reason=$QELI_REASON"
+  env | grep '^QELI_' | sort
+  [ -n "${QELI_CONTEXT_FILE:-}" ] && jq . "$QELI_CONTEXT_FILE"
+} >> /var/log/qeli-client-hooks.log
+```
+
+### Безопасность
+
+1. Конфиг с hooks должен быть обычным файлом, не symlink, принадлежать root либо текущему UID
+   процесса и не иметь group/world write (`mode & 0022 == 0`). Иначе оба хука игнорируются и
+   причина пишется в лог. Обычно используйте `0600`.
+2. Панель и API намеренно не создают и не меняют `post_up`, `post_down` и
+   `password_command`: удалённое редактирование shell-команды превратило бы панель в RCE.
+3. Защитите сам вызываемый скрипт и все файлы, которые он читает. Qeli предупреждает о
+   world-writable исполняемом файле, но ответственность за всю цепочку остаётся у оператора.
+4. Значение — shell-команда. Не вставляйте в неё данные из недоверенного источника строковой
+   конкатенацией. Используйте уже переданные и отдельно quoted переменные: `"$QELI_IFNAME"`.
+5. Хук исполняется от пользователя процесса. В `.deb` service обычно работает как `qeli` с
+   сетевыми capabilities: их хватает для многих `ip`/firewall-операций, но не для произвольной
+   записи в `/etc`. При ручном запуске от root либо в root-контейнере hook также root.
+
+### Серверные hooks
+
+Серверные хуки остаются отдельным per-profile контрактом:
+
+- `routing.post_up` — после поднятия TUN и NAT/routed-состояния профиля;
+- `routing.post_down` — при чистой остановке профиля/сервера;
+- env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL`, `QELI_POOL_IPV4`, `QELI_POOL_IPV6`,
+  `QELI_WAN`, `QELI_WAN_IPV4`, `QELI_WAN_IPV6`, `QELI_BIND_PORT`.
+
+Расширенные клиентские `QELI_ADDRESS_N_*`, carrier и JSON-переменные к серверному hook не
+относятся. Сервер сохраняет один снимок реально выбранных WAN-интерфейсов поколения и передаёт
+тот же снимок в `routing.post_down`.
+
+```ini
+[profile:tcp]
+# Клиенту нужен статический tunnel IP.
+routing.post_up   = ip route add 192.168.254.0/24 via 10.9.0.2
+routing.post_down = ip route del 192.168.254.0/24 via 10.9.0.2
+```
 
 ## Аутентификация: токены и анти-брутфорс (`[auth]`)
 
@@ -2305,6 +2507,10 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 конфигов без этого ключа, а поставляемые шаблоны, Quick Start и новые профили из панели используют
 `prefer`: обновлённые клиенты получают новую форму без поломки legacy-клиентов. После обновления
 всего парка можно перейти на `required`; изменение действует для новых сессий и требует reconnect.
+При `policy = off` вложенные значения `batch`, `record` и `fragment` неактивны: они сохраняются,
+не блокируя независимое сохранение панели, и снова строго проверяются после переключения на
+`prefer` или `required`. Поэтому временное выключение и возврат настроенного режима не теряет
+параметры.
 
 Recordizer убирает связь «один IP-пакет = одна qeli-запись» у всех режимов, но не превращает
 их в один и тот же carrier: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoint и внешние тайминги
@@ -2356,6 +2562,10 @@ Ethernet-мост: VLAN, STP, LLDP, неизвестные EtherType и прои
 `dns.listen` не разбираются и не используются. `routing.nat.enabled` управляет NAT44 и в
 этом режиме отвергается; `routing.forward_private` тоже относится только к IPv4. IPv6-egress
 задаётся явно через `routing.ipv6.mode = route` или `nat66`.
+Обратно, IPv4-only профиль сохраняет неактивные `tun.ipv6_address` и `pool.ipv6.*`, не
+валидируя их до переключения на `dual`/`ipv6`. Но `routing.ipv6.mode` и
+`routing.ipv6.ndp_proxy` — рабочие переключатели, а не запасные адресные поля, поэтому в
+IPv4-only профиле они должны оставаться `off`.
 
 Для любого профиля с внутренним IPv6 нужен `ip6tables`, в том числе при
 `routing.ipv6.mode = off`. В режиме `off` qeli ставит проверенный per-profile DROP для
@@ -2398,6 +2608,12 @@ IPv6-listener. qeli ставит узкие разрешения `INPUT` для 
 | `dns.timeout_secs` | `5` | единый дедлайн всех попыток обращения к апстримам, 1–300 секунд |
 | `dns.blocklist` | `[]` | ASCII/punycode-домены, для которых вместе с поддоменами возвращается `NXDOMAIN`; без wildcard `*`, максимум 10000 уникальных имён |
 | `dns.push_servers` | `[]` | раздать клиентам IPv4/IPv6-резолверы **без** запуска прокси. Пусто = активные listeners прокси при `dns.enabled`, иначе ничего. Каждый адрес строго валидируется и должен принадлежать активному inner family |
+
+При `dns.enabled = false` поля только локального прокси (`listen`, `listen_ipv6`, `port`,
+`upstream`, `upstream_protocol`, кэш, timeout и blocklist) неактивны: сохраняются без
+валидации и проверяются после включения прокси. `dns.push_servers` намеренно независимо —
+оно остаётся активным и всегда валидируется, потому что может раздавать резолверы при
+выключенном локальном прокси.
 
 ## DHCP-сервер (`dhcp.*`)
 
@@ -2473,7 +2689,7 @@ IPv6-listener. qeli ставит узкие разрешения `INPUT` для 
 | `routing.post_up` | — | команда после поднятия TUN+NAT профиля (Linux, root). **Только из доверенного файла** (панель/API не пишут — RCE-гейт). Env включает `QELI_PROFILE`, `QELI_TUN`, явные `QELI_POOL_IPV4`/`QELI_POOL_IPV6`, фактические `QELI_WAN_IPV4`/`QELI_WAN_IPV6`, `QELI_BIND_PORT`; старые `QELI_POOL`/`QELI_WAN` выбирают основное семейство профиля |
 | `routing.post_down` | — | команда при чистой остановке профиля/сервера (зеркало `routing.post_up`; краш не выполняет) |
 | `tun.device_type` | `tun` | тип интерфейса: `tun` (L3) \| `tap` (L2) |
-| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | сколько мс «подсматривать» ClientHello перед классификацией клиент/пробер |
+| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | сколько мс «подсматривать» ClientHello перед классификацией клиент/пробер; минимум `300` при включённом Reality |
 
 ## Веб-панель (`[web]`)
 
@@ -2535,23 +2751,23 @@ brute_force.lockout_secs = 900
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
-| `enabled` | `false` | включить веб-панель |
-| `bind` | `127.0.0.1` | интерфейс прослушивания (внешний IP для публичного доступа) |
-| `port` | `8080` | порт HTTP/HTTPS панели |
+| `enabled` | `false` | включить веб-панель. Пока выключена, вся скрытая секция `[web]` сохраняется и не блокирует независимые изменения; при включении снова валидируется |
+| `bind` | `127.0.0.1` | отдельный IPv4/IPv6-адрес прослушивания либо `localhost` (внешний IP для публичного доступа); порт задаётся отдельно |
+| `port` | `8080` | порт HTTP/HTTPS панели, `1..=65535` при включении |
 | `username` | `admin` | логин администратора |
 | `password_hash` | `""` | argon2id-хеш пароля. **Обязателен — без него панель не стартует ни на каком bind, включая loopback** (с 0.7.12; раньше требовался только вне loopback). Задать: `qeli set-web-password`, либо осознанно отказаться через `insecure_no_auth` ниже |
 | `tls` | `false` | отдавать HTTPS напрямую (rustls/`ring`). Авто-`Secure`-кука |
-| `tls_cert` / `tls_key` | `""` | PEM cert/key; пусто = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
-| `allowed_ips` | `[]` | белый список source-IP/CIDR. Отсутствие ключа, пустое значение (`allowed_ips =`) и `""` означают **без ограничения** — парсер снимает окружающие кавычки, поэтому `""` это просто явное «пусто». Заблокированному источнику отдаётся **голый 403 на всех маршрутах**, поэтому 403 при простом открытии панели — это данный фильтр, а не CSRF (тот пропускает `GET`). **Дубликаты строк складываются в один список** (не «побеждает последняя»), поэтому забытая ранее строка `allowed_ips` держит фильтр включённым; при непустом списке в лог старта пишется `Web panel source-IP allowlist active (N entries)` |
+| `tls_cert` / `tls_key` | `""` | PEM cert/key; оба пусты = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost), иначе должны быть заданы оба пути |
+| `allowed_ips` | `[]` | строго валидируемый белый список source-IP/CIDR. Отсутствие ключа, пустое значение (`allowed_ips =`) и `""` означают **без ограничения** — парсер снимает окружающие кавычки, поэтому `""` это просто явное «пусто». Заблокированному источнику отдаётся **голый 403 на всех маршрутах**, поэтому 403 при простом открытии панели — это данный фильтр, а не CSRF (тот пропускает `GET`). **Дубликаты строк складываются в один список** (не «побеждает последняя»), поэтому забытая ранее строка `allowed_ips` держит фильтр включённым; при непустом списке в лог старта пишется `Web panel source-IP allowlist active (N entries)` |
 | `public_host` | `""` | дефолтный публичный хост для `qeli://`-ссылок (правится в диалоге Share); также принимается как CSRF-origin |
-| `allowed_origins` | `[]` | доп. браузерные origin'ы (`host[:port]`), принимаемые CSRF-проверкой при доступе через домен/reverse-proxy; иначе публичная панель открывается, но любой save → 403 |
-| `trusted_proxies` | `[]` | source-IP/CIDR reverse-proxy'ей, чьему `X-Forwarded-For` доверять (для allow-листа `allowed_ips` и rate-limiting); пусто = XFF не доверяется |
+| `allowed_origins` | `[]` | строго валидируемые браузерные origin'ы как `host[:port]` либо полный `http(s)://host[:port][/path]`, принимаемые CSRF-проверкой при доступе через домен/reverse-proxy; иначе публичная панель открывается, но любой save → 403 |
+| `trusted_proxies` | `[]` | строго валидируемые source-IP/CIDR reverse-proxy'ей, чьему `X-Forwarded-For` доверять (для allow-листа `allowed_ips` и rate-limiting); пусто = XFF не доверяется |
 | `secure_cookie` | `false` | добавить `Secure` к сессионной куке |
 | `insecure_no_auth` | `false` | **с 0.7.12** — обслуживать панель БЕЗ аутентификации. Пустой `password_hash` сам по себе больше не открывает панель: без пароля она не стартует нигде (раньше на loopback — открывала, и это давало полный админ-доступ любому локальному процессу и любому SSRF на хосте). Задайте пароль через `qeli set-web-password`; этот ключ — только для случая, когда открытая панель нужна осознанно. При старте выводится предупреждение |
 | `persist_session_key` | `true` | сохранять секрет подписи сессий панели в файл `0600` (в `$STATE_DIRECTORY`, иначе `/etc/qeli/.session_key`), чтобы логины в панель **переживали полный перезапуск процесса**. Эмитится в конфиг только при `false`. `false` = ключ случайный на каждый процесс (строже, H-4) — тогда полный перезапуск разлогинивает всех. Под systemd ключ не входит в конфиг и обычный панельный архив `/etc/qeli`; полный ручной бэкап с `/var/lib/qeli` его содержит и должен храниться как секрет |
-| `base_path` | `""` | сабпас за reverse-proxy (напр. `/qeli`); пусто = в корне. Заголовок `X-Forwarded-Prefix` перекрывает per-request. См. «Сабпас за reverse-proxy» ниже |
+| `base_path` | `""` | обычный URL-path за reverse-proxy (напр. `/qeli`, максимум 128 символов); пусто = в корне. Заголовок `X-Forwarded-Prefix` перекрывает per-request. См. «Сабпас за reverse-proxy» ниже |
 | `csrf` | `true` | CSRF same-origin защита изменяющих запросов. **Оставляйте `true`.** `false` полностью отключает проверку Origin/Referer (со стартовым предупреждением) — допустимо ТОЛЬКО на loopback-only bind (доступ через SSH-форвард); на публичном/LAN bind опасно (любой открытый сайт сможет дёргать залогиненную панель). Loopback-origin'ы и так доверяются на любом порту |
-| `session_ttl_secs` | `86400` | время жизни сессии панели (Max-Age куки + срок токена), сек. **Обрезается до 30 суток** (`2592000`) — большее значение не даст выпустить почти вечный токен; значение `≤ 0` откатывается к дефолту `86400`, чтобы не выпустить уже просроченный или бессрочный. Эмитится в конфиг только при значении, отличном от `86400` |
+| `session_ttl_secs` | `86400` | время жизни сессии панели (Max-Age куки + срок токена), сек; активный конфиг принимает `60..=2592000` (30 суток). Эмитится только при значении, отличном от `86400` |
 | `update_check` | `false` | проверять GitHub Releases на новую версию (opt-in, notification-only): панель показывает плашку, если вышел свежий релиз. Запрос идёт только за списком релизов, ничего не отправляется |
 | `brute_force.enabled` | `true` | главный выключатель ограничения **входа в панель** (независим от `[auth] brute_force`); `false` = полностью выкл |
 | `brute_force.max_attempts` | `5` | неудачных входов в панель до локаута (по source-IP) |

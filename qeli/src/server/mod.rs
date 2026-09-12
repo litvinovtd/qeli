@@ -1430,10 +1430,7 @@ fn validate_configured_interface(profile: &str, key: &str, value: &str) -> anyho
 }
 
 pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
-    if !config.web.public_host.trim().is_empty() {
-        crate::config::share::supported_public_endpoint(&config.web.public_host, 443)
-            .map_err(anyhow::Error::msg)?;
-    }
+    config.web.validate_active().map_err(anyhow::Error::msg)?;
     // Both brute-force policies, before anything profile-specific. This function is the
     // one gate every write path shares — `check-config`, worker startup, `PUT /api/config`
     // and `PUT /api/config/raw` all call it — so validating here is what stops a policy
@@ -1443,23 +1440,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         .brute_force
         .validate("[auth]")
         .map_err(|e| anyhow::anyhow!(e))?;
-    config
-        .web
-        .brute_force
-        .validate("[web]")
-        .map_err(|e| anyhow::anyhow!(e))?;
-    // The panel binds `web.port`, and 0 gives an ephemeral port while the log still prints the
-    // configured zero — the operator is told an address that was never listened on.
-    //
-    // This check used to sit INSIDE the per-profile loop, and inside that loop's
-    // `if p.dns.enabled` branch, so it ran once per DNS-enabled profile and not at all when no
-    // profile served DNS — `[web]` has nothing to do with either. Belongs here with the other
-    // whole-config checks. (Audit 2026-08-01, §9.)
-    if config.web.enabled && config.web.port == 0 {
-        anyhow::bail!(
-            "web.port = 0 would bind an ephemeral port while the log reports 0 — set the \
-             port you actually reach the panel on"
-        );
+    if config.web.enabled {
+        config
+            .web
+            .brute_force
+            .validate("[web]")
+            .map_err(|e| anyhow::anyhow!(e))?;
     }
     let mut seen = std::collections::HashSet::new();
     // Every endpoint this configuration will bind, in declaration order. A Vec rather than a
@@ -1861,7 +1847,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 label,
             });
         }
-        if !matches!(p.obfuscation.fronting.as_str(), "websocket" | "none") {
+        // Fronting wraps only the `obfs` nonce exchange. Other wire modes neither expose
+        // nor consume this field, so retain a dormant value losslessly and validate it
+        // when the operator switches the profile to obfs.
+        if p.obfuscation.mode == "obfs"
+            && !matches!(p.obfuscation.fronting.as_str(), "websocket" | "none")
+        {
             anyhow::bail!(
                 "profile '{}': unknown obf.fronting '{}' — expected 'websocket' or 'none'",
                 p.name,
@@ -1875,7 +1866,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.tun.device_type
             );
         }
-        if !matches!(p.dns.upstream_protocol.as_str(), "udp" | "tcp") {
+        if p.dns.enabled && !matches!(p.dns.upstream_protocol.as_str(), "udp" | "tcp") {
             anyhow::bail!(
                 "profile '{}': unknown dns.upstream_protocol '{}' — expected 'udp' or 'tcp' \
                  (DoT/'tls' is not implemented; it would silently send plaintext UDP)",
@@ -2131,6 +2122,16 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
+        if p.obfuscation.multipath.enabled
+            && !(1..=crate::config::server::MULTIPATH_MAX_STREAMS)
+                .contains(&p.obfuscation.multipath.max_streams)
+        {
+            anyhow::bail!(
+                "profile '{}': obf.multipath.max_streams must be in 1..={} when multipath is enabled",
+                p.name,
+                crate::config::server::MULTIPATH_MAX_STREAMS
+            );
+        }
         // Multipath/bonding on a UDP profile is a silent no-op: the UDP handler
         // forces max_streams=1 (UDP has no head-of-line blocking to bond around),
         // so a client that enabled it still gets one stream. Warn rather than fail
@@ -2269,6 +2270,13 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 "profile '{}': obf.tls.reality_proxy.target_port = 0 cannot reach a \
                  probe/decoy backend — set its real TCP port",
                 p.name
+            );
+        }
+        if rp.enabled && rp.peek_timeout_ms < crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS {
+            anyhow::bail!(
+                "profile '{}': reality_proxy.peek_timeout_ms must be at least {} ms when REALITY is enabled",
+                p.name,
+                crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS
             );
         }
         // A NON-EMPTY but unusable list is just as dangerous, and used to be silent: the
@@ -2713,40 +2721,42 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 );
             }
         }
-        if let Some(raw) = p.dns.listen_ipv6.as_deref() {
-            let value = raw.trim();
-            let address = value.parse::<std::net::Ipv6Addr>().map_err(|error| {
-                anyhow::anyhow!(
-                    "profile '{}': dns.listen_ipv6 = '{}' is not a bare IPv6 address: {}",
-                    p.name,
-                    value,
-                    error
-                )
-            })?;
-            crate::config::server::validate_tunnel_ipv6_address("dns.listen_ipv6", address)
-                .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
-            if let Some(subnet) = ipv6_subnet {
-                if !subnet.contains_assignable(address) {
-                    anyhow::bail!(
-                        "profile '{}': dns.listen_ipv6 {} is outside pool.ipv6.cidr {}",
+        if p.dns.enabled && p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+            if let Some(raw) = p.dns.listen_ipv6.as_deref() {
+                let value = raw.trim();
+                let address = value.parse::<std::net::Ipv6Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "profile '{}': dns.listen_ipv6 = '{}' is not a bare IPv6 address: {}",
                         p.name,
-                        address,
-                        p.pool.ipv6.cidr
-                    );
+                        value,
+                        error
+                    )
+                })?;
+                crate::config::server::validate_tunnel_ipv6_address("dns.listen_ipv6", address)
+                    .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
+                if let Some(subnet) = ipv6_subnet {
+                    if !subnet.contains_assignable(address) {
+                        anyhow::bail!(
+                            "profile '{}': dns.listen_ipv6 {} is outside pool.ipv6.cidr {}",
+                            p.name,
+                            address,
+                            p.pool.ipv6.cidr
+                        );
+                    }
                 }
-            }
-            if p.dns.enabled && tunnel_ipv6_address != Some(address) {
-                anyhow::bail!(
+                if tunnel_ipv6_address != Some(address) {
+                    anyhow::bail!(
                     "profile '{}': dns.listen_ipv6 {} must equal tun.ipv6_address — it is the only IPv6 address configured on the server TUN",
                     p.name,
                     address
                 );
+                }
+            } else {
+                anyhow::bail!(
+                    "profile '{}': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6",
+                    p.name
+                );
             }
-        } else if p.dns.enabled && p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
-            anyhow::bail!(
-                "profile '{}': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6",
-                p.name
-            );
         }
         // The FIRST push_servers entry is what clients are told to use as their resolver, so
         // a typo there silently deprives every client of DNS (the client strict-validates the
@@ -7939,6 +7949,111 @@ pool.cidr = 10.{net}.0.0/24
         assert!(validate_profiles(&cfg).is_ok());
     }
 
+    #[test]
+    fn disabled_dns_ignores_hidden_ipv6_and_upstream_settings() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Dual;
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        profile.dns.enabled = false;
+        profile.dns.listen_ipv6 = Some("not-an-ipv6-address".into());
+        profile.dns.upstream_protocol = "tls".into();
+        validate_profiles(&cfg).expect("disabled DNS must ignore hidden resolver settings");
+
+        cfg.profiles[0].dns.enabled = true;
+        cfg.profiles[0].dns.listen = "10.1.0.1".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("upstream_protocol"), "wrong error: {error}");
+
+        cfg.profiles[0].dns.upstream_protocol = "udp".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("dns.listen_ipv6"), "wrong error: {error}");
+    }
+
+    #[test]
+    fn ipv4_profile_ignores_dormant_ipv6_addressing_but_not_active_routing() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv4;
+        profile.tun.ipv6_address = Some("not-an-ipv6-address".into());
+        profile.pool.ipv6.cidr = "not-an-ipv6-cidr".into();
+        profile.pool.ipv6.exclude = vec!["also-invalid".into()];
+        profile
+            .pool
+            .ipv6
+            .static_reservations
+            .insert("user".into(), "still-invalid".into());
+        validate_profiles(&cfg).expect("IPv4-only must ignore dormant IPv6 addressing");
+
+        cfg.profiles[0].routing.ipv6.mode = crate::config::server::Ipv6RoutingMode::Route;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(
+            error.contains("requires tun.ip_mode = dual or ipv6"),
+            "active incompatible routing must still fail: {error}"
+        );
+    }
+
+    #[test]
+    fn non_obfs_profile_ignores_dormant_fronting_until_reenabled() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.fronting = "old-private-fronting".into();
+        validate_profiles(&cfg).expect("non-obfs profile must ignore dormant fronting");
+
+        cfg.profiles[0].obfuscation.mode = "obfs".into();
+        cfg.profiles[0].obfuscation.obfs_key = "regression-test-key".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("obf.fronting"), "wrong error: {error}");
+
+        cfg.profiles[0].obfuscation.fronting = "websocket".into();
+        validate_profiles(&cfg).expect("supported fronting must validate after obfs is enabled");
+    }
+
+    #[test]
+    fn disabled_web_panel_ignores_hidden_login_policy() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.web.enabled = false;
+        cfg.web.brute_force.max_attempts = 0;
+        validate_profiles(&cfg).expect("disabled web panel must ignore its hidden policy");
+
+        cfg.web.enabled = true;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("[web]"), "wrong error: {error}");
+    }
+
+    #[test]
+    fn reality_peek_timeout_matches_the_runtime_floor() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let reality = &mut cfg.profiles[0].obfuscation.tls.reality_proxy;
+        reality.enabled = true;
+        reality.short_ids = vec!["0123456789abcdef".into()];
+        reality.peek_timeout_ms = crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS - 1;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("peek_timeout_ms"), "wrong error: {error}");
+
+        cfg.profiles[0]
+            .obfuscation
+            .tls
+            .reality_proxy
+            .peek_timeout_ms = crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS;
+        validate_profiles(&cfg).expect("runtime minimum must validate");
+    }
+
+    #[test]
+    fn multipath_stream_ceiling_is_active_only_when_enabled() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.multipath.enabled = false;
+        cfg.profiles[0].obfuscation.multipath.max_streams = 0;
+        validate_profiles(&cfg).expect("disabled multipath tuning is dormant");
+
+        cfg.profiles[0].obfuscation.multipath.enabled = true;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("max_streams"), "wrong error: {error}");
+
+        cfg.profiles[0].obfuscation.multipath.max_streams =
+            crate::config::server::MULTIPATH_MAX_STREAMS + 1;
+        assert!(validate_profiles(&cfg).is_err());
+    }
     #[test]
     fn rate_limiter_allows_up_to_limit_then_blocks() {
         let mut rl = RateLimiter::new(2, 60);

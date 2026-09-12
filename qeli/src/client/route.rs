@@ -66,6 +66,16 @@ struct PhysicalPath {
     device: String,
 }
 
+/// Sanitized physical carrier facts exported to client lifecycle hooks. This is a snapshot
+/// from `ip route get` after the authenticated tunnel plan has been installed; it contains
+/// no credentials or socket/session material.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct HookPhysicalPath {
+    pub gateway: Option<String>,
+    pub device: String,
+    pub source: Option<String>,
+}
+
 fn family_flag(ipv6: bool) -> Option<&'static str> {
     ipv6.then_some("-6")
 }
@@ -113,6 +123,49 @@ fn physical_path_for(
     source: Option<IpAddr>,
 ) -> Option<PhysicalPath> {
     physical_path_query(destination, tunnel_if, source, None)
+}
+
+/// Resolve the actual non-tunnel carrier interface, next hop and selected source address for
+/// hook diagnostics. Kept separate from `PhysicalPath`: routing safety comparisons intentionally
+/// compare only the gateway/device pair and must not change when a kernel chooses another valid
+/// source address on the same uplink.
+pub(crate) fn hook_physical_path_for(
+    destination: IpAddr,
+    tunnel_if: &str,
+    source: Option<IpAddr>,
+) -> Option<HookPhysicalPath> {
+    let mut command = std::process::Command::new("ip");
+    if let Some(flag) = family_flag(destination.is_ipv6()) {
+        command.arg(flag);
+    }
+    command.args(["route", "get", &destination.to_string()]);
+    if let Some(source) = source {
+        if source.is_ipv4() != destination.is_ipv4() {
+            return None;
+        }
+        command.args(["from", &source.to_string()]);
+    }
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let fields: Vec<&str> = text.lines().next()?.split_whitespace().collect();
+    let value_after = |name: &str| {
+        fields
+            .windows(2)
+            .find(|pair| pair[0] == name)
+            .map(|pair| pair[1].to_string())
+    };
+    let device = value_after("dev")?;
+    if device == tunnel_if {
+        return None;
+    }
+    Some(HookPhysicalPath {
+        gateway: value_after("via"),
+        device,
+        source: value_after("src"),
+    })
 }
 
 #[cfg(feature = "experimental-roaming")]
