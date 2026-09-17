@@ -370,63 +370,90 @@ function clientPage() {
       else this.notify(r.error, 'error');
     },
 
-    // tiny [qeli] INI parser → form fields
+    // INI values follow the shared codec: only surrounding double quotes and \" escapes.
+    iniValue(value) {
+      const text = value.trim();
+      return text.length >= 2 && text.startsWith('"') && text.endsWith('"')
+        ? text.slice(1, -1).replace(/\"/g, '"') : text;
+    },
+    iniQuote(value) {
+      const text = String(value ?? '');
+      return !text || /^\s|\s$|[;#"]/.test(text) ? '"' + text.replace(/"/g, '\"') + '"' : text;
+    },
     parseIni(raw, f) {
-      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6'};
-      // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
-      // bind_static/…) and every other section is preserved verbatim so a Field-view
-      // save round-trips losslessly instead of silently dropping them.
-      const managed = new Set([...Object.keys(map), 'awg','jc','jmin','jmax','quic','ipv6','allow_ipv4_leak','allow_ipv6_leak','gateway','route_local','autostart']);
-      f._extraQeli = []; f._extraSections = [];
-      let afterQeli = false;
-      (raw||'').split('\n').forEach(line => {
+      const next = this.blankForm();
+      next.name = f.name; next.editing = f.editing; next.raw = raw; next.rawMode = f.rawMode;
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6',ipv6:'ipv6'};
+      const flags = new Set(['awg','quic','gateway','route_local','autostart','allow_ipv4_leak','allow_ipv6_leak']);
+      const numbers = new Set(['jc','jmin','jmax']);
+      const lists = new Set(['include','exclude']);
+      next._extraQeli = []; next._extraSections = [];
+      let section = '';
+      const seen = new Set();
+      let qeliSections = 0;
+      for (const line of (raw || '').split('\n')) {
         const t = line.trim();
         if (t.startsWith('[')) {
-          if (t === '[qeli]') { afterQeli = false; }
-          else { afterQeli = true; f._extraSections.push(line); }
-          return;
+          if (!t.endsWith(']')) throw new Error(qeliT('Invalid INI section'));
+          section = t.slice(1, -1).trim();
+          if (section === 'qeli') {
+            if (++qeliSections > 1) throw new Error(qeliT('Duplicate [qeli] section'));
+          } else next._extraSections.push(line);
+          continue;
         }
-        if (afterQeli) { f._extraSections.push(line); return; }
+        if (section !== 'qeli') {
+          if (section) next._extraSections.push(line);
+          else if (t && !t.startsWith('#') && !t.startsWith(';')) throw new Error(qeliT('INI key before [qeli]'));
+          continue;
+        }
+        if (!t || t.startsWith('#') || t.startsWith(';')) continue;
         const i = line.indexOf('=');
-        if (i < 0 || t.startsWith('#')) return;
-        const k = line.slice(0,i).trim(), v = line.slice(i+1).trim();
-        if (map[k]) f[map[k]] = v;
-        else if (k==='awg') f.awg = (v==='true'||v==='1'||v==='yes');
-        else if (k==='jc') f.jc = parseInt(v)||0;
-        else if (k==='jmin') f.jmin = parseInt(v)||0;
-        else if (k==='jmax') f.jmax = parseInt(v)||0;
-        else if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
-        else if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
-        else if (k==='ipv6') f.ipv6 = v;
-        else if (k==='allow_ipv4_leak') f.allow_ipv4_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
-        else if (k==='allow_ipv6_leak') f.allow_ipv6_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
-        else if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
-        else if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
-        else if (!managed.has(k)) f._extraQeli.push(line);
-      });
+        if (i < 1) throw new Error(qeliT('Expected INI key = value'));
+        const k = line.slice(0, i).trim(), v = this.iniValue(line.slice(i + 1));
+        const managed = Object.hasOwn(map, k) || flags.has(k) || numbers.has(k);
+        if (managed && seen.has(k) && !lists.has(k)) throw new Error(qeliT('Duplicate INI key: ') + k);
+        if (Object.hasOwn(map, k)) {
+          next[map[k]] = lists.has(k) && seen.has(k) ? next[map[k]] + ', ' + v : v;
+        } else if (flags.has(k)) {
+          const lower = v.toLowerCase();
+          if (['true','yes','on','1'].includes(lower)) next[k] = true;
+          else if (['false','no','off','0',''].includes(lower)) next[k] = false;
+          else throw new Error(qeliT('Invalid INI boolean: ') + k);
+        } else if (numbers.has(k)) {
+          if (v !== '' && !/^\+?\d+$/.test(v)) throw new Error(qeliT('Invalid INI number: ') + k);
+          if (v !== '') {
+            const value = Number(v), max = k === 'jc' ? 4294967295 : 65535;
+            if (!Number.isSafeInteger(value) || value > max) throw new Error(qeliT('Invalid INI number: ') + k);
+            next[k] = value;
+          }
+        } else next._extraQeli.push(line);
+        seen.add(k);
+      }
+      if (!qeliSections) throw new Error(qeliT('Missing [qeli] section'));
+      Object.assign(f, next);
       return f;
     },
     // form fields → INI text (common keys; matches the server's builder)
     formToIni() {
       const f = this.form; let s = '[qeli]\n';
-      s += `server = ${f.server||''}\n`;
-      if (f.proto) s += `proto = ${f.proto}\n`;
-      if (f.user) s += `user = ${f.user}\n`;
-      if (f.pass) s += `pass = ${f.pass}\n`;
-      if (f.key) s += `key = ${f.key}\n`;
-      if (f.mode) s += `mode = ${f.mode}\n`;
-      if (f.sni) s += `sni = ${f.sni}\n`;
-      if (f.rsid) s += `reality_sid = ${f.rsid}\n`;
-      if (f.obfs_key) s += `obfs_key = ${f.obfs_key}\n`;
+      s += `server = ${this.iniQuote(f.server || '')}\n`;
+      if (f.proto) s += `proto = ${this.iniQuote(f.proto)}\n`;
+      if (f.user) s += `user = ${this.iniQuote(f.user)}\n`;
+      if (f.pass) s += `pass = ${this.iniQuote(f.pass)}\n`;
+      if (f.key) s += `key = ${this.iniQuote(f.key)}\n`;
+      if (f.mode) s += `mode = ${this.iniQuote(f.mode)}\n`;
+      if (f.sni) s += `sni = ${this.iniQuote(f.sni)}\n`;
+      if (f.rsid) s += `reality_sid = ${this.iniQuote(f.rsid)}\n`;
+      if (f.obfs_key) s += `obfs_key = ${this.iniQuote(f.obfs_key)}\n`;
       // `dev` is a managed field (parseIni consumes it into form.dev, so it is NOT kept in
       // _extraQeli) — emit it here or a Field→Raw toggle silently drops the TUN device name.
-      if (f.dev) s += `dev = ${f.dev}\n`;
-      if (f.include) s += `include = ${f.include}\n`;
-      if (f.exclude) s += `exclude = ${f.exclude}\n`;
-      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${f.lan_subnet_ipv6}\n`;
-      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
+      if (f.dev) s += `dev = ${this.iniQuote(f.dev)}\n`;
+      if (f.include) s += `include = ${this.iniQuote(f.include)}\n`;
+      if (f.exclude) s += `exclude = ${this.iniQuote(f.exclude)}\n`;
+      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${this.iniQuote(f.lan_subnet_ipv6)}\n`;
+      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${this.iniQuote(f.front)}\n`;
       if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
-      if (f.ipv6) s += `ipv6 = ${f.ipv6}\n`;
+      if (f.ipv6) s += `ipv6 = ${this.iniQuote(f.ipv6)}\n`;
       // QUIC is UDP-only (its checkbox is x-show'd for proto=udp); gate the emit on proto so
       // enabling it then switching udp→tcp doesn't leave a stale quic=true on a TCP profile.
       if (f.quic && f.proto==='udp') s += 'quic = true\n';
@@ -443,7 +470,10 @@ function clientPage() {
     },
     toggleRaw() {
       if (!this.form.rawMode) { this.form.raw = this.formToIni(); this.form.rawMode = true; }
-      else { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
+      else {
+        try { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
+        catch (error) { this.notify(error.message, 'error'); }
+      }
     },
 
     openCreate() { this.form = this.blankForm(); this.formOpen = true; },
@@ -456,7 +486,8 @@ function clientPage() {
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`);
       if (!r.ok) { this.notify(r.error, 'error'); return; }
       const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || '';
-      this.parseIni(r.raw, f);     // populate fields; Raw view shows the stored INI verbatim
+      try { this.parseIni(r.raw, f); }
+      catch (error) { f.rawMode = true; this.notify(error.message, 'error'); }
       this.form = f; this.formOpen = true;
     },
     async save() {

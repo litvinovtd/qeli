@@ -61,8 +61,10 @@ pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebCon
     // Bound concurrent memory-hard work: a login burst used to start one ~19 MiB Argon2
     // job per request, because no failure is recorded until a hash finishes. Held across
     // the verify below.
-    let _permit = crate::server::argon2_gate().acquire().await;
-    tokio::task::spawn_blocking(move || {
+    let Ok(permit) = crate::server::argon2_gate().acquire().await else {
+        return false;
+    };
+    crate::server::run_argon2(permit, move || {
         // Constant-time username compare (avoids a timing side-channel on the admin
         // username), and use a non-short-circuiting `&` so the Argon2 verify always
         // runs regardless of whether the username matched — otherwise the presence

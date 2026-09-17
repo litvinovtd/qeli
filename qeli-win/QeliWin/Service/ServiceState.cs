@@ -24,7 +24,7 @@ public sealed class ServiceStatus
 
 /// <summary>
 /// Shared state between the Windows Service (writer) and the GUI (reader), stored under
-/// %ProgramData%\QeliWin so LocalSystem can write and any user can read.
+/// %ProgramData%\QeliWin for LocalSystem and elevated administrators only.
 /// </summary>
 public static class ServiceState
 {
@@ -40,156 +40,152 @@ public static class ServiceState
 
     public static void EnsureDir()
     {
-        bool created = !Directory.Exists(Dir);
-        Directory.CreateDirectory(Dir);
-        if (created) RestrictDirAcl();
+        // Do not repair/adopt a pre-existing untrusted directory: its files may have
+        // been planted before the DACL was tightened. Fail before reading or writing.
+        for (var parent = Path.GetDirectoryName(Dir); !string.IsNullOrEmpty(parent);
+             parent = Path.GetDirectoryName(parent))
+            RequireTrusted(parent, ancestor: true);
+        if (!Directory.Exists(Dir))
+        {
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(true, false);
+            var admin = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            security.SetOwner(admin);
+            var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            foreach (var id in new[] { admin, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null) })
+                security.AddAccessRule(new FileSystemAccessRule(id, FileSystemRights.FullControl,
+                    inherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(Dir).Create(security); // private from creation, not after writing
+        }
+        RequireTrusted(Dir, privateFile: true);
     }
 
-    /// <summary>Persist the user's connection intent separately from SCM auto-start.
-    /// The service itself may start at boot so it can be controlled before logon, but a
-    /// missing/corrupt flag is safely interpreted as "stay disconnected".</summary>
+    internal static void RequireTrusted(string path, bool ancestor = false, bool privateFile = false)
+    {
+        string? unsafeAccess = ServiceManager.NonAdminWriterOn(path, ancestor, privateFile);
+        if (unsafeAccess != null)
+            throw new UnauthorizedAccessException(
+                $"Refusing untrusted service storage '{path}': {unsafeAccess}. " +
+                "Stop VPN and complete network recovery; archive the unsafe storage, " +
+                "then recreate it and re-save a trusted profile from the elevated GUI.");
+    }
+
+    internal static void CheckExistingFile(string path)
+    {
+        // GetAttributes distinguishes missing files from ACL/I/O errors and broken links.
+        try { _ = File.GetAttributes(path); }
+        catch (FileNotFoundException) { return; }
+        RequireTrusted(path, privateFile: true);
+    }
+
+    /// <summary>Persist intent atomically; a missing/invalid flag means disconnected.</summary>
     public static void SetDesiredConnected(bool connected)
     {
         EnsureDir();
-        RestrictDirAcl();
-        string temporary = DesiredConnectionFile + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temporary, connected ? "1" : "0");
-            File.Move(temporary, DesiredConnectionFile, overwrite: true);
-        }
-        finally
-        {
-            try { File.Delete(temporary); } catch { }
-        }
+        AtomicWrite(DesiredConnectionFile, Encoding.UTF8.GetBytes(connected ? "1" : "0"));
     }
 
     public static bool DesiredConnected()
     {
-        try { return File.ReadAllText(DesiredConnectionFile).Trim() == "1"; }
+        try
+        {
+            EnsureDir();
+            CheckExistingFile(DesiredConnectionFile);
+            return File.ReadAllText(DesiredConnectionFile).Trim() == "1";
+        }
         catch { return false; }
     }
 
-    /// <summary>
-    /// Tighten the DACL of the %ProgramData%\QeliWin directory so only SYSTEM, the
-    /// Administrators group and the creating user may write into it. %ProgramData%
-    /// inherits a DACL that lets ordinary "Users"/"Authenticated Users" create files;
-    /// without this a non-admin could PLANT a <c>service-profile.json</c> that the
-    /// LocalSystem service then loads — pointing the machine-wide tunnel at an attacker
-    /// server with attacker-chosen routing/DNS (local EoP + boot-time MITM). Dropping the
-    /// inherited "Users" write on the directory closes the planting vector at the source.
-    /// Best-effort: an ACL failure never breaks operation.
-    /// </summary>
-    private static void RestrictDirAcl()
+    // The containing directory is private and verified before calling this helper.
+    // Publication is a same-directory rename; readers see the complete old or new file.
+    internal static void AtomicWrite(string destination, byte[] bytes)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        CheckExistingFile(destination);
+        PublishAtomic(destination, temporary =>
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                RequireTrusted(temporary, privateFile: true);
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+        });
+    }
+
+    // Factored to fault-inject an interrupted writer without touching service storage.
+    internal static void PublishAtomic(string destination, Action<string> writeTemporary)
+    {
+        string temporary = destination + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        string previous = temporary + ".previous";
+        bool published = false;
         try
         {
-            var di = new DirectoryInfo(Dir);
-            var sec = new DirectorySecurity();
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
-            void Allow(IdentityReference id) => sec.AddAccessRule(new FileSystemAccessRule(
-                id, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
-            Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));        // service
-            Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
-            var me = WindowsIdentity.GetCurrent().User;                                   // GUI user (writer)
-            if (me != null) Allow(me);
-            di.SetAccessControl(sec);
+            writeTemporary(temporary);
+            // ReplaceFile preserves an existing reader's handle; MoveFileEx with
+            // REPLACE_EXISTING can fail while that handle is open on Windows.
+            // Keep a private rollback name: ReplaceFile has rare partial-failure
+            // outcomes where the old file has moved but publication did not finish.
+            if (File.Exists(destination)) File.Replace(temporary, destination, previous);
+            else File.Move(temporary, destination);
+            published = true;
         }
-        catch
+        catch (Exception failure)
         {
-            // Hardening only — leave the dir usable even if the ACL can't be set.
+            if (File.Exists(previous) && !File.Exists(destination))
+            {
+                try { File.Move(previous, destination); }
+                catch (Exception recovery)
+                {
+                    throw new IOException($"Profile publication failed; previous data retained at '{previous}': {recovery.Message}", failure);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+            if (published) { try { File.Delete(previous); } catch { } }
         }
     }
 
     public static void SaveProfile(VpnConfig cfg)
     {
         EnsureDir();
-        // Re-assert the directory DACL on every save (idempotent): retroactively fixes a
-        // dir created by an older build with the weak inherited %ProgramData% ACL. Runs in
-        // the GUI/admin context, infrequently, so the cost is irrelevant.
-        RestrictDirAcl();
-        // Encrypt at rest with DPAPI LocalMachine scope: the GUI (current user) writes
-        // it and the service (LocalSystem) reads it, so a cross-user scope is required.
-        // This removes the trivial plaintext exposure of the password/obfs_key (a
-        // copied file / backup / forensic image / casual `type` no longer reveals
-        // them). See docs/*/archive/plans/RELEASE-FIXES.md E1.
         var json = JsonSerializer.Serialize(cfg);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
-        File.WriteAllBytes(ProfileFile, enc);
-        RestrictProfileAcl();
-    }
-
-    /// <summary>
-    /// Tighten the DACL of the encrypted profile so only the writing user, the
-    /// service (LocalSystem) and Administrators can read it (C1). The profile is
-    /// DPAPI <c>LocalMachine</c>-scoped (so the service can decrypt it), which means
-    /// any local process can decrypt the bytes — and %ProgramData% grants the broad
-    /// "Users" group read by default. Without this, a non-admin local user could
-    /// read the file and recover the VPN password / obfs_key. Best-effort: an ACL
-    /// failure never breaks save (the DPAPI encryption still applies regardless).
-    /// </summary>
-    private static void RestrictProfileAcl()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            var fi = new FileInfo(ProfileFile);
-            var sec = new FileSecurity();
-            // Drop inheritance (and the inherited Users ACE) — replace the DACL
-            // with exactly the three principals below.
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            void Allow(IdentityReference id) => sec.AddAccessRule(
-                new FileSystemAccessRule(id, FileSystemRights.FullControl, AccessControlType.Allow));
-            Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));        // service (reader)
-            Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
-            var me = WindowsIdentity.GetCurrent().User;                                   // GUI user (writer)
-            if (me != null) Allow(me);
-            fi.SetAccessControl(sec);
-        }
-        catch
-        {
-            // Hardening only — leave the file usable even if the ACL can't be set.
-        }
+        AtomicWrite(ProfileFile, enc);
     }
 
     public static VpnConfig? LoadProfile()
     {
+        EnsureDir();
+        CheckExistingFile(ProfileFile);
+        byte[] bytes;
+        // Allow atomic publication while the service has an old file open.
         try
         {
-            if (!File.Exists(ProfileFile)) return null;
-            var bytes = File.ReadAllBytes(ProfileFile);
-            string json;
-            bool wasLegacyPlaintext = false;
-            try
-            {
-                var plain = ProtectedData.Unprotect(bytes, null, DataProtectionScope.LocalMachine);
-                json = Encoding.UTF8.GetString(plain);
-            }
-            catch
-            {
-                // Legacy plaintext profile (pre-E1) — read, then migrate to encrypted.
-                // But NEVER when running as the service (LocalSystem): a non-DPAPI file in
-                // the shared %ProgramData% dir may have been PLANTED by a non-admin to
-                // redirect the LocalSystem tunnel (attacker server + machine-wide routing/DNS
-                // = local EoP / boot-time MITM). Fail closed there — only DPAPI-encrypted
-                // profiles the GUI wrote are trusted. The interactive GUI still migrates its
-                // own legacy plaintext (IsSystem == false).
-                if (OperatingSystem.IsWindows() && WindowsIdentity.GetCurrent().IsSystem)
-                {
-                    AppendLog("SECURITY: refusing to load a non-DPAPI (plaintext) service profile — " +
-                              "possible planted file; delete it and reconfigure from the GUI.");
-                    return null;
-                }
-                json = Encoding.UTF8.GetString(bytes);
-                wasLegacyPlaintext = true;
-            }
-            var cfg = JsonSerializer.Deserialize<VpnConfig>(json);
-            if (wasLegacyPlaintext && cfg != null) SaveProfile(cfg);
-            return cfg;
+            using var file = new FileStream(ProfileFile, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
+            if (file.Length > 4 * 1024 * 1024) throw new InvalidDataException("Service profile is too large");
+            using var copy = new MemoryStream();
+            file.CopyTo(copy);
+            bytes = copy.ToArray();
         }
-        catch { return null; }
+        catch (FileNotFoundException) { return null; } // only absence is "no profile"
+        string json;
+        bool legacy = false;
+        try { json = Encoding.UTF8.GetString(ProtectedData.Unprotect(bytes, null, DataProtectionScope.LocalMachine)); }
+        catch (CryptographicException)
+        {
+            if (WindowsIdentity.GetCurrent().IsSystem)
+                throw new InvalidDataException("Service profile is corrupt or not DPAPI-encrypted; re-save it from the GUI");
+            json = Encoding.UTF8.GetString(bytes); // trusted, elevated legacy migration only
+            legacy = true;
+        }
+        var cfg = JsonSerializer.Deserialize<VpnConfig>(json)
+            ?? throw new InvalidDataException("Service profile is empty");
+        if (legacy) SaveProfile(cfg);
+        return cfg;
     }
 
     public static void WriteStatus(VpnStatus status, string? extra,
@@ -198,7 +194,7 @@ public static class ServiceState
         try
         {
             EnsureDir();
-            File.WriteAllText(StatusFile, JsonSerializer.Serialize(new ServiceStatus
+            AtomicWrite(StatusFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new ServiceStatus
             {
                 Status = status.ToString(),
                 Extra = extra,
@@ -206,7 +202,7 @@ public static class ServiceState
                 BytesUp = bytesUp,
                 BytesDown = bytesDown,
                 Since = since,
-            }));
+            })));
         }
         catch { /* ignore */ }
     }
@@ -224,7 +220,7 @@ public static class ServiceState
 
     public static void ResetLog()
     {
-        try { EnsureDir(); File.WriteAllText(LogFile, ""); } catch { }
+        try { EnsureDir(); CheckExistingFile(LogFile); File.WriteAllText(LogFile, ""); } catch { }
     }
 
     public static void AppendLog(string line)
@@ -234,6 +230,7 @@ public static class ServiceState
             try
             {
                 EnsureDir();
+                CheckExistingFile(LogFile);
                 if (File.Exists(LogFile) && new FileInfo(LogFile).Length > MaxLogBytes)
                     File.WriteAllText(LogFile, "");
                 File.AppendAllText(LogFile, $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}{Environment.NewLine}");

@@ -737,6 +737,43 @@ pub fn argon2_gate() -> &'static tokio::sync::Semaphore {
     })
 }
 
+/// The permit belongs to the blocking job, not the cancellable async waiter.
+pub(crate) async fn run_argon2<T: Send + 'static>(
+    permit: tokio::sync::SemaphorePermit<'static>,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        job()
+    })
+    .await
+}
+
+#[cfg(test)]
+mod argon2_budget_tests {
+    #[tokio::test]
+    async fn cancelled_waiter_does_not_release_running_job_permit() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let permit = gate.acquire().await.unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (finish, wait) = std::sync::mpsc::channel();
+        let task = tokio::spawn(super::run_argon2(permit, move || {
+            started.send(()).unwrap();
+            wait.recv().unwrap();
+        }));
+        ready.await.unwrap();
+        task.abort();
+        let _ = task.await;
+        assert!(gate.try_acquire().is_err());
+        finish.send(()).unwrap();
+        let _permit = tokio::time::timeout(std::time::Duration::from_secs(2), gate.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}
+
 pub struct FailedAuthTracker {
     /// Master switch. When `false` the tracker is inert: `check_ip` always passes,
     /// `user_tarpit` is zero, and `record_*` store nothing — so this surface has no
@@ -1488,9 +1525,9 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if p.name.is_empty() {
             anyhow::bail!("profile has an empty name");
         }
-        if !crate::util::is_valid_ident(&p.name) {
+        if !crate::util::is_valid_profile_name(&p.name) {
             anyhow::bail!(
-                "profile name {:?} is invalid (must be 1..=128 bytes, without edge whitespace or control characters)",
+                "profile name {:?} is invalid (must be 1..=128 bytes, without commas, edge whitespace or control characters)",
                 p.name
             );
         }

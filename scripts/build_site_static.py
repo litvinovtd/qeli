@@ -13,7 +13,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SITE = REPO / "site"
 BASE = "https://qeli.ru"
-UPDATED = "2026-09-14"
+UPDATED = "2026-09-16"
 SITE_CONFIG = json.loads((SITE / "assets" / "site.json").read_text(encoding="utf-8"))
 SCHEMA_VERSION = SITE_CONFIG["versionJsonLd"]
 SCHEMA_DOWNLOAD_URL = f"https://github.com/litvinovtd/qeli/releases/tag/v{SCHEMA_VERSION}"
@@ -608,6 +608,8 @@ def main() -> None:
             title = dictionary[meta["title"]].get(lang, dictionary[meta["title"]]["ru"])
             desc = dictionary[meta["desc"]].get(lang, dictionary[meta["desc"]]["ru"])
             page = set_head(page, title, desc, url_path, lang)
+            page = re.sub(r'(data-config="version">)[^<]*(</)',
+                          lambda m: m[1] + html_lib.escape(SITE_CONFIG["version"]) + m[2], page)
             if lang == "en":
                 page = translate_literal_english(page)
                 page = rewrite_english_links(page)

@@ -3343,7 +3343,7 @@ async fn connect_reality(
     config: &crate::config::client::ClientConfig,
     primary: bool,
     context: LinuxStreamConnectContext,
-) -> anyhow::Result<tokio::io::DuplexStream> {
+) -> anyhow::Result<crate::protocol::h2_carrier::Carrier> {
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));

@@ -139,9 +139,8 @@ impl RateBucket {
 
     /// Account `bits` against a `limit_mbps` cap (0 = unlimited → no delay) and
     /// return how long to sleep before sending. Token accumulation is capped at one
-    /// second so an idle session can't bank an unbounded burst; the returned sleep
-    /// is capped at one second purely as a guard against a degenerate tiny limit
-    /// (a single ≤16 KB record at the 1 Mbps minimum needs only ~130 ms).
+    /// second so an idle session can't bank an unbounded burst. The returned sleep
+    /// includes ALL outstanding reservations, including other bonded streams.
     pub fn consume(&self, bits: u64, limit_mbps: u32) -> Duration {
         if limit_mbps == 0 {
             return Duration::ZERO;
@@ -156,7 +155,7 @@ impl RateBucket {
         if s.tokens >= 0.0 {
             Duration::ZERO
         } else {
-            Duration::from_secs_f64((-s.tokens / limit_bps).min(1.0))
+            Duration::from_secs_f64(-s.tokens / limit_bps)
         }
     }
 }
@@ -3559,8 +3558,8 @@ pub async fn verify_client_auth(
                 // load, which is the point of doing this work in the first place.
                 let pw_bytes = password.as_bytes().to_vec();
                 {
-                    let _permit = crate::server::argon2_gate().acquire().await;
-                    let _ = tokio::task::spawn_blocking(move || {
+                    let permit = crate::server::argon2_gate().acquire().await?;
+                    let _ = crate::server::run_argon2(permit, move || {
                         use argon2::PasswordVerifier;
                         if let Ok(ph) = argon2::PasswordHash::new(&selected_dummy) {
                             let _ = argon2::Argon2::default().verify_password(&pw_bytes, &ph);
@@ -3600,8 +3599,8 @@ pub async fn verify_client_auth(
     // finished, so a burst of auth datagrams/connections all passed the pre-check and
     // each started its own ~19 MiB Argon2 job; up to MAX_PENDING_HANDSHAKES of them on
     // the UDP path alone. Held across the verify.
-    let _permit = crate::server::argon2_gate().acquire().await;
-    let auth_result = tokio::task::spawn_blocking(move || {
+    let permit = crate::server::argon2_gate().acquire().await?;
+    let auth_result = crate::server::run_argon2(permit, move || {
         let ph = argon2::PasswordHash::new(&password_hash)
             .map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
         use argon2::PasswordVerifier;
@@ -4899,6 +4898,18 @@ mod rate_bucket_tests {
     use super::{DirectionalRateBuckets, RateBucket};
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn bonded_reservations_keep_the_entire_shared_debt() {
+        let bucket = RateBucket::new();
+        let mut delays = Vec::new();
+        for _ in 0..16 {
+            delays.push(bucket.consume(250_000, 1));
+        }
+        assert!(delays[15] > Duration::from_millis(3500));
+        assert!(delays[15] < Duration::from_millis(4100));
+        assert!(delays.windows(2).all(|pair| pair[1] > pair[0]));
+    }
 
     #[test]
     fn zero_limit_never_delays() {

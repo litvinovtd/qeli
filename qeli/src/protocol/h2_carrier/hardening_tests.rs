@@ -1,5 +1,148 @@
 use super::*;
 
+struct DropObserved(DuplexStream, std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for DropObserved {
+    fn drop(&mut self) {
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl AsyncRead for DropObserved {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+impl AsyncWrite for DropObserved {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+async fn assert_dropped(flag: &std::sync::atomic::AtomicBool) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !flag.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("carrier leaked its outer transport");
+}
+
+#[tokio::test]
+async fn dropping_either_owner_releases_its_idle_outer_transport() {
+    for drop_client in [true, false] {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let client_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed_server = DropObserved(server_io, server_dropped.clone());
+        let server = tokio::spawn(async move { accept(observed_server).await.unwrap() });
+        let client = connect(
+            DropObserved(client_io, client_dropped.clone()),
+            "example.com",
+        )
+        .await
+        .unwrap();
+        let server = server.await.unwrap();
+        if drop_client {
+            drop(client);
+            assert_dropped(&client_dropped).await;
+            drop(server);
+        } else {
+            drop(server);
+            assert_dropped(&server_dropped).await;
+            drop(client);
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancelling_connect_while_peer_withholds_response_releases_driver() {
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (seen, request_seen) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut connection = configure_server()
+            .handshake::<_, Bytes>(server_io)
+            .await
+            .unwrap();
+        let _request = connection.accept().await.unwrap().unwrap();
+        seen.send(()).unwrap();
+        std::future::pending::<()>().await;
+    });
+    let client = tokio::spawn(connect(
+        DropObserved(client_io, flag.clone()),
+        "example.com",
+    ));
+    request_seen.await.unwrap();
+    client.abort();
+    let _ = client.await;
+    assert_dropped(&flag).await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn data_larger_than_peer_window_makes_progress_and_ends_once() {
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let server = tokio::spawn(async move {
+        let mut builder = configure_server();
+        builder.initial_window_size(1024);
+        let mut connection = builder.handshake::<_, Bytes>(server_io).await.unwrap();
+        let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+        let _response = respond
+            .send_response(Response::builder().status(200).body(()).unwrap(), false)
+            .unwrap();
+        let driver = tokio::spawn(async move { while connection.accept().await.is_some() {} });
+        let _guard = Tasks(vec![driver.abort_handle()]);
+        let mut body = request.into_body();
+        let mut count = 0;
+        while let Some(chunk) = body.data().await {
+            let chunk = chunk.unwrap();
+            count += chunk.len();
+            body.flow_control().release_capacity(chunk.len()).unwrap();
+        }
+        count
+    });
+    let (mut request, connection) = configure_client()
+        .handshake::<_, Bytes>(client_io)
+        .await
+        .unwrap();
+    let driver = tokio::spawn(connection);
+    let _guard = Tasks(vec![driver.abort_handle()]);
+    let (response, mut stream) = request
+        .send_request(
+            raw_request(
+                Method::POST,
+                CARRIER_PATH,
+                Some(GRPC_MEDIA_TYPE),
+                Some("trailers"),
+            ),
+            false,
+        )
+        .unwrap();
+    let _response = response.await.unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        send_with_flow_control(&mut stream, Bytes::from(vec![42; 5000]), true),
+    )
+    .await
+    .expect("partial capacity deadlocked")
+    .unwrap();
+    assert_eq!(server.await.unwrap(), 5000);
+}
+
 fn raw_request(
     method: Method,
     path: &str,

@@ -20,6 +20,20 @@ Configs are **text flat-INI**. Structure:
   "which client supports what" matrix live in
   [Client: credentials, routing, reconnect](#client-credentials-routing-reconnect).
 
+The panel provides a **form and an INI editor**; there is no configuration JSON editor.
+JSON in the internal HTTP API carries form data and status, not a configuration file format.
+A failed load blocks saving; edits made during a pending save remain marked unsaved.
+Panel address/port/TLS/base_path changes require a full process restart, not just a worker restart.
+
+Repeated `[profile:<name>]`, `[user:<name>]`, and `[group:<name>]` sections in one file
+are rejected before applying changes. Profile names cannot contain commas because commas
+separate entries in a user's `profiles` list. Rename any existing such profiles and their
+references before upgrading; no automatic renaming is performed. The same username may
+still appear in both inline config and the external users_file; the external entry wins.
+In the INI editor, `<unchanged>` preserves a secret. If the original value cannot be found,
+saving fails and a new value must be entered explicitly.
+
+
 ### What a `qeli://` link carries
 
 A link carries the address, credentials, handshake parameters, and an explicitly selected

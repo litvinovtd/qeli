@@ -102,8 +102,15 @@ impl ServerConfig {
         // otherwise a manual `[profile:]` is silently normalised/dropped and an overlong
         // profile reaches iptables comments that cannot represent it.
         for kind in ["profile", "user", "group"] {
+            let mut seen = std::collections::HashSet::new();
             for section in doc.sections_of(kind) {
                 let name = section.instance.as_deref().unwrap_or("");
+                if !seen.insert(name) {
+                    anyhow::bail!("server config: duplicate [{kind}:{name}] section");
+                }
+                if kind == "profile" && !crate::util::is_valid_profile_name(name) {
+                    anyhow::bail!("server config: invalid profile name {name:?}; commas are not allowed in profile names");
+                }
                 if !crate::util::is_valid_ident(name) {
                     anyhow::bail!(
                         "server config: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
@@ -128,35 +135,8 @@ impl ServerConfig {
                 .unwrap_or_else(baseline_logging),
             ..Default::default()
         };
-        // inline [user:*] / [group:*] override auth.users / auth.groups
-        //
-        // De-duplicate by username, first-wins — the SAME rule `UsersDb::from_ini` applies
-        // (L7). This path did not, and the asymmetry was a security bug rather than a
-        // cosmetic one: `find_user` returns the first entry that matches AND is enabled, so
-        // a stale `[user:alice]` left above a newly added `[user:alice] enabled = false`
-        // meant the admin disabled the account, saw it listed as disabled, and the shadow
-        // copy went on authenticating. Reachable through the panel too — `put_config`
-        // validates each username with `is_valid_ident` but never checks uniqueness, and
-        // `to_ini_string` faithfully writes both sections back out.
-        // (Audit 2026-07-27, C7.)
-        let mut seen_users = std::collections::HashSet::new();
-        let users: Vec<UserEntry> = doc
-            .sections_of("user")
-            .map(user_from)
-            .filter(|u| !u.username.is_empty())
-            .filter(|u| {
-                if seen_users.insert(u.username.clone()) {
-                    true
-                } else {
-                    log::warn!(
-                        "config: duplicate inline [user:{}] — keeping the first block and \
-                         ignoring the later one (the lookup only ever saw the first)",
-                        crate::util::log_identity(&u.username)
-                    );
-                    false
-                }
-            })
-            .collect();
+        // Reject duplicate identities before folding sections into runtime entries.
+        let users: Vec<UserEntry> = doc.sections_of("user").map(user_from).collect();
         if !users.is_empty() {
             // Both sources are intentional: the worker merges them and the external file wins
             // duplicate users/groups. Only flag an explicit path so operators can see the
@@ -1736,43 +1716,72 @@ obf.quic.enabled = true
         assert!(bp.obfuscation.quic.enabled);
     }
 
-    /// A duplicate inline `[user:*]` must collapse to the FIRST block, exactly as
-    /// `UsersDb::from_ini` already did — otherwise disabling an account does nothing.
-    ///
-    /// `find_user` returns the first entry that matches AND is enabled, so a stale block
-    /// above a newly-disabled one kept authenticating while the panel showed the account
-    /// as disabled. (Audit 2026-07-27, C7.)
     #[test]
-    fn duplicate_inline_user_keeps_only_the_first_block() {
-        let src = "\
-[profile:main]
-bind.transport = tcp
+    fn structured_form_rejects_unknown_keys_at_every_configuration_layer() {
+        let cfg = crate::config::parse_server_config("[profile:main]\n[user:alice]\n").unwrap();
+        for pointer in [
+            "",
+            "/web",
+            "/auth",
+            "/logging",
+            "/profiles/0",
+            "/profiles/0/bind",
+            "/profiles/0/obfuscation",
+            "/profiles/0/performance/udp",
+            "/auth/users/0",
+            "/auth/users/0/bandwidth",
+        ] {
+            let mut value = serde_json::to_value(&cfg).unwrap();
+            value
+                .pointer_mut(pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("misspelled_setting".into(), serde_json::json!(true));
+            assert!(
+                crate::config::decode_server_form(value).is_err(),
+                "accepted unknown field at {pointer}"
+            );
+        }
+        let mut value = serde_json::to_value(&cfg).unwrap();
+        value["auth"]["users"][0]["metadata"] = serde_json::json!({"custom_label": "retained"});
+        assert!(crate::config::decode_server_form(value).is_ok());
+    }
 
-[user:alice]
-password_hash = $argon2id$first
-enabled = true
+    #[test]
+    fn standalone_users_reject_duplicate_users_and_groups() {
+        for kind in ["user", "group"] {
+            let raw = format!("[{kind}:alice]\n[{kind}: alice ]\n");
+            assert!(UsersDb::parse_strict(&raw, "test-users.conf")
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate"));
+        }
+    }
 
-[user:alice]
-password_hash = $argon2id$second
-enabled = false
+    #[test]
+    fn duplicate_identity_sections_are_rejected_before_folding() {
+        for kind in ["user", "group", "profile"] {
+            let raw = format!("[profile:main]\n[{kind}:same]\n[{kind}: same ]\n");
+            assert!(crate::config::parse_server_config(&raw)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate"));
+        }
+        let raw = "[profile:main]\n[user:alice]\nenabled=true\n[user:alice]\nenabled=false\n";
+        assert!(crate::config::parse_server_config_reporting(raw).is_err());
+    }
 
-[user:bob]
-password_hash = $argon2id$bob
-";
-        let cfg = crate::config::parse_server_config(src).expect("parses");
-        let alices: Vec<_> = cfg
-            .auth
-            .users
-            .iter()
-            .filter(|u| u.username == "alice")
-            .collect();
-        assert_eq!(alices.len(), 1, "the shadow copy must be dropped");
-        assert_eq!(
-            alices[0].password_hash, "$argon2id$first",
-            "first block wins, matching find_user"
-        );
-        assert!(cfg.auth.users.iter().any(|u| u.username == "bob"));
-        assert_eq!(cfg.auth.users.len(), 2);
+    #[test]
+    fn comma_profile_names_are_rejected_in_ini_and_api_models() {
+        assert!(crate::config::parse_server_config("[profile:a,b]\n").is_err());
+        let mut cfg = crate::config::parse_server_config("[profile:a]\n[user:alice]\n").unwrap();
+        cfg.auth.users[0].profiles = vec!["a,b".into()];
+        let db = UsersDb {
+            users: cfg.auth.users,
+            groups: cfg.auth.groups,
+        };
+        assert!(db.validate_network_fields().is_err());
     }
 
     #[test]

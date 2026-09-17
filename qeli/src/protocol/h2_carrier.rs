@@ -13,9 +13,11 @@ use http::{Method, Request, Response, StatusCode};
 use rand::RngExt;
 use std::future::poll_fn;
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf,
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf, ReadHalf, WriteHalf,
 };
 
 /// RFC 9113 client connection preface.  The server uses this only after the
@@ -29,13 +31,65 @@ const H2_WINDOW: u32 = 2 * 1024 * 1024;
 const CARRIER_PATH: &str = "/v1/events/stream";
 const GRPC_MEDIA_TYPE: &str = "application/grpc";
 
+/// Owns the bridge AND the connection driver, including while connect is pending.
+#[derive(Default, Debug)]
+struct Tasks(Vec<tokio::task::AbortHandle>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Carrier {
+    application: DuplexStream,
+    _tasks: Tasks,
+}
+
+impl crate::protocol::obfs::SplitStream for Carrier {
+    type R = ReadHalf<Self>;
+    type W = WriteHalf<Self>;
+    fn split_io(self) -> (Self::R, Self::W) {
+        tokio::io::split(self)
+    }
+}
+
+impl AsyncRead for Carrier {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Carrier {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.application).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_shutdown(cx)
+    }
+}
+
 fn h2_error(context: &str, error: impl std::fmt::Display) -> io::Error {
     io::Error::other(format!("{context}: {error}"))
 }
 
 async fn send_with_flow_control(
     stream: &mut SendStream<Bytes>,
-    data: Bytes,
+    mut data: Bytes,
     end_of_stream: bool,
 ) -> io::Result<()> {
     if data.is_empty() {
@@ -45,24 +99,29 @@ async fn send_with_flow_control(
         return Ok(());
     }
 
-    stream.reserve_capacity(data.len());
-    while stream.capacity() < data.len() {
-        match poll_fn(|cx| stream.poll_capacity(cx)).await {
-            Some(Ok(_)) => {}
-            Some(Err(error)) => {
-                return Err(h2_error("HTTP/2 flow-control wait failed", error));
-            }
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "HTTP/2 stream closed while waiting for flow-control capacity",
-                ));
+    while !data.is_empty() {
+        stream.reserve_capacity(data.len());
+        while stream.capacity() == 0 {
+            match poll_fn(|cx| stream.poll_capacity(cx)).await {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    return Err(h2_error("HTTP/2 flow-control wait failed", error));
+                }
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "HTTP/2 stream closed while waiting for flow-control capacity",
+                    ));
+                }
             }
         }
+        let size = stream.capacity().min(data.len());
+        let part = data.split_to(size);
+        stream
+            .send_data(part, end_of_stream && data.is_empty())
+            .map_err(|error| h2_error("HTTP/2 DATA send failed", error))?;
     }
-    stream
-        .send_data(data, end_of_stream)
-        .map_err(|error| h2_error("HTTP/2 DATA send failed", error))
+    Ok(())
 }
 
 /// Read the private byte stream, then jointly randomize the carrier's DATA size
@@ -128,20 +187,26 @@ async fn inbound(mut stream: RecvStream, mut sink: WriteHalf<DuplexStream>) -> i
     sink.shutdown().await
 }
 
-fn bridge(send: SendStream<Bytes>, recv: RecvStream) -> DuplexStream {
+fn bridge(send: SendStream<Bytes>, recv: RecvStream, mut tasks: Tasks) -> Carrier {
     let (application, worker) = tokio::io::duplex(BRIDGE_CAPACITY);
     let (source, sink) = tokio::io::split(worker);
-    tokio::spawn(async move {
-        if let Err(error) = outbound(source, send).await {
-            log::debug!("HTTP/2 carrier outbound ended: {error}");
+    let driver = Tasks(tasks.0.clone());
+    let worker = tokio::spawn(async move {
+        let mut driver = driver;
+        // A failure in either direction drops the other future and the driver.
+        // A clean half-close may still receive a reply until the owner is dropped.
+        match tokio::try_join!(outbound(source, send), inbound(recv, sink)) {
+            Err(error) => log::debug!("HTTP/2 carrier ended: {error}"),
+            // Both halves ended cleanly. Leave the owner in charge so the driver can
+            // flush the queued END_STREAM before the application drops the carrier.
+            Ok(_) => driver.0.clear(),
         }
     });
-    tokio::spawn(async move {
-        if let Err(error) = inbound(recv, sink).await {
-            log::debug!("HTTP/2 carrier inbound ended: {error}");
-        }
-    });
-    application
+    tasks.0.push(worker.abort_handle());
+    Carrier {
+        application,
+        _tasks: tasks,
+    }
 }
 
 fn configure_client() -> h2::client::Builder {
@@ -211,7 +276,7 @@ fn carrier_rejection(request: &Request<RecvStream>) -> Option<(StatusCode, &'sta
 
 /// Establish the client side of a genuine h2 streaming exchange over an already
 /// authenticated REALITY-TLS stream.
-pub async fn connect<S>(io: S, authority: &str) -> io::Result<DuplexStream>
+pub async fn connect<S>(io: S, authority: &str) -> io::Result<Carrier>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -219,11 +284,12 @@ where
         .handshake::<_, Bytes>(io)
         .await
         .map_err(|error| h2_error("HTTP/2 client handshake failed", error))?;
-    tokio::spawn(async move {
+    let driver = tokio::spawn(async move {
         if let Err(error) = connection.await {
             log::debug!("HTTP/2 client connection ended: {error}");
         }
     });
+    let tasks = Tasks(vec![driver.abort_handle()]);
 
     let mut send_request = send_request
         .ready()
@@ -251,14 +317,14 @@ where
             format!("HTTP/2 carrier returned status {}", response.status()),
         ));
     }
-    Ok(bridge(send, response.into_body()))
+    Ok(bridge(send, response.into_body(), tasks))
 }
 
 /// Accept the first h2 request on an already authenticated REALITY-TLS stream.
 /// Later streams receive a normal 404 response; the tunnel itself uses exactly
 /// one bidirectional streaming request, which keeps connection-level h2 state
 /// and flow-control genuine for its whole lifetime.
-pub async fn accept<S>(io: S) -> io::Result<DuplexStream>
+pub async fn accept<S>(io: S) -> io::Result<Carrier>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -312,7 +378,7 @@ where
         .map_err(|error| h2_error("HTTP/2 response send failed", error))?;
     let recv = request.into_body();
 
-    tokio::spawn(async move {
+    let driver = tokio::spawn(async move {
         while let Some(next) = connection.accept().await {
             match next {
                 Ok((_request, mut respond)) => {
@@ -331,7 +397,7 @@ where
             }
         }
     });
-    Ok(bridge(send, recv))
+    Ok(bridge(send, recv, Tasks(vec![driver.abort_handle()])))
 }
 
 #[cfg(test)]
@@ -388,6 +454,9 @@ mod tests {
             let mut request = vec![0u8; 25_000];
             carrier.read_exact(&mut request).await.unwrap();
             carrier.write_all(&request).await.unwrap();
+            // Drop now cancels the buffered bridge; keep ownership until the peer
+            // acknowledges receiving the echo (AsyncWrite::write_all is not an ACK).
+            carrier.read_u8().await.unwrap();
             request
         });
 
@@ -416,6 +485,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(response, request);
+        carrier.write_u8(1).await.unwrap();
         assert_eq!(server.await.unwrap(), request);
     }
 }

@@ -701,21 +701,24 @@ function usersPage() {
     openUsage(name, cur, mode) {
       const exp = cur && cur.expire_at ? Math.max(0, Math.ceil((cur.expire_at * 1000 - Date.now()) / 86400000)) : 0;
       const date = cur && cur.expire_at ? this.tsToDateStr(cur.expire_at) : '';
-      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, expire_date: date, mode };
+      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, expire_date: date, original_expire_at: cur?.expire_at ?? null, expiry_edited: false, mode };
       this.modalError = ''; this.modalSaving = false; this.modal = 'usage';
     },
     // Local yyyy-mm-dd for a unix ts (used to prefill the date picker).
     tsToDateStr(ts) { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
     // Keep the two inputs in sync: typing days fills the date; picking a date fills days.
-    syncFromDays() { const n = Number(this.usageForm.expire_days) || 0; this.usageForm.expire_date = n > 0 ? this.tsToDateStr(Math.floor(Date.now() / 1000) + n * 86400) : ''; },
-    syncFromDate() { const s = this.usageForm.expire_date; if (!s) { this.usageForm.expire_days = 0; return; } const ms = new Date(s + 'T23:59:59').getTime() - Date.now(); this.usageForm.expire_days = ms > 0 ? Math.ceil(ms / 86400000) : 0; },
+    syncFromDays() { this.usageForm.expiry_edited = true; const n = Number(this.usageForm.expire_days) || 0; this.usageForm.expire_date = n > 0 ? this.tsToDateStr(Math.floor(Date.now() / 1000) + n * 86400) : ''; },
+    syncFromDate() { this.usageForm.expiry_edited = true; const s = this.usageForm.expire_date; if (!s) { this.usageForm.expire_days = 0; return; } const ms = new Date(s + 'T23:59:59').getTime() - Date.now(); this.usageForm.expire_days = ms > 0 ? Math.ceil(ms / 86400000) : 0; },
     async saveLimit() {
       this.modalSaving = true;
       const f = this.usageForm;
-      // Prefer an explicit date (valid through end of that day); else fall back to N days.
-      let expire_at = null;
-      if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
-      else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
+      // Preserve exact expiry unless the operator actually edits its controls.
+      let expire_at = f.original_expire_at;
+      if (f.expiry_edited) {
+        expire_at = null;
+        if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
+        else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
+      }
       const r = await apiFetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) });
       this.modalSaving = false;
       if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }

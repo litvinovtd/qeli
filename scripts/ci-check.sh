@@ -7,14 +7,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rc=0
 # Docs gate first — it is instant and needs no toolchain, so a broken link or an
 # undocumented config key fails before the multi-minute Rust build.
-echo "== docs (7 checks: links / index / parity / config keys / sources / placeholders / version) =="
+echo "== docs (all configured checks) =="
 (cd "$ROOT" && python3 scripts/check_docs.py) || rc=1
+echo "== panel editor regression tests =="
+(cd "$ROOT" && python3 scripts/check_panel.py && node scripts/test_panel_editors.cjs) || rc=1
 echo "== version consistency (build files + docs banners) =="
 (cd "$ROOT" && python3 scripts/sync_version.py) || rc=1
 
 cd "$ROOT/qeli" || exit 1
 echo "== build (release) =="
-cargo build --bin qeli --release || rc=1
+cargo build --locked --bin qeli --release --features jemalloc || rc=1
 echo "== test =="
 cargo test --all || rc=1
 

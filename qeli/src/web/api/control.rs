@@ -23,6 +23,13 @@ pub async fn restart(
         Ok(config) => config,
         Err(error) => return Ok(Json(super::err_json(format!("restart refused: {error}")))),
     };
+    if super::config::needs_full_restart(&state.config.web, &config.web) {
+        return Ok(Json(json!({
+            "ok": false,
+            "kind": "full_restart_required",
+            "error": "The saved panel settings require a full process restart; a worker restart cannot apply them.",
+        })));
+    }
     if let Err(error) = crate::server::validate_profiles(&config) {
         return Ok(Json(super::err_json(format!(
             "restart refused: server config is invalid: {error}"

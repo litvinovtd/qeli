@@ -932,6 +932,21 @@ adb shell appops set com.qeli ACTIVATE_VPN allow   # если поддержив
 ```
 
 ### 8.3 Десктоп (Windows/macOS)
+
+- `Refusing untrusted service storage` / `refusing default DLL search` — отказ защиты,
+  а не повод копировать DLL рядом с EXE. Начиная с 0.8.2 Windows проверяет владельца,
+  все разрешения на запись и reparse points; сервисный профиль доступен только
+  SYSTEM/Administrators. Старые небезопасные файлы автоматически не принимаются.
+  Сначала остановите VPN/службу и завершите восстановление DNS/маршрутов/firewall.
+  Затем сохраните резервную копию для диагностики, пересоздайте защищённое хранилище
+  из elevated GUI и заново сохраните профиль из доверенного источника. Не удаляйте
+  активные recovery journals и не «исправляйте» только ACL поверх непроверенных файлов.
+- `Tunnel cleanup remains incomplete` означает, что очистка ещё не закончена:
+  служба сохраняет Error вместо Disconnected. Повторите остановку и проверьте журнал.
+- `TLS traffic key budget exhausted; reconnect required` — защитное завершение
+  REALITY-TLS после 2^24 записей или 64 GiB ciphertext на одном ключе в одном направлении.
+  Клиент использует обычную политику переподключения; KeyUpdate пока не реализован.
+
 - Вкладка **Log / Журнал** → **Copy log** — прислать при разборе.
 - Windows требует **администратора** (манифест `requireAdministrator`); macOS —
   **root** (`sudo`) или включённый launchd-демон.

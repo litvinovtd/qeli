@@ -695,7 +695,7 @@ async fn wrap_obfs(
 async fn wrap_reality(
     mut stream: TcpStream,
     config: &ClientConfig,
-) -> anyhow::Result<tokio::io::DuplexStream> {
+) -> anyhow::Result<crate::protocol::h2_carrier::Carrier> {
     let server_name = config.effective_reality_sni().to_string();
     let ephemeral = crate::crypto::Keypair::generate();
     let short_id = config

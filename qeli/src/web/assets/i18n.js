@@ -36,6 +36,14 @@
   // English-string -> translation. 'en' is identity (no entry needed).
   const DICT = {
     ru: {
+      "Invalid INI section": "Некорректная секция INI",
+      "Duplicate [qeli] section": "Повторная секция [qeli]",
+      "INI key before [qeli]": "Параметр INI до секции [qeli]",
+      "Expected INI key = value": "Ожидается строка INI: ключ = значение",
+      "Duplicate INI key: ": "Повторный параметр INI: ",
+      "Invalid INI boolean: ": "Некорректное логическое значение INI: ",
+      "Invalid INI number: ": "Некорректное число INI: ",
+      "Missing [qeli] section": "Отсутствует секция [qeli]",
       // ── chrome / nav ──
       'Dashboard': 'Панель',
       'Users': 'Пользователи',

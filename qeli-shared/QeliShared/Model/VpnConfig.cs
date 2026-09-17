@@ -1202,7 +1202,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
     private static bool IsIpLiteral(string s)
     {
         var v = s.Trim();
-        if (v.Length == 0) return false;
+        if (v.Length == 0 || v != s || v.Contains('%') || v.Contains('[') || v.Contains(']')) return false;
         if (!System.Net.IPAddress.TryParse(v, out var addr)) return false;
         // `IPAddress.TryParse` accepts the historical IPv4 shorthands — `1` → 0.0.0.1,
         // `127.1` → 127.0.0.1, `0x7f000001` → 127.0.0.1 — which Rust, Kotlin and Swift all
@@ -1215,7 +1215,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         {
             return addr.ToString() == v;
         }
-        return true;   // IPv6 has no such shorthand; TryParse is strict there.
+        // Reject legacy IPv4 spellings inside IPv4-mapped IPv6 literals too.
+        return !v.Contains('.') || IsIpLiteral(v[(v.LastIndexOf(':') + 1)..]);
     }
 
     /// <summary>Reject a config the runtime would then silently reinterpret. The desktop client
@@ -1233,6 +1234,17 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public void Validate(bool platformCapabilities = true)
     {
         _ = platformCapabilities;
+        foreach (string key in new[] { "recv_buffer_size", "send_buffer_size" })
+        {
+            if (CarriedKeys.TryGetValue(key, out string? value)
+                && (value.StartsWith("-", StringComparison.Ordinal)
+                    || !ulong.TryParse(value, System.Globalization.NumberStyles.AllowLeadingSign,
+                    System.Globalization.CultureInfo.InvariantCulture, out ulong size)
+                    || size > 64UL * 1024 * 1024))
+                throw new ArgumentException($"'{key}' must be 0..67108864 bytes");
+        }
+        if (!string.IsNullOrEmpty(LocalAddress) && !IsIpLiteral(LocalAddress))
+            throw new ArgumentException("'local' must be a bare IPv4/IPv6 literal without a scope ID");
         // The flat INI spells the MODE and the RESOLVER LIST with the same `dns` key, so a
         // misspelled mode does not fall through to an error — it falls through to being read
         // as an ADDRESS. `dns = of` became a resolver named "of", the tunnel installed it, and
@@ -1474,7 +1486,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (parts.Length is < 1 or > 2) return false;
         string addressText = parts[0];
         bool ipv6 = addressText.Contains(':');
-        if (!System.Net.IPAddress.TryParse(addressText, out var address)) return false;
+        if (!IsIpLiteral(addressText)
+            || !System.Net.IPAddress.TryParse(addressText, out var address)) return false;
         if (ipv6 != (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6))
             return false;
         if (!ipv6)

@@ -147,6 +147,19 @@ pub(super) fn snapshot_before_changed_write(
     }
 }
 
+pub(super) fn needs_full_restart(
+    current: &crate::config::server::WebConfig,
+    next: &crate::config::server::WebConfig,
+) -> bool {
+    current.bind != next.bind
+        || current.port != next.port
+        || current.enabled != next.enabled
+        || current.tls != next.tls
+        || current.tls_cert != next.tls_cert
+        || current.tls_key != next.tls_key
+        || current.base_path != next.base_path
+}
+
 pub async fn get_config(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
@@ -182,6 +195,7 @@ pub async fn get_config(
         }
         return Ok(Json(json!({
             "ok": true,
+            "needs_full_restart": needs_full_restart(&state.config.web, &config.web),
             "config": config,
             "revision": config_revision(&raw),
         })));
@@ -190,6 +204,7 @@ pub async fn get_config(
     Ok(Json(json!({
         "ok": true,
         "config": &state.config,
+        "needs_full_restart": false,
         "revision": config_revision(&raw),
     })))
 }
@@ -1184,7 +1199,7 @@ pub async fn put_config(
 
     // Deserialize-validate the structure first.
     let mut parsed: crate::config::server::ServerConfig =
-        match serde_json::from_value(new_config_value.clone()) {
+        match crate::config::decode_server_form(new_config_value.clone()) {
             Ok(c) => c,
             Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
         };
@@ -1207,8 +1222,13 @@ pub async fn put_config(
     let bad_name = parsed
         .profiles
         .iter()
-        .find(|p| !crate::util::is_valid_ident(&p.name))
-        .map(|p| name_err("profile name", &p.name))
+        .find(|p| !crate::util::is_valid_profile_name(&p.name))
+        .map(|p| {
+            format!(
+                "{}; profile names must not contain commas",
+                name_err("profile name", &p.name)
+            )
+        })
         .or_else(|| {
             parsed
                 .auth
@@ -1440,20 +1460,7 @@ pub async fn put_config(
     // Did the PANEL's own socket change (web.bind/port/tls/enabled)? Those are bound by the
     // supervisor at startup and NOT reapplied by the worker restart — they need a FULL restart.
     // Compare against config.web, the boot-time snapshot = what the panel is bound to now.
-    let cur = &state.config.web;
-    let w = &parsed.web;
-    let needs_full_restart = w.bind != cur.bind
-        || w.port != cur.port
-        || w.enabled != cur.enabled
-        || w.tls != cur.tls
-        || w.tls_cert != cur.tls_cert
-        || w.tls_key != cur.tls_key
-        // The router is NESTED under the boot-time base_path (web/mod.rs), and the
-        // base-href rewrite middleware reads the same startup snapshot — so a change
-        // here does NOT take effect on a worker restart, only on a full process
-        // restart. Without this the panel said "applied live" while still serving on
-        // the old prefix, sending the operator on a 404 hunt behind their proxy.
-        || w.base_path != cur.base_path;
+    let needs_full_restart = needs_full_restart(&state.config.web, &parsed.web);
 
     let config_str = parsed.to_ini_string();
     // Fail-closed defense-in-depth: never write a config we can't read back. The
@@ -1616,6 +1623,8 @@ pub async fn get_config_raw(
         // holding the admin hash or a user's stored password. (Audit 2026-07-27, P1.)
         Ok(raw) => Ok(Json(json!({
             "ok": true,
+            "needs_full_restart": crate::config::parse_server_config(&raw)
+                .map(|config| needs_full_restart(&state.config.web, &config.web)).unwrap_or(true),
             "raw": mask_raw_secrets(&raw),
             "path": canon.display().to_string(),
             "masked": RAW_SECRET_MASK,
@@ -1644,9 +1653,12 @@ fn validate_config_structure(parsed: &crate::config::server::ServerConfig) -> Op
     if let Some(p) = parsed
         .profiles
         .iter()
-        .find(|p| !crate::util::is_valid_ident(&p.name))
+        .find(|p| !crate::util::is_valid_profile_name(&p.name))
     {
-        return Some(name_err("profile name", &p.name));
+        return Some(format!(
+            "{}; profile names must not contain commas",
+            name_err("profile name", &p.name)
+        ));
     }
     if let Some(g) = parsed
         .auth
@@ -1757,25 +1769,35 @@ fn mask_raw_secrets(raw: &str) -> String {
     out
 }
 
-/// Put the real secrets back: any masked value in `incoming` is replaced with the value
-/// the same `(section, key)` holds in `on_disk`.
-///
-/// Keyed by section so two users' hashes can never be swapped. A masked value with no
-/// counterpart on disk becomes empty, which the parser treats as "unset" — the same
-/// outcome the structured path produces for a user it cannot match.
-fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
+/// Use the INI parser's canonical identity; formatting never renames a secret owner.
+fn canonical_secret_section(header: &str) -> Result<String, String> {
+    let doc = crate::config::format::IniDoc::parse(header).map_err(|error| error.to_string())?;
+    doc.sections
+        .first()
+        .map(|section| section.header())
+        .ok_or_else(|| "missing INI section".to_string())
+}
+
+/// An unresolved mask is an error, never an implicit request to clear credentials.
+fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> Result<String, String> {
     let mut disk: std::collections::HashMap<(String, String), String> =
         std::collections::HashMap::new();
     let mut section = String::new();
     for line in on_disk.lines() {
         let t = line.trim();
         if t.starts_with('[') {
-            section = t.to_string();
+            section = canonical_secret_section(t)?;
             continue;
         }
         if let Some((k, v)) = ini_kv(line) {
-            if RAW_SECRET_KEYS.contains(&k) {
-                disk.insert((section.clone(), k.to_string()), v.to_string());
+            if RAW_SECRET_KEYS.contains(&k)
+                && disk
+                    .insert((section.clone(), k.to_string()), v.to_string())
+                    .is_some()
+            {
+                return Err(format!(
+                    "ambiguous secret {k} in {section}; resolve the duplicate on disk first"
+                ));
             }
         }
     }
@@ -1787,7 +1809,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
         let eol = &line[body.len()..];
         let t = body.trim();
         if t.starts_with('[') {
-            section = t.to_string();
+            section = canonical_secret_section(t)?;
             out.push_str(line);
             continue;
         }
@@ -1796,7 +1818,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
                 let real = disk
                     .get(&(section.clone(), k.to_string()))
                     .cloned()
-                    .unwrap_or_default();
+                    .ok_or_else(|| format!("cannot preserve masked secret {k} in {section}: no matching value on disk; enter a new value explicitly"))?;
                 let indent_len = body.len() - body.trim_start().len();
                 out.push_str(&body[..indent_len]);
                 out.push_str(k);
@@ -1807,7 +1829,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
             _ => out.push_str(line),
         }
     }
-    out
+    Ok(out)
 }
 
 /// Write raw INI text **verbatim** (preserving hand-written comments/formatting),
@@ -1844,7 +1866,10 @@ pub async fn put_config_raw(
             .as_deref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .unwrap_or_default();
-        unmask_raw_secrets(&raw, &on_disk)
+        match unmask_raw_secrets(&raw, &on_disk) {
+            Ok(raw) => raw,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        }
     };
 
     // Validate by parsing — catches INI syntax errors and invalid/missing values.
@@ -1998,15 +2023,7 @@ pub async fn put_config_raw(
     // Without it the raw editor always claimed a worker restart would suffice, so an
     // operator who moved web.port there restarted the worker, watched the panel stay on
     // the old port, and had nothing pointing at the cause. (Audit 2026-07-27, C2.)
-    let cur = &state.config.web;
-    let w = &parsed.web;
-    let needs_full_restart = w.bind != cur.bind
-        || w.port != cur.port
-        || w.enabled != cur.enabled
-        || w.tls != cur.tls
-        || w.tls_cert != cur.tls_cert
-        || w.tls_key != cur.tls_key
-        || w.base_path != cur.base_path;
+    let needs_full_restart = needs_full_restart(&state.config.web, &parsed.web);
 
     let message = if needs_full_restart {
         "raw config saved (comments preserved). This changes the PANEL socket (web.bind/port/tls/enabled/base_path); apply it with a FULL restart: the `Apply & Restart` button does one, or run `systemctl restart qeli`."
@@ -2213,15 +2230,7 @@ pub async fn restore_config_history(
         ))));
     }
     state.reload_web_settings().await;
-    let cur = &state.config.web;
-    let web = &parsed.web;
-    let needs_full_restart = web.bind != cur.bind
-        || web.port != cur.port
-        || web.enabled != cur.enabled
-        || web.tls != cur.tls
-        || web.tls_cert != cur.tls_cert
-        || web.tls_key != cur.tls_key
-        || web.base_path != cur.base_path;
+    let needs_full_restart = needs_full_restart(&state.config.web, &parsed.web);
     Ok(Json(json!({
         "ok": true,
         "message": "Configuration snapshot restored — restart to apply it.",
@@ -2305,7 +2314,7 @@ mod raw_secret_tests {
     #[test]
     fn masked_values_round_trip_back_to_the_originals() {
         let masked = mask_raw_secrets(SAMPLE);
-        let restored = unmask_raw_secrets(&masked, SAMPLE);
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
         assert_eq!(restored, SAMPLE, "round-trip must be byte-identical");
     }
 
@@ -2313,7 +2322,7 @@ mod raw_secret_tests {
     #[test]
     fn restoration_does_not_swap_secrets_between_users() {
         let masked = mask_raw_secrets(SAMPLE);
-        let restored = unmask_raw_secrets(&masked, SAMPLE);
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
         let alice = restored.split("[user:alice]").nth(1).unwrap();
         let alice_block = alice.split("[user:bob]").next().unwrap();
         assert!(alice_block.contains("$argon2id$alice"));
@@ -2324,8 +2333,43 @@ mod raw_secret_tests {
     #[test]
     fn an_explicitly_edited_secret_is_kept() {
         let edited = SAMPLE.replace("$argon2id$alice", "$argon2id$NEWVALUE");
-        let restored = unmask_raw_secrets(&edited, SAMPLE);
+        let restored = unmask_raw_secrets(&edited, SAMPLE).unwrap();
         assert!(restored.contains("$argon2id$NEWVALUE"));
+    }
+
+    #[test]
+    fn full_restart_requirement_survives_loading_the_saved_config() {
+        let current = crate::config::parse_server_config("[profile:a]\n")
+            .unwrap()
+            .web;
+        assert!(!needs_full_restart(&current, &current));
+        let mut next = current.clone();
+        next.port += 1;
+        assert!(needs_full_restart(&current, &next));
+        next = current.clone();
+        next.base_path = "/vpn".into();
+        assert!(needs_full_restart(&current, &next));
+        next = current.clone();
+        next.username = "another-admin".into();
+        assert!(!needs_full_restart(&current, &next));
+    }
+
+    #[test]
+    fn secret_masks_follow_canonical_sections_and_reject_missing_owners() {
+        let masked = mask_raw_secrets(SAMPLE)
+            .replace("[web]", "[ web ]")
+            .replace("[user:alice]", "[ user : alice ]");
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
+        assert!(restored.contains("password_hash = $argon2id$alice"));
+        assert!(restored.contains("password_enc = ZW5jcnlwdGVk"));
+        assert!(!restored.contains(RAW_SECRET_MASK));
+        let renamed = mask_raw_secrets(SAMPLE).replace("[user:alice]", "[user:renamed]");
+        assert!(unmask_raw_secrets(&renamed, SAMPLE)
+            .unwrap_err()
+            .contains("no matching value"));
+        assert!(unmask_raw_secrets(&mask_raw_secrets(SAMPLE), "").is_err());
+        let duplicated = format!("{SAMPLE}\n[user: alice ]\npassword_hash = second\n");
+        assert!(unmask_raw_secrets(&mask_raw_secrets(SAMPLE), &duplicated).is_err());
     }
 
     #[test]

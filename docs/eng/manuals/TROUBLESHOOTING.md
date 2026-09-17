@@ -938,6 +938,21 @@ adb shell appops set com.qeli ACTIVATE_VPN allow   # if supported
 ```
 
 ### 8.3 Desktop (Windows/macOS)
+
+- `Refusing untrusted service storage` / `refusing default DLL search` is a security
+  refusal, not a reason to place DLLs beside the executable. Since 0.8.2 Windows checks
+  owners, all write grants and reparse points; the service profile is private to
+  SYSTEM/Administrators. Unsafe legacy files are not adopted automatically.
+  Stop the VPN/service and finish DNS/route/firewall recovery first. Preserve a backup
+  for diagnosis, recreate protected storage from the elevated GUI and re-save a profile
+  from a trusted source. Do not delete active recovery journals or merely tighten
+  ACLs over files whose origin has not been verified.
+- `Tunnel cleanup remains incomplete` means cleanup has not finished: the service
+  keeps Error instead of Disconnected. Retry stopping and inspect the log.
+- `TLS traffic key budget exhausted; reconnect required` is a protective
+  REALITY-TLS termination after 2^24 records or 64 GiB of ciphertext per key/direction.
+  The client's usual reconnect policy applies; KeyUpdate is not implemented yet.
+
 - **Log** tab → **Copy log** — attach it when troubleshooting.
 - Windows requires **administrator** (manifest `requireAdministrator`); macOS —
   **root** (`sudo`) or the launchd daemon enabled.

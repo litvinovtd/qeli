@@ -104,6 +104,7 @@ public static class Program
         Check("ObfsStream XOR symmetric", TestObfs());
         Check("ObfsStream WebSocket F3 vector", ObfsStream.SelfTestWsFraming());
         LinkConformance.Run(Check);
+        ConfigBoundaryConformance.Run(Check);
         PrpNonceConformance.Run(Check);
         WireConformance.Run(Check);
         RoamingPathConformance.Run(Check);

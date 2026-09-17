@@ -164,8 +164,12 @@ fn reject_unread_keys(doc: &crate::config::format::IniDoc, path: &Path) -> anyho
 
 fn validate_users_instance_names(doc: &crate::config::format::IniDoc) -> anyhow::Result<()> {
     for kind in ["user", "group"] {
+        let mut seen = std::collections::HashSet::new();
         for section in doc.sections_of(kind) {
             let name = section.instance.as_deref().unwrap_or("");
+            if !seen.insert(name) {
+                anyhow::bail!("users database: duplicate [{kind}:{name}] section");
+            }
             if !crate::util::is_valid_ident(name) {
                 anyhow::bail!(
                     "users database: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
@@ -401,6 +405,11 @@ impl UsersDb {
         for user in &self.users {
             if !crate::util::is_valid_ident(&user.username) {
                 anyhow::bail!("username {:?} is invalid", user.username);
+            }
+            for profile in &user.profiles {
+                if !crate::util::is_valid_profile_name(profile) {
+                    anyhow::bail!("user {:?}: invalid profile name {:?}; commas are not allowed in profile names", user.username, profile);
+                }
             }
             if !usernames.insert(user.username.as_str()) {
                 anyhow::bail!("duplicate username {:?}", user.username);

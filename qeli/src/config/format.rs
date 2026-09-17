@@ -500,8 +500,8 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
         s
     };
     let needs = s.is_empty()
-        || s.starts_with(' ')
-        || s.ends_with(' ')
+        || s.starts_with(char::is_whitespace)
+        || s.ends_with(char::is_whitespace)
         || s.contains(';')
         || s.contains('#')
         || s.contains('"');
@@ -515,6 +515,26 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn significant_whitespace_and_quotes_round_trip_as_values() {
+        for value in [
+            "\tpassword\t",
+            "\u{a0}password\u{a0}",
+            "\u{2003}password\u{2003}",
+            "\"password\"",
+            "a\\b\"c",
+            " #;= ",
+        ] {
+            let mut doc = IniDoc::new();
+            let mut section = Section::new("qeli", None);
+            section.set("pass", value);
+            doc.push(section);
+            let raw = doc.to_string();
+            let parsed = IniDoc::parse(&raw).unwrap();
+            assert_eq!(parsed.section("qeli").unwrap().get("pass"), Some(value));
+        }
+    }
 
     #[test]
     fn parses_singletons_and_instances() {

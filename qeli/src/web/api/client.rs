@@ -208,10 +208,13 @@ fn ini_from_fields(b: &Value) -> String {
     // Field values are single-line; strip any control char so a value can't inject an
     // extra INI line (defense-in-depth alongside persist()'s hook rejection).
     let g = |k: &str| -> String {
-        b.get(k)
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
+        let value = b.get(k).and_then(|v| v.as_str()).unwrap_or("");
+        let value = if matches!(k, "pass" | "obfs_key") {
+            value
+        } else {
+            value.trim()
+        };
+        value
             .chars()
             .filter(|&c| !c.is_control() || c == '\t')
             .collect()
@@ -226,37 +229,67 @@ fn ini_from_fields(b: &Value) -> String {
         })
     };
     let mut s = String::from("[qeli]\n");
-    s.push_str(&format!("server = {}\n", g("server")));
+    s.push_str(&format!(
+        "server = {}\n",
+        crate::config::format::quote_if_needed(&g("server"))
+    ));
     if !g("proto").is_empty() {
-        s.push_str(&format!("proto = {}\n", g("proto")));
+        s.push_str(&format!(
+            "proto = {}\n",
+            crate::config::format::quote_if_needed(&g("proto"))
+        ));
     }
     if !g("user").is_empty() {
-        s.push_str(&format!("user = {}\n", g("user")));
+        s.push_str(&format!(
+            "user = {}\n",
+            crate::config::format::quote_if_needed(&g("user"))
+        ));
     }
     if !g("pass").is_empty() {
-        s.push_str(&format!("pass = {}\n", g("pass")));
+        s.push_str(&format!(
+            "pass = {}\n",
+            crate::config::format::quote_if_needed(&g("pass"))
+        ));
     }
     if !g("key").is_empty() {
-        s.push_str(&format!("key = {}\n", g("key")));
+        s.push_str(&format!(
+            "key = {}\n",
+            crate::config::format::quote_if_needed(&g("key"))
+        ));
     }
     if !g("mode").is_empty() {
-        s.push_str(&format!("mode = {}\n", g("mode")));
+        s.push_str(&format!(
+            "mode = {}\n",
+            crate::config::format::quote_if_needed(&g("mode"))
+        ));
     }
     if !g("sni").is_empty() {
-        s.push_str(&format!("sni = {}\n", g("sni")));
+        s.push_str(&format!(
+            "sni = {}\n",
+            crate::config::format::quote_if_needed(&g("sni"))
+        ));
     }
     if !g("rsid").is_empty() {
-        s.push_str(&format!("reality_sid = {}\n", g("rsid")));
+        s.push_str(&format!(
+            "reality_sid = {}\n",
+            crate::config::format::quote_if_needed(&g("rsid"))
+        ));
     }
     if !g("obfs_key").is_empty() {
-        s.push_str(&format!("obfs_key = {}\n", g("obfs_key")));
+        s.push_str(&format!(
+            "obfs_key = {}\n",
+            crate::config::format::quote_if_needed(&g("obfs_key"))
+        ));
     }
     // The form offers these; nothing read them, so an obfs profile saved from the panel lost
     // its fronting and AWG settings — the panel reported success and the client then failed to
     // handshake because the two ends disagreed about the wire. (Audit 2026-07-31, §1.)
     // `front` only when it differs from the default, mirroring the panel's own INI preview.
     if g("mode") == "obfs" && !g("front").is_empty() && g("front") != "websocket" {
-        s.push_str(&format!("front = {}\n", g("front")));
+        s.push_str(&format!(
+            "front = {}\n",
+            crate::config::format::quote_if_needed(&g("front"))
+        ));
     }
     if flag("awg") {
         s.push_str("awg = true\n");
@@ -304,7 +337,10 @@ fn ini_from_fields(b: &Value) -> String {
     for key in ["include", "exclude", "lan_subnet_ipv6"] {
         let value = g(key);
         if !value.is_empty() {
-            s.push_str(&format!("{key} = {value}\n"));
+            s.push_str(&format!(
+                "{key} = {}\n",
+                crate::config::format::quote_if_needed(&value)
+            ));
         }
     }
     if flag("kill_switch") {
@@ -666,6 +702,25 @@ mod diagnostic_tests {
                 panel_state_from_diagnostics(&json!({ "state": state })),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn field_form_preserves_literal_passwords_and_obfuscation_keys() {
+        for password in [
+            "plain",
+            "\"secret\"",
+            " secret ",
+            "\tsecret\t",
+            "a\\b\"c",
+            "#;=",
+        ] {
+            let ini = ini_from_fields(
+                &json!({"server": "fixture.invalid:443", "pass": password, "obfs_key": password}),
+            );
+            let config = crate::config::parse_client_config_strict(&ini).unwrap();
+            assert_eq!(config.auth.password.as_deref(), Some(password));
+            assert_eq!(config.obfuscation.obfs_key, password);
         }
     }
 

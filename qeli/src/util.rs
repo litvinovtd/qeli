@@ -115,6 +115,11 @@ pub fn is_valid_ident(s: &str) -> bool {
     !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_control()) && s.trim() == s
 }
 
+/// Profile names also appear as elements of comma-separated access-control lists.
+pub fn is_valid_profile_name(s: &str) -> bool {
+    is_valid_ident(s) && !s.contains(',')
+}
+
 #[cfg(test)]
 mod route_validate_tests {
     use super::{is_valid_cidr, is_valid_gateway};

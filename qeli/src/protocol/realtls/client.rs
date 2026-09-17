@@ -370,7 +370,7 @@ async fn client_handshake_inner<S: AsyncRead + AsyncWrite + Unpin>(
         .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
         .await?;
     let mut client_hs_rec = RecordCrypto::new(&client_hs_keys.key, &client_hs_keys.iv);
-    let fin_record = client_hs_rec.encrypt(0x16, &fin);
+    let fin_record = client_hs_rec.encrypt(0x16, &fin)?;
     stream.write_all(&fin_record).await?;
 
     // 5. Application traffic keys (RFC 8446 §7.3) from the master secret.
@@ -490,7 +490,7 @@ mod tests {
         stream
             .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
             .await?; // CCS
-        let flight_record = s_rec.encrypt(0x16, &flight);
+        let flight_record = s_rec.encrypt(0x16, &flight).unwrap();
         stream.write_all(&flight_record).await?;
 
         // Read client CCS (skip) + client Finished.
@@ -529,7 +529,7 @@ mod tests {
         let (_, ping) = recv
             .decrypt(&ping_rec)
             .ok_or_else(|| ierr("decrypt ping"))?;
-        let pong = send.encrypt(0x17, b"pong");
+        let pong = send.encrypt(0x17, b"pong").unwrap();
         stream.write_all(&pong).await?;
         Ok(ping)
     }
@@ -553,7 +553,7 @@ mod tests {
             .expect("client handshake completes against a real TLS 1.3 server");
 
         // Application data both directions.
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
 
         // Surface any server-side handshake error before reading the reply.
@@ -619,7 +619,7 @@ mod tests {
             .await
             .expect("realtls client completes a real TLS 1.3 handshake with rustls");
 
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
         client_io.flush().await.unwrap();
 

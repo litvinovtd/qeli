@@ -19,6 +19,22 @@ pub fn parse_server_config(s: &str) -> anyhow::Result<server::ServerConfig> {
     server::ServerConfig::from_ini(&doc)
 }
 
+/// Decode internal panel form data with strict field checking at this API boundary.
+/// Persisted and imported configuration remains INI; shared wire deserializers keep
+/// their forward-compatible handling of extensions.
+pub fn decode_server_form(value: serde_json::Value) -> Result<server::ServerConfig, String> {
+    let mut unknown = Vec::new();
+    let config = serde_ignored::deserialize(value, |path| unknown.push(path.to_string()))
+        .map_err(|error| format!("invalid form data: {error}"))?;
+    if !unknown.is_empty() {
+        return Err(format!(
+            "unknown configuration field(s): {}",
+            unknown.join(", ")
+        ));
+    }
+    Ok(config)
+}
+
 /// Known platform/lifecycle keys that the Rust connection parser deliberately does not own.
 /// They are not typos: GUI editors preserve them and the relevant platform adapter applies
 /// them. Reporting them as unknown would train operators to ignore a real misspelling report.

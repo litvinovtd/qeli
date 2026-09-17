@@ -321,7 +321,7 @@ impl SansIoClient {
                                 let mut out = vec![0x14, 0x03, 0x03, 0x00, 0x01, 0x01]; // CCS
                                 let mut client_hs_rec =
                                     RecordCrypto::new(&client_hs_keys.key, &client_hs_keys.iv);
-                                out.extend_from_slice(&client_hs_rec.encrypt(0x16, &fin));
+                                out.extend_from_slice(&client_hs_rec.encrypt(0x16, &fin)?);
                                 let master = master_secret(suite, &hs);
                                 let c_ap =
                                     client_application_traffic_secret(suite, &master, &th_full);
@@ -434,7 +434,7 @@ impl SansIoClient {
     /// Frame application data as one TLS record (call only after `Done`).
     pub fn seal(&mut self, plaintext: &[u8]) -> io::Result<Vec<u8>> {
         match &mut self.state {
-            State::Established { send, .. } => Ok(send.encrypt(0x17, plaintext)),
+            State::Established { send, .. } => send.encrypt(0x17, plaintext),
             _ => Err(ierr("seal before handshake complete")),
         }
     }

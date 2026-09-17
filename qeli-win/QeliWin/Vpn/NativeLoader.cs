@@ -36,6 +36,10 @@ internal static class NativeLoader
     }
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+        => ResolveEmbedded(libraryName, EnsureExtracted, EnsureWinDivertDir);
+
+    internal static IntPtr ResolveEmbedded(string libraryName,
+        Func<string, string?> extract, Func<string?> extractDriverPair)
     {
         // DllImport may pass "qeli" or "qeli.dll"; normalise to the file name.
         var name = libraryName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
@@ -46,10 +50,12 @@ internal static class NativeLoader
         // The WinDivert DLL loads its signed driver from the same directory. Extract the
         // pair before mapping the DLL so driver discovery cannot race first use.
         if (name.Equals("WinDivert.dll", StringComparison.OrdinalIgnoreCase)
-            && EnsureWinDivertDir() == null)
-            return IntPtr.Zero;
-        var path = EnsureExtracted(name);
-        return path != null ? NativeLibrary.Load(path) : IntPtr.Zero;
+            && extractDriverPair() == null)
+            throw new DllNotFoundException("Protected extraction of WinDivert failed; refusing default DLL search.");
+        var path = extract(name);
+        if (path == null)
+            throw new DllNotFoundException($"Protected extraction of {name} failed; refusing default DLL search.");
+        return NativeLibrary.Load(path);
     }
 
     internal static string? EnsureWinDivertDir()
@@ -94,6 +100,7 @@ internal static class NativeLoader
             string dir;
             if (IsElevated())
             {
+                QeliWin.Service.ServiceState.EnsureDir();
                 dir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                     "QeliWin", "native");
@@ -109,6 +116,8 @@ internal static class NativeLoader
                 Directory.CreateDirectory(dir);
             }
             var outPath = Path.Combine(dir, dllName);
+            if (IsElevated() && File.Exists(outPath)
+                && QeliWin.Service.ServiceManager.NonAdminWriterOn(outPath) != null) return null;
 
             // Read the embedded copy once: we need its bytes both to compare and to
             // write, and the hash must be taken over exactly what we would load.
@@ -142,10 +151,11 @@ internal static class NativeLoader
             {
                 // Write to a private temp name and swap it in, so a concurrent reader
                 // never observes a partially-written DLL.
-                var tmp = outPath + "." + Environment.ProcessId + ".tmp";
+                var tmp = outPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 try
                 {
-                    File.WriteAllBytes(tmp, want);
+                    using (var output = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        output.Write(want);
                     File.Move(tmp, outPath, overwrite: true);
                 }
                 catch (IOException)
@@ -180,10 +190,14 @@ internal static class NativeLoader
             return new System.Security.Principal.WindowsPrincipal(id)
                 .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
         }
-        catch { return false; }
+        catch (Exception error)
+        {
+            throw new InvalidOperationException(
+                "Cannot determine native cache privilege boundary; refusing DLL extraction", error);
+        }
     }
 
-    /// <summary>Create (or adopt) a directory only Administrators and SYSTEM may write.
+    /// <summary>Create or verify a directory only Administrators and SYSTEM may write.
     /// Inheritance is disabled so a permissive ACL on the parent cannot widen it.</summary>
     private static bool CreateProtectedDirectory(string dir)
     {
@@ -216,11 +230,9 @@ internal static class NativeLoader
 
             if (!Directory.Exists(dir))
             {
-                Directory.CreateDirectory(dir);
+                new DirectoryInfo(dir).Create(sec);
             }
-            // Apply on both paths: an existing directory may predate this change.
-            new DirectoryInfo(dir).SetAccessControl(sec);
-            return true;
+            return QeliWin.Service.ServiceManager.NonAdminWriterOn(dir) == null;
         }
         catch
         {

@@ -495,6 +495,9 @@ fn prune_absent(
     (removed, errors)
 }
 
+#[path = "backup_listing.rs"]
+mod listing;
+
 fn restore_blocking(data: &[u8], exact: bool, config_path: &str) -> Result<String, String> {
     if data.len() < 3 || data[0] != 0x1f || data[1] != 0x8b {
         return Err("not a gzip archive".into());
@@ -527,101 +530,15 @@ fn restore_blocking(data: &[u8], exact: bool, config_path: &str) -> Result<Strin
         let _ = std::fs::remove_file(tmp);
     };
 
-    // List entries and refuse anything not safely contained under `qeli/`.
-    let listing = match std::process::Command::new("tar")
-        .args(["tzvf", tmp])
-        .output()
-    {
-        Ok(o) if o.status.success() => o.stdout,
-        Ok(o) => {
+    // The listing is consumed with bounded memory, entry/expanded-byte budgets and
+    // a deadline. Stop tar (and gzip) before a hostile archive can grow its output.
+    let count = match listing::validate_archive(tmp) {
+        Ok(count) => count,
+        Err(error) => {
             cleanup();
-            return Err(format!(
-                "not a valid tar.gz: {}",
-                String::from_utf8_lossy(&o.stderr)
-            ));
-        }
-        Err(e) => {
-            cleanup();
-            return Err(format!("tar list failed: {e}"));
+            return Err(error);
         }
     };
-    // Bound the EXPANDED archive, not just the 16 MiB upload. gzip reaches ~1000:1 on
-    // repetitive data, so a compliant 16 MiB upload can expand to ~16 GB written into
-    // /etc — a tar bomb that fills the root filesystem (and takes the server with it).
-    // The real backup is config + users + keys: kilobytes to a few MB.
-    const MAX_RESTORE_BYTES: u64 = 64 * 1024 * 1024;
-    const MAX_RESTORE_ENTRIES: usize = 5_000;
-    let mut total_bytes = 0u64;
-    let mut count = 0usize;
-    for line in String::from_utf8_lossy(&listing).lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        // `tar tzvf` fields: perms, owner/group, SIZE, date, time, name… (the name
-        // parser below skips the same 5).
-        if let Some(sz) = line
-            .split_whitespace()
-            .nth(2)
-            .and_then(|s| s.parse::<u64>().ok())
-        {
-            total_bytes = total_bytes.saturating_add(sz);
-            if total_bytes > MAX_RESTORE_BYTES {
-                cleanup();
-                return Err(format!(
-                    "refused: archive expands to more than {} MiB — a qeli backup is far \
-                     smaller, so this looks like a decompression bomb",
-                    MAX_RESTORE_BYTES / (1024 * 1024)
-                ));
-            }
-        }
-        // `tar tzvf` prefixes each entry with its type flag. Refuse anything that is
-        // not a regular file ('-') or directory ('d'): a symlink / hardlink / device
-        // entry is a classic tar-extraction escape (write THROUGH a link pointing
-        // outside qeli/), which the path check below cannot stop on its own.
-        let ftype = line.chars().next().unwrap_or(' ');
-        if ftype != '-' && ftype != 'd' {
-            cleanup();
-            return Err(
-                "refused: archive contains a symlink/hardlink/special entry \
-                 (only regular files and directories are allowed)"
-                    .into(),
-            );
-        }
-        // The entry name is field 6+ of `tar tzvf` (perms, owner/group, size, date,
-        // time, name…). Take the WHOLE name, not just the last whitespace token — a
-        // crafted name containing a space (e.g. `x/../evil qeli/z`) would otherwise parse
-        // as the benign `qeli/z` and slip past the `..` / prefix checks. (No `-> target`
-        // suffix to worry about — symlinks are already rejected above.)
-        let name = line
-            .split_whitespace()
-            .skip(5)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let p = name.as_str();
-        if p.is_empty()
-            || p.starts_with('/')
-            || p.contains("..")
-            || !(p == "qeli" || p.starts_with("qeli/"))
-        {
-            cleanup();
-            return Err(format!(
-                "refused: archive contains an unexpected path '{p}' (entries must be under qeli/)"
-            ));
-        }
-        count += 1;
-        if count > MAX_RESTORE_ENTRIES {
-            cleanup();
-            return Err(format!(
-                "refused: archive contains more than {MAX_RESTORE_ENTRIES} entries — a qeli \
-                 backup holds a handful of config files"
-            ));
-        }
-    }
-    if count == 0 {
-        cleanup();
-        return Err("archive is empty".into());
-    }
 
     // Snapshot the current state so a bad restore is reversible. If this fails there is
     // no way back, so refuse the restore rather than proceed unprotected — the whole

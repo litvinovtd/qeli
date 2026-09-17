@@ -5,25 +5,23 @@
     <div class="flex flex-wrap items-center gap-3">
       <!-- View toggle -->
       <div class="segmented" role="group" aria-label="Configuration editor view">
-        <button type="button" :aria-pressed="view==='form'"
+        <button type="button" :disabled="loading || saving || restarting" :aria-pressed="view==='form'"
           @click="switchView('form')">Form</button>
-        <button type="button" :aria-pressed="view==='json'"
-          @click="switchView('json')">JSON</button>
-        <button type="button" :aria-pressed="view==='raw'"
-          @click="switchView('raw')">Raw INI</button>
+        <button type="button" :disabled="loading || saving || restarting" :aria-pressed="view==='raw'"
+          @click="switchView('raw')">INI</button>
       </div>
       <div x-show="dirty" class="badge" style="background:#422006;color:#fbbf24">● Unsaved changes</div>
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <button class="btn btn-ghost" @click="reloadCurrent()" :disabled="loading" title="Reload the config from disk (discards unsaved edits)">Reload</button>
-      <button class="btn btn-ghost" @click="openHistory()" :disabled="dirty || loading" title="Restore a private snapshot created before a panel save">History</button>
-      <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!dirty || saving || restarting">
+      <button class="btn btn-ghost" @click="reloadCurrent()" :disabled="loading || saving || restarting" title="Reload the config from disk (discards unsaved edits)">Reload</button>
+      <button class="btn btn-ghost" @click="openHistory()" :disabled="dirty || loading || saving || restarting" title="Restore a private snapshot created before a panel save">History</button>
+      <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!loaded || loading || !dirty || saving || restarting">
         <div x-show="saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
         Save
       </button>
-      <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting"
+      <button class="btn btn-primary" @click="applyRestart()" :disabled="!loaded || loading || saving || restarting"
         title="Save and do a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled). Your login survives if web.persist_session_key is on (default).">
         <div x-show="restarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!restarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -32,6 +30,8 @@
     </div>
   </div>
 
+  <div x-show="loadError" x-cloak class="card p-4 mb-5 text-red-300" role="alert" x-text="loadError"></div>
+
   <!-- Restart hint -->
   <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -39,7 +39,7 @@
   </div>
 
   <!-- ═══ FORM VIEW ═══ -->
-  <div x-show="view === 'form'" x-cloak>
+  <div x-show="view === 'form' && loaded" x-cloak>
 
     <!-- Profile tabs (top level only — each profile's settings live on one page) -->
     <div class="config-profile-nav">
@@ -1665,24 +1665,6 @@
 
   </div> <!-- /form view -->
 
-  <!-- ═══ JSON VIEW ═══ -->
-  <div x-show="view === 'json'" x-cloak class="card overflow-hidden">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
-      <span class="text-xs font-medium text-slate-400 font-mono">server config (saved as INI)</span>
-      <div class="flex items-center gap-3">
-        <span class="text-xs text-slate-600" x-text="jsonText.split('\n').length + ' lines'"></span>
-        <button class="btn btn-ghost btn-sm" @click="formatJson()">Format</button>
-      </div>
-    </div>
-    <div x-show="jsonError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300" x-text="jsonError"></div>
-    <textarea
-      class="code-editor"
-      x-model="jsonText"
-      @input="onJsonEdit()"
-      spellcheck="false"
-    ></textarea>
-  </div>
-
   <!-- ═══ RAW INI VIEW ═══ -->
   <div x-show="view === 'raw'" x-cloak class="card overflow-hidden">
     <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
@@ -1695,6 +1677,7 @@
     <div x-show="rawError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300 font-mono" x-text="rawError"></div>
     <textarea
       class="code-editor"
+      :disabled="!loaded || loading"
       x-model="rawText"
       @input="dirty = true"
       spellcheck="false"
@@ -1738,8 +1721,8 @@ function configPage() {
   return {
     cfg: { profiles: [], auth: { brute_force: {} }, logging: {}, web: { brute_force: {} } },
     defaultProfile: null,   // canonical new-profile template from /api/config/defaults
-    jsonText: '',
-    jsonError: '',
+    loaded: false,
+    loadError: '',
     loading: false,
     saving: false,
     restarting: false,
@@ -1827,21 +1810,18 @@ function configPage() {
     },
 
     async switchView(next) {
-      if (next === this.view) return;
-      const crossesRaw = (this.view === 'raw') !== (next === 'raw');
-      if (crossesRaw && this.dirty && !await qeliConfirm('Discard unsaved changes',
+      if (!['form', 'raw'].includes(next) || next === this.view || this.loading || this.saving || this.restarting) return;
+      if (this.dirty && !await qeliConfirm('Discard unsaved changes',
           'Switching between the structured and raw editors reloads the configuration from disk. Discard the unsaved edits?',
           { danger: true, label: 'Discard and switch' })) return;
       this.view = next;
-      if (crossesRaw) {
-        if (next === 'raw') await this.loadRaw(); else await this.load();
-      } else if (next === 'json') {
-        this.jsonText = JSON.stringify(this.cfg, null, 2);
-      }
+      if (next === 'raw') await this.loadRaw(); else await this.load();
     },
 
     async load() {
       this.loading = true;
+      this.loaded = false;
+      this.loadError = '';
       try {
         const [d, def] = await Promise.all([
           apiFetch('api/config'),
@@ -1850,6 +1830,8 @@ function configPage() {
         if (def && def.ok) this.defaultProfile = def.profile;
         if (d.ok) {
           this.cfg = d.config;
+          this.loaded = true;
+          this.needsFullRestart = !!d.needs_full_restart;
           this.revision = d.revision || '';
           this.dirty = false;
           if (!this.cfg.auth) this.cfg.auth = {};
@@ -1861,10 +1843,13 @@ function configPage() {
           this.cfg.web.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.web.brute_force);
           this.normalizeProfiles();
           this._original = JSON.stringify(this.cfg);
-          this.jsonText = JSON.stringify(this.cfg, null, 2);
+        } else {
+          throw new Error(d.error || 'Failed to load config');
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Failed to load config: ') + e.message, type: 'error' });
+        this.loaded = false;
+        this.loadError = qeliT('Failed to load config: ') + e.message;
+        this.$dispatch('notify', { msg: this.loadError, type: 'error' });
       } finally {
         this.loading = false;
       }
@@ -1936,7 +1921,6 @@ function configPage() {
 
     markDirty() {
       this.dirty = true;
-      this.jsonText = JSON.stringify(this.cfg, null, 2);
     },
 
     onIpModeChange(pi) {
@@ -2028,9 +2012,7 @@ function configPage() {
       // Every profile must carry the sub-blocks the form binds with x-model. This is
       // NOT cosmetic: `x-show` does not protect its children (a hidden x-model on an
       // undefined object still evaluates), and several bindings — `heartbeat` most of
-      // all — are read from `:class`, which runs on EVERY render. So deleting a section
-      // in the JSON editor and switching back to the form used to throw a TypeError and
-      // leave the form unusable until reload.
+      // all — are read from `:class`, which runs on every render, even during loading.
       //
       // Backfill against the canonical skeleton instead of patching one field at a
       // time. Only MISSING keys are added, so a user's values are never overwritten.
@@ -2067,31 +2049,9 @@ function configPage() {
       for (const p of (this.cfg.profiles || [])) fill(p, skel);
     },
 
-    onJsonEdit() {
-      try {
-        this.cfg = JSON.parse(this.jsonText);
-        this.normalizeProfiles();
-        this.jsonError = '';
-        this.dirty = JSON.stringify(this.cfg) !== this._original;
-      } catch (e) {
-        this.jsonError = 'JSON error: ' + e.message;
-      }
-    },
-
-    formatJson() {
-      try {
-        this.cfg = JSON.parse(this.jsonText);
-        this.jsonText = JSON.stringify(this.cfg, null, 2);
-        this.jsonError = '';
-      } catch (e) {
-        this.jsonError = 'Cannot format: ' + e.message;
-      }
-    },
-
     async save() {
-      if (this.view === 'json') {
-        try { this.cfg = JSON.parse(this.jsonText); } catch { return; }
-      }
+      if (!this.loaded || this.loading || this.saving) return false;
+      const submitted = JSON.stringify(this.cfg);
       const changes = this.changedPaths();
       if (!changes.length) { this.dirty = false; return true; }
       const shown = changes.slice(0, 12).map(path => '• ' + path).join('\n');
@@ -2104,16 +2064,16 @@ function configPage() {
         const r = await apiFetch('api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: this.cfg, expected_revision: this.revision }),
+          body: JSON.stringify({ config: JSON.parse(submitted), expected_revision: this.revision }),
         });
         if (r.ok) {
-          this._original = JSON.stringify(this.cfg);
-          this.dirty = false;
+          this._original = submitted;
+          this.dirty = JSON.stringify(this.cfg) !== submitted;
           this.revision = r.revision || this.revision;
           this.needsFullRestart = !!r.needs_full_restart;
           this.$dispatch('notify', {
             msg: r.message || 'Saved — restart server to apply',
-            type: this.needsFullRestart ? 'warn' : 'warn',
+            type: 'warn',
           });
         } else {
           this.$dispatch('notify', { msg: qeliT(r.error || 'Save failed'), type: r.kind === 'config_conflict' ? 'warn' : 'error' });
@@ -2127,26 +2087,34 @@ function configPage() {
 
     async loadRaw() {
       this.loading = true;
+      this.loaded = false;
+      this.loadError = '';
       this.rawError = '';
       try {
         const d = await apiFetch('api/config/raw');
         if (d.ok) {
+          this.loaded = true;
+          this.needsFullRestart = !!d.needs_full_restart;
           this.rawText = d.raw;
           this.rawOriginal = d.raw;
           this.rawPath = d.path || '';
           this.revision = d.revision || '';
           this.dirty = false;
         } else {
-          this.rawError = d.error || 'Failed to load raw config';
+          throw new Error(d.error || 'Failed to load raw config');
         }
       } catch (e) {
-        this.rawError = 'Network error: ' + e.message;
+        this.loadError = e.message;
+        this.rawError = e.message;
+        this.$dispatch('notify', { msg: this.loadError, type: 'error' });
       } finally {
         this.loading = false;
       }
     },
 
     async saveRaw() {
+      if (!this.loaded || this.loading || this.saving) return false;
+      const submitted = this.rawText;
       const changedLines = this.rawChangedLines();
       if (!changedLines.length) { this.dirty = false; return true; }
       const shown = changedLines.slice(0, 12).map(line => '• ' + qeliTf('line {}', line)).join('\n');
@@ -2160,11 +2128,12 @@ function configPage() {
         const r = await apiFetch('api/config/raw', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw: this.rawText, expected_revision: this.revision }),
+          body: JSON.stringify({ raw: submitted, expected_revision: this.revision }),
         });
         if (r.ok) {
-          this.dirty = false;
-          this.rawOriginal = this.rawText;
+          this.rawOriginal = submitted;
+          this.dirty = this.rawText !== submitted;
+          this.needsFullRestart = !!r.needs_full_restart;
           this.revision = r.revision || this.revision;
           this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
         } else {
@@ -2257,6 +2226,7 @@ function configPage() {
     // all changes — including panel-socket ones (web.bind/port/tls/enabled) a worker-only
     // restart couldn't apply. The login session survives when web.persist_session_key is on.
     async applyRestart() {
+      if (!this.loaded || this.loading || this.saving || this.restarting) return;
       if (this.dirty) {
         if (this.view === 'raw') await this.saveRaw(); else await this.save();
         if (this.dirty) return; // save failed — error already shown

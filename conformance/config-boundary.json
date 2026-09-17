@@ -1,0 +1,80 @@
+{
+  "base": "[qeli]\nproto = tcp\nmode = fake-tls\nuser = audit\npass = audit\nroaming = off\nallow_unpinned_tofu = true\n",
+  "cases": [
+    {
+      "name": "unsigned negative zero",
+      "ini": "server = 127.0.0.1:443\nrecv_buffer_size = -0\n",
+      "valid": false
+    },
+    {
+      "name": "recv negative",
+      "ini": "server = 127.0.0.1:443\nrecv_buffer_size = -1\n",
+      "valid": false
+    },
+    {
+      "name": "recv over limit",
+      "ini": "server = 127.0.0.1:443\nrecv_buffer_size = 67108865\n",
+      "valid": false
+    },
+    {
+      "name": "send negative",
+      "ini": "server = 127.0.0.1:443\nsend_buffer_size = -1\n",
+      "valid": false
+    },
+    {
+      "name": "send over limit",
+      "ini": "server = 127.0.0.1:443\nsend_buffer_size = 67108865\n",
+      "valid": false
+    },
+    {
+      "name": "local shorthand",
+      "ini": "server = 127.0.0.1:443\nlocal = 127.1\n",
+      "valid": false
+    },
+    {
+      "name": "local scope",
+      "ini": "server = 127.0.0.1:443\nlocal = fe80::1%3\n",
+      "valid": false
+    },
+    {
+      "name": "route leading zero",
+      "ini": "server = 127.0.0.1:443\ninclude = 010.0.0.1/8\n",
+      "valid": false
+    },
+    {
+      "name": "route scope",
+      "ini": "server = 127.0.0.1:443\ninclude = fe80::1%3/64\n",
+      "valid": false
+    },
+    {
+      "name": "zero buffers",
+      "ini": "server = 127.0.0.1:443\nrecv_buffer_size = 0\nsend_buffer_size = 0\n",
+      "valid": true
+    },
+    {
+      "name": "maximum buffers",
+      "ini": "server = 127.0.0.1:443\nrecv_buffer_size = 67108864\nsend_buffer_size = 67108864\n",
+      "valid": true
+    },
+    {
+      "name": "local IPv6",
+      "ini": "server = 127.0.0.1:443\nlocal = ::1\n",
+      "valid": true
+    },
+    {
+      "name": "route IPv6",
+      "ini": "server = 127.0.0.1:443\ninclude = 2001:db8::/64\n",
+      "valid": true
+    },
+    {
+      "name": "server scope",
+      "ini": "server = [fe80::1%3]:443\n",
+      "valid": false
+    },
+    {
+      "name": "server IPv6",
+      "ini": "server = [::1]:443\n",
+      "valid": true
+    }
+  ]
+}

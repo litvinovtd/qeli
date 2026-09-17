@@ -528,6 +528,10 @@ fn baseline() -> ClientConfig {
     serde_json::from_str(SKELETON).expect("baseline client config skeleton is valid")
 }
 
+#[cfg(test)]
+#[path = "client_boundary_tests.rs"]
+mod boundary_tests;
+
 impl ClientConfig {
     /// Build a minimal client config from the new flat-INI `[qeli]` section.
     ///

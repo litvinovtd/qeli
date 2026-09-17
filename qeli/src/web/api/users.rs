@@ -26,9 +26,8 @@ pub(super) fn validate_argon2_hash(hash: &str) -> Result<(), String> {
 /// key, so the config/QR can be re-issued later without the plaintext. Encryption
 /// is best-effort: on key failure we still return the hash (enc = None) so user
 /// creation isn't blocked — re-issue then needs a one-time reset.
-pub(crate) fn hash_and_enc(pw: &str) -> Result<(String, Option<String>), String> {
-    let hash = crate::crypto::hash_password(pw.as_bytes())
-        .map_err(|e| format!("hashing failed: {}", e))?;
+pub(crate) async fn hash_and_enc(pw: &str) -> Result<(String, Option<String>), String> {
+    let hash = super::hash::bounded_hash(pw.to_string()).await?;
     let enc = match crate::crypto::secret::encrypt_password(pw) {
         Ok(e) => Some(e),
         Err(e) => {
@@ -198,16 +197,27 @@ fn u32_limit(n: u64, what: &str) -> Result<u32, String> {
     }
 }
 
-fn strings_from_json(v: &Value) -> Vec<String> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
+fn strings_from_json(body: &Value, key: &str) -> Result<Vec<String>, String> {
+    let Some(value) = body.get(key) else {
+        return Ok(Vec::new());
+    };
+    let entries = value
+        .as_array()
+        .ok_or_else(|| format!("{key} must be an array of strings"))?;
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let text = value
+                .as_str()
+                .ok_or_else(|| format!("{key}[{index}] must be a string"))?
+                .trim();
+            if text.is_empty() {
+                return Err(format!("{key}[{index}] must not be empty"));
+            }
+            Ok(text.to_string())
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Parse a JSON array of `{cidr, gateway?, metric?}` into per-user routes.
@@ -217,9 +227,12 @@ fn strings_from_json(v: &Value) -> Vec<String> {
 /// an entry is how a route typed in the panel could vanish without a word and
 /// never reach any client — the admin sees it "saved" and nothing happens.
 fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
-    let Some(arr) = v.as_array() else {
+    if v.is_null() {
         return Ok(Vec::new());
-    };
+    }
+    let arr = v
+        .as_array()
+        .ok_or_else(|| "routes must be an array".to_string())?;
     let mut out = Vec::with_capacity(arr.len());
     for r in arr {
         let cidr = r["cidr"].as_str().unwrap_or("").trim().to_string();
@@ -354,7 +367,7 @@ pub async fn create_user(
     let (password_hash, password_enc) = {
         let plaintext = body["password"].as_str().unwrap_or("");
         if !plaintext.is_empty() {
-            match hash_and_enc(plaintext) {
+            match hash_and_enc(plaintext).await {
                 Ok(v) => v,
                 Err(e) => return Ok(Json(super::err_json(e))),
             }
@@ -432,7 +445,18 @@ pub async fn create_user(
         Ok(v) => v.unwrap_or(0),
         Err(e) => return Ok(Json(super::err_json(e))),
     };
-    let allowed_networks_new = strings_from_json(&body["allowed_networks"]);
+    let allowed_networks_new = match strings_from_json(&body, "allowed_networks") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let profiles = match strings_from_json(&body, "profiles") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let client_subnets = match strings_from_json(&body, "client_subnets") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     if let Err(e) = validate_allowed_networks(&allowed_networks_new) {
         return Ok(Json(super::err_json(e)));
     }
@@ -450,9 +474,9 @@ pub async fn create_user(
         group,
         allowed_networks: allowed_networks_new,
         max_sessions,
-        profiles: strings_from_json(&body["profiles"]),
+        profiles,
         routes,
-        client_subnets: strings_from_json(&body["client_subnets"]),
+        client_subnets,
         ..Default::default()
     };
     let mut candidate_users = users.clone();
@@ -579,6 +603,15 @@ pub async fn update_user(
         Ok(value) => value,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
+    // KDF must not occupy a users/config write lock while its blocking job runs.
+    let password_update = if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
+        match hash_and_enc(pw).await {
+            Ok(value) => Some(value),
+            Err(error) => return Ok(Json(super::err_json(error))),
+        }
+    } else {
+        None
+    };
     let _config_write_guard = state.config_write_lock.lock().await;
     let config = match super::current_server_config(&state).await {
         Ok(config) => config,
@@ -631,14 +664,9 @@ pub async fn update_user(
             // the re-issue copy since we can't encrypt what we never see.
             // Empty `password` falls through to `password_hash` (was: an empty-but-present
             // password entered this branch and no-op'd, ignoring a supplied hash).
-            if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
-                match hash_and_enc(pw) {
-                    Ok((h, e)) => {
-                        edited.password_hash = h;
-                        edited.password_enc = e;
-                    }
-                    Err(err) => return Ok(Json(super::err_json(err))),
-                }
+            if let Some((hash, encrypted)) = password_update {
+                edited.password_hash = hash;
+                edited.password_enc = encrypted;
             } else if let Some(v) = body["password_hash"].as_str().filter(|v| !v.is_empty()) {
                 if let Err(e) = validate_argon2_hash(v) {
                     return Ok(Json(super::err_json(e)));
@@ -685,14 +713,20 @@ pub async fn update_user(
                 Err(e) => return Ok(Json(super::err_json(e))),
             }
             if body.get("allowed_networks").is_some() {
-                let nets = strings_from_json(&body["allowed_networks"]);
+                let nets = match strings_from_json(&body, "allowed_networks") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
                 if let Err(e) = validate_allowed_networks(&nets) {
                     return Ok(Json(super::err_json(e)));
                 }
                 edited.allowed_networks = nets;
             }
             if body.get("profiles").is_some() {
-                edited.profiles = strings_from_json(&body["profiles"]);
+                edited.profiles = match strings_from_json(&body, "profiles") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
             }
             if body.get("routes").is_some() {
                 match routes_from_json(&body["routes"]) {
@@ -701,7 +735,10 @@ pub async fn update_user(
                 }
             }
             if body.get("client_subnets").is_some() {
-                edited.client_subnets = strings_from_json(&body["client_subnets"]);
+                edited.client_subnets = match strings_from_json(&body, "client_subnets") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
             }
             let mut candidate_users = users.clone();
             if let Some(candidate) = candidate_users
@@ -1054,8 +1091,11 @@ pub async fn upsert_group(
         Ok(v) => v,
         Err(e) => return Ok(Json(super::err_json(e))),
     };
-    let group_nets = if body.get("allowed_networks").is_some_and(|v| v.is_array()) {
-        let nets = strings_from_json(&body["allowed_networks"]);
+    let group_nets = if body.get("allowed_networks").is_some_and(|v| !v.is_null()) {
+        let nets = match strings_from_json(&body, "allowed_networks") {
+            Ok(value) => value,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
         if let Err(e) = validate_allowed_networks(&nets) {
             return Ok(Json(super::err_json(e)));
         }
@@ -1150,7 +1190,9 @@ mod merge_tests {
     //! panel edits a user from a snapshot that may already be stale — the worker changes
     //! bandwidth/limits/expiry over the control socket — so writing the whole entry back
     //! reverted whatever it had not seen. These pin that only the edited fields travel.
-    use super::{merge_changed_fields, nullable_trimmed_string, routes_from_json};
+    use super::{
+        merge_changed_fields, nullable_trimmed_string, routes_from_json, strings_from_json,
+    };
     use crate::config::users::UserEntry;
 
     fn user(name: &str) -> UserEntry {
@@ -1271,6 +1313,41 @@ mod merge_tests {
         merge_changed_fields(&before, &after, &mut slot);
         assert_eq!(slot.bandwidth.limit_mbps, 7);
         assert_eq!(slot.static_ip.as_deref(), Some("10.0.0.9"));
+    }
+
+    #[test]
+    fn access_control_arrays_reject_wrong_types_without_dropping_entries() {
+        for key in ["allowed_networks", "profiles", "client_subnets"] {
+            for value in [
+                serde_json::json!("10.0.0.0/8"),
+                serde_json::json!(123),
+                serde_json::json!({}),
+                serde_json::json!(null),
+                serde_json::json!([123]),
+                serde_json::json!(["10.0.0.0/8", false]),
+                serde_json::json!([""]),
+            ] {
+                let body = serde_json::json!({key: value});
+                assert!(strings_from_json(&body, key).is_err(), "accepted {body}");
+            }
+            assert!(strings_from_json(&serde_json::json!({}), key)
+                .unwrap()
+                .is_empty());
+            assert!(strings_from_json(&serde_json::json!({key: []}), key)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                strings_from_json(&serde_json::json!({key: ["10.0.0.0/8"]}), key).unwrap(),
+                ["10.0.0.0/8"]
+            );
+        }
+        for bad in [
+            serde_json::json!("10.0.0.0/8"),
+            serde_json::json!({}),
+            serde_json::json!(false),
+        ] {
+            assert!(routes_from_json(&bad).is_err());
+        }
     }
 
     #[test]

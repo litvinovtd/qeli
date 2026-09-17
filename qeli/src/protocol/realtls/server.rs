@@ -609,7 +609,7 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream
         .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
         .await?; // dummy CCS
-    let flight_record = s_rec.encrypt(0x16, &flight);
+    let flight_record = s_rec.encrypt(0x16, &flight)?;
     stream.write_all(&flight_record).await?;
 
     // 5. Client CCS (skip) + encrypted client Finished.
@@ -653,7 +653,7 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // (RealTlsStream skips post-handshake handshake records), so these are
     // transparent; the send-sequence advances and stays in sync with the client.
     for _ in 0..2 {
-        let rec = send.encrypt(0x16, &build_new_session_ticket());
+        let rec = send.encrypt(0x16, &build_new_session_ticket())?;
         stream.write_all(&rec).await?;
     }
 
@@ -727,7 +727,7 @@ mod tests {
             .await
             .expect("client completes handshake against the replayed ClientHello");
 
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
         client_io.flush().await.unwrap();
 
@@ -784,7 +784,7 @@ mod tests {
             let (_, rec) = read_record(&mut server_io).await.unwrap();
             let (inner, ping) = tls.recv.decrypt(&rec).expect("decrypt ping");
             assert_eq!(inner, 0x17);
-            let pong = tls.send.encrypt(0x17, b"pong");
+            let pong = tls.send.encrypt(0x17, b"pong").unwrap();
             server_io.write_all(&pong).await.unwrap();
             server_io.flush().await.unwrap();
             ping
@@ -801,7 +801,7 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("client handshake ({suite:?}): {e}"));
 
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
         client_io.flush().await.unwrap();
 

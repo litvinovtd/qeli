@@ -104,7 +104,7 @@ pub async fn share_link(
             }
             // Reset: new password, persisted (hash + encrypted copy), worker reloaded.
             let new_pw = super::users::gen_password(20);
-            let (hash, enc2) = match super::users::hash_and_enc(&new_pw) {
+            let (hash, enc2) = match super::users::hash_and_enc(&new_pw).await {
                 Ok(v) => v,
                 Err(e) => return Json(super::err_json(e)),
             };

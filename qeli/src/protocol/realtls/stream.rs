@@ -290,7 +290,10 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
         // Encrypt up to one max-size fragment as an application_data record;
         // write_all loops for anything larger.
         let n = buf.len().min(MAX_PLAINTEXT);
-        me.out_buf = me.send.encrypt(0x17, &buf[..n]);
+        me.out_buf = match me.send.encrypt(0x17, &buf[..n]) {
+            Ok(record) => record,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
         me.out_pos = 0;
         match flush_out(&mut me.inner, &me.out_buf, &mut me.out_pos, cx) {
             Poll::Ready(Ok(())) => {
@@ -375,7 +378,7 @@ mod tests {
 
         let (mut peer, inner) = tokio::io::duplex(256);
         let mut peer_crypto = RecordCrypto::new(&key, &iv);
-        peer.write_all(&peer_crypto.encrypt(0x15, &[1, 0]))
+        peer.write_all(&peer_crypto.encrypt(0x15, &[1, 0]).unwrap())
             .await
             .unwrap();
         let mut stream = RealTlsStream::from_crypto(
@@ -395,7 +398,7 @@ mod tests {
         let (mut peer, inner) = tokio::io::duplex(256);
         let mut peer_crypto = RecordCrypto::new(&key, &iv);
         // Handshake type 0x18 (KeyUpdate), uint24 body length 1, request_update=0.
-        peer.write_all(&peer_crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]))
+        peer.write_all(&peer_crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]).unwrap())
             .await
             .unwrap();
         let mut stream = RealTlsStream::from_crypto(
