@@ -28,7 +28,7 @@ jobs:
       # QEMU lets the single amd64 runner build the arm images (emulated). A Rust
       # compile under emulation is slow — a release build of all three arches can
       # take a while; trim `platforms` below if you only need some.
-      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
