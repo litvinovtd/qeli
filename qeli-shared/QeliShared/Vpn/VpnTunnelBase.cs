@@ -333,6 +333,7 @@ public abstract class VpnTunnelBase
             // the TUN and undo the platform network state. Idempotent: the joined task's own
             // error path may already have done it (both CloseTransports and CleanupPlatform
             // null-check what they release). (Audit 2026-07-27, B3)
+            Exception? cleanupIncomplete = null;
             try
             {
                 CloseTransports();
@@ -343,25 +344,41 @@ public abstract class VpnTunnelBase
                 // macOS uses this to retain and retry a failed physical-service DNS restore;
                 // swallowing it here made the UI green/grey while the host resolver still
                 // pointed into a tunnel that no longer existed.
+                cleanupIncomplete = e;
                 Log($"[SECURITY] platform cleanup incomplete: {e.Message}");
                 Status(VpnStatus.Error, FirstSentence(e.Message));
-                throw;
             }
+            // Egress recovery still runs. A failed teardown used to throw here, BEFORE the guard
+            // and the kill-switch were lifted, so the user was left with the VPN down AND no
+            // egress and no in-app way back. The ordering intent is preserved: the lifts are
+            // still only attempted after the teardown has been attempted. (Wake audit 2026-10-02.)
+            string? liftFailure = null;
             if (!PlanReplacementGuardLift())
             {
-                const string message =
+                liftFailure =
                     "network-plan replacement guard could not be disengaged; egress remains fail-closed";
-                Status(VpnStatus.Error, message);
-                throw new InvalidOperationException(message);
+                Status(VpnStatus.Error, liftFailure);
             }
             // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
-            if (!KillSwitchLift())
+            else if (!KillSwitchLift())
             {
-                const string message =
-                    "kill-switch could not be disengaged; egress remains fail-closed";
-                Status(VpnStatus.Error, message);
-                throw new InvalidOperationException(message);
+                liftFailure = "kill-switch could not be disengaged; egress remains fail-closed";
+                Status(VpnStatus.Error, liftFailure);
             }
+            if (cleanupIncomplete != null)
+            {
+                // Report the teardown failure (and keep Stop() retryable) only after egress has
+                // been dealt with.
+                if (liftFailure != null)
+                {
+                    Log($"[SECURITY] {liftFailure}");
+                    throw new AggregateException(cleanupIncomplete,
+                        new InvalidOperationException(liftFailure));
+                }
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(cleanupIncomplete).Throw();
+            }
+            if (liftFailure != null) throw new InvalidOperationException(liftFailure);
             if (publishDisconnected) Status(VpnStatus.Disconnected);
         }
     }
@@ -444,6 +461,18 @@ public abstract class VpnTunnelBase
     private const int SettlingWindowMs = 30_000;
     private const int CarrierReplacementWaitMs = 5_000;
     private const int SettlingAttemptCap = 3;   // ≤ base·2² — 4 s at the default base of 1 s
+    // Consecutive failed platform teardowns (PreparePlatformForRetry) the loop tolerates before
+    // giving up. ReconnectMaxRetries does not bound this path — with the default -1 nothing else
+    // does — so a teardown that fails DETERMINISTICALLY (rather than transiently after a resume)
+    // would otherwise retry forever with the tunnel down and the UI parked on "Connecting": the
+    // same no-terminal-edge silence the loop exists to prevent, only without a fault to catch.
+    // The counter is deliberately independent of `attempt`, whose growth and give-up the retry
+    // policy owns. Five consecutive failures, still throttled by the policy's backoff, reach
+    // well beyond the transient window the retry exists to ride out (a macOS DNS restore that
+    // lost its three 250 ms races) — yet short enough that a permanent platform fault reaches
+    // the terminal edge with an accurate message instead of spinning. One successful teardown
+    // resets it.
+    private const int MaxConsecutiveRecoveryFailures = 5;
     private long _settlingUntilTick;
     // Invalidates an older settle task when a newer address event, Stop or Start wins.
     private long _networkObservationRevision;
@@ -523,10 +552,26 @@ public abstract class VpnTunnelBase
     // on Windows/macOS: TUN up → "network changed" → reconnect → TUN up → …).
     private volatile string _lastNetSig = "";
 
+    /// <summary>Signature over the physical interfaces, for the "did the network change?" checks.
+    /// Enumeration is the one step here that can throw: after a resume the interface table is
+    /// routinely being rebuilt, and because this is reached from <see cref="NextAttempt"/> /
+    /// PreparePlatformForRetry — outside the retry loop's per-attempt try — an escaping exception
+    /// faulted the whole run task with no Error edge, so the UI sat on "Connecting" forever. An
+    /// unknown table is reported as the empty signature, which every caller already treats as
+    /// "not settled".</summary>
     private static string PhysicalNetSignature()
     {
+        System.Net.NetworkInformation.NetworkInterface[] interfaces;
+        try
+        {
+            interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+        }
+        catch
+        {
+            return "";
+        }
         var addrs = new List<string>();
-        foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+        foreach (var ni in interfaces)
         {
             if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
             var t = ni.NetworkInterfaceType;
@@ -805,11 +850,20 @@ public abstract class VpnTunnelBase
         if (keepTun) return;  // persist-tun: keep _tun + routes alive for the next attempt
         try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
-        CleanupPlatform();
-        _tun = null;
-        _persistedClientIp = null;
-        _persistedTunnelAddresses = null;
-        _persistedNetSig = null;
+        try
+        {
+            CleanupPlatform();
+        }
+        finally
+        {
+            // The adapter above is already closed. Drop every reference to it even when
+            // CleanupPlatform throws, or a later persist-tun reuse could adopt a disposed utun
+            // and report a tunnel that carries no traffic.
+            _tun = null;
+            _persistedClientIp = null;
+            _persistedTunnelAddresses = null;
+            _persistedNetSig = null;
+        }
     }
 
     /// <summary>persist-tun: reuse a surviving TUN only when the complete effective network
@@ -858,11 +912,17 @@ public abstract class VpnTunnelBase
         }
         try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
-        CleanupPlatform();
-        _tun = null;
-        _persistedClientIp = null;
-        _persistedTunnelAddresses = null;
-        _persistedNetSig = null;
+        try
+        {
+            CleanupPlatform();
+        }
+        finally
+        {
+            _tun = null;
+            _persistedClientIp = null;
+            _persistedTunnelAddresses = null;
+            _persistedNetSig = null;
+        }
         return false;
     }
 
@@ -920,11 +980,45 @@ public abstract class VpnTunnelBase
 
     private void ConnectWithRetry(VpnConfig config, CancellationToken ct)
     {
+        string? reconnectStateFailure = null;
+        try
+        {
+            reconnectStateFailure = RunReconnectLoop(config, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // A cancellation that raced past the loop's own handler is an ordinary Stop.
+        }
+        catch (Exception loopFault)
+        {
+            // NOTHING may leave this method as a fault. Without a terminal edge the run task
+            // faults with no Error status, and MainWindow.OnTunnelRunCompleted — which keys its
+            // re-render off VpnStatus.Error — returns early, leaving the UI on "Connecting"
+            // forever. That silent give-up is indistinguishable from a hang.
+            Log($"ERR: reconnect loop faulted: [{loopFault.GetType().Name}] {loopFault.Message}");
+            // The fault is the reason the loop ended, so it — not an earlier, since-resolved
+            // recovery failure (RunReconnectLoop clears those once a teardown succeeds) — is
+            // what the terminal edge reports.
+            reconnectStateFailure = $"reconnect loop failed: {FirstSentence(loopFault.Message)}";
+        }
+        finally
+        {
+            FinishReconnect(reconnectStateFailure);
+        }
+    }
+
+    /// <summary>The reconnect loop proper. Split out of <see cref="ConnectWithRetry"/> so that
+    /// method can wrap it in a single fault-tolerant terminal edge. Returns the recovery-failure
+    /// message when the loop's LAST platform teardown failed — the reason a give-up should
+    /// report — and null when the last teardown succeeded (or none was attempted).</summary>
+    private string? RunReconnectLoop(VpnConfig config, CancellationToken ct)
+    {
         long attempt = 0;         // consecutive UNSTABLE attempts → backoff + max-retries
         bool firstAttempt = true; // very first connect: no reconnect gating / delay / status change
+        string? reconnectStateFailure = null;
+        int recoveryFailures = 0; // consecutive failed platform teardowns → bounded give-up
         long baseMs = config.ReconnectBaseDelaySecs * 1000;
         long maxMs = config.ReconnectMaxDelaySecs * 1000;
-        string? reconnectStateFailure = null;
         long startedAt = Environment.TickCount64;
         while (!ct.IsCancellationRequested)
         {
@@ -970,11 +1064,34 @@ public abstract class VpnTunnelBase
                 }
                 catch (Exception recoveryError)
                 {
+                    // A platform teardown can fail TRANSIENTLY — most often right after a resume,
+                    // while the physical service is still being reconfigured (the macOS DNS
+                    // restore allows three 250 ms attempts and then gives up). This used to log
+                    // under [SECURITY] and break, which ended the retry loop permanently even
+                    // though ReconnectMaxRetries is -1: the client then stayed down until a
+                    // manual Connect. Treat it as an ordinary unstable attempt instead: the
+                    // attempt counter was already advanced above, so re-entering the loop
+                    // retries the teardown under the same backoff. Bounded by
+                    // MaxConsecutiveRecoveryFailures, since with the default -1 retries no other
+                    // limit would end this loop if the teardown never succeeds.
                     reconnectStateFailure =
                         $"could not prepare a safe reconnect: {FirstSentence(recoveryError.Message)}";
-                    Log($"[SECURITY] {reconnectStateFailure}");
-                    break;
+                    recoveryFailures++;
+                    if (recoveryFailures >= MaxConsecutiveRecoveryFailures)
+                    {
+                        Log($"[SECURITY] {reconnectStateFailure}; giving up after "
+                            + $"{recoveryFailures} consecutive failed platform teardowns");
+                        break;
+                    }
+                    Log($"WARN: {reconnectStateFailure}; retrying the platform teardown "
+                        + $"({recoveryFailures}/{MaxConsecutiveRecoveryFailures})");
+                    continue;
                 }
+                // The teardown the failure described has just succeeded, so that failure is no
+                // longer the reason a later give-up would report — clear it and the consecutive
+                // counter together.
+                reconnectStateFailure = null;
+                recoveryFailures = 0;
             }
             catch (ServerKickException e) when (!ct.IsCancellationRequested)
             {
@@ -1038,20 +1155,44 @@ public abstract class VpnTunnelBase
                 }
                 catch (Exception recoveryError)
                 {
-                    // Guard engagement and stale carrier cleanup are themselves fallible. Keep
-                    // the error inside the retry lifecycle so terminal cleanup and UI state are
-                    // still completed instead of faulting the run task without an Error edge.
+                    // Guard engagement and stale carrier cleanup are themselves fallible, and a
+                    // failure here is a transient platform condition, not a security event and
+                    // not a reason to abandon the tunnel. `attempt` was already advanced above,
+                    // so this simply re-enters the loop and retries the teardown under the same
+                    // backoff — bounded, as on the clean path, by MaxConsecutiveRecoveryFailures
+                    // so a teardown that never succeeds still reaches the terminal edge.
                     reconnectStateFailure =
                         $"could not prepare a safe reconnect: {FirstSentence(recoveryError.Message)}";
-                    Log($"[SECURITY] {reconnectStateFailure}");
-                    break;
+                    recoveryFailures++;
+                    if (recoveryFailures >= MaxConsecutiveRecoveryFailures)
+                    {
+                        Log($"[SECURITY] {reconnectStateFailure}; giving up after "
+                            + $"{recoveryFailures} consecutive failed platform teardowns");
+                        break;
+                    }
+                    Log($"WARN: {reconnectStateFailure}; retrying the platform teardown "
+                        + $"({recoveryFailures}/{MaxConsecutiveRecoveryFailures})");
+                    continue;
                 }
+                // Same reset as the clean path: the teardown has just succeeded, so its earlier
+                // failure is resolved and must not be reported as the reason for a later give-up.
+                reconnectStateFailure = null;
+                recoveryFailures = 0;
             }
             catch (Exception)
             {
                 break; // cancelled
             }
         }
+        return reconnectStateFailure;
+    }
+
+    /// <summary>Single terminal edge for <see cref="RunReconnectLoop"/>. Runs on every exit,
+    /// including the fault path, because persist-tun may have deliberately kept the TUN, routes
+    /// and DNS override up for a next attempt that will now never come. Stop() does its own
+    /// teardown and joins this task, so it must not race us here.</summary>
+    private void FinishReconnect(string? reconnectStateFailure)
+    {
         // Gave up retrying: the "reconnect disabled" / "max retries" breaks above leave the
         // loop WITHOUT passing through any teardown, while persist-tun may have deliberately
         // kept the TUN + routes + DNS override up for a next attempt that will now never come
@@ -1071,24 +1212,21 @@ public abstract class VpnTunnelBase
         if (_userRequestedDisconnect) Status(VpnStatus.Disconnected);
         else
         {
-            // Do not restore a firewall guard over partially cleaned routes/DNS. Stop() can
-            // retry both operations; claiming ordinary egress here could hide stale resolver
-            // ownership or an adapter that still owns host routes.
-            if (terminalCleanupFailure != null)
-            {
-                Status(VpnStatus.Error,
-                    EgressGuardEngaged
-                        ? "platform cleanup failed; egress remains fail-closed"
-                        : $"platform cleanup failed: {FirstSentence(terminalCleanupFailure.Message)}");
-                return;
-            }
-            // …and the same is true of the kill-switch, which only Stop() used to lift: after
-            // an orderly give-up the UI shows Error and offers "Connect", so a still-engaged
-            // firewall left the host with no egress AND no in-app way to restore it. Lift it
-            // BEFORE announcing Error, so egress is already back when the user sees the state.
-            // (Audit 2026-07-27, B2)
+            // Egress recovery must never be hostage to a failed teardown. This used to `return`
+            // BEFORE lifting the replacement guard and the kill-switch whenever the terminal
+            // cleanup threw — and Stop() rethrew before lifting them too — so a host with
+            // kill_switch / per-app filtering on was left with the VPN down AND no egress, with
+            // no in-app way back. Attempt both lifts first, then report what the user is actually
+            // left with. (Audit 2026-07-27, B2; wake audit 2026-10-02.)
+            bool egressWasEngaged = EgressGuardEngaged;
             bool egressRestored = PlanReplacementGuardLift();
             egressRestored = KillSwitchLift() && egressRestored;
+            if (terminalCleanupFailure != null)
+            {
+                Status(VpnStatus.Error, TerminalCleanupDetail(
+                    terminalCleanupFailure, egressWasEngaged, egressRestored));
+                return;
+            }
             // Keep a security stop visible: only announce the generic failure when the
             // loop ended for an ordinary reason. (Audit 2026-07-27, Z2.)
             if (!egressRestored)
@@ -1105,6 +1243,17 @@ public abstract class VpnTunnelBase
                 Status(VpnStatus.Error, Loc.T("CouldNotConnect")); // gave up retrying
             }
         }
+    }
+
+    /// <summary>Status detail for a terminal teardown failure. It reports egress as still
+    /// fail-closed only when it genuinely still is — the lifts have already been attempted by the
+    /// caller.</summary>
+    private static string TerminalCleanupDetail(
+        Exception cleanupFailure, bool egressWasEngaged, bool egressRestored)
+    {
+        string detail = $"platform cleanup failed: {FirstSentence(cleanupFailure.Message)}";
+        if (egressRestored) return detail;
+        return egressWasEngaged ? "platform cleanup failed; egress remains fail-closed" : detail;
     }
 
     private void RunVpnConnection(VpnConfig config, CancellationToken ct)
