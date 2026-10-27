@@ -980,7 +980,7 @@ async fn schedule_downlink_mtu_probe(
                 }
                 let reported = ceiling.load(std::sync::atomic::Ordering::Relaxed) as u16;
                 growth = now >= next_growth;
-                let targets = if growth {
+                let mut targets = if growth {
                     next_growth = now + crate::protocol::pmtu::GROW_INTERVAL;
                     downlink_mtu_probe_budgets(
                         reported,
@@ -997,15 +997,17 @@ async fn schedule_downlink_mtu_probe(
                         current.safe_payload_budget(),
                     )
                 };
+                if growth && !targets.is_empty() {
+                    targets.push(current_budget);
+                }
                 // At the ceiling a discovery round still confirms the current size.
                 if targets.is_empty() {
                     growth = false;
-                    search.start(crate::protocol::pmtu::confirmation_budgets(
-                        current_budget,
-                        current.safe_payload_budget(),
-                    ));
+                    search.start_confirmation(current_budget, current.safe_payload_budget());
+                } else if growth {
+                    search.start_discovery(targets);
                 } else {
-                    search.start(targets);
+                    search.start_confirmation(current_budget, current.safe_payload_budget());
                 }
                 snapshot = current.clone();
             }

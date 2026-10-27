@@ -5,6 +5,8 @@ pub mod data_frag;
 pub mod h2_carrier;
 pub mod icmp;
 pub mod ip;
+#[cfg(any(target_os = "windows", test))]
+pub(crate) mod ndp;
 pub mod obfs;
 pub mod obfuscate;
 pub mod packet;

@@ -48,6 +48,19 @@ internal static class TrafficHistoryConformance
         ServiceClockChecks(check);
         ClockDomainChecks(check);
         ServiceStatusChecks(check);
+        var background = new TrafficHistory();
+        background.Add(1000, 0, 0, session, true);
+        background.Add(2000, 1000, 2000, session, true);
+        background.Add(3000, 2000, 4000, session, true);
+        check("traffic: tray sampling retains measured history",
+            background.Add(4000, 3000, 6000, session, true) is { Up: 1000, Down: 2000 }
+            && background.Samples.Count == 3);
+        check("traffic: UI pause preserves graph without inventing a rate",
+            background.Add(20000, 19000, 38000, session, true) is null
+            && background.Samples.Count == 3);
+        check("traffic: first interval after UI pause excludes the missing interval",
+            background.Add(21000, 20000, 40000, session, true) is { Up: 1000, Down: 2000 }
+            && background.Samples.Count == 4);
     }
 
     private static readonly DateTime WallTime = new(2026, 1, 2, 12, 0, 0, DateTimeKind.Utc);
@@ -83,8 +96,9 @@ internal static class TrafficHistoryConformance
         check("traffic service: fresh observation after a stale gap is a baseline",
             history.AddService(Snapshot(WallTime, 8000, 6100, 12200), true) is null);
         history.AddService(Snapshot(WallTime, 9000, 7100, 14200), true);
-        check("traffic service: suspend-sized uptime gap resets despite unchanged wall time and session",
-            history.AddService(Snapshot(WallTime, 15001, 17100, 34200), true) is null && history.Samples.Count == 0);
+        int retainedSamples = history.Samples.Count;
+        check("traffic service: suspend-sized uptime gap rebases without deleting history",
+            history.AddService(Snapshot(WallTime, 15001, 17100, 34200), true) is null && history.Samples.Count == retainedSamples);
         check("traffic service: first interval after suspend uses only the new baseline",
             history.AddService(Snapshot(WallTime, 16001, 18100, 36200), true) is { Up: 1000, Down: 2000 });
         check("traffic service: backwards uptime resets even when counters and wall time advance",

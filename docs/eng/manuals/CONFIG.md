@@ -633,8 +633,11 @@ Priority on the client:
 session, the inner MTU and the outer datagram size are deliberately independent:
 
 - **UDP transports** (obfs-UDP / fake-tls-UDP / QUIC) actively probe the real path before
-  bringing the tunnel up. The client sends DF-marked probe datagrams from the selected inner MTU
-  down (the server echoes them) and records the largest complete **outer UDP payload** that
+  bringing the tunnel up. The client takes the kernel route MTU as its ceiling
+  (or 1500 bytes / a larger inner MTU plus wrappers when unavailable), subtracts
+  IP/UDP and transport wrappers, and refines the result to one byte. A small inner
+  MTU does not cap outer-path discovery. It sends DF-marked probes and records
+  the largest complete **outer UDP payload** that
   traverses client → server without IP fragmentation. Probing also runs with an explicit
   `mtu > 0`: this selects the inner TUN MTU rather than disabling outer-path discovery.
   With `UDP_DATA_FRAG_V1`, the inner TUN keeps the explicit/pushed MTU and an encrypted record that exceeds this outer budget is split
@@ -654,8 +657,12 @@ session, the inner MTU and the outer datagram size are deliberately independent:
   The **kernel** discovers the outer path MTU there (`tcp_mtu_probing` + MSS clamping), so no
   application-level UDP probe or DATA_FRAG budget is involved.
 
-The probe has four limits worth knowing before you treat MTU as a solved problem:
+Probe behavior and limits to keep in mind:
 
+- An already certified size is rechecked with **one fresh echo every 30 seconds**
+  of active traffic in each direction. A new size still needs three independent
+  exact confirmations; idle sessions do not send probes just to stay active.
+  This is not a heartbeat and does not replace its settings.
 - **The two directions are certified separately.** The client's full-size DF ladder certifies
   client → server. Its authenticated UDP-budget report is only a ceiling for the opposite
   direction: the server starts at the family-safe 548/1232-byte floor, sends its own full-size
@@ -4139,9 +4146,19 @@ Windows displays IPv4/IPv6 separately from the committed NetworkPlan. Copy
 buttons and tooltips preserve complete addresses; disconnected or stale service
 observations clear them. The graph uses existing counters, keeps at most 120
 samples in memory, resets on session/counter changes, and treats missing data as
-a gap. Hidden windows skip graph work; history is not persisted. Form, INI and
+a gap. Hidden windows continue collecting measurements and skip only rendering.
+Restoring a window or rendering Connected again does not clear the history;
+a long update pause establishes a new rate baseline without a spike. History
+is not persisted. Form, INI and
 import dialog dimensions are stored separately in app settings and clamped to
 the current monitor/DPI. Window placement is not a VPN configuration parameter.
+
+In an IPv6 session, the Qeli-owned Wintun is an L3 link with addresses supplied
+by NetworkPlan: DAD, router discovery and NUD are disabled only on that adapter,
+with readback verification. Local NDP (RS/RA/NS/NA/Redirect with hop limit 255)
+is not forwarded through the tunnel, including Windows NS with an invalid SLLA
+option. This rule preserves other ICMPv6, including Echo and Packet Too Big.
+Physical interfaces and WinDivert/per-app mode are not changed by this policy.
 
 Windows-only `windows_disable_sharing = false` preserves OS behavior by default.
 When true, “Disable Microsoft Client / File Sharing on Qeli adapter” disables

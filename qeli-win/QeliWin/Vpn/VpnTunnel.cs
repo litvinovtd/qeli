@@ -472,6 +472,11 @@ public sealed class VpnTunnel : VpnTunnelBase
                 config.ExcludeRoutes)
             : Array.Empty<string>();
 
+        if (assigned.Any(address => address.Family == "ipv6"))
+        {
+            TunnelIpv6Policy.Apply(wintun);
+            Log("IPv6 router discovery, DAD and neighbor probes disabled on the owned L3 adapter");
+        }
         foreach (var address in assigned)
             _net.SetAddress(alias, address.Address, address.PrefixLength);
         var connectedPrefixes = ConnectedTunnelPrefixes(session);

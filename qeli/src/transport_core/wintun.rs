@@ -327,6 +327,11 @@ fn reader_loop(
                 length: packet_size as usize,
                 session: session.clone(),
             };
+            // Wintun is a routed IP link, without a peer Ethernet/MAC domain.
+            // Keep Windows ND (including malformed SLLA NS) local to this adapter.
+            if crate::protocol::ndp::is_local_control(packet.as_ref()) {
+                continue; // RAII releases this exact receive-ring packet once.
+            }
             if from_wintun.blocking_send(packet).is_err() {
                 break;
             }

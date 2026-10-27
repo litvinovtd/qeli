@@ -133,11 +133,19 @@ struct LiveUdpMtuProbe {
 
 impl LiveUdpMtuProbe {
     fn start(&mut self, candidates: impl IntoIterator<Item = i32>) {
-        self.search.start(
-            candidates
-                .into_iter()
-                .filter_map(|value| usize::try_from(value).ok()),
-        );
+        let mut candidates = candidates
+            .into_iter()
+            .filter_map(|value| usize::try_from(value).ok());
+        if self.confirmation {
+            if let Some(current) = candidates.next() {
+                self.search
+                    .start_confirmation(current, candidates.next().unwrap_or(current));
+            } else {
+                self.search.clear();
+            }
+        } else {
+            self.search.start_discovery(candidates);
+        }
     }
 
     fn is_active(&self) -> bool {
@@ -8323,9 +8331,8 @@ async fn probe_udp_mtu(
     // Binary-search the open interval between the rung that answered and the lowest one that
     // did not. Each step is one probe, so the cost is bounded by the iteration cap rather than
     // by the size of the gap, and the invariant is simple: `lo` has always been proven to work,
-    // so a refinement that finds nothing better still returns the coarse result. STEP is the
-    // point of diminishing returns — chasing the last few dozen bytes is not worth a round
-    // trip, and stopping on it also bounds the loop for a huge gap. (Audit 2026-08-01, §8.)
+    // so a refinement that finds nothing better still returns the coarse result. Stop at a
+    // one-byte bracket; the fixed probe cap bounds work even for jumbo paths (#69).
     if let (Some(lo0), Some(hi0)) = (found, failed_above) {
         let (mut lo, mut hi) = (lo0, hi0);
         for _ in 0..MTU_REFINE_MAX_PROBES {
@@ -8381,14 +8388,13 @@ fn udp_inner_mtu_after_probe(
         return base_mtu;
     }
     match family_mode {
-        crate::transport_core::NetworkFamilyMode::Ipv4 => probed_mtu,
+        crate::transport_core::NetworkFamilyMode::Ipv4 => probed_mtu.min(base_mtu),
         crate::transport_core::NetworkFamilyMode::Ipv6
         | crate::transport_core::NetworkFamilyMode::Dual => probed_mtu.max(1280).min(base_mtu),
     }
 }
 
-/// Stop refining once the bracket is this narrow. Chasing the last few dozen bytes is not
-/// worth a round trip, and the threshold also bounds the loop for a very wide gap.
+/// Certify the largest working byte instead of leaving a 256-byte gap (#69).
 #[cfg(any(
     test,
     target_os = "linux",
@@ -8397,7 +8403,7 @@ fn udp_inner_mtu_after_probe(
     target_os = "macos",
     target_os = "ios"
 ))]
-pub(crate) const MTU_REFINE_STEP: i32 = 256;
+pub(crate) const MTU_REFINE_STEP: i32 = 1;
 
 /// Hard cap on refinement probes, so a pathological bracket cannot stretch the handshake.
 #[cfg(any(
@@ -8408,7 +8414,7 @@ pub(crate) const MTU_REFINE_STEP: i32 = 256;
     target_os = "macos",
     target_os = "ios"
 ))]
-pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
+pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 16;
 
 /// Next size to try between a rung known to WORK (`lo`) and one known to FAIL (`hi`), or
 /// `None` when the bracket is narrow enough to stop.
@@ -8605,15 +8611,14 @@ mod mtu_ladder_tests {
             assert!(probes <= MTU_REFINE_MAX_PROBES, "probe budget exceeded");
         }
 
-        // A path that carries barely more than the rung must not be made WORSE, and must not
-        // burn probes on a gap that is already narrow.
+        // Even the old sub-256-byte blind spot is refined to the largest working byte.
         assert_eq!(
             mtu_refine_step(6000, 6200),
-            None,
-            "a narrow bracket stops immediately"
+            Some(6100),
+            "a narrow bracket still needs refinement"
         );
         let (got, probes) = search(6000, 9000, 6001);
-        assert_eq!(got, 6000, "a path at the rung stays at the rung");
+        assert_eq!(got, 6001, "the last working byte is retained");
         assert!(probes <= MTU_REFINE_MAX_PROBES);
     }
 
@@ -8638,6 +8643,11 @@ mod mtu_ladder_tests {
 
     #[test]
     fn legacy_udp_peer_uses_probe_without_breaking_ipv6_minimum_mtu() {
+        assert_eq!(
+            udp_inner_mtu_after_probe(1365, 1403, false, NetworkFamilyMode::Ipv4, false),
+            1365,
+            "a wider outer path must never raise the server-pushed inner MTU"
+        );
         assert_eq!(
             udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv4, false),
             1160
@@ -8726,6 +8736,78 @@ mod mtu_ladder_tests {
         assert_eq!(
             udp_payload_budget_for_probe(1400, 13, crate::protocol::quic::QUIC_SHORT_HEADER_MIN),
             1461 + crate::protocol::quic::QUIC_SHORT_HEADER_MIN
+        );
+    }
+
+    #[tokio::test]
+    async fn pppoe_probe_uses_exact_outer_budget_with_small_inner_mtu() {
+        use crate::protocol::obfs::ObfsUdp;
+        use crate::protocol::udp_frag::{mtu_probe_v2_ack_datagram, parse_mtu_probe_v2_request};
+        use crate::transport_core::udp_client_framing::UdpClientFraming;
+        let a = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let b = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        a.connect(b.local_addr().unwrap()).await.unwrap();
+        b.connect(a.local_addr().unwrap()).await.unwrap();
+        let key = Some(crate::protocol::obfs::derive_obfs_key(
+            "issue69-pmtu-fixture",
+        ));
+        let client = ObfsUdp::new(a, key);
+        let peer = ObfsUdp::new(b, key);
+        let responder = tokio::spawn(async move {
+            let mut bytes = [0u8; 2048];
+            loop {
+                let n = peer.recv(&mut bytes).await.unwrap();
+                if n + 13 + 28 <= 1492 {
+                    if let Some((token, size)) = parse_mtu_probe_v2_request(&bytes[..n]) {
+                        peer.send(&mtu_probe_v2_ack_datagram(token, size))
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+        });
+        let mut rx = crate::protocol::PacketCodec::new([1; 32]);
+        let mut tx = crate::protocol::PacketCodec::new([2; 32]);
+        let mut pn = 0;
+        let management = std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
+        let (sender, _receiver) = tokio::sync::watch::channel(None);
+        let ceiling = crate::protocol::pmtu::probe_ceiling(1365, 48 + 13 + 28, None);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(12),
+            super::probe_udp_mtu(
+                &client,
+                UdpClientFraming::legacy(false, [0; 4]),
+                &mut pn,
+                &mut rx,
+                &mut tx,
+                false,
+                &management,
+                &sender,
+                ceiling,
+                true,
+            ),
+        )
+        .await;
+        responder.abort();
+        let _ = responder.await;
+        let certified = result
+            .expect("bounded probe")
+            .unwrap()
+            .expect("path certified");
+        assert_eq!(certified, 1403);
+        assert_eq!(
+            super::udp_payload_budget_for_probe(certified, 13, 0) + 28,
+            1492
+        );
+        assert_eq!(
+            super::udp_inner_mtu_after_probe(
+                1365,
+                certified,
+                true,
+                crate::transport_core::NetworkFamilyMode::Ipv4,
+                false
+            ),
+            1365
         );
     }
 
@@ -10827,6 +10909,15 @@ pub(crate) async fn run_udp_tunnel(
         std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
     let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    let probe_ceiling = crate::protocol::pmtu::probe_ceiling(
+        base_mtu,
+        UDP_RECORD_PROBE_OVERHEAD
+            + socket.seal_overhead()
+            + udp_framing.wrapper_len()
+            + 8
+            + if socket.peer_is_ipv6() { 40 } else { 20 },
+        crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6()),
+    );
     let mut uplink_udp_payload_budget =
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
     let mut keep_df_after_live_probe = false;
@@ -10841,7 +10932,7 @@ pub(crate) async fn run_udp_tunnel(
             management_v1,
             &management_reassembler,
             &management_tx,
-            base_mtu,
+            probe_ceiling,
             data_frag_enabled,
         )
         .await?
@@ -11760,7 +11851,11 @@ pub(crate) async fn run_udp_tunnel(
                     next_mtu_growth = now + crate::protocol::pmtu::GROW_INTERVAL;
                     let outer_overhead = UDP_RECORD_PROBE_OVERHEAD + wrapper + 8
                         + if socket.peer_is_ipv6() { 40 } else { 20 };
-                    mtu_probe_ladder(base_mtu, outer_overhead, socket.peer_is_ipv6())
+                    let ceiling = crate::protocol::pmtu::probe_ceiling(
+                        base_mtu, outer_overhead,
+                        crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6()),
+                    );
+                    mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6())
                         .into_iter()
                         .filter(|candidate| udp_payload_budget_for_probe(*candidate, socket.seal_overhead(), udp_framing.wrapper_len()) > uplink_udp_payload_budget)
                         .collect()
@@ -11773,6 +11868,14 @@ pub(crate) async fn run_udp_tunnel(
                             .and_then(|value| i32::try_from(value).ok())
                     }).collect()
                 };
+                if grow && !candidates.is_empty() {
+                    // The current certified size closes the bottom of the growth bracket.
+                    if let Some(current) = uplink_udp_payload_budget.checked_sub(wrapper + UDP_RECORD_PROBE_OVERHEAD)
+                        .and_then(|value| i32::try_from(value).ok())
+                    {
+                        candidates.push(current);
+                    }
+                }
                 if candidates.is_empty() {
                     // Reaching the ceiling must not skip this confirmation window.
                     grow = false;

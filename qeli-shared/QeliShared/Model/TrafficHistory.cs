@@ -27,8 +27,9 @@ public sealed class TrafficHistory
         if (!fresh || session is null || tick < 0 || up < 0 || down < 0) { Clear(); return null; }
         // Upgrades/downgrades and service/local transitions must not mix clock origins,
         // even if their numeric timestamps happen to be close or identical.
-        bool reset = _clock != clock || _session != session || up < _up || down < _down
-            || tick < _tick || tick - _tick > 5000;
+        bool newSource = _clock != clock || _session != session || up < _up || down < _down
+            || tick < _tick;
+        bool reset = newSource || tick - _tick > 5000;
         // Re-reading a cached service snapshot must not append a false zero or move
         // the baseline. Same-millisecond counter growth belongs to the next interval.
         if (!reset && tick == _tick) return _lastRate;
@@ -37,7 +38,9 @@ public sealed class TrafficHistory
         _clock = clock;
         long deltaUp = reset ? 0 : up - _up, deltaDown = reset ? 0 : down - _down;
         _tick = tick; _up = up; _down = down;
-        if (reset) { _samples.Clear(); _lastRate = null; return null; }
+        // A suspended UI has no valid rate for the missing interval, but does not
+        // lose the already measured graph. Only a new/reset source clears history.
+        if (reset) { if (newSource) _samples.Clear(); _lastRate = null; return null; }
         var rate = new Rate(deltaUp * 1000.0 / elapsed, deltaDown * 1000.0 / elapsed);
         _lastRate = rate;
         _samples.Enqueue(rate);

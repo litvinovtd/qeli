@@ -80,6 +80,7 @@ public static class CliRunner
         RunGroup("storage migration and native bundle", () => QeliWin.Service.StorageMigrationSelfTest.Run(Check));
         RunGroup("driver resource lifetime", () => DriverResourceSelfTest.Run(Check));
         RunGroup("owned adapter sharing policy", () => AdapterSharingSelfTest.Run(Check));
+        RunGroup("owned IPv6 point-to-point policy", () => TunnelIpv6PolicySelfTest.Run(Check));
         RunGroup("WinDivert unit", () => WinDivertSelfTest.RunUnit(Check));
         RunGroup("roaming socket", () => WindowsRoamingSocket.RunSelfTest(Check));
         RunGroup("DNS lifecycle", () => NetworkConfigurator.RunDnsLifecycleSelfTest(Check));

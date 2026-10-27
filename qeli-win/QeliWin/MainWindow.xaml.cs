@@ -599,8 +599,8 @@ public partial class MainWindow : Window
         // switching mid-connect would tear it down just the same.
         SwitchLocked = status is VpnStatus.Connected or VpnStatus.Connecting;
 
-        // Live speed readout is only meaningful while connected.
-        StopStatsTimer();
+        // Rendering an unchanged Connected status must not erase live history (#69).
+        if (status != VpnStatus.Connected) StopStatsTimer();
 
         switch (status)
         {
@@ -1122,7 +1122,6 @@ public partial class MainWindow : Window
 
     private void StartStatsTimer()
     {
-        _trafficHistory.Clear();
         _statsTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _statsTimer.Tick -= StatsTick;
         _statsTimer.Tick += StatsTick;
@@ -1149,7 +1148,6 @@ public partial class MainWindow : Window
     private void StatsTick(object? sender, EventArgs e)
     {
         var (up, down, since) = StatsSource();
-        if (!IsVisible || WindowState == WindowState.Minimized) { _trafficHistory.Clear(); return; }
         long? nowMonotonicMs = _serviceMode && _svc?.MonotonicTimeMs is not null
             ? ServiceMonotonicClock.NowMilliseconds : null;
         bool fresh = _status == VpnStatus.Connected && (!_serviceMode ||
@@ -1161,7 +1159,8 @@ public partial class MainWindow : Window
             : _trafficHistory.Add(Environment.TickCount64, up, down, since, fresh);
         DownVal.Text = rate is { } current ? FormatRate((long)current.Down) : "—";
         UpVal.Text = rate is { } currentUp ? FormatRate((long)currentUp.Up) : "—";
-        RenderTraffic();
+        // Continue sampling in the tray; only drawing is visibility-dependent.
+        if (IsVisible && WindowState != WindowState.Minimized) RenderTraffic();
         SessionVal.Text = since is DateTime t ? FormatDuration(DateTime.Now - t) : "—";
         var addresses = fresh ? (_serviceMode ? _svc?.Addresses : _tunnel.TunnelAddresses) : null;
         IpVal.Text = addresses?.Ipv4 ?? "—";
