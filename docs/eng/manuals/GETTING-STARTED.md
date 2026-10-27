@@ -1,6 +1,6 @@
 # Qeli — installation & getting started (step by step)
 
-> **Documentation status:** current development tree **0.8.3**; planned full-IPv6 release **0.8.3**;
+> **Documentation status:** current development tree **0.8.4**; planned full-IPv6 release **0.8.4**;
 > package version covered by this guide **0.8.3**.
 > `qeli --version` reports the version of the binary actually installed.
 > See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.

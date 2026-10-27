@@ -18,7 +18,7 @@
     <AssemblyName>QeliMac</AssemblyName>
     <RootNamespace>QeliMac</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.8.3</Version>
+    <Version>0.8.4</Version>
     <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == ''">$(MSBuildProjectDirectory)/native/libqeli.dylib</QeliNativeCorePath>
     <!-- The runtime identifier is supplied on publish (osx-arm64 / osx-x64). -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
