@@ -41,14 +41,15 @@ class AndroidDiagnosticJournalTest {
         }
     }
 
-    @Test fun `terminal capture precedes ordinary clear and survives new owner`() = journal { directory, journal, worker ->
+    @Test fun `terminal failure retains journal and optional report across new owner`() = journal { directory, journal, worker ->
         journal.setRetainLastError(true)
         journal.beginSession("aabbccdd")
         journal.append("native transport generation failed (rc=-7)", "aabbccdd", "error")
         val finished = journal.finishSession("aabbccdd", terminalError = true, clearCurrent = true)
         worker.drain()
         runBlocking { finished.await() }
-        assertTrue(DiagnosticLogStore.read(directory).isEmpty())
+        assertEquals(listOf("native transport generation failed (rc=-7)"),
+            DiagnosticLogStore.read(directory).map { it.message })
         val secondWorker = PausedDispatcher()
         val reopened = AndroidDiagnosticJournal.isolated(directory, secondWorker)
         try {
@@ -62,7 +63,7 @@ class AndroidDiagnosticJournalTest {
         } finally { reopened.close(); secondWorker.drain() }
     }
 
-    @Test fun `opt out invalidates queued capture without cancelling normal journal clear`() = journal { directory, journal, worker ->
+    @Test fun `error report opt out invalidates queued capture without erasing the ordinary journal`() = journal { directory, journal, worker ->
         journal.setRetainLastError(true)
         journal.append("Connection lost", "aabbccdd", "error")
         val finish = journal.finishSession("aabbccdd", true, true)
@@ -70,15 +71,33 @@ class AndroidDiagnosticJournalTest {
         worker.drain()
         runBlocking { finish.await(); disabled.await() }
         assertFalse(File(directory, AndroidDiagnosticJournal.REPORT_FILE).exists())
-        assertTrue(DiagnosticLogStore.read(directory).isEmpty())
+        assertEquals(listOf("Connection lost"), DiagnosticLogStore.read(directory).map { it.message })
     }
 
-    @Test fun `default retention does not save an error report`() = journal { directory, journal, worker ->
-        journal.append("ERR: password=private", "aabbccdd", "error")
+    @Test fun `default retention keeps connection error in journal without saving an error report`() = journal { directory, journal, worker ->
+        val before = journal.append("[SECURITY] SERVER KEY MISMATCH", "aabbccdd", "error")
         val finish = journal.finishSession("aabbccdd", true, true)
         worker.drain()
         runBlocking { finish.await() }
         assertFalse(File(directory, AndroidDiagnosticJournal.REPORT_FILE).exists())
+        assertEquals(before.epoch, journal.epoch)
+        assertEquals(listOf("[SECURITY] SERVER KEY MISMATCH"), DiagnosticLogStore.read(directory).map { it.message })
+    }
+
+    @Test fun `ordinary disconnect still clears by default and advances epoch`() = journal { directory, journal, worker ->
+        val before = journal.append("connected", "aabbccdd")
+        val finish = journal.finishSession("aabbccdd", terminalError = false, clearCurrent = true)
+        worker.drain()
+        assertTrue(runBlocking { finish.await() } > before.epoch)
+        assertTrue(DiagnosticLogStore.read(directory).isEmpty())
+    }
+
+    @Test fun `disabled disconnect cleanup keeps history and epoch`() = journal { directory, journal, worker ->
+        val before = journal.append("connected", "aabbccdd")
+        val finish = journal.finishSession("aabbccdd", terminalError = false, clearCurrent = false)
+        worker.drain()
+        assertEquals(before.epoch, runBlocking { finish.await() })
+        assertEquals(listOf("connected"), DiagnosticLogStore.read(directory).map { it.message })
     }
 
     @Test fun `explicit clear cancels queued error capture and removes old saved report`() = journal { directory, journal, worker ->

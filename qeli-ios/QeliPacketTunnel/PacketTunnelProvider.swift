@@ -159,7 +159,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         resuming = false
                     }
                     let retainForResume = resuming && finalSnapshot.phase != .error
-                    state.logStore?.finishLogSession(clear: settings.clearLogOnDisconnect && !retainForResume)
+                    state.logStore?.finishLogSession(
+                        clear: settings.clearLogOnDisconnect && !retainForResume,
+                        terminalError: finalSnapshot.phase == .error
+                    )
                     sessionLogStore = nil
                     sharedStore.save(finalSnapshot)
                 }
@@ -242,7 +245,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             snapshot.updatedAt = Date()
             sharedStore.save(snapshot)
             sessionLogStore?.appendLog("ERROR: \(error.localizedDescription)")
-            sessionLogStore?.finishLogSession(clear: SettingsStore().load().clearLogOnDisconnect)
+            sessionLogStore?.finishLogSession(
+                clear: SettingsStore().load().clearLogOnDisconnect, terminalError: true
+            )
             sessionLogStore = nil
         }
     }
@@ -270,7 +275,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             guard engine === owner else { return }
             // Cover provider-initiated terminal cancellation too; cleanup must not
             // depend on a later system stop callback. Security holds do not call here.
-            sessionLogStore?.finishLogSession(clear: SettingsStore().load().clearLogOnDisconnect)
+            sessionLogStore?.finishLogSession(
+                clear: SettingsStore().load().clearLogOnDisconnect, terminalError: true
+            )
             sessionLogStore = nil
             cancelTunnelWithError(error)
         }

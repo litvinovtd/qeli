@@ -104,9 +104,10 @@ no-backup directory and never contains the password, private keys, or the comple
 **Settings → Clear log after disconnect** is **enabled by default**, including after an
 upgrade when no choice has been saved. Once VPN shutdown completes, the service removes
 the saved journal and clears the visible tab, even if the app was backgrounded or closed.
-A connection ending with an error also clears the journal; the error remains on the main screen.
+Startup, authentication and transport errors always retain the connection journal,
+including server key mismatch, regardless of this switch. The error also remains on the main screen.
 
-For diagnostics, turn this option off beforehand and tap **Save**: history survives disconnect
+To retain history after normal disconnects, turn this option off and tap **Save**: history survives disconnect
 and is restored when the app opens again; **Copy log** includes events emitted while the
 screen was off. The setting applies to the next disconnect without requiring a reconnect;
 saving it does not erase existing entries immediately. Cancel does not change the choice.
@@ -137,12 +138,13 @@ can still exist only in logcat; Qeli's own service diagnostics are written to th
 **Settings → Appearance → Clear log after disconnect** is **on by default**, including
 after upgrades. Unlike Android's Save button, iOS applies this switch immediately to the
 next stop of the current session; changing it does not erase the journal right away.
-Disable it before reproducing a problem to keep the shared App Group history across
+Disable it to keep the shared App Group history across normal
 disconnects and app launches. The log retains at most 500 entries, 4 KiB per message and
 1 MiB of encoded history.
 
-The VPN extension clears history after a terminal stop or start failure, even while the
-app UI is closed; the error status remains available. Reconnects inside the running
+The VPN extension clears history after a normal stop, even while the app UI is closed.
+Startup, authentication and transport failures always retain the journal, including
+server key mismatch; the error status also remains available. Reconnects inside the running
 extension and settings reloads do not clear it. Stops reported by iOS as network loss,
 network change, sleep or app update retain history, as do unspecified On Demand stops
 while the desired connection remains armed (including trusted-Wi-Fi waiting).

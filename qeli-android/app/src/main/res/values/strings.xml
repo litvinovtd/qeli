@@ -58,7 +58,7 @@
     <string name="log_compact">Compact</string>
     <string name="log_detailed">Detailed diagnostics</string>
     <string name="clear_log_on_disconnect">Clear log after disconnect</string>
-    <string name="clear_log_on_disconnect_desc">Clear the log tab and saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.</string>
+    <string name="clear_log_on_disconnect_desc">Clear the log tab and saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log.</string>
     <string name="log_time_short">Time only (18:10:03.259)</string>
     <string name="log_time_datetime">Date and time (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>

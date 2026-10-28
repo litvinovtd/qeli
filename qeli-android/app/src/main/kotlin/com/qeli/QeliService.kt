@@ -467,9 +467,7 @@ class VpnServiceImpl : VpnService() {
                 if (cfg == null || cfg.serverAddress.isBlank() || cfg.serverAddress == "SERVER_IP_OR_HOST") {
                     // Nothing to connect. Say so loudly: with lockdown on, the user sees a
                     // dead network and no explanation anywhere.
-                    Log.e("VpnSvc", "Always-on VPN start: no usable active profile")
-                    broadcastStatus(STATUS_ERROR, "Always-on VPN: no usable profile — open Qeli and select one")
-                    stopSelf()
+                    rejectForegroundConnect("Always-on VPN: no usable profile — open Qeli and select one")
                     return START_NOT_STICKY
                 }
                 prepareDiagnosticSession("always-on", redelivered)
@@ -1333,7 +1331,7 @@ class VpnServiceImpl : VpnService() {
                 } else {
                     "malformed error payload"
                 }
-                broadcastLog("Native transport error ${event.errorCode}: $message")
+                broadcastLog("Native transport error ${event.errorCode}: $message", level = "error")
             }
             TransportCoreEventCodec.KIND_PATH_COMMAND ->
                 dispatchTransportCorePathCommand(core, event)
@@ -2068,7 +2066,7 @@ class VpnServiceImpl : VpnService() {
                 broadcastLog("Server stopped reconnect: $giveUpReason")
                 break
             } catch (e: SecurityException) {
-                broadcastLog("[SECURITY] ${e.message}")
+                broadcastLog("[SECURITY] ${e.message}", level = "error")
                 stopVpn(e.message ?: "VPN permission denied")
                 return
             } catch (e: Exception) {
@@ -2084,9 +2082,9 @@ class VpnServiceImpl : VpnService() {
                     // surface its completion error as another ERR.
                     forcedReconnectInFlight = false
                 } else {
-                    broadcastLog("ERR: [${e.javaClass.simpleName}] ${e.message}")
+                    broadcastLog("ERR: [${e.javaClass.simpleName}] ${e.message}", level = "error")
                     var cause = e.cause
-                    while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
+                    while (cause != null) { broadcastLog("  <- ${cause.message}", level = "error"); cause = cause.cause }
                 }
                 attempt = nextAttempt(attempt, forced)
                 // Keep the Java TUN descriptor open across backoff so routing remains
@@ -3066,7 +3064,9 @@ class VpnServiceImpl : VpnService() {
     private suspend fun finishDiagnosticSession(terminalError: Boolean): Boolean {
         val prefs = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
         diagnosticJournal.setRetainLastError(prefs.getBoolean(MainActivity.PREF_RETAIN_ERROR_REPORT, false))
-        val clearCurrent = prefs.getBoolean(MainActivity.PREF_CLEAR_LOG_ON_DISCONNECT,
+        // Error details must remain in the visible and persistent journal. The preference
+        // applies to ordinary stops; it must not turn a failed Connect into an empty Log tab.
+        val clearCurrent = !terminalError && prefs.getBoolean(MainActivity.PREF_CLEAR_LOG_ON_DISCONNECT,
             MainActivity.DEFAULT_CLEAR_LOG_ON_DISCONNECT)
         val completion = synchronized(diagnosticLogLock) {
             diagnosticLogClosed = true

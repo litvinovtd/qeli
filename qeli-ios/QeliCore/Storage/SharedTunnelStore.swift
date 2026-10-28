@@ -81,11 +81,12 @@ final class SharedTunnelStore: @unchecked Sendable {
     /// Each provider start owns a separate store instance. Seal that writer even when
     /// retaining history: delayed callbacks from an old engine must not write into the
     /// next session. Repeated completion must not erase a newer session's journal.
-    func finishLogSession(clear: Bool) {
+    func finishLogSession(clear: Bool, terminalError: Bool = false) {
         lock.withLock {
             guard !logSessionClosed else { return }
             logSessionClosed = true
-            if clear { defaults.removeObject(forKey: logKey) }
+            // Keep startup/authentication/transport failures available after the alert closes.
+            if clear && !terminalError { defaults.removeObject(forKey: logKey) }
         }
     }
 }

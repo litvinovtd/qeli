@@ -88,7 +88,15 @@ def main():
     missing = [s.removeprefix('Warning: ') for s in proc.stderr.splitlines() if s.startswith(('Missing ', 'Warning: Missing '))]
     if any(not s.startswith(PLATFORM_ONLY) for s in missing):raise RuntimeError('Unexpected unresolved ABI: ' + '\n'.join(missing))
     # Keep ABI names, but let R8 widen package-private parents if children move.
-    generated = HEADER + (out / 'shared-abi.pro').read_text(encoding='utf-8').replace('-keep ', '-keep,allowaccessmodification ')
+    # TraceReferences cannot infer names reached through getDeclaredMethod/Field.
+    reflection = ("# Explicit reflection contract for the connection-log regression fixture.\n"
+                  "-keepclassmembers,allowaccessmodification class com.qeli.VpnServiceImpl {\n"
+                  "  private boolean checkKnownHost(java.lang.String, java.lang.String);\n"
+                  "  private void broadcastLog(java.lang.String, java.lang.String);\n"
+                  "  private java.lang.Object finishDiagnosticSession(boolean, kotlin.coroutines.Continuation);\n"
+                  "  private java.util.concurrent.ExecutorService carrierDnsExecutor;\n"
+                  "}\n")
+    generated = HEADER + reflection + (out / 'shared-abi.pro').read_text(encoding='utf-8').replace('-keep ', '-keep,allowaccessmodification ')
     destination = root / 'qeli-android/app/instrumentation-abi.pro'
     if args.check:
         if destination.read_text(encoding='utf-8') != generated:raise RuntimeError('Stale instrumentation-abi.pro; regenerate and rebuild')

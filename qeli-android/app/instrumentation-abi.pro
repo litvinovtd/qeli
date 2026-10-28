@@ -1,5 +1,12 @@
 # Generated from pre-R8 AndroidTest/runner references; instrumented Release only.
 # Regenerate after AndroidTest/dependency changes; see qeli-android/README.md.
+# Explicit reflection contract for the connection-log regression fixture.
+-keepclassmembers,allowaccessmodification class com.qeli.VpnServiceImpl {
+  private boolean checkKnownHost(java.lang.String, java.lang.String);
+  private void broadcastLog(java.lang.String, java.lang.String);
+  private java.lang.Object finishDiagnosticSession(boolean, kotlin.coroutines.Continuation);
+  private java.util.concurrent.ExecutorService carrierDnsExecutor;
+}
 -keep,allowaccessmodification class androidx.activity.ComponentActivity {
   public androidx.activity.result.ActivityResultRegistry getActivityResultRegistry();
 }

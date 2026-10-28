@@ -32,7 +32,8 @@
 - Encrypted-at-rest profile store and Android-compatible backup encryption.
 - Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
 - Clear-log-on-disconnect setting, enabled by default as on Android; iOS saves it immediately
-  and the packet extension applies it at terminal stop/start failure without requiring the UI.
+  and the packet extension applies it at normal stop without requiring the UI.
+  Startup/authentication/transport errors always retain the diagnostic journal.
   Reconnects and resumable network/On Demand pauses retain history; late old-session callbacks
   cannot recreate a cleared journal. New storage/settings XCTest cases require an Xcode run.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.

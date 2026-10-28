@@ -146,15 +146,17 @@ internal class AndroidDiagnosticJournal private constructor(private val director
         }
     }
 
-    /** Called after native has returned its final metrics, before ordinary disconnect cleanup. */
+    /** A failed connection retains its ordinary journal regardless of the disconnect preference.
+     * The separately opt-in structured error report keeps its own privacy fence. */
     fun finishSession(sessionId: String, terminalError: Boolean, clearCurrent: Boolean): CompletableDeferred<Long> =
         synchronized(lock) {
             val capturedMetrics = metrics
             val captureFence = reportFence
             val capture = terminalError && retainError
-            if (clearCurrent) currentEpoch++
+            val clearLog = clearCurrent && !terminalError
+            if (clearLog) currentEpoch++
             val finishEpoch = currentEpoch
-            if (clearCurrent) metrics = null
+            if (clearLog) metrics = null
             control(essential = true) {
                 try {
                     if (capture && synchronized(lock) { retainError && reportFence == captureFence }) {
@@ -163,7 +165,7 @@ internal class AndroidDiagnosticJournal private constructor(private val director
                         // this write. The fence also avoids capture if clear/opt-out raced the read.
                         if (synchronized(lock) { retainError && reportFence == captureFence }) writeReport(report)
                     }
-                } finally { if (clearCurrent) DiagnosticLogStore.clear(directory) }
+                } finally { if (clearLog) DiagnosticLogStore.clear(directory) }
                 finishEpoch
             }
         }

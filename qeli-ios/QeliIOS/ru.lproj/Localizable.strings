@@ -183,4 +183,4 @@
 "No saved profiles are available. Open Qeli to create a profile before connecting." = "Нет сохранённых профилей. Откройте Qeli и создайте профиль перед подключением.";
 "The profile encryption key is missing. Restore a backup to recover your profiles." = "Ключ шифрования профилей отсутствует. Восстановите профили из резервной копии.";
 "Clear log after disconnect" = "Очищать лог после отключения";
-"Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log." = "Очищать сохранённую историю после остановки VPN, включая завершение с ошибкой. Выключите для сохранения диагностики. Переподключения не очищают журнал.";
+"Clear saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log." = "Очищать сохранённую историю после обычного отключения VPN. При ошибке подключения лог всегда сохраняется для диагностики. Переподключения не очищают журнал.";

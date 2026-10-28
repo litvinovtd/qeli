@@ -28,10 +28,10 @@ every other client, not because a build of it was released.
 - SwiftUI application shell with connection, profile and live-log tabs.
 - **Settings → Appearance → Clear log after disconnect** is on by default, including
   after upgrades. Changes save immediately and apply to the current session's next stop;
-  toggling does not erase existing entries. Turn it off before reproducing a problem to
-  retain diagnostic history across disconnects and app launches. The packet extension
-  clears the shared journal after a terminal stop or start failure, even when the app UI
-  is closed; the error status remains available. Old-session callbacks cannot refill it.
+  toggling does not erase existing entries. Turn it off to retain history after normal
+  disconnects. Startup, authentication and transport errors always retain the shared
+  journal, even when the app UI is closed, so the connection attempt and its failure can
+  be inspected after reopening. Old-session callbacks cannot refill a sealed journal.
   In-process reconnects/settings reloads retain history. Provider stops for network loss,
   network change, sleep or an app update also retain it, as do unspecified On Demand
   stops while the desired connection remains armed (including trusted-Wi-Fi waiting).

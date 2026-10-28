@@ -3,6 +3,7 @@ package com.qeli
 import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.view.View
@@ -16,6 +17,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.qeli.model.VpnConfig
 import java.net.ServerSocket
+import java.lang.reflect.InvocationTargetException
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.After
@@ -172,11 +177,16 @@ timeout = 3
             assertTrue("disconnect broadcast missing", ended.await(15, TimeUnit.SECONDS))
         }
         awaitStopped()
-        val shouldClear = enabled ?: true
+        val shouldClear = !fail && (enabled ?: true)
         assertEquals(shouldClear, cleared)
         val messages = DiagnosticLogStore.read(context.noBackupFilesDir).map { it.message }
         if (shouldClear) assertTrue("late teardown log recreated history: $messages", messages.isEmpty())
         else assertTrue(messages.contains("retained test history"))
+        if (fail) {
+            assertTrue("connection attempt missing: $messages", messages.any { it.contains("VPN session") })
+            assertTrue("terminal reason missing: $messages", messages.any { it.contains("VPN session ending:") })
+            assertTrue("underlying connection error missing: $messages", messages.any { it.startsWith("ERR:") })
+        }
         scenario?.onActivity { owner ->
             val text = owner.findViewById<TextView>(R.id.tvLog).text.toString()
             if (shouldClear) assertEquals("", text) else assertTrue(text.contains("retained test history"))
@@ -186,6 +196,65 @@ timeout = 3
     @Test fun absentPreferenceClearsFileAndVisibleLogOnDisconnect() = stopAndCheck(null)
     @Test fun disabledOptionRetainsHistoryAfterServiceDestruction() = stopAndCheck(false)
     @Test fun enabledOptionClearsWithActivityClosed() = stopAndCheck(true, withActivity = false)
-    @Test fun terminalConnectionErrorAlsoClearsWhenEnabled() = stopAndCheck(true, fail = true)
+    @Test fun terminalConnectionErrorRetainsHistoryWhenEnabled() = stopAndCheck(true, fail = true)
+    @Test fun terminalConnectionErrorRetainsHistoryWithDefaultPreference() = stopAndCheck(null, fail = true)
+    @Test fun terminalConnectionErrorRetainsHistoryWithActivityClosed() = stopAndCheck(true, withActivity = false, fail = true)
     @Test fun terminalConnectionErrorRetainsHistoryWhenDisabled() = stopAndCheck(false, fail = true)
+
+    @Test fun serverKeyMismatchRetainsLogAndSealsServiceWriterWithDefaultPreference() {
+        val service = VpnServiceImpl()
+        ContextWrapper::class.java.getDeclaredMethod("attachBaseContext", Context::class.java)
+            .apply { isAccessible = true }.invoke(service, context)
+        val pins = context.getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
+        val server = "log-fixture.invalid:443"
+        val previousPin = pins.getString(server, null)
+        try {
+            assertTrue(pins.edit().putString(server, "11".repeat(32)).commit())
+            val verify = VpnServiceImpl::class.java.getDeclaredMethod(
+                "checkKnownHost", String::class.java, String::class.java).apply { isAccessible = true }
+            val error = try {
+                verify.invoke(service, server, "22".repeat(32))
+                throw AssertionError("changed server key was accepted")
+            } catch (wrapped: InvocationTargetException) {
+                wrapped.cause as SecurityException
+            }
+            assertTrue(error.message!!.contains("SERVER KEY MISMATCH"))
+            val log = VpnServiceImpl::class.java.getDeclaredMethod(
+                "broadcastLog", String::class.java, String::class.java).apply { isAccessible = true }
+            log.invoke(service, "[SECURITY] ${error.message}", "error")
+            val finish = VpnServiceImpl::class.java.getDeclaredMethod(
+                "finishDiagnosticSession", Boolean::class.javaPrimitiveType, Continuation::class.java
+            ).apply { isAccessible = true }
+            val cleared = runBlocking {
+                suspendCoroutineUninterceptedOrReturn<Boolean> { continuation ->
+                    finish.invoke(service, true, continuation)
+                }
+            }
+            assertFalse("security failure must not announce log cleanup", cleared)
+            log.invoke(service, "late teardown callback", "info")
+            val entries = DiagnosticLogStore.read(context.noBackupFilesDir)
+            assertTrue(entries.any { it.level == "error" && it.message.contains("SERVER KEY MISMATCH") })
+            assertFalse(entries.any { it.message == "late teardown callback" })
+            instrumentation.waitForIdleSync()
+            scenario!!.onActivity { owner ->
+                assertTrue(owner.findViewById<TextView>(R.id.tvLog).text.contains("SERVER KEY MISMATCH"))
+            }
+            scenario!!.recreate()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            var restored = false
+            while (!restored && System.nanoTime() < deadline) {
+                scenario!!.onActivity { owner ->
+                    restored = owner.findViewById<TextView>(R.id.tvLog).text.contains("SERVER KEY MISMATCH")
+                }
+                if (!restored) Thread.sleep(25)
+            }
+            assertTrue("security failure log was lost after Activity recreation", restored)
+        } finally {
+            assertTrue(pins.edit().apply {
+                if (previousPin == null) remove(server) else putString(server, previousPin)
+            }.commit())
+            (VpnServiceImpl::class.java.getDeclaredField("carrierDnsExecutor").apply { isAccessible = true }
+                .get(service) as java.util.concurrent.ExecutorService).shutdownNow()
+        }
+    }
 }

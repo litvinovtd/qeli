@@ -114,6 +114,19 @@ final class TunnelManager: NSObject, ObservableObject {
     }
 
     func connect(profile: Profile, settings: AppSettings) async throws {
+        do {
+            try await startConnection(profile: profile, settings: settings)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Preference/consent/configuration failures can happen before the extension starts.
+            // Keep those in the same journal instead of reporting them only in an alert.
+            sharedStore.appendLog("ERROR starting VPN: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    private func startConnection(profile: Profile, settings: AppSettings) async throws {
         guard !connectInProgress else { throw TunnelManagerError.connectAlreadyInProgress }
         // reality-tls seals the auth token into the ClientHello, so it cannot even be built
         // without the pinned key + short id. Android refuses this up front with a readable

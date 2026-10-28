@@ -118,7 +118,7 @@ struct SettingsView: View {
                         }
                     }
                     Toggle("Clear log after disconnect", isOn: setting(\.clearLogOnDisconnect))
-                    Text("Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.")
+                    Text("Clear saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Backup and restore") {

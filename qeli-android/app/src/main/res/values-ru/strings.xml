@@ -63,7 +63,7 @@
     <string name="log_compact">Краткий</string>
     <string name="log_detailed">Подробная диагностика</string>
     <string name="clear_log_on_disconnect">Очищать лог после отключения</string>
-    <string name="clear_log_on_disconnect_desc">Очищать вкладку логов и сохранённый журнал после остановки VPN, в том числе при ошибке. Выключите для сохранения диагностики. При переподключении журнал не очищается.</string>
+    <string name="clear_log_on_disconnect_desc">Очищать вкладку логов и сохранённый журнал после обычного отключения VPN. При ошибке подключения лог всегда сохраняется для диагностики. При переподключении журнал не очищается.</string>
     <string name="log_time_short">Только время (18:10:03.259)</string>
     <string name="log_time_datetime">Дата и время (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>

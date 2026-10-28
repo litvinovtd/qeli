@@ -50,7 +50,7 @@ final class DisconnectLogSettingsTests: XCTestCase {
 
     func testDefaultStopRemovesPersistedHistoryAndRejectsLateCallbacks() {
         journal.appendLog("connected")
-        journal.appendLog("ERROR: connection ended")
+        journal.appendLog("user disconnect")
         journal.finishLogSession(clear: settings.load().clearLogOnDisconnect)
         journal.appendLog("late stop callback")
         XCTAssertNil(defaults.data(forKey: "tunnel.log.v1"))
@@ -75,6 +75,39 @@ final class DisconnectLogSettingsTests: XCTestCase {
         settings.save(value)
         journal.finishLogSession(clear: SettingsStore(suiteName: suite).load().clearLogOnDisconnect)
         XCTAssertEqual(journal.logLines().map(\.message), ["connected with default settings"])
+    }
+
+    func testStartupAndTransportErrorsSurviveDefaultCleanupAndReopening() {
+        for failure in ["SERVER KEY MISMATCH", "Authentication failed", "Connection refused"] {
+            let writer = SharedTunnelStore(suiteName: suite)
+            writer.clearLog()
+            writer.appendLog("Connecting")
+            writer.appendLog("ERROR: \(failure)")
+            writer.finishLogSession(clear: settings.load().clearLogOnDisconnect, terminalError: true)
+            writer.appendLog("stale teardown callback")
+            writer.finishLogSession(clear: true) // a later system stop must not erase the error
+            XCTAssertEqual(SharedTunnelStore(suiteName: suite).logLines().map(\.message),
+                           ["Connecting", "ERROR: \(failure)"])
+        }
+    }
+
+    @MainActor
+    func testPreProviderConfigurationFailureIsWrittenToJournal() async {
+        let manager = TunnelManager(sharedStore: journal)
+        let invalid = Profile(name: "invalid", configText: "[qeli]\nunknown_log_fixture_option = true\n")
+        do {
+            try await manager.connect(profile: invalid, settings: AppSettings())
+            XCTFail("invalid connection configuration was accepted")
+        } catch {
+            XCTAssertTrue(journal.logLines().contains { $0.message.hasPrefix("ERROR starting VPN:") })
+        }
+    }
+
+    func testErrorHistoryCanStillBeClearedManually() {
+        journal.appendLog("ERROR: SERVER KEY MISMATCH")
+        journal.finishLogSession(clear: true, terminalError: true)
+        SharedTunnelStore(suiteName: suite).clearLog()
+        XCTAssertTrue(journal.logLines().isEmpty)
     }
 
     func testOldSessionCannotWriteOrClearNewSession() {

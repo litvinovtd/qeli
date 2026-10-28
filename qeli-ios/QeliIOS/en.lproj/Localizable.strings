@@ -183,4 +183,4 @@
 "No saved profiles are available. Open Qeli to create a profile before connecting." = "No saved profiles are available. Open Qeli to create a profile before connecting.";
 "The profile encryption key is missing. Restore a backup to recover your profiles." = "The profile encryption key is missing. Restore a backup to recover your profiles.";
 "Clear log after disconnect" = "Clear log after disconnect";
-"Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log." = "Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.";
+"Clear saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log." = "Clear saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log.";
