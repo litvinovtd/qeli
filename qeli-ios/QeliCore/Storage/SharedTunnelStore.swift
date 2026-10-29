@@ -3,6 +3,8 @@ import Foundation
 final class SharedTunnelStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let lock = NSLock()
+    private let diagnostics: DiagnosticJournalStore?
+    private let diagnosticSessionID = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
     private var logSessionClosed = false
     private let snapshotKey = "tunnel.snapshot.v1"
     private let logKey = "tunnel.log.v1"
@@ -10,8 +12,10 @@ final class SharedTunnelStore: @unchecked Sendable {
     static let maximumLogMessageBytes = 4 * 1024
     static let maximumLogArchiveBytes = 1024 * 1024
 
-    init(suiteName: String? = AppConstants.appGroupIdentifier) {
+    init(suiteName: String? = AppConstants.appGroupIdentifier, diagnosticJournal: DiagnosticJournalStore? = nil) {
         defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        diagnostics = diagnosticJournal ?? (suiteName == AppConstants.appGroupIdentifier
+            ? DiagnosticJournalStore.appGroupStore() : nil)
     }
 
     func snapshot() -> TunnelSnapshot {
@@ -60,6 +64,7 @@ final class SharedTunnelStore: @unchecked Sendable {
     func appendLog(_ message: String, date: Date = Date()) {
         lock.withLock {
             guard !logSessionClosed else { return }
+            try? diagnostics?.append(message, sessionID: diagnosticSessionID, date: date)
             var lines = readLogLines()
             lines.append(TunnelLogLine(date: date, message: Self.boundedLogMessage(message)))
             if lines.count > Self.maximumLogLines { lines.removeFirst(lines.count - Self.maximumLogLines) }
@@ -76,7 +81,61 @@ final class SharedTunnelStore: @unchecked Sendable {
         }
     }
 
-    func clearLog() { lock.withLock { defaults.removeObject(forKey: logKey) } }
+    func clearLog() {
+        // Compatibility for existing internal callers. The UI uses the throwing variant
+        // below so a failed disk cleanup is visible instead of claiming deletion succeeded.
+        try? clearDiagnostics()
+    }
+
+    func clearDiagnostics() throws {
+        try lock.withLock {
+            try diagnostics?.clear(retentionAllowed: retentionAllowedBySettings)
+            defaults.removeObject(forKey: logKey)
+        }
+    }
+
+    func setRetainLastErrorReport(_ enabled: Bool) throws {
+        guard let diagnostics else {
+            if enabled { throw DiagnosticJournalError.unavailable }
+            return
+        }
+        // A new opt-in must not revive a report whose earlier deletion failed. During
+        // normal app startup the persisted setting is already true, so preserve it.
+        try diagnostics.setRetainLastErrorReport(
+            enabled, discardSavedError: enabled && !retentionAllowedBySettings)
+    }
+
+    func diagnosticReport(lastError: Bool) throws -> DiagnosticReportExport {
+        guard let diagnostics else { throw DiagnosticJournalError.unavailable }
+        if lastError && !retentionAllowedBySettings { throw DiagnosticJournalError.noLastError }
+        return try diagnostics.report(lastError: lastError, retentionAllowed: { [self] in
+            retentionAllowedBySettings
+        })
+    }
+
+    func updateCarrierDiagnostics(
+        _ snapshot: CarrierDiagnosticsSnapshot?, date: Date = Date(), preserveLastOnUnavailable: Bool = false
+    ) {
+        lock.withLock {
+            guard !logSessionClosed else { return }
+            try? diagnostics?.updateCarrierDiagnostics(
+                snapshot, date: date, preserveLastOnUnavailable: preserveLastOnUnavailable
+            )
+        }
+    }
+
+    /// Read only the opt-in bit, keeping this shared/widget source independent of the
+    /// complete app settings model. The app persists `false` before attempting cleanup.
+    private struct RetentionConsent: Decodable {
+        let retainLastErrorReport: Bool?
+    }
+
+    private var retentionAllowedBySettings: Bool {
+        guard let data = defaults.data(forKey: "app.settings.v1"),
+              let consent = try? JSONDecoder().decode(RetentionConsent.self, from: data) else { return false }
+        // Decoding Bool rejects numeric 1, which NSNumber's conditional Bool cast accepts.
+        return consent.retainLastErrorReport == true
+    }
 
     /// Each provider start owns a separate store instance. Seal that writer even when
     /// retaining history: delayed callbacks from an old engine must not write into the
@@ -85,6 +144,10 @@ final class SharedTunnelStore: @unchecked Sendable {
         lock.withLock {
             guard !logSessionClosed else { return }
             logSessionClosed = true
+            try? diagnostics?.finish(
+                sessionID: diagnosticSessionID, clear: clear, terminalError: terminalError,
+                retentionAllowed: retentionAllowedBySettings
+            )
             // Keep startup/authentication/transport failures available after the alert closes.
             if clear && !terminalError { defaults.removeObject(forKey: logKey) }
         }

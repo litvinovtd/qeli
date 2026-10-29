@@ -502,12 +502,11 @@ final class TunnelManager: NSObject, ObservableObject {
         OnDemandPolicy.makeRules(settings: settings)
     }
 
-    private static func configure(
-        _ manager: NETunnelProviderManager,
+    nonisolated static func makeTunnelProtocol(
         profile: Profile,
         config: VPNConfig,
         settings: AppSettings
-    ) {
+    ) -> NETunnelProviderProtocol {
         let tunnelProtocol = NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = AppConstants.tunnelBundleIdentifier
         tunnelProtocol.serverAddress = config.serverAddress
@@ -518,7 +517,9 @@ final class TunnelManager: NSObject, ObservableObject {
             && !settings.allowLAN
             && config.excludeRoutes.isEmpty
         tunnelProtocol.includeAllNetworks = strictFullTunnel
-        tunnelProtocol.enforceRoutes = config.isFullTunnel
+        // Split routes must also override a more specific physical route or an app's
+        // explicit interface scope. includeAllNetworks takes precedence in strict full mode.
+        tunnelProtocol.enforceRoutes = true
         tunnelProtocol.excludeLocalNetworks = config.isFullTunnel
             && (config.allowLAN || settings.allowLAN)
         tunnelProtocol.excludeAPNs = false
@@ -530,7 +531,17 @@ final class TunnelManager: NSObject, ObservableObject {
             "profileID": profile.id.uuidString,
             "logLevel": settings.logLevel.rawValue
         ]
-        manager.protocolConfiguration = tunnelProtocol
+        return tunnelProtocol
+    }
+
+    private static func configure(
+        _ manager: NETunnelProviderManager,
+        profile: Profile,
+        config: VPNConfig,
+        settings: AppSettings
+    ) {
+        manager.protocolConfiguration = makeTunnelProtocol(
+            profile: profile, config: config, settings: settings)
         manager.localizedDescription = "Qeli"
         manager.isEnabled = true
         let rules = makeOnDemandRules(settings: settings)

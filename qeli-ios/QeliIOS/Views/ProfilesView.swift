@@ -53,7 +53,7 @@ struct ProfilesView: View {
             Button("Cancel", role: .cancel) { pastedLink = "" }
         }
         .confirmationDialog(
-            "Delete \(deletingProfile?.name ?? "profile")?",
+            "Delete \(deletingProfile?.name ?? model.localized("profile"))?",
             isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } }),
             titleVisibility: .visible
         ) {
@@ -161,7 +161,7 @@ struct ProfilesView: View {
                                 Text("ACTIVE").font(.system(size: 9, weight: .bold)).foregroundStyle(QeliTheme.primary)
                             }
                         }
-                        Text(profile.parsedConfig.map { "\($0.serverAddress):\($0.port) · \($0.protocolName.uppercased()) / \($0.wireMode)" } ?? "⚠ invalid config")
+                        Text(profile.parsedConfig.map { "\($0.serverAddress):\($0.port) · \($0.protocolName.uppercased()) / \($0.wireMode)" } ?? model.localized("⚠ invalid config"))
                             .font(.caption).foregroundStyle(QeliTheme.textSecondary).lineLimit(1)
                     }
                 }

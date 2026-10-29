@@ -10,12 +10,13 @@ struct ProfileEditorView: View {
     @State private var roamingPolicy: String
     @State private var validationError: String?
     @State private var showingReconnectNotice = false
+    @State private var initializedDefaultName = false
 
     init(profile: Profile?) {
         self.profile = profile
         let initialText = profile?.configText ?? Profile.template.configText
         let initialRoaming = (try? VPNConfig(parsing: initialText))?.roamingPolicy ?? "auto"
-        _name = State(initialValue: profile?.name ?? "My server")
+        _name = State(initialValue: profile?.name ?? "")
         _configText = State(initialValue: initialText)
         _roamingPolicy = State(initialValue: initialRoaming)
     }
@@ -62,10 +63,15 @@ struct ProfileEditorView: View {
                             )
                             if reconnectRequired { showingReconnectNotice = true }
                             else { dismiss() }
-                        } catch { validationError = error.localizedDescription }
+                        } catch { validationError = model.localized(error.localizedDescription) }
                     }
                 }
             }
+        }
+        .onAppear {
+            guard !initializedDefaultName else { return }
+            initializedDefaultName = true
+            if profile == nil && name.isEmpty { name = model.localized("My server") }
         }
         .alert("Reconnect required", isPresented: $showingReconnectNotice) {
             Button("OK") { dismiss() }

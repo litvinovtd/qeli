@@ -1,5 +1,22 @@
 # Android to iOS parity ledger
 
+## Current audit, 28 October 2026
+
+[Detailed matrix, fixes and verification boundaries](AUDIT-PARITY-20261028.ru.md).
+The following list describes implementation, not an assertion of Apple runtime parity.
+
+- Added opt-in foreground auto-probe of profiles, bounded concurrency/intervals, and
+  cancellation on app backgrounding or VPN activation.
+- Added bounded current/last-error diagnostic reports, opt-in retention, redaction and
+  numeric carrier snapshots through C ABI 1.17. Last-error retention is off by default.
+- Preserved imported INI comments/order; corrected selected-language strings in dynamic
+  app/widget UI; QR scanning uses AVFoundation instead of an A12-only VisionKit path.
+- Initial DNS failure now enters the shared reconnect budget, including cold recovery
+  through a physical-interface-scoped lookup. Duplicate NWPath callbacks no longer cancel
+  pending recovery. Explicit split-tunnel routes also use `enforceRoutes`.
+- A new XCFramework from ABI 1.17 sources is required. Older prebuilt libraries do not
+  provide the new symbol; no binary provenance has been re-labelled by this source audit.
+
 ## Implemented foundation
 
 - Connection / Profiles / Log navigation and Qeli visual language. Qeli-owned iOS screens use
@@ -8,7 +25,7 @@
   action bar adapts to compact widths and Dynamic Type without truncating Russian labels; profile
   rows use the Android card/menu model, including explicit Move up/down actions. Apple permission
   prompts, share sheets, pickers and other operating-system surfaces deliberately remain native.
-- Profile CRUD, active-profile locking while connected (refused with an alert, and the
+- Profile CRUD, active-profile selection/deletion locking while connected (refused with an alert, and the
   rows that cannot be picked are dimmed), reorder and reachability — TCP by a connect
   probe, UDP through ABI 1.8 `qeli_client_udp_probe`, which invokes the same Rust
   X25519+ML-KEM first-flight/fragment/QUIC/obfs builder as Android and the live tunnel.
@@ -27,7 +44,8 @@
   session token is deliberately never surfaced: it is the credential that authorises a
   bonded stream to join the session.
 - Flat-INI file/clipboard import, QR and `qeli://` deep-link import. Legacy JSON is rejected
-  as a config format; JSON remains only inside the backup container.
+  as a config format; JSON remains for backups, diagnostic reports and internal ABI messages.
+  Editing a connected profile is allowed, with a manual reconnect required to apply it.
 - Share link, QR generation and system share sheet.
 - Encrypted-at-rest profile store and Android-compatible backup encryption.
 - Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
@@ -38,8 +56,8 @@
   cannot recreate a cleared journal. New storage/settings XCTest cases require an Xcode run.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- The production Packet Tunnel uses the current ABI 1.15 core with the compatible ABI 1.11
-  base, optional ABI 1.12-1.14 path contracts and ABI 1.15 NOTICE/KICK management events over
+- The production Packet Tunnel uses the current ABI 1.17 core, requiring ABI 1.17 for carrier diagnostics, with optional
+  ABI 1.12-1.14 path contracts and ABI 1.15 NOTICE/KICK management events over
   the common Rust whole-client core used by Linux, Android, Windows and macOS. Rust owns
   DNS/connect, plain and
   hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,
@@ -59,7 +77,8 @@
   and are excluded from the Packet Tunnel target.
 - The iOS packet bridge has a fixed memory budget: two Rust pools of 32 × 65,535-byte
   buffers (4,194,240 bytes), 128-slot queues and at most three reusable 256 KiB Swift
-  caller buffers, with backpressure and no fallback allocation.
+  caller buffers, with backpressure and no fallback allocation on the packet path.
+  Separate diagnostic sampling uses at most 64 KiB of native JSON plus bounded decoding/storage.
 - `build_native.sh` builds device and simulator slices with
   `transport-core-ffi experimental-roaming` by default, packages the canonical ABI header
   and creates the XCFramework. CI runs that build, compiles the
@@ -81,7 +100,7 @@
 
 ## Remaining verification milestones
 
-1. Build the feature-enabled ABI 1.15 Rust XCFramework and generated project on macOS/Xcode
+1. Build the feature-enabled ABI 1.17 Rust XCFramework and generated project on macOS/Xcode
    16+, then compile both the app and Packet Tunnel targets; the strict
    `aarch64-apple-ios` Rust cross-target Clippy passes on the Linux lab, but cannot substitute
    for Swift/NetworkExtension compilation.

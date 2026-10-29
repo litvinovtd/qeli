@@ -220,7 +220,11 @@ fn native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending() ->
             install(&s, &row(ipv6, 10), false)?;
         }
         // A different network generation must remain byte-for-byte equivalent as a record.
-        s.edit(|store| store.change(s.cookie + 1, &n, &row(false, 11), Change::Confirm))?;
+        let Scope::Cookie(kernel_cookie) = s.cookie else {
+            anyhow::bail!("isolated namespace test requires a real kernel cookie");
+        };
+        let foreign = Scope::Cookie(kernel_cookie + 1);
+        s.edit(|store| store.change(foreign, &n, &row(false, 11), Change::Confirm))?;
         let cookie = s.cookie;
         drop(g);
         drop(s);
@@ -246,7 +250,7 @@ fn native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending() ->
             .unwrap()
             .is_empty());
         assert_eq!(
-            s.read(|store| Ok(store.records(cookie + 1, &n, false)))?,
+            s.read(|store| Ok(store.records(foreign, &n, false)))?,
             [row(false, 11)]
         );
         Ok(())

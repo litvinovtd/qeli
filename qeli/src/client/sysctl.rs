@@ -689,9 +689,39 @@ fn with_journal_scope<T>(
 }
 
 pub fn acquire_checked(path: &str, value: &str, scope: &str) -> anyhow::Result<()> {
+    #[cfg(all(not(test), target_os = "linux", feature = "client"))]
+    {
+        let context = crate::network_namespace::Namespace::capture_client()?;
+        if context.is_single_network() {
+            context.verify()?;
+            let result = require_preconfigured(path, value, scope, host::read);
+            context.verify()?;
+            return result;
+        }
+    }
     with_locked_journal(|transaction, uncertain| {
         acquire_in(transaction, &uncertain, path, value, scope)
     })
+}
+
+// A namespace-less router owns its global networking knobs. There is no durable
+// sysctl lease to release: borrow an ALREADY configured value without changing
+// it or manufacturing a namespace cookie. Required forwarding still fails closed.
+#[cfg(any(test, all(target_os = "linux", feature = "client")))]
+fn require_preconfigured(
+    path: &str,
+    value: &str,
+    scope: &str,
+    read: impl FnOnce(&str) -> std::io::Result<String>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        valid_sysctl_path(path) && valid_value(value) && valid_scope(scope),
+        "refusing unmanaged router sysctl request"
+    );
+    let actual = read(path)?;
+    anyhow::ensure!(actual.trim() == value,
+        "namespace-less router compatibility mode leaves sysctls unchanged: configure {path}={value} in the firmware (current {})", actual.trim());
+    Ok(())
 }
 
 fn acquire_in(
@@ -820,7 +850,35 @@ fn release_owner(
 }
 
 pub fn release_scope(scope: &str) -> anyhow::Result<()> {
+    #[cfg(all(not(test), target_os = "linux", feature = "client"))]
+    {
+        let context = crate::network_namespace::Namespace::capture_client()?;
+        if context.is_single_network() {
+            anyhow::ensure!(valid_scope(scope), "invalid sysctl owner scope");
+            // This mode never acquires a lease or writes host sysctls. Existing
+            // journals (including manually transferred foreign ones) stay untouched.
+            return context.verify();
+        }
+    }
     with_locked_journal(|transaction, uncertain| release_in(transaction, uncertain, scope))
+}
+
+#[cfg(test)]
+#[test]
+fn namespace_less_router_only_borrows_preconfigured_sysctls() {
+    let path = "/proc/sys/net/ipv4/ip_forward";
+    assert!(require_preconfigured(path, "1", "vpn0", |_| Ok("1\n".into())).is_ok());
+    assert!(require_preconfigured(path, "1", "vpn0", |_| Ok("0\n".into())).is_err());
+    assert!(require_preconfigured(path, "1", "vpn0", |_| Err(
+        std::io::ErrorKind::PermissionDenied.into()
+    ))
+    .is_err());
+    assert!(
+        require_preconfigured("/etc/resolv.conf", "1", "vpn0", |_| panic!(
+            "invalid path must not be read"
+        ))
+        .is_err()
+    );
 }
 
 fn release_in(

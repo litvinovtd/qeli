@@ -287,6 +287,15 @@ impl TunInterface {
     #[cfg(any(test, feature = "client"))]
     fn require_attached_namespace(&self) -> io::Result<bool> {
         use std::os::unix::{fs::MetadataExt, io::FromRawFd};
+        let context =
+            crate::network_namespace::Namespace::capture_client().map_err(io::Error::other)?;
+        if context.is_single_network() {
+            // Older router kernels also lack TUNGETDEVNETNS. Kernel-proven
+            // absence of NET_NS means a live TUN cannot belong to another one.
+            // attached_name still uses TUNGETIFF on the ORIGINAL descriptor.
+            context.verify().map_err(io::Error::other)?;
+            return Ok(true);
+        }
         // SAFETY: this ioctl returns a newly owned namespace fd on success.
         let fd = unsafe { libc::ioctl(self.as_raw_fd(), libc::TUNGETDEVNETNS as _) };
         if fd < 0 {
@@ -302,7 +311,7 @@ impl TunInterface {
         // SAFETY: the successful ioctl transferred this new fd, released on every exit.
         let namespace = unsafe { File::from_raw_fd(fd) };
         let original = namespace.metadata()?;
-        let current = std::fs::metadata("/proc/thread-self/ns/net")?;
+        let current = crate::network_namespace::open_thread_namespace("net")?.metadata()?;
         if (original.dev(), original.ino()) != (current.dev(), current.ino()) {
             return Err(io::Error::other(
                 "TUN belongs to a different network namespace",

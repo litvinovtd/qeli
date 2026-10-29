@@ -10,6 +10,7 @@
 //! telemetry, ABI 1.13 adds a generation-scoped no-payload path-refresh event, and ABI 1.14
 //! distinguishes reversible path rejection from incomplete platform rollback. ABI 1.15 adds
 //! server NOTICE/KICK events. ABI 1.16 exposes the pure configuration/policy service.
+//! ABI 1.17 adds bounded caller-buffer carrier diagnostic snapshots.
 //! Both fixed ABI prefixes remain unchanged.
 
 use super::path::PathCommandOutcome;
@@ -35,6 +36,7 @@ const STATS_V1_SIZE: usize = 64;
 #[cfg(test)]
 const STATS_V2_SIZE: usize = 96;
 const STATS_V3_SIZE: usize = 144;
+const MAX_CARRIER_DIAGNOSTICS_BYTES: usize = 64 * 1024;
 
 pub(crate) static CLIENTS: Registry<ClientCore> = Registry::new();
 
@@ -629,6 +631,48 @@ pub unsafe extern "C" fn qeli_client_stats(handle: u64, out_stats: *mut QeliClie
     })
 }
 
+/// Copy an eventually consistent carrier diagnostic snapshot (JSON schema 1, ABI 1.17).
+/// A null/zero output performs a size query. Short buffers receive no partial data, and
+/// `out_len` reports the required byte count without a trailing NUL. The snapshot may change
+/// between calls; a caller can instead supply the fixed 64 KiB maximum buffer.
+/// Neither successful reads nor size queries consume control events or alter the session.
+///
+/// # Safety
+/// `out_len` must be writable. A non-null `output` must address `capacity` writable bytes.
+/// Output and length storage must not overlap. Capacity must not exceed 64 KiB.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_carrier_diagnostics(
+    handle: u64,
+    output: *mut u8,
+    capacity: usize,
+    out_len: *mut usize,
+) -> i32 {
+    ffi_guard(|| {
+        if out_len.is_null()
+            || capacity > MAX_CARRIER_DIAGNOSTICS_BYTES
+            || (output.is_null() && capacity != 0)
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe { *out_len = 0 };
+        let response = match carrier_diagnostics(handle) {
+            Ok(response) => response,
+            Err(code) => return code,
+        };
+        if response.len() > MAX_CARRIER_DIAGNOSTICS_BYTES {
+            return ErrorCode::InvalidState as i32;
+        }
+        unsafe { *out_len = response.len() };
+        if capacity < response.len() {
+            return ErrorCode::BufferTooSmall as i32;
+        }
+        if !response.is_empty() {
+            unsafe { std::ptr::copy_nonoverlapping(response.as_ptr(), output, response.len()) };
+        }
+        OK
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
     ffi_guard(|| {
@@ -849,9 +893,8 @@ fn with_core(
     }
 }
 
-/// Optional Android diagnostic snapshot. Uses the same generation-safe registry as the
-/// fixed C ABI, without adding telemetry to the control-event queue or changing stats layout.
-#[cfg(all(target_os = "android", feature = "transport-core-ffi"))]
+/// Shared JNI/C diagnostic snapshot. Uses the generation-safe registry without adding
+/// telemetry to the control-event queue or changing the fixed stats layout.
 pub(super) fn carrier_diagnostics(handle: u64) -> Result<Vec<u8>, i32> {
     with_client(handle, |core| core.carrier_diagnostics_json()).map_err(registry_error_code)
 }
@@ -1128,7 +1171,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V3_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010010)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010011)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -1167,6 +1210,219 @@ mod tests {
         assert!(header.contains("qeli_client_tun_pull"));
         assert!(header.contains("QELI_CORE_UDP_DIAGNOSTIC"));
         assert!(header.contains("qeli_client_udp_probe"));
+        assert!(header.contains("QELI_CORE_CARRIER_DIAGNOSTICS = UINT64_C(1) << 16"));
+        assert!(header.contains("QELI_CLIENT_MAX_CARRIER_DIAGNOSTICS_BYTES UINT32_C(65536)"));
+        assert!(header.contains("qeli_client_carrier_diagnostics"));
+        assert_ne!(
+            qeli_client_core_capabilities() & core_capability::CARRIER_DIAGNOSTICS,
+            0
+        );
+    }
+
+    #[test]
+    fn carrier_diagnostics_abi_queries_and_copies_without_consuming_events() {
+        let handle = unsafe { new_handle() };
+        assert_eq!(qeli_client_start(handle), OK);
+        let events = |core: &mut ClientCore| {
+            core.events
+                .iter()
+                .map(|event| {
+                    (
+                        event.sequence,
+                        event.kind as u32,
+                        event_payload(event).unwrap().0,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = with_client(handle, events).unwrap();
+        assert!(!before.is_empty());
+        let mut required = usize::MAX;
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(handle, std::ptr::null_mut(), 0, &mut required)
+            },
+            ErrorCode::BufferTooSmall as i32
+        );
+        assert!((1..=MAX_CARRIER_DIAGNOSTICS_BYTES).contains(&required));
+        let mut output = vec![0xa5; required + 1];
+        let mut actual = 0;
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(
+                    handle,
+                    output.as_mut_ptr(),
+                    required - 1,
+                    &mut actual,
+                )
+            },
+            ErrorCode::BufferTooSmall as i32
+        );
+        assert_eq!(actual, required);
+        assert!(output.iter().all(|byte| *byte == 0xa5));
+        assert_eq!(
+            unsafe { qeli_client_carrier_diagnostics(handle, output.as_mut_ptr(), 0, &mut actual) },
+            ErrorCode::BufferTooSmall as i32
+        );
+        assert!(output.iter().all(|byte| *byte == 0xa5));
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(handle, output.as_mut_ptr(), required, &mut actual)
+            },
+            OK
+        );
+        assert_eq!(actual, required);
+        assert_eq!(
+            output[required], 0xa5,
+            "snapshot must not append a terminator"
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output[..actual]).unwrap();
+        assert_eq!(json["schema"], 1);
+        assert_eq!(json["supported"], true);
+        assert_eq!(json["runtime_available"], false);
+        assert_eq!(json["scope"], "tcp_uplink");
+        assert_eq!(json["completion"], "local_write_flush_not_peer_ack");
+        assert_eq!(json["carriers"], serde_json::json!([]));
+        assert!(json.get("server").is_none());
+        assert!(json.get("password").is_none());
+        assert_eq!(with_client(handle, events).unwrap(), before);
+        assert_eq!(qeli_client_free(handle), OK);
+    }
+
+    #[test]
+    fn carrier_diagnostics_abi_rejects_invalid_outputs_before_touching_storage() {
+        let handle = unsafe { new_handle() };
+        let mut length = 73;
+        let mut output = vec![0x5a; MAX_CARRIER_DIAGNOSTICS_BYTES + 1];
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(handle, std::ptr::null_mut(), 1, &mut length)
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(length, 73);
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(
+                    handle,
+                    output.as_mut_ptr(),
+                    1,
+                    std::ptr::null_mut(),
+                )
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(
+                    handle,
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut length,
+                )
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(length, 73);
+        assert!(output.iter().all(|byte| *byte == 0x5a));
+        assert_eq!(qeli_client_free(handle), OK);
+    }
+
+    #[test]
+    fn carrier_diagnostics_abi_rejects_unknown_and_freed_handles() {
+        let freed = unsafe { new_handle() };
+        assert_eq!(qeli_client_free(freed), OK);
+        let replacement = unsafe { new_handle() };
+        assert_ne!(replacement, freed);
+        for handle in [0, u64::MAX, freed] {
+            let mut length = 73;
+            let mut output = [0x5a; 16];
+            assert_eq!(
+                unsafe {
+                    qeli_client_carrier_diagnostics(
+                        handle,
+                        output.as_mut_ptr(),
+                        output.len(),
+                        &mut length,
+                    )
+                },
+                ErrorCode::InvalidHandle as i32
+            );
+            assert_eq!(length, 0);
+            assert_eq!(output, [0x5a; 16]);
+        }
+        assert_eq!(qeli_client_free(replacement), OK);
+    }
+
+    #[test]
+    fn carrier_diagnostics_abi_enforces_snapshot_limit_without_partial_output() {
+        let handle = unsafe { new_handle() };
+        let mut snapshot = b"{}".to_vec();
+        snapshot.resize(MAX_CARRIER_DIAGNOSTICS_BYTES, b' ');
+        with_client(handle, |core| {
+            core.last_carrier_diagnostics = Some(snapshot.clone())
+        })
+        .unwrap();
+        let mut output = vec![0xa5; MAX_CARRIER_DIAGNOSTICS_BYTES + 1];
+        let mut length = 73;
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(
+                    handle,
+                    output.as_mut_ptr(),
+                    MAX_CARRIER_DIAGNOSTICS_BYTES,
+                    &mut length,
+                )
+            },
+            OK
+        );
+        assert_eq!(length, MAX_CARRIER_DIAGNOSTICS_BYTES);
+        assert_eq!(&output[..length], snapshot.as_slice());
+        assert_eq!(output[length], 0xa5);
+        with_client(handle, |core| {
+            core.last_carrier_diagnostics.as_mut().unwrap().push(b' ');
+        })
+        .unwrap();
+        output.fill(0xa5);
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(
+                    handle,
+                    output.as_mut_ptr(),
+                    MAX_CARRIER_DIAGNOSTICS_BYTES,
+                    &mut length,
+                )
+            },
+            ErrorCode::InvalidState as i32
+        );
+        assert_eq!(length, 0);
+        assert!(output.iter().all(|byte| *byte == 0xa5));
+        assert_eq!(qeli_client_free(handle), OK);
+    }
+
+    #[test]
+    fn carrier_diagnostics_abi_cannot_reuse_a_handle_invalidated_by_registry_panic() {
+        let handle = unsafe { new_handle() };
+        let leased = CLIENTS.acquire(handle).unwrap();
+        let cancelled = leased.lock().unwrap().runtime_cancel.clone();
+        let result = ffi_guard(|| {
+            match with_client(handle, |_| -> Vec<u8> {
+                panic!("intentional diagnostic operation panic")
+            }) {
+                Ok(_) => OK,
+                Err(error) => registry_error_code(error),
+            }
+        });
+        assert_eq!(result, ErrorCode::Panic as i32);
+        assert!(cancelled.load(std::sync::atomic::Ordering::Acquire));
+        let mut length = 73;
+        assert_eq!(
+            unsafe {
+                qeli_client_carrier_diagnostics(handle, std::ptr::null_mut(), 0, &mut length)
+            },
+            ErrorCode::InvalidHandle as i32
+        );
+        assert_eq!(length, 0);
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -1677,7 +1933,7 @@ mod tests {
             OK
         );
         let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        assert_eq!(json["server_id"], "127.0.0.1:443");
+        assert_eq!(json["server_id"], "tcp://127.0.0.1:443");
         assert_eq!(json["public_key"], "ab".repeat(32));
         assert_eq!(
             unsafe { qeli_client_server_identity_result(handle, sequence, 0, std::ptr::null(), 0) },

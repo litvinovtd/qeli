@@ -174,9 +174,9 @@ struct ConnectionView: View {
                     "\(properties.wireMode) / \(properties.protocolName.uppercased())\(properties.quicEnabled ? " + QUIC" : "")"
                 )
                 detailRow("Encryption", summary.postQuantum
-                    ? String(localized: "Hybrid post-quantum") : String(localized: "X25519 (no post-quantum)"))
+                    ? model.localized("Hybrid post-quantum") : model.localized("X25519 (no post-quantum)"))
                 detailRow("Server key", summary.keyPinned
-                    ? String(localized: "server key pinned") : String(localized: "server key on trust (TOFU)"))
+                    ? model.localized("server key pinned") : model.localized("server key on trust (TOFU)"))
                 // The compact card shows one highest-priority warning. The sheet is the full
                 // explanation, so preserve every independent bypass/security warning here.
                 ForEach(Array(summary.warnings.enumerated()), id: \.offset) { item in
@@ -206,15 +206,15 @@ struct ConnectionView: View {
                     // servers the tunnel had ignored, which is the claim this card exists not
                     // to make. The profile is not a fallback for a live fact.
                     // (Audit 2026-08-02, follow-up.)
-                    detailRow("DNS", snapshot.pushedDNS ?? String(localized: "system DNS"))
+                    detailRow("DNS", snapshot.pushedDNS ?? model.localized("system DNS"))
                     if let mtu = snapshot.appliedMTU {
                         detailRow("MTU", properties.configuredMTU > 0 ? "\(mtu)" : "\(mtu) (auto)")
                     }
                     if snapshot.maxStreams > 1 {
                         let streams = String(
-                            format: String(localized: "up to %lld streams"), snapshot.maxStreams)
+                            format: model.localized("up to %lld streams"), snapshot.maxStreams)
                         detailRow("Multipath", snapshot.pushed?.multipathAdaptive == true
-                            ? streams + ", " + String(localized: "adaptive") : streams)
+                            ? streams + ", " + model.localized("adaptive") : streams)
                     }
                     // OMITTED, not defaulted, when the snapshot predates these fields.
                     //
@@ -239,21 +239,21 @@ struct ConnectionView: View {
                             let shown = pushed.routes.joined(separator: ", ")
                             let extra = pushed.routeCount - pushed.routes.count
                             detailRow("Pushed routes", extra > 0
-                                ? String(format: String(localized: "%1$@ and %2$lld more"), shown, extra)
+                                ? String(format: model.localized("%1$@ and %2$lld more"), shown, extra)
                                 : "\(shown) (\(pushed.routeCount))")
                         }
                         // The DPI-resistance knobs actually in force, which the server owns.
                         detailRow("Padding", pushed.paddingEnabled
-                            ? "\(pushed.paddingMin)–\(pushed.paddingMax) B" : String(localized: "Off"))
+                            ? "\(pushed.paddingMin)–\(pushed.paddingMax) B" : model.localized("Off"))
                         detailRow("Heartbeat", pushed.heartbeatEnabled
-                            ? "\(pushed.heartbeatIntervalMilliseconds / 1000) s" : String(localized: "Off"))
+                            ? "\(pushed.heartbeatIntervalMilliseconds / 1000) s" : model.localized("Off"))
                         detailRow("Traffic shaping", pushed.shapingEnabled
-                            ? String(localized: "On") : String(localized: "Off"))
+                            ? model.localized("On") : model.localized("Off"))
                     }
                 }
                 detailRow("Routing", routingText(summary))
                 detailRow("Auto-reconnect", properties.reconnectEnabled
-                    ? String(localized: "On") : String(localized: "Off"))
+                    ? model.localized("On") : model.localized("Off"))
             }
             .navigationTitle("CONNECTION PROPERTIES")
             .navigationBarTitleDisplayMode(.inline)
@@ -273,14 +273,14 @@ struct ConnectionView: View {
         switch mode {
         case "ipv4": return "IPv4"
         case "ipv6": return "IPv6"
-        default: return String(localized: "Dual-stack")
+        default: return model.localized("Dual-stack")
         }
     }
 
     private func recordizerModeText(_ mode: String) -> String {
         mode == "packet_mux_v1"
             ? "PACKET_MUX_V1"
-            : String(localized: "Legacy packet-per-record")
+            : model.localized("Legacy packet-per-record")
     }
 
     private func roamingModeText(_ mode: String) -> String {
@@ -288,7 +288,7 @@ struct ConnectionView: View {
         case "udp_roam_v1": return "UDP_ROAM_V1"
         case "tcp_resume_v2": return "TCP_RESUME_V2"
         case "tcp_handover_v2": return "TCP_HANDOVER_V2 + TCP_RESUME_V2"
-        default: return String(localized: "Reconnect fallback")
+        default: return model.localized("Reconnect fallback")
         }
     }
 
@@ -308,10 +308,10 @@ struct ConnectionView: View {
 
     private func routingText(_ summary: ProtectionSummary) -> String {
         switch summary.scope {
-        case .all: return String(localized: "All apps (default)")
-        case .onlySelected: return String(localized: "Only selected apps are protected")
-        case .allExcept: return String(localized: "All apps except the selected ones are protected")
-        case .splitRoutes: return String(localized: "Split tunnel — only selected routes")
+        case .all: return model.localized("All apps (default)")
+        case .onlySelected: return model.localized("Only selected apps are protected")
+        case .allExcept: return model.localized("All apps except the selected ones are protected")
+        case .splitRoutes: return model.localized("Split tunnel — only selected routes")
         }
     }
 
@@ -321,20 +321,20 @@ struct ConnectionView: View {
 
     private func warningString(_ warning: ProtectionWarning, count: Int) -> String {
         switch warning {
-        case .lanOutside: return String(localized: "Local network stays outside the tunnel")
-        case .ipv4Outside: return String(localized: "IPv4 bypasses the tunnel")
-        case .ipv6Outside: return String(localized: "IPv6 bypasses the tunnel")
+        case .lanOutside: return model.localized("Local network stays outside the tunnel")
+        case .ipv4Outside: return model.localized("IPv4 bypasses the tunnel")
+        case .ipv6Outside: return model.localized("IPv6 bypasses the tunnel")
         case .excludedRoutes:
             return String(
-                format: String(localized: "%lld route(s) excluded from the tunnel"),
+                format: model.localized("%lld route(s) excluded from the tunnel"),
                 Int64(count)
             )
         case .noPinnedKey:
-            return String(localized: "Without a pinned key the first connection is trusted blindly")
+            return model.localized("Without a pinned key the first connection is trusted blindly")
         // Says which way it is wrong: the selection is IGNORED and everything is tunnelled,
         // not "some apps are unprotected". (Audit 2026-08-02, §7.)
         case .perAppNotApplied:
-            return String(localized: "Per-app selection needs MDM on iOS — every app is tunnelled")
+            return model.localized("Per-app selection needs MDM on iOS — every app is tunnelled")
         }
     }
 
@@ -379,11 +379,11 @@ struct ConnectionView: View {
     }
 
     private var reachabilityText: String {
-        guard let id = model.activeProfile?.id else { return "No profile" }
+        guard let id = model.activeProfile?.id else { return model.localized("No profile") }
         switch model.reachability[id] ?? .idle {
-        case .idle: return "tap Ping to check"
-        case .checking: return "checking…"
-        case .reachable(let milliseconds): return "reachable · \(milliseconds) ms"
+        case .idle: return model.localized("tap Ping to check")
+        case .checking: return model.localized("checking…")
+        case .reachable(let milliseconds): return String(format: model.localized("reachable · %lld ms"), Int64(milliseconds))
         case .unavailable(let reason): return reason
         }
     }
@@ -398,7 +398,7 @@ struct ConnectionView: View {
         }
     }
 
-    private func formatRate(_ bytes: UInt64) -> String { "\(formatBytes(bytes))/s" }
+    private func formatRate(_ bytes: UInt64) -> String { String(format: model.localized("%@/s"), formatBytes(bytes)) }
     private func formatBytes(_ bytes: UInt64) -> String {
         let units = ["B", "KB", "MB", "GB", "TB"]
         var value = Double(bytes); var unit = 0

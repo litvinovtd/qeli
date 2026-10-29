@@ -114,12 +114,23 @@ targets:
       # without it the extension only saw the app's mirrored copy and defaulted to "allowed".
       - path: QeliCore/Management/ManagedConfiguration.swift
       - path: QeliCore/Model/TunnelSnapshot.swift
+      - path: QeliCore/Model/AppSettings.swift
+      - path: QeliCore/Storage/SettingsStore.swift
+      - path: QeliCore/Support/TrustedWiFiPolicy.swift
+      - path: QeliCore/Support/ProfileAutoProbePolicy.swift
+      - path: QeliIOS/en.lproj
+        buildPhase: resources
+      - path: QeliIOS/ru.lproj
+        buildPhase: resources
       # TunnelSnapshot carries `pushed: PushedFacts?` since the connection-properties card —
       # exactly the "new dependency does not come along automatically" case noted above. Only
       # PushedFacts is listed: the rest of the protection model is built from a VPNConfig and
       # would drag the whole config model in behind it.
       - path: QeliCore/Model/PushedFacts.swift
       - path: QeliCore/Storage/SharedTunnelStore.swift
+      - path: QeliCore/Model/DiagnosticReport.swift
+      - path: QeliCore/Model/CarrierDiagnostics.swift
+      - path: QeliCore/Storage/DiagnosticJournalStore.swift
       - path: QeliCore/Support/NSLock+WithLock.swift
       - path: QeliCore/Widget/WidgetControlBridge.swift
       - path: Config/PrivacyInfo.xcprivacy

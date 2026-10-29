@@ -61,7 +61,7 @@ impl RouteOwner {
     pub(crate) fn new(interface: &str, generation: u64) -> anyhow::Result<Self> {
         let _operation = super::budget::Operation::acquire(&OPERATIONS)?;
         #[cfg(target_os = "linux")]
-        let namespace = Arc::new(super::identity::Namespace::capture()?);
+        let namespace = Arc::new(super::identity::Namespace::capture_client()?);
         let recovery = {
             let state = registry();
             if let Some(previous) = state.entries.iter().find(|e| e.interface == interface) {

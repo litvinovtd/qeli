@@ -14,6 +14,7 @@
 //! incomplete platform rollback that must terminate the generation. ABI 1.15 adds bounded
 //! server NOTICE and terminal KICK events without changing the fixed event header.
 //! ABI 1.16 adds the pure configuration document/schema and portable policy service.
+//! ABI 1.17 exposes bounded carrier diagnostic snapshots without consuming control events.
 
 use self::path::{
     PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathCommandFailure,
@@ -27,6 +28,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroize;
+
+pub(crate) mod server_identity;
 
 #[cfg(any(feature = "client", feature = "server", feature = "transport-core-ffi"))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -171,7 +174,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 16;
+pub const ABI_VERSION_MINOR: u16 = 17;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -204,12 +207,17 @@ pub mod core_capability {
     pub const PATH_TRANSACTIONS: u64 = 1 << 13;
     pub const PATH_REFRESH_EVENTS: u64 = 1 << 14;
     pub const MANAGEMENT_EVENTS: u64 = 1 << 15;
+    pub const CARRIER_DIAGNOSTICS: u64 = 1 << 16;
     #[cfg(feature = "experimental-roaming")]
     const EXPERIMENTAL: u64 = PATH_TRANSACTIONS | PATH_REFRESH_EVENTS;
     #[cfg(not(feature = "experimental-roaming"))]
     const EXPERIMENTAL: u64 = 0;
-    pub const BASE: u64 =
-        STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK | NETWORK_PLAN_V2 | MANAGEMENT_EVENTS;
+    pub const BASE: u64 = STRICT_CONFIG
+        | LIFECYCLE_EVENTS
+        | NETWORK_PLAN_ACK
+        | NETWORK_PLAN_V2
+        | MANAGEMENT_EVENTS
+        | CARRIER_DIAGNOSTICS;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
         | TUN_FD_OWNERSHIP
@@ -1778,7 +1786,11 @@ impl ClientCore {
         }
         self.require_event_slots(1)?;
         let request = ServerIdentityRequest {
-            server_id: format!("{}:{}", self.config.server.address, self.config.server.port),
+            server_id: server_identity::endpoint_id(
+                &self.config.server.protocol,
+                &self.config.server.address,
+                self.config.server.port,
+            ),
             public_key: public_key
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
@@ -3231,6 +3243,40 @@ mod tests {
     }
 
     #[test]
+    fn server_identity_events_separate_tcp_udp_and_bracket_ipv6() {
+        for (protocol, host, endpoint) in [
+            ("tcp", "127.0.0.1", "tcp://127.0.0.1:443"),
+            ("udp", "127.0.0.1", "udp://127.0.0.1:443"),
+            ("tcp", "[2001:db8::1]", "tcp://[2001:db8::1]:443"),
+        ] {
+            let config = ini()
+                .replace("proto = tcp", &format!("proto = {protocol}"))
+                .replace("127.0.0.1:443", &format!("{host}:443"));
+            let mut core = ClientCore::new(
+                &config,
+                CoreOptions {
+                    platform_capabilities: platform_capability::SYSTEM_PLAN
+                        | platform_capability::SERVER_IDENTITY,
+                    ..CoreOptions::default()
+                },
+            )
+            .unwrap();
+            while core.poll_event().is_some() {}
+            core.start().unwrap();
+            while core.poll_event().is_some() {}
+            let (_, _reply) = core.request_server_identity([7; 32]).unwrap();
+            assert_eq!(
+                core.poll_event()
+                    .unwrap()
+                    .server_identity
+                    .unwrap()
+                    .server_id,
+                endpoint
+            );
+        }
+    }
+
+    #[test]
     fn server_identity_request_is_correlated_and_fails_closed() {
         let mut core = ClientCore::new(
             &ini(),
@@ -3253,7 +3299,7 @@ mod tests {
         assert_eq!(
             event.server_identity.unwrap(),
             ServerIdentityRequest {
-                server_id: "127.0.0.1:443".into(),
+                server_id: "tcp://127.0.0.1:443".into(),
                 public_key: "ab".repeat(32),
             }
         );

@@ -1304,11 +1304,16 @@ class VpnServiceImpl : VpnService() {
             TransportCoreEventCodec.KIND_SERVER_IDENTITY -> {
                 val outcome = TransportCoreEventDispatcher.verifyServerIdentity(event) {
                         serverId, publicKey ->
-                    if (!checkKnownHost(serverId, publicKey)) {
+                    val config = activeConfig ?: throw SecurityException("server identity has no active profile")
+                    val scopedId = ServerIdentityPolicy.storageId(
+                        serverId, config.protocol, config.serverAddress, config.port,
+                    )
+                    if (!ServerIdentityPolicy.verifyExplicit(publicKey, config.serverPublicKeyHex)
+                        && !checkKnownHost(scopedId, publicKey)) {
                         // Rust emits this event only after the peer proves possession of the
                         // key, so persisting here cannot be poisoned by an unauthenticated reply.
                         try {
-                            recordKnownHost(serverId, publicKey)
+                            recordKnownHost(scopedId, publicKey)
                         } catch (error: SecurityException) {
                             if (activeConfig?.allowUnpinnedTofu != true) throw error
                             broadcastLog(
@@ -1332,6 +1337,9 @@ class VpnServiceImpl : VpnService() {
                     "malformed error payload"
                 }
                 broadcastLog("Native transport error ${event.errorCode}: $message", level = "error")
+                if (ServerIdentityPolicy.isKeyMismatch(message)) {
+                    nativeFatalError = SecurityException(message)
+                }
             }
             TransportCoreEventCodec.KIND_PATH_COMMAND ->
                 dispatchTransportCorePathCommand(core, event)
@@ -1805,7 +1813,6 @@ class VpnServiceImpl : VpnService() {
         val fallbackDns = emptyList<String>()
         val carrierAddresses = resolvePhysicalCarrierAddresses(config, carrierGeneration)
         debugLog("Physical carrier candidates: ${carrierAddresses.joinToString(", ")}")
-        nativeFatalError = null
         val carrierDiagnosticsSampler = CarrierDiagnosticsSampler()
         fun captureCarrierDiagnostics(finalSample: Boolean = false) {
             synchronized(diagnosticLogLock) {
@@ -2050,6 +2057,12 @@ class VpnServiceImpl : VpnService() {
                 attemptEndedAt = -1L
                 // The native generation owns its carriers; stop/free cancellation is the only
                 // cross-thread teardown path.
+                // The pump may deliver the final security event just after runTransport
+                // returns. Consume it instead of erasing it in the next generation.
+                nativeFatalError?.let { fatal ->
+                    nativeFatalError = null
+                    throw fatal
+                }
                 runNativeTransport(config, carrierGeneration++)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
@@ -3160,7 +3173,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     /** Trust-on-first-use with persistence (parity with the Rust/desktop known_hosts):
-     *  pin the server's static key on first sight (keyed by serverId = host:port) and
+     *  pin the server's static key on first sight (keyed by tcp://host:port or udp://host:port) and
      *  verify it on every later connect — a changed key throws SecurityException as a
      *  probable MITM instead of being silently accepted. Kept in private prefs (server
      *  public keys are not secrets). */
@@ -3172,15 +3185,7 @@ class VpnServiceImpl : VpnService() {
      *  has proved it owns the key — see the call site. */
     private fun checkKnownHost(serverId: String, receivedHex: String): Boolean {
         val prefs = getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
-        val pinned = prefs.getString(serverId, null) ?: return false
-        if (!pinned.equals(receivedHex, ignoreCase = true)) {
-            throw SecurityException(
-                "SERVER KEY MISMATCH for $serverId - possible MITM. Pinned $pinned, got " +
-                    "$receivedHex. If you deliberately rotated the key, clear the saved key " +
-                    "for this server and reconnect."
-            )
-        }
-        return true
+        return ServerIdentityPolicy.checkKnownHost(serverId, receivedHex) { prefs.getString(it, null) }
     }
 
     /** Persist a first-use pin. Call ONLY after the auth proof verified. */

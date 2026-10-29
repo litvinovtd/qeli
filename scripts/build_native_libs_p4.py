@@ -3,7 +3,7 @@
 
 The .10 lab receives the exact clean local qeli source, then builds each artifact twice in
 independent target directories. Nothing is pulled unless A and B are byte-identical and the
-complete 6 Reality + 22 whole-client export surface is present. The final pull writes both
+complete 6 Reality + 23 whole-client export surface is present. The final pull writes both
 the canonical and client-consumed copies and records evidence for provenance.py.
 """
 
@@ -53,7 +53,7 @@ HOST = ("10.66.116.10", os.environ.get("QELI_LAB_USER", "root"))
 WIN_TARGET = "x86_64-pc-windows-gnu"
 MAC_TARGET = "universal2-apple-darwin"
 EXPECTED_REALITY_EXPORTS = "6"
-EXPECTED_CLIENT_EXPORTS = "22"
+EXPECTED_CLIENT_EXPORTS = "23"
 
 ARTIFACTS = {
     "native-libs/windows-x64/qeli.dll": {
@@ -257,6 +257,12 @@ def verify_exports(client: LabConnection) -> None:
     )
     if editor.strip() != "1":
         raise RuntimeError("Windows artifact lacks the ABI 1.16 configuration API")
+    carrier = client.checked(
+        f"x86_64-w64-mingw32-objdump -p {shlex.quote(win)} 2>/dev/null | grep -c 'qeli_client_carrier_diagnostics$' || true",
+        "Windows carrier diagnostics export",
+    )
+    if carrier.strip() != "1":
+        raise RuntimeError("Windows artifact lacks the ABI 1.17 carrier diagnostics API")
     print(
         f"[win] qeli.dll={win_size} bytes, qeli_realtls exports={reality}, "
         f"qeli_client exports={core}"
@@ -286,6 +292,12 @@ def verify_exports(client: LabConnection) -> None:
     )
     if editor.strip() != "1":
         raise RuntimeError("macOS artifact lacks the ABI 1.16 configuration API")
+    carrier = client.checked(
+        f"(llvm-nm-19 {shlex.quote(mac)} 2>/dev/null || llvm-nm {shlex.quote(mac)} 2>/dev/null) | grep -c ' T _qeli_client_carrier_diagnostics$' || true",
+        "macOS carrier diagnostics export",
+    )
+    if carrier.strip() != "1":
+        raise RuntimeError("macOS artifact lacks the ABI 1.17 carrier diagnostics API")
     print(
         f"[mac] libqeli.dylib={mac_size} bytes, qeli_realtls exports={reality}, "
         f"qeli_client exports={core}\n      {architecture}"

@@ -77,7 +77,7 @@ enum QeliPathCommandOutcome: Int32, Sendable {
 }
 
 final class QeliNativeTransport: @unchecked Sendable {
-    static let compatibilityABIVersion: UInt32 = 0x0001_0010
+    static let compatibilityABIVersion: UInt32 = 0x0001_0011
     // ABI 1.14 is the first path-transaction revision that can report an incomplete platform
     // rollback separately from a clean rejection. Older cores stay on full reconnect.
     static let pathTransactionsABIVersion: UInt32 = 0x0001_000e
@@ -101,6 +101,7 @@ final class QeliNativeTransport: @unchecked Sendable {
     static let coreUDPDiagnostic: UInt64 = 1 << 10
     static let corePathTransactions: UInt64 = 1 << 13
     static let corePathRefreshEvents: UInt64 = 1 << 14
+    static let coreCarrierDiagnostics: UInt64 = 1 << 16
     static let noticeEvent: UInt32 = 8
     static let kickEvent: UInt32 = 9
     static let maxPacketBytes = 65_535
@@ -142,7 +143,7 @@ final class QeliNativeTransport: @unchecked Sendable {
                     + "with compatibility floor \(formatABIVersion(compatibilityABIVersion))"
             )
         }
-        let required = coreNativeDataPlane | corePacketIO | coreUDPDiagnostic
+        let required = coreNativeDataPlane | corePacketIO | coreUDPDiagnostic | coreCarrierDiagnostics
         let capabilities = qeli_client_core_capabilities()
         guard capabilities & required == required else {
             throw QeliNativeError.operationFailed(
@@ -375,6 +376,27 @@ final class QeliNativeTransport: @unchecked Sendable {
             }
             return output
         }
+    }
+
+    /// An independent bounded numeric snapshot: polling must not drain lifecycle events.
+    func carrierDiagnostics() -> CarrierDiagnosticsSnapshot? {
+        Self.readCarrierDiagnostics(handle: handle)
+    }
+
+    /// Diagnostic reads are independent of the platform's ability to run a packet tunnel.
+    /// The live adapter still requires every data-plane capability in `init` above.
+    static func readCarrierDiagnostics(handle: UInt64) -> CarrierDiagnosticsSnapshot? {
+        guard Self.loadedABIVersion() >= 0x0001_0011,
+              qeli_client_core_capabilities() & Self.coreCarrierDiagnostics != 0 else { return nil }
+        var bytes = Data(count: CarrierDiagnosticsSnapshot.maximumBytes)
+        var length = 0
+        let capacity = bytes.count
+        let status = bytes.withUnsafeMutableBytes { raw in
+            qeli_client_carrier_diagnostics(
+                handle, raw.bindMemory(to: UInt8.self).baseAddress, capacity, &length)
+        }
+        guard status == 0, length > 0, length <= capacity else { return nil }
+        return CarrierDiagnosticsSnapshot.parse(Data(bytes.prefix(length)))
     }
 
     func stats() throws -> QeliTransportStats {

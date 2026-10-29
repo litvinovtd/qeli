@@ -51,7 +51,8 @@ struct QeliStatusWidgetView: View {
                 .lineLimit(1)
 
             if family == .systemMedium {
-                Text(statusDetail)
+                statusDetail
+                    .privacySensitive()
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -76,11 +77,11 @@ struct QeliStatusWidgetView: View {
         .widgetURL(WidgetControlBridge.statusURL)
     }
 
-    private var actionTitle: String {
+    private var actionTitle: LocalizedStringKey {
         entry.snapshot.phase.isActive ? "Disconnect" : "Connect"
     }
 
-    private var statusTitle: String {
+    private var statusTitle: LocalizedStringKey {
         switch entry.snapshot.phase {
         case .disconnected: return "Disconnected"
         case .preparing: return "Preparing"
@@ -93,10 +94,17 @@ struct QeliStatusWidgetView: View {
         }
     }
 
-    private var statusDetail: String {
-        if let error = entry.snapshot.error, !error.isEmpty { return error }
-        if let address = entry.snapshot.clientAddress { return "Client address: \(address)" }
-        return entry.snapshot.message.isEmpty ? "Open Qeli to choose an active profile." : entry.snapshot.message
+    @ViewBuilder
+    private var statusDetail: some View {
+        if let error = entry.snapshot.error, !error.isEmpty {
+            Text(error)
+        } else if let address = entry.snapshot.clientAddress {
+            Text("Client address: \(address)")
+        } else if entry.snapshot.message.isEmpty {
+            Text("Open Qeli to choose an active profile.")
+        } else {
+            Text(LocalizedStringKey(entry.snapshot.message))
+        }
     }
 
     private var statusTint: Color {
@@ -114,6 +122,7 @@ struct QeliStatusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: QeliStatusProvider()) { entry in
             QeliStatusWidgetView(entry: entry)
+                .environment(\.locale, SettingsStore().load().language.locale)
         }
         .configurationDisplayName("Qeli VPN Status")
         .description("View VPN status and connect or disconnect the active profile.")

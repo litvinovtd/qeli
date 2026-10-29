@@ -1416,7 +1416,17 @@ channel, a QR, etc.). The client checks the key received from the server against
 pinned one; on a mismatch — a `SERVER KEY MISMATCH` error (anti-MITM). If the field
 is unset, TOFU stores the first key after the server's cryptographic key proof and verifies
 it on later connections (the first contact is still not protected against substitution).
-The client pins the key **of the profile** it connects to (by port).
+The client pins the key **of the profile** it connects to (by transport and port).
+
+Since 0.8.4, local trust-store identifiers include the carrier:
+`tcp://vpn.example:443` and `udp://vpn.example:443` are separate entries. IPv6 uses
+`tcp://[2001:db8::1]:443`. This changes neither the wire protocol nor the server IP or INI.
+An explicit `key` is checked against the proven server identity independently of another
+profile's TOFU state. Without `key`, the transport-qualified entry is checked first;
+if absent, a legacy `host:port` pin is copied only after its key matches and retained
+for compatibility. A legacy mismatch never becomes a new first-use decision: verify
+the correct profile key out of band and configure it explicitly as `key`.
+Reinstalling the app, clearing all pins or disabling verification is not necessary.
 
 > **`allow_unpinned_tofu` (client `[qeli]`, default `false`) is an escape hatch only
 > for a TOFU-pin persistence failure.** With no explicit `key`, the client accepts the

@@ -111,6 +111,7 @@ public static class Program
         AppSettingsStoreConformance.Run(Check);
         TrafficHistoryConformance.Run(Check);
         DesktopLogConformance.Run(Check);
+        ServerIdentityConformance.Run(Check);
         PrpNonceConformance.Run(Check);
         WireConformance.Run(Check);
         RoamingPathConformance.Run(Check);

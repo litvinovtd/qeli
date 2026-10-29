@@ -6,6 +6,43 @@ fn spec() -> Vec<String> {
         .collect()
 }
 #[test]
+fn singleton_routes_are_boot_scoped_and_never_share_cookie_authority() {
+    let scope = Scope::Single(SingleNetwork::Boot);
+    let mut store = Store::new("boot-a");
+    let route = spec();
+    store.change(scope, "vpn0", &route, Change::Intent).unwrap();
+    let mut restored = Store::decode(&store.encode().unwrap(), "boot-a").unwrap();
+    assert_eq!(restored.version, 2);
+    assert!(restored.records(scope, "vpn0", false).is_empty());
+    assert_eq!(restored.records(scope, "vpn0", true), [route.clone()]);
+    restored
+        .change(scope, "vpn0", &route, Change::Confirm)
+        .unwrap();
+    let bytes = restored.encode().unwrap();
+    let mut restored = Store::decode(&bytes, "boot-a").unwrap();
+    assert_eq!(restored.records(scope, "vpn0", false), [route.clone()]);
+    assert!(restored.records(1, "vpn0", false).is_empty());
+    assert!(restored.records(scope, "vpn1", false).is_empty());
+    assert!(restored.check_unclaimed(scope, "vpn1", &route).is_err());
+    assert!(Store::decode(&bytes, "boot-b").unwrap().groups.is_empty());
+    restored
+        .change(scope, "vpn0", &route, Change::ForgetOwned)
+        .unwrap();
+    assert!(restored.groups.is_empty());
+    store.version = 1;
+    assert!(store.encode().is_err());
+}
+#[test]
+fn legacy_numeric_route_scope_roundtrips_without_migration() {
+    let mut store = Store::new("boot");
+    store.change(42, "vpn0", &spec(), Change::Confirm).unwrap();
+    let bytes = store.encode().unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("\"cookie\":42"));
+    let restored = Store::decode(&bytes, "boot").unwrap();
+    assert_eq!(restored.version, 1);
+    assert_eq!(restored.records(42, "vpn0", false), [spec()]);
+}
+#[test]
 fn route_intent_does_not_grant_delete_authority() {
     let mut s = Store::new("boot");
     let r = spec();
@@ -119,7 +156,7 @@ fn supported_physical_specifications_roundtrip() {
 #[test]
 fn malformed_or_old_version_journal_is_not_reset_even_after_reboot() {
     for bytes in [
-        br#"{"version":2,"boot":"old","groups":[]}"#.as_slice(),
+        br#"{"version":3,"boot":"old","groups":[]}"#.as_slice(),
         b"{",
         br#"{"version":1,"boot":"old","groups":[],"extra":true}"#,
     ] {
@@ -133,9 +170,9 @@ fn journal_rejects_tun_entries_duplicate_owner_and_zero_cookie() {
     s.groups.push(s.groups[0].clone());
     assert!(s.encode().is_err());
     s.groups.pop();
-    s.groups[0].cookie = 0;
+    s.groups[0].cookie = Scope::Cookie(0);
     assert!(s.encode().is_err());
-    s.groups[0].cookie = 7;
+    s.groups[0].cookie = Scope::Cookie(7);
     *s.groups[0].owned[0].last_mut().unwrap() = "vpn0".into();
     assert!(s.encode().is_err());
 }

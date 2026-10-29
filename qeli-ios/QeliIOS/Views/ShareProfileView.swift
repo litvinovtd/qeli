@@ -42,7 +42,7 @@ struct ShareProfileView: View {
                             UIPasteboard.general.string = link
                             copied = true
                         } label: {
-                            Label(copied ? "Link copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                            Label(LocalizedStringKey(copied ? "Link copied" : "Copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)

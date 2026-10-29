@@ -377,11 +377,18 @@ impl ClientPlatform for NativeCoreAdapter {
             .ok_or_else(|| anyhow::anyhow!("platform device id was not supplied before start"))
     }
 
-    fn identity_verifier(&self, _config: &ClientConfig) -> IdentityVerifier {
+    fn identity_verifier(&self, config: &ClientConfig) -> IdentityVerifier {
         let adapter = self.clone();
+        let expected = config.auth.server_public_key.clone();
         Arc::new(move |public_key| {
             let adapter = adapter.clone();
+            let expected = expected.clone();
             Box::pin(async move {
+                // An explicit out-of-band pin is authoritative. Never let another
+                // profile's legacy TOFU entry shadow it; still compare the proven key.
+                if let Some(expected) = expected {
+                    return crate::client::verify_pinned_key(&public_key, &expected);
+                }
                 let mut result = {
                     let mut core = adapter.lock();
                     let (_, result) = core.request_server_identity(public_key)?;
@@ -883,6 +890,36 @@ fn lock_core(shared: &Arc<Mutex<ClientCore>>) -> MutexGuard<'_, ClientCore> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn explicit_key_is_checked_without_requesting_a_platform_tofu_pin() {
+        let mut core = ClientCore::new(
+            &format!("[qeli]\nserver=127.0.0.1:443\nproto=tcp\nuser=test\npass=test\nkey={}\nmode=fake-tls\n", "ab".repeat(32)),
+            super::super::CoreOptions::default(),
+        ).unwrap();
+        let mut config = core.config().clone();
+        config.auth.allow_unpinned_tofu = true;
+        while core.poll_event().is_some() {}
+        let core = Arc::new(Mutex::new(core));
+        let adapter = NativeCoreAdapter {
+            core: core.clone(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            counters: Arc::new(RuntimeCounters::default()),
+            fallback_dns_servers: Arc::new(Vec::new()),
+            carrier_addresses: Arc::new(Mutex::new(Vec::new())),
+            carrier_address: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "experimental-roaming")]
+            path_controller: CorePathController::new(core.clone()),
+        };
+        let verify = adapter.identity_verifier(&config);
+        verify([0xab; 32]).await.unwrap();
+        let error = verify([0xcd; 32]).await.unwrap_err();
+        assert!(error.to_string().contains("SERVER KEY MISMATCH"));
+        assert!(
+            adapter.lock().poll_event().is_none(),
+            "explicit pins must not consult platform TOFU"
+        );
+    }
 
     #[test]
     fn platform_dns_can_supply_more_than_sixteen_dual_stack_addresses() {

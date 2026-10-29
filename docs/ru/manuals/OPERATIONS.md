@@ -469,9 +469,13 @@ Managed DNS на Linux также требует `SO_NETNS_COOKIE` и довер
 ## Восстановление физических маршрутов клиента
 
 Linux-клиент с managed TUN сохраняет физические bypass/exclude и blackhole в
-`$STATE_DIRECTORY/client-routes.state` (по умолчанию `/var/lib/qeli/client-routes.state`). Требуются `SO_NETNS_COOKIE` и доверенный каталог,
+`$STATE_DIRECTORY/client-routes.state` (по умолчанию `/var/lib/qeli/client-routes.state`). При включённых network namespaces требуются `SO_NETNS_COOKIE` и доверенный каталог,
 доступный для записи владельцу процесса, без symlink и group/world write. Это
 требование действует также при `dns = off`/`system`. DNS, sysctl и firewall используют тот же корень журналов.
+С 0.8.4 клиент на ядре с подтверждённо отключённым `CONFIG_NET_NS` использует
+явную область `single-network` и `boot_id`, сохраняя проверки владения маршрутами.
+DNS и sysctl в этом режиме остаются под управлением прошивки.
+[Условия совместимости Keenetic](KEENETIC-DEPLOY.md#ядро-без-network-namespaces-084).
 Все клиенты в одной сети должны видеть общий каталог и `client-routes.state.lock`.
 Конфиги остаются INI; журнал — внутреннее состояние восстановления.
 

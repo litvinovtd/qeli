@@ -372,16 +372,27 @@ actor IOSRoamingController {
             return
         }
 
-        // A usable path, even the same Wi-Fi returning, resolves the break-before-make gap.
+        // Classify before cancelling: repeated callbacks for the current signature must
+        // not discard a candidate that is still inside its make-before-break debounce.
         let replacementAfterLoss = waitingForReplacement
+        switch IOSRoamingObservationPolicy.usablePathAction(
+            previousSignature: baselineSignature,
+            signature: signature,
+            waitingForReplacement: replacementAfterLoss
+        ) {
+        case .keep:
+            return
+        case .establishBaseline:
+            baselineSignature = signature
+            return
+        case .submit:
+            break
+        }
+        // A loss followed by the same Wi-Fi can still have a new NAT mapping. Submit a
+        // fresh candidate immediately and invalidate the old loss timer/probe revision.
         waitingForReplacement = false
         pendingUpdate?.cancel()
         pendingUpdate = nil
-        guard let previous = baselineSignature else {
-            baselineSignature = signature
-            return
-        }
-        guard signature != previous else { return }
         baselineSignature = signature
         observationRevision &+= 1
         let revision = observationRevision
@@ -411,6 +422,27 @@ actor IOSRoamingController {
     }
     func hasUsablePath() -> Bool {
         latestPath.flatMap(IOSRoamingSocket.signature) != nil
+    }
+
+    /// Recover the first carrier after bootstrap when no DNS answer has ever succeeded.
+    /// The scoped UDP connection resolves on the selected physical interface and sends no
+    /// application datagram. It must not ask the now-installed tunnel's DNS to repair itself.
+    func resolveCarrierAddresses() async throws -> [String] {
+        try Task.checkCancellation()
+        guard lifecycle.active else { throw CancellationError() }
+        guard let path = latestPath,
+              let signature = IOSRoamingSocket.signature(for: path),
+              let interface = IOSRoamingSocket.physicalInterface(for: path) else {
+            throw IOSRoamingError.unavailable("no usable physical path for carrier DNS")
+        }
+        let probe = try await IOSPathProbe.resolve(
+            host: serverAddress, port: serverPort, interface: interface)
+        try Task.checkCancellation()
+        guard lifecycle.active else { throw CancellationError() }
+        guard latestPath.flatMap(IOSRoamingSocket.signature) == signature else {
+            throw IOSRoamingError.unavailable("physical path changed during carrier DNS")
+        }
+        return [probe.remoteAddress]
     }
 
     /// Suspend reconnect attempts while Network.framework has no usable physical path. The

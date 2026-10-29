@@ -2121,7 +2121,11 @@ impl LinuxCoreAdapter {
         let counters = Arc::new(RuntimeCounters::default());
         let (identity_verifier, identity_worker) = if config.auth.server_public_key.is_none() {
             let path = known_hosts_path();
-            let server_id = format!("{}:{}", config.server.address, config.server.port);
+            let server_id = crate::transport_core::server_identity::endpoint_id(
+                &config.server.protocol,
+                &config.server.address,
+                config.server.port,
+            );
             let allow_unpinned = config.auth.allow_unpinned_tofu;
             let (verifier, worker) = identity_worker::Worker::start(move |received| {
                 let hex: String = received.iter().map(|b| format!("{b:02x}")).collect();
@@ -13428,8 +13432,8 @@ fn prefix_to_netmask(prefix: u8) -> String {
 }
 
 /// Explicit pins remain a pure in-memory check, independent of local TOFU files.
-#[cfg(target_os = "linux")]
-fn verify_pinned_key(received: &[u8], expected: &str) -> anyhow::Result<()> {
+#[cfg(any(target_os = "linux", feature = "transport-core-ffi"))]
+pub(crate) fn verify_pinned_key(received: &[u8], expected: &str) -> anyhow::Result<()> {
     let received_hex: String = received.iter().map(|b| format!("{b:02x}")).collect();
     let expected_clean = expected.replace([':', '-', ' '], "").to_lowercase();
     anyhow::ensure!(received_hex == expected_clean,

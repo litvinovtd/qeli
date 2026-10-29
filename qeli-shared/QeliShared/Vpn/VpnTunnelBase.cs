@@ -1622,6 +1622,8 @@ public abstract class VpnTunnelBase
                                 ? $"native transport error {nativeEvent.ErrorCode}"
                                 : nativeEvent.Payload;
                             Log($"ERROR: native transport {nativeEvent.ErrorCode}: {nativeError}");
+                            if (ServerIdentityPolicy.IsKeyMismatch(nativeError))
+                                throw new SecurityException(nativeError);
                             break;
                     }
                 }
@@ -1753,6 +1755,8 @@ public abstract class VpnTunnelBase
             string received = identity.PublicKey.Trim().ToLowerInvariant();
             if (received.Length != 64 || received.Any(ch => !Uri.IsHexDigit(ch)))
                 throw new SecurityException("native server identity is not a 32-byte hex key");
+            string scopedId = ServerIdentityPolicy.StorageId(
+                identity.ServerId, config.Protocol, config.ServerAddress, config.Port);
 
             if (!string.IsNullOrWhiteSpace(config.ServerPublicKeyHex))
             {
@@ -1760,10 +1764,10 @@ public abstract class VpnTunnelBase
                 if (!string.Equals(expected, received, StringComparison.OrdinalIgnoreCase))
                     throw new SecurityException("SERVER KEY MISMATCH - possible MITM");
             }
-            else if (!CheckKnownHost(identity.ServerId, received))
+            else if (!CheckKnownHost(scopedId, received))
             {
                 // Rust emits this event only after the peer has proved possession of the key.
-                RecordKnownHost(identity.ServerId, received, config.AllowUnpinnedTofu);
+                RecordKnownHost(scopedId, received, config.AllowUnpinnedTofu);
             }
             NativeTransportCore.ServerIdentityResult(handle, sequence, true);
         }
@@ -2109,7 +2113,7 @@ public abstract class VpnTunnelBase
 
     /// <summary>Trust-on-first-use with persistence (parity with the Rust client's
     /// known_hosts). Pins the server's static key on first sight (keyed by
-    /// <paramref name="serverId"/> = host:port) and verifies it on every later
+    /// <paramref name="serverId"/> = tcp://host:port or udp://host:port) and verifies it on every later
     /// connect — a changed key throws <see cref="SecurityException"/> as a probable
     /// MITM rather than being silently accepted. Best-effort: an unwritable store
     /// degrades to a warning, but a readable one is always enforced.</summary>
@@ -2135,21 +2139,7 @@ public abstract class VpnTunnelBase
             try
             {
                 if (!System.IO.File.Exists(path)) return false;
-                foreach (var raw in System.IO.File.ReadAllLines(path))
-                {
-                    var line = raw.Trim();
-                    if (line.Length == 0 || line.StartsWith('#')) continue;
-                    var sp = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
-                    if (sp.Length == 2 && sp[0] == serverId)
-                    {
-                        if (string.Equals(sp[1].Trim(), receivedHex, StringComparison.OrdinalIgnoreCase))
-                            return true; // matches the pin
-                        throw new SecurityException(
-                            $"SERVER KEY MISMATCH for {serverId} - possible MITM. Pinned {sp[1].Trim()}, " +
-                            $"got {receivedHex}. If you deliberately rotated the key, remove its line " +
-                            $"from {path} (or set server_public_key) and reconnect.");
-                    }
-                }
+                return ServerIdentityPolicy.CheckKnownHosts(System.IO.File.ReadAllText(path), serverId, receivedHex);
             }
             catch (SecurityException) { throw; }
             catch { /* unreadable store -> treat as unknown host */ }

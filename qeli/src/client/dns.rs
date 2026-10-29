@@ -154,8 +154,25 @@ fn revert_link_with(
 /// holding the original TUN descriptor and DNS lease may issue a resolver mutation.
 pub fn recover_stale() -> anyhow::Result<()> {
     let root = crate::state_storage::default_state_dir();
-    let directory = crate::dns_lease::Directory::existing(&root)?;
-    let namespace = crate::network_namespace::Namespace::capture()?;
+    recover_stale_at(&root, || {
+        Ok((
+            crate::network_namespace::Namespace::capture()?,
+            current_scope()?,
+        ))
+    })
+}
+
+fn recover_stale_at(
+    root: &Path,
+    mut capture: impl FnMut() -> anyhow::Result<(
+        crate::network_namespace::Namespace,
+        crate::dns_lease::Scope,
+    )>,
+) -> anyhow::Result<()> {
+    let directory = crate::dns_lease::Directory::existing(root)?;
+    // dns=off on routers must not require resolver ownership APIs when there is
+    // no per-link lease to recover. Never reinterpret existing scoped DNS leases.
+    let mut namespace = None;
     let mut errors = Vec::new();
     let mut scope = None;
     if let Some(directory) = directory {
@@ -179,12 +196,14 @@ pub fn recover_stale() -> anyhow::Result<()> {
             }
             if crate::dns_lease::is_marker(&name) {
                 if scope.is_none() {
-                    scope = Some(current_scope()?);
+                    let (current_namespace, current_scope) = capture()?;
+                    namespace = Some(current_namespace);
+                    scope = Some(current_scope);
                 }
                 match crate::dns_lease::recover_in(&directory, &entry.file_name(), scope.as_ref().expect("scope initialized"), |index| {
-                    namespace.verify()?;
+                    namespace.as_ref().expect("scope namespace initialized").verify()?;
                     let present = index_exists(index)?;
-                    namespace.verify()?;
+                    namespace.as_ref().expect("scope namespace initialized").verify()?;
                     Ok(present)
                 }) {
                     Ok(crate::dns_lease::Recovery::Legacy) => log::warn!("Legacy DNS v1 marker {} lacks namespace generation; retained for administrator recovery", visible.display()),
@@ -201,6 +220,30 @@ pub fn recover_stale() -> anyhow::Result<()> {
         anyhow::bail!("DNS recovery failed: {}", errors.join("; "));
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn empty_router_state_does_not_require_resolver_namespace_apis() -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!(
+        "qeli-dns-empty-{}-{}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    // No journal directory, or one containing only route state: neither grants
+    // DNS recovery authority and neither should inspect unavailable ns/net.
+    recover_stale_at(&root, || {
+        panic!("empty DNS state must not capture namespaces")
+    })?;
+    std::fs::create_dir(&root)?;
+    let result = (|| {
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::write(root.join("client-routes.state"), b"unrelated route journal")?;
+        recover_stale_at(&root, || panic!("route state is not a DNS lease"))
+    })();
+    let _ = std::fs::remove_dir_all(&root);
+    result
 }
 
 fn index_exists(index: u32) -> anyhow::Result<bool> {

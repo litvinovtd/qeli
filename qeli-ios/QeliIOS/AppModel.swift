@@ -46,7 +46,17 @@ final class AppModel: ObservableObject {
     private var updateTaskIsAutomatic = false
     private var updateCheckGeneration: UInt64 = 0
     private var updateChecksSuspendedForTunnelTeardown = false
-    private var queuedProbes: [Profile] = []
+    private struct ProbeRequest {
+        let profile: Profile
+        let automatic: Bool
+    }
+    private var queuedProbes: [ProbeRequest] = []
+    private var activeProbeTasks: [UUID: Task<Void, Never>] = [:]
+    private var automaticProbeIDs = Set<UUID>()
+    private var automaticProbeTask: Task<Void, Never>?
+    private var isForeground = false
+    private var tunnelStatePrepared = false
+    private var lastProbeSweep: TimeInterval?
     private var queuedOrActiveProbeIDs = Set<UUID>()
     private var startupSigningInvalid = false
     private var profileStoreLoadRejected = false
@@ -97,6 +107,18 @@ final class AppModel: ObservableObject {
         } else {
             activeProfileID = archive.activeProfileID
         }
+        do {
+            try sharedTunnelStore.setRetainLastErrorReport(settings.retainLastErrorReport)
+        } catch {
+            if settings.retainLastErrorReport {
+                settings.retainLastErrorReport = false
+                settingsStore.save(settings)
+            }
+            if alert == nil {
+                alert = AppAlert(title: "Could not update diagnostic retention",
+                                 message: localized(error.localizedDescription), isLiteralMessage: true)
+            }
+        }
         WidgetControlBridge.setWidgetControlsEnabled(
             managedConfiguration.widgetControlsEnabled ?? true
         )
@@ -109,6 +131,7 @@ final class AppModel: ObservableObject {
                 tunnelSnapshot = value
                 logLines = sharedTunnelStore.logLines()
                 if previousPhase != value.phase {
+                    configureAutomaticProbes(runImmediately: true)
                     WidgetCenter.shared.reloadTimelines(ofKind: AppConstants.statusWidgetKind)
                     if #available(iOS 18.0, *) {
                         ControlCenter.shared.reloadControls(ofKind: AppConstants.connectionControlKind)
@@ -123,6 +146,14 @@ final class AppModel: ObservableObject {
                 }
                 maybeCheckForUpdates()
             }
+            .store(in: &cancellables)
+
+        // A provider can remain alive in a fail-closed error state. Conversely, its final
+        // system disconnect may preserve the same visible error phase. Observe both axes.
+        tunnelManager.$systemStatus
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.configureAutomaticProbes(runImmediately: true) }
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .qeliWidgetControlRequestAvailable)
@@ -140,6 +171,7 @@ final class AppModel: ObservableObject {
             do {
                 try await tunnelManager.prepare()
                 tunnelSnapshot = tunnelManager.snapshot
+                tunnelStatePrepared = true
                 await refreshManagedConfiguration(forceVPNPolicy: true)
                 let handledWidgetRequest = await consumePendingWidgetControlRequest()
                 if !handledWidgetRequest,
@@ -149,9 +181,14 @@ final class AppModel: ObservableObject {
                     setConnectionDesired(true)
                     try await tunnelManager.connect(profile: profile, settings: effectiveSettings)
                 }
+                configureAutomaticProbes(runImmediately: true)
             } catch is CancellationError {
+                configureAutomaticProbes(runImmediately: false)
                 return
             } catch {
+                // A failed launch auto-connect must not disable polling forever after
+                // the system VPN status itself was successfully reconciled.
+                configureAutomaticProbes(runImmediately: true)
                 present(error, title: "VPN configuration")
             }
         }
@@ -203,6 +240,10 @@ final class AppModel: ObservableObject {
                 )
                 return
             }
+            automaticProbeTask?.cancel()
+            automaticProbeTask = nil
+            cancelAutomaticProbes()
+            defer { configureAutomaticProbes(runImmediately: false) }
             setConnectionDesired(true)
             try await tunnelManager.connect(profile: activeProfile, settings: effectiveSettings)
         } catch is CancellationError {
@@ -277,13 +318,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func importProfile(_ rawText: String, suggestedName: String? = nil) throws -> Profile {
         let previous = archive
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let config = try VPNConfig(parsing: rawText)
-        let name = suggestedName?.nonEmpty
-            ?? (trimmed.hasPrefix("qeli://") ? VPNConfig.label(fromQeliURI: trimmed) : nil)
-            ?? Self.commentLabel(trimmed)
-            ?? "profile"
-        let profile = Profile(name: name, configText: try config.toINI(label: name))
+        let profile = try ProfileImportPolicy.profile(rawText: rawText, suggestedName: suggestedName)
         archive.profiles.append(profile)
         if canSwitchProfile { archive.activeProfileID = profile.id }
         do { try commitArchive() }
@@ -302,7 +337,7 @@ final class AppModel: ObservableObject {
         guard let index = archive.profiles.firstIndex(where: { $0.id == id }) else { return }
         let previous = archive
         let source = archive.profiles[index]
-        let copy = Profile(name: "\(source.name) (copy)", configText: source.configText)
+        let copy = Profile(name: String(format: localized("%@ (copy)"), source.name), configText: source.configText)
         archive.profiles.insert(copy, at: index + 1)
         do { try commitArchive() }
         catch {
@@ -358,7 +393,22 @@ final class AppModel: ObservableObject {
         let previous = settings
         update(&settings)
         settings.trustedWiFiSSIDs = TrustedWiFiPolicy.normalized(settings.trustedWiFiSSIDs)
+        settings.probeIntervalSeconds = ProfileAutoProbePolicy.clampIntervalSeconds(settings.probeIntervalSeconds)
+        if previous.retainLastErrorReport != settings.retainLastErrorReport {
+            // Persist revocation before attempting removal, so an I/O failure cannot keep
+            // authorizing new reports. Enabling must initialize the journal successfully.
+            if !settings.retainLastErrorReport { settingsStore.save(settings) }
+            do { try sharedTunnelStore.setRetainLastErrorReport(settings.retainLastErrorReport) }
+            catch {
+                if settings.retainLastErrorReport { settings.retainLastErrorReport = false }
+                present(error, title: "Could not update diagnostic retention")
+            }
+        }
         settingsStore.save(settings)
+        if previous.autoProbeProfiles != settings.autoProbeProfiles
+            || previous.probeIntervalSeconds != settings.probeIntervalSeconds {
+            configureAutomaticProbes(runImmediately: true)
+        }
         let current = settings
         let currentEffectiveSettings = effectiveSettings
         let onDemandPolicyChanged = Self.onDemandPolicyChanged(
@@ -451,22 +501,85 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func ping(_ profile: Profile) {
+    func setSceneActive(_ active: Bool) {
+        guard isForeground != active else { return }
+        isForeground = active
+        configureAutomaticProbes(runImmediately: active)
+    }
+
+    private var systemTunnelDisconnected: Bool {
+        tunnelManager.systemStatus == .disconnected || tunnelManager.systemStatus == .invalid
+    }
+
+    private func configureAutomaticProbes(runImmediately: Bool) {
+        automaticProbeTask?.cancel()
+        automaticProbeTask = nil
+        cancelAutomaticProbes()
+        guard tunnelStatePrepared, isForeground, settings.autoProbeProfiles,
+              !isTunnelBusy, systemTunnelDisconnected else { return }
+        if runImmediately { pingAllAutomatically() }
+        let interval = UInt64(settings.probeIntervalSeconds) * 1_000_000_000
+        automaticProbeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: interval) }
+                catch { return }
+                guard let self else { return }
+                self.pingAllAutomatically()
+            }
+        }
+    }
+
+    private func cancelAutomaticProbes() {
+        let queued = queuedProbes.filter(\.automatic)
+        queuedProbes.removeAll(where: \.automatic)
+        for request in queued {
+            queuedOrActiveProbeIDs.remove(request.profile.id)
+            if reachability[request.profile.id] == .checking {
+                reachability[request.profile.id] = .idle
+            }
+        }
+        for id in automaticProbeIDs {
+            activeProbeTasks[id]?.cancel()
+            if reachability[id] == .checking { reachability[id] = .idle }
+        }
+        // A bounded native UDP call keeps its worker until completion. Repeated toggles
+        // cannot create additional workers while an earlier cancellation is draining.
+    }
+
+    private func pingAllAutomatically() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard ProfileAutoProbePolicy.canStartSweep(
+            enabled: settings.autoProbeProfiles && tunnelStatePrepared && !profileStoreLoadRejected,
+            foreground: isForeground,
+            tunnelBusy: isTunnelBusy, systemDisconnected: systemTunnelDisconnected,
+            now: now, lastSweep: lastProbeSweep
+        ) else { return }
+        lastProbeSweep = now
+        profiles.forEach { enqueueProbe($0, automatic: true) }
+    }
+
+    func ping(_ profile: Profile) { enqueueProbe(profile, automatic: false) }
+
+    private func enqueueProbe(_ profile: Profile, automatic: Bool) {
         guard profiles.contains(where: { $0.id == profile.id && $0.configText == profile.configText }),
               queuedOrActiveProbeIDs.insert(profile.id).inserted else { return }
         reachability[profile.id] = .checking
-        queuedProbes.append(profile)
+        queuedProbes.append(ProbeRequest(profile: profile, automatic: automatic))
         startQueuedProbes()
     }
 
     private func startQueuedProbes() {
         while activeProbeCount < Self.maximumConcurrentProbes, !queuedProbes.isEmpty {
-            let profile = queuedProbes.removeFirst()
+            let request = queuedProbes.removeFirst()
+            let profile = request.profile
             activeProbeCount += 1
-            Task { [weak self] in
+            if request.automatic { automaticProbeIDs.insert(profile.id) }
+            activeProbeTasks[profile.id] = Task { [weak self] in
                 guard let self else { return }
-                await runProbe(profile)
+                if !Task.isCancelled { await runProbe(profile) }
                 activeProbeCount -= 1
+                activeProbeTasks.removeValue(forKey: profile.id)
+                automaticProbeIDs.remove(profile.id)
                 queuedOrActiveProbeIDs.remove(profile.id)
                 startQueuedProbes()
             }
@@ -522,11 +635,20 @@ final class AppModel: ObservableObject {
         reachability[profile.id] = result
     }
 
-    func pingAll() { profiles.forEach(ping) }
+    func pingAll() {
+        lastProbeSweep = ProcessInfo.processInfo.systemUptime
+        profiles.forEach(ping)
+    }
+
+    func makeDiagnosticReport(lastError: Bool) throws -> DiagnosticReportExport {
+        try sharedTunnelStore.diagnosticReport(lastError: lastError)
+    }
 
     func clearLog() {
-        sharedTunnelStore.clearLog()
-        logLines = []
+        do {
+            try sharedTunnelStore.clearDiagnostics()
+            logLines = []
+        } catch { present(error, title: "Could not clear diagnostics") }
     }
 
     func refreshLog() { logLines = sharedTunnelStore.logLines() }
@@ -605,8 +727,8 @@ final class AppModel: ObservableObject {
     }
 
     func present(_ error: Error, title: String) {
-        // localizedDescription is system/server text, not one of our keys.
-        alert = AppAlert(title: title, message: error.localizedDescription, isLiteralMessage: true)
+        // Translate known app error keys; arbitrary system/server descriptions remain verbatim.
+        alert = AppAlert(title: title, message: localized(error.localizedDescription), isLiteralMessage: true)
     }
 
     private func commitArchive(replacingUnreadableStore: Bool = false) throws {
@@ -623,9 +745,9 @@ final class AppModel: ObservableObject {
         }
         // Remove only queued IDs; an active native probe keeps its slot until its bounded
         // call returns, so a replacement cannot exceed the four-worker limit.
-        let obsolete = queuedProbes.filter { currentConfigs[$0.id] != $0.configText }
-        queuedProbes.removeAll { currentConfigs[$0.id] != $0.configText }
-        for profile in obsolete { queuedOrActiveProbeIDs.remove(profile.id) }
+        let obsolete = queuedProbes.filter { currentConfigs[$0.profile.id] != $0.profile.configText }
+        queuedProbes.removeAll { currentConfigs[$0.profile.id] != $0.profile.configText }
+        for request in obsolete { queuedOrActiveProbeIDs.remove(request.profile.id) }
         synchronizeActiveProfile()
         if managedConfiguration.hasActiveProfilePolicy {
             Task { [weak self] in
@@ -906,13 +1028,6 @@ final class AppModel: ObservableObject {
         return tunnelSnapshot.privateUpdatePath == true
     }
 
-    private static func commentLabel(_ text: String) -> String? {
-        guard let line = text.components(separatedBy: .newlines)
-            .first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }) else { return nil }
-        return String(line.trimmingCharacters(in: .whitespaces).dropFirst())
-            .trimmingCharacters(in: .whitespaces)
-            .nonEmpty
-    }
 }
 
 private enum ReachabilityProbe {

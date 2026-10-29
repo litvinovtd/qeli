@@ -9,30 +9,30 @@ use std::thread::JoinHandle;
 
 struct Context {
     #[cfg(target_os = "linux")]
-    namespaces: [std::fs::File; 2],
+    network: crate::network_namespace::Namespace,
+    #[cfg(target_os = "linux")]
+    mount: std::fs::File,
 }
 impl Context {
     fn capture() -> anyhow::Result<Self> {
         Ok(Self {
             #[cfg(target_os = "linux")]
-            namespaces: [
-                std::fs::File::open("/proc/thread-self/ns/net")?,
-                std::fs::File::open("/proc/thread-self/ns/mnt")?,
-            ],
+            network: crate::network_namespace::Namespace::capture_client()?,
+            #[cfg(target_os = "linux")]
+            mount: crate::network_namespace::open_thread_namespace("mnt")?,
         })
     }
     fn verify(&self) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::MetadataExt;
-            for (file, name) in self.namespaces.iter().zip(["net", "mnt"]) {
-                let expected = file.metadata()?;
-                let actual = std::fs::metadata(format!("/proc/thread-self/ns/{name}"))?;
-                anyhow::ensure!(
-                    (expected.dev(), expected.ino()) == (actual.dev(), actual.ino()),
-                    "network transaction {name} namespace changed"
-                );
-            }
+            self.network.verify()?;
+            let expected = self.mount.metadata()?;
+            let actual = crate::network_namespace::open_thread_namespace("mnt")?.metadata()?;
+            anyhow::ensure!(
+                (expected.dev(), expected.ino()) == (actual.dev(), actual.ino()),
+                "network transaction mnt namespace changed"
+            );
         }
         Ok(())
     }

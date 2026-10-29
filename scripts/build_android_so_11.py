@@ -47,7 +47,7 @@ NDK = f"/root/android-sdk/ndk/{DEFAULT_ANDROID_NDK}"
 HOST = ("10.66.116.11", os.environ.get("QELI_LAB_USER", "root"))
 ABIS = ("arm64-v8a", "x86_64")
 EXPECTED_REALITY_EXPORTS = "6"
-EXPECTED_CLIENT_EXPORTS = "22"
+EXPECTED_CLIENT_EXPORTS = "23"
 EXPECTED_JNI_EXPORTS = "22"
 
 ARTIFACTS = {
@@ -180,6 +180,12 @@ def verify_exports(client: LabConnection) -> None:
             f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c ' qeli_config_request$' || true",
             f"{abi} configuration editor export",
         )
+        carrier = client.checked(
+            f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c ' qeli_client_carrier_diagnostics$' || true",
+            f"{abi} carrier diagnostics export",
+        )
+        if carrier.strip() != "1":
+            raise RuntimeError(f"{abi} artifact lacks the ABI 1.17 carrier diagnostics API")
         editor_jni = client.checked(
             f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c 'Java_com_qeli_ConfigCore_nativeRequest$' || true",
             f"{abi} configuration JNI export",

@@ -105,16 +105,17 @@ struct RootView: View {
     private var pendingDeepLinkSummary: String {
         guard let url = model.pendingDeepLink,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return "Qeli profile"
+            return model.localized("Qeli profile")
         }
-        let host = components.host ?? "Qeli server"
+        let host = components.host ?? model.localized("Qeli server")
         let endpoint = components.port.map { "\(host):\($0)" } ?? host
         let rawMode = components.queryItems?
             .first(where: { $0.name == "mode" })?.value?.lowercased()
         let mode = rawMode.flatMap {
             ["plain", "fake-tls", "obfs", "reality-tls"].contains($0) ? $0 : nil
         }
-        return mode.map { "Server: \(endpoint) • Mode: \($0)" } ?? "Server: \(endpoint)"
+        return mode.map { String(format: model.localized("Server: %@ • Mode: %@"), endpoint, $0) }
+            ?? String(format: model.localized("Server: %@"), endpoint)
     }
 
     private var header: some View {

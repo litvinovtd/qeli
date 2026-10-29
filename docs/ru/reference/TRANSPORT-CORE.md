@@ -10,7 +10,17 @@ multipath, автоматический fallback и обработку конф�
 
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
-**Текущее состояние, 16 октября 2026: ABI 1.16.** Транспорт, `qeli_config_request`, Android `ConfigCore` JNI и переносимые политики используют общее Rust-ядро. Минимальная версия новых адаптеров — 1.16. Закоммиченные Windows/macOS/Android библиотеки пересобраны с независимыми A/B, ABI/JNI, хешами и provenance; [актуальный пакет проверки](../../../release/certification/evidence/dependabot-integration-20261016.json). Физические платформы, исключённые из согласованного аудита, не сертифицированы. История ABI и датированные этапы ниже сохраняют прежние промежуточные статусы.
+**Текущие исходники, 28 октября 2026: ABI 1.17.** Добавлены
+`qeli_client_carrier_diagnostics(handle, output, capacity, out_len)` и core capability
+`CARRIER_DIAGNOSTICS` (бит 16). Снимок использует ту же числовую JSON-модель, что Android
+JNI, ограничен 64 КиБ и не потребляет события. Null/нулевой output запрашивает размер
+и возвращает `BUFFER_TOO_SMALL`; короткий буфер не заполняется частично. Длина
+не включает завершающий NUL (он не записывается). Layout event/stats и JNI-экспорты
+не изменены. Обновлённый iOS transport adapter требует пересобранный XCFramework
+ABI 1.17. Уже поставленные/prebuilt библиотеки не обновляются изменением исходников.
+Границы проверки: [аудит мобильного паритета](../../../qeli-ios/AUDIT-PARITY-20261028.ru.md).
+
+**Историческая квалификация, 16 октября 2026: ABI 1.16.** Транспорт, `qeli_config_request`, Android `ConfigCore` JNI и переносимые политики используют общее Rust-ядро. Минимальная версия новых адаптеров — 1.16. Закоммиченные Windows/macOS/Android библиотеки пересобраны с независимыми A/B, ABI/JNI, хешами и provenance; [актуальный пакет проверки](../../../release/certification/evidence/dependabot-integration-20261016.json). Физические платформы, исключённые из согласованного аудита, не сертифицированы. История ABI и датированные этапы ниже сохраняют прежние промежуточные статусы.
 
 **Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
 общему Rust-ядру, а не платформенному UI-коду. Платформа получает его только после пересборки
@@ -291,6 +301,7 @@ qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
+qeli_client_carrier_diagnostics(handle, output, cap, *len)       -> rc  // ABI 1.17
 qeli_client_tun_push(handle, generation, bytes, bytes_len, lengths, count, *accepted) -> rc // ABI 1.7
 qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, *count, *bytes) -> rc // ABI 1.7
 qeli_client_free(handle)                                       -> rc
@@ -365,7 +376,11 @@ Running/Failed/Created → Stopping → Stopped
   второго сеанса нет.
 - ABI 1.4 добавляет коррелированный запрос `ServerIdentity` и
   `qeli_client_server_identity_result`. JSON содержит `server_id` и 64-символьный lowercase
-  public key, а `event.sequence` служит одноразовым request ID. Producer обязан публиковать
+  public key, а `event.sequence` служит одноразовым request ID. С 0.8.4 `server_id` имеет вид
+  `tcp://host:port` или `udp://host:port` (IPv6 в скобках). Это локальное имя записи доверия;
+  wire-формат и фиксированный event ABI не меняются. Явный ключ проверяет ядро без TOFU-запроса.
+  Старый `host:port` переносится только при совпадении ключа; неоднозначность — fail closed.
+  Producer обязан публиковать
   его только после того, как server-auth proof доказал владение этим ключом. Android применяет
   существующую persisted-политику `qeli_known_hosts`, синхронно записывает first-use ключ только
   после proof и fail-closed отклоняет замену или ошибку persistence. ACK, reject, stale ID и

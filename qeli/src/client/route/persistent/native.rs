@@ -1,7 +1,7 @@
 //! All file access is anchored to a trusted directory. A stable lock spans each whole
 //! route operation, including checks, borrowing, mutations and rollback across clients.
 use super::super::{budget, ownership, route_command_output};
-use super::{Change, Store, LIMIT};
+use super::{Change, Scope, SingleNetwork, Store, LIMIT};
 use crate::{
     network_namespace::Namespace,
     state_storage::{journal_file::Opened, state_dir::Directory},
@@ -20,7 +20,7 @@ pub(crate) struct Session {
     directory: Directory,
     namespace: Namespace,
     boot: String,
-    cookie: u64,
+    cookie: Scope,
     interface: String,
     valid: AtomicBool,
     active: Mutex<Option<Store>>,
@@ -56,9 +56,13 @@ impl Session {
             super::valid_interface(interface),
             "invalid route journal interface"
         );
-        let namespace = Namespace::capture()?;
-        let cookie = crate::network_namespace::cookie()?
-            .ok_or_else(|| anyhow::anyhow!("client route recovery requires SO_NETNS_COOKIE"))?;
+        let namespace = Namespace::capture_client()?;
+        let cookie = if namespace.is_single_network() {
+            Scope::Single(SingleNetwork::Boot)
+        } else {
+            Scope::Cookie(crate::network_namespace::cookie()?
+                .ok_or_else(|| anyhow::anyhow!("client route recovery requires SO_NETNS_COOKIE when network namespaces are enabled"))?)
+        };
         let name = format!("qeli.client.routes:{interface}");
         let claim = UnixDatagram::bind_addr(&SocketAddr::from_abstract_name(name.as_bytes())?)
             .map_err(|e| {

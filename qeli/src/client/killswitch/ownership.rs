@@ -29,7 +29,7 @@ impl Namespace {
         }
         #[cfg(target_os = "linux")]
         return Ok(Self::Live(Arc::new(
-            crate::network_namespace::Namespace::capture()?,
+            crate::network_namespace::Namespace::capture_client()?,
         )));
         #[cfg(not(target_os = "linux"))]
         anyhow::bail!("kill-switch requires a Linux namespace or an explicit test fixture")

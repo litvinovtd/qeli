@@ -10,7 +10,17 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
-**Current state, 16 October 2026: ABI 1.16.** Transport, `qeli_config_request`, Android `ConfigCore` JNI and portable policies use the shared Rust core. New adapters require ABI 1.16. Committed Windows/macOS/Android libraries were rebuilt with independent A/B, ABI/JNI, hashes and provenance; [current qualification packet](../../../release/certification/evidence/dependabot-integration-20261016.json). Physical platforms excluded from the agreed audit are not certified. The ABI history and dated stages below retain their earlier intermediate statuses.
+**Current source, 28 October 2026: ABI 1.17.** Adds
+`qeli_client_carrier_diagnostics(handle, output, capacity, out_len)` and core capability
+`CARRIER_DIAGNOSTICS` (bit 16). The snapshot is the same numeric JSON model as Android
+JNI, limited to 64 KiB; it does not consume events. A null/zero output queries the required
+size and returns `BUFFER_TOO_SMALL`; a short buffer is not partially written. The length
+excludes a trailing NUL (none is written). Existing event/stat layouts and JNI exports
+are unchanged. The updated iOS transport adapter requires a newly built ABI 1.17
+XCFramework. Existing distributed/prebuilt binaries are not upgraded by this source change.
+See [the mobile parity audit](../../../qeli-ios/AUDIT-PARITY-20261028.ru.md) for verification limits.
+
+**Historical qualification, 16 October 2026: ABI 1.16.** Transport, `qeli_config_request`, Android `ConfigCore` JNI and portable policies use the shared Rust core. New adapters require ABI 1.16. Committed Windows/macOS/Android libraries were rebuilt with independent A/B, ABI/JNI, hashes and provenance; [current qualification packet](../../../release/certification/evidence/dependabot-integration-20261016.json). Physical platforms excluded from the agreed audit are not certified. The ABI history and dated stages below retain their earlier intermediate statuses.
 
 **Reality/H2 delivery rule.** The current `reality-tls` H2 carrier is owned by this common Rust
 core, not by platform UI code. A platform receives it only when its native `.so`/`.dll`/`.dylib`
@@ -291,6 +301,7 @@ qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
+qeli_client_carrier_diagnostics(handle, output, cap, *len)       -> rc  // ABI 1.17
 qeli_client_tun_push(handle, generation, bytes, bytes_len, lengths, count, *accepted) -> rc // ABI 1.7
 qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, *count, *bytes) -> rc // ABI 1.7
 qeli_client_free(handle)                                       -> rc
@@ -366,7 +377,12 @@ Running/Failed/Created → Stopping → Stopped
   no second session exists.
 - ABI 1.4 adds a correlated `ServerIdentity` request and
   `qeli_client_server_identity_result`. Its JSON payload contains `server_id` and a 64-character
-  lowercase public key; `event.sequence` is the one-shot request ID. The producer must publish
+  lowercase public key; `event.sequence` is the one-shot request ID.
+  `server_id` is `tcp://host:port` or `udp://host:port` since 0.8.4 (IPv6 hosts are bracketed).
+  These are local trust-store identifiers; the wire format and fixed event ABI are unchanged.
+  Explicit configuration pins are checked in the core without a TOFU request. Legacy
+  `host:port` entries may be copied only after a key match; ambiguity must fail closed.
+  The producer must publish
   it only after the server-auth proof has established possession of that key. Android applies
   its existing persisted `qeli_known_hosts` policy, synchronously records a first-use key only
   after that proof, and rejects a changed key or persistence failure fail-closed. ACK,

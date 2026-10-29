@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var preparingBackup = false
     @State private var preparingRestore = false
     @State private var trustedWiFiText = ""
+    @State private var probeIntervalText = ""
+    @FocusState private var probeIntervalEditorFocused: Bool
     @FocusState private var trustedWiFiEditorFocused: Bool
 
     var body: some View {
@@ -34,6 +36,22 @@ struct SettingsView: View {
                     .disabled(model.managedConfiguration.onDemandEnabled != nil)
                     Toggle("Allow local network access (LAN)", isOn: setting(\.allowLAN))
                     Text("Connect On Demand is the iOS equivalent of boot auto-connect. True Always-On VPN requires a supervised MDM device.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Profile availability") {
+                    Toggle("Automatically check profiles", isOn: setting(\.autoProbeProfiles))
+                    HStack {
+                        Text("Check interval (seconds)")
+                        Spacer()
+                        TextField("Seconds", text: $probeIntervalText)
+                            .focused($probeIntervalEditorFocused)
+                            .onSubmit { persistProbeInterval() }
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 84)
+                            .disabled(!model.settings.autoProbeProfiles)
+                    }
+                    Text("Check all profiles while the app is open and the VPN is disconnected. Interval: 10–3600 seconds. Manual Ping remains available.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Trusted Wi-Fi") {
@@ -73,20 +91,26 @@ struct SettingsView: View {
                     }
                 }
                 Section("Managed deployment") {
-                    LabeledContent("Managed app configuration", value: managedConfiguration.isManaged ? "Detected" : "Not installed")
+                    LabeledContent("Managed app configuration") {
+                        Text(LocalizedStringKey(managedConfiguration.isManaged ? "Detected" : "Not installed"))
+                    }
                     if let profileID = managedConfiguration.activeProfileID {
                         LabeledContent("Managed profile", value: profileID.uuidString)
                             .font(.caption)
                     } else if managedConfiguration.hasActiveProfilePolicy {
-                        LabeledContent("Managed profile", value: "Invalid policy")
+                        LabeledContent("Managed profile") { Text("Invalid policy") }
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
                     if let enabled = managedConfiguration.onDemandEnabled {
-                        LabeledContent("Managed On Demand", value: enabled ? "Enabled" : "Disabled")
+                        LabeledContent("Managed On Demand") {
+                            Text(LocalizedStringKey(enabled ? "Enabled" : "Disabled"))
+                        }
                     }
                     if let enabled = managedConfiguration.widgetControlsEnabled {
-                        LabeledContent("Managed widget controls", value: enabled ? "Enabled" : "Disabled")
+                        LabeledContent("Managed widget controls") {
+                            Text(LocalizedStringKey(enabled ? "Enabled" : "Disabled"))
+                        }
                     }
                     Text("Per-App VPN is assigned by MDM to managed apps. Apple's strict Always-On enforcement is supervised-device IKEv2 and cannot run the Qeli custom packet protocol.")
                         .font(.caption)
@@ -121,6 +145,11 @@ struct SettingsView: View {
                     Text("Clear saved history after a normal VPN disconnect. Connection errors always keep the log for diagnostics. Reconnects do not clear the log.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Section("Diagnostic reports") {
+                    Toggle("Keep the last error report", isOn: setting(\.retainLastErrorReport))
+                    Text("Keep one limited report after a terminal connection error. Turning this off or using Clear deletes it. Reports contain event metadata, without free-text messages or profiles.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Backup and restore") {
                     SecureField("Passphrase (optional for export)", text: $passphrase)
                     Button {
@@ -134,7 +163,7 @@ struct SettingsView: View {
                             } catch { model.present(error, title: "Backup failed") }
                         }
                     } label: {
-                        Label(preparingBackup ? "Preparing…" : "Back up profiles…", systemImage: "square.and.arrow.up")
+                        Label(LocalizedStringKey(preparingBackup ? "Preparing…" : "Back up profiles…"), systemImage: "square.and.arrow.up")
                     }
                     .disabled(preparingBackup || preparingRestore)
                     Button { showingImporter = true } label: {
@@ -205,11 +234,18 @@ struct SettingsView: View {
         }
         .onAppear {
             trustedWiFiText = model.settings.trustedWiFiSSIDs.joined(separator: "\n")
+            probeIntervalText = String(model.settings.probeIntervalSeconds)
         }
         .onChange(of: trustedWiFiEditorFocused) { _, focused in
             if !focused { persistTrustedWiFiText() }
         }
-        .onDisappear { persistTrustedWiFiText() }
+        .onChange(of: probeIntervalEditorFocused) { _, focused in
+            if !focused { persistProbeInterval() }
+        }
+        .onDisappear {
+            persistTrustedWiFiText()
+            persistProbeInterval()
+        }
     }
 
     private func setting<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -217,6 +253,15 @@ struct SettingsView: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in model.updateSettings { $0[keyPath: keyPath] = value } }
         )
+    }
+
+    private func persistProbeInterval() {
+        let parsed = Int(probeIntervalText.trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? model.settings.probeIntervalSeconds
+        let interval = ProfileAutoProbePolicy.clampIntervalSeconds(parsed)
+        probeIntervalText = String(interval)
+        guard interval != model.settings.probeIntervalSeconds else { return }
+        model.updateSettings { $0.probeIntervalSeconds = interval }
     }
 
     private func persistTrustedWiFiText() {

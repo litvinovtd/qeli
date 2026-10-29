@@ -5,8 +5,58 @@
 > as `STATE_DIRECTORY`. The physical journal directory stays unchanged, with no
 > `O_NOFOLLOW` bypass, unsafe chmod or hidden recovery state. Identity/TOFU remain
 > in `/opt/etc/qeli`. [Storage and manual launch](OPERATIONS.md#client-physical-route-recovery).
-> The firmware kernel must support `SO_NETNS_COOKIE`, including with `dns=off`;
-> CPU architecture and a successful build do not qualify this requirement.
+> With network namespaces enabled, the firmware must support `SO_NETNS_COOKIE`,
+> including with `dns=off`. Version 0.8.4 adds a separate client compatibility
+> path for kernels built without `CONFIG_NET_NS`; see the limits below.
+
+### Kernels without network namespaces (0.8.4+)
+
+Some Keenetic kernels, including KN-1810 `4.9-ndm-5`, expose no
+`/proc/self/ns/net`. In 0.8.2–0.8.3 startup could fail with `os error 2`
+before connecting, even when both the configuration and `/dev/net/tun` exist.
+
+The new client detects kernel capabilities automatically. A missing procfs file
+alone is not evidence: a disposable thread probes `unshare(CLONE_NEWNET)`.
+Only `EINVAL` without seccomp allows the single-network-context path. `EPERM`,
+container restrictions, hidden namespaces and ambiguous results never disable
+ownership checks. Run as root; the mount namespace and `boot_id` must remain
+available through procfs.
+
+The log reports `Client compatibility mode: kernel has no network namespaces`.
+There is no new INI switch. Update the **client binary**, not just the server.
+Keep the standard bundle/OpkgTun router DNS setting:
+
+```ini
+[qeli]
+dns = off
+```
+
+- Firmware/ndm/dnsmasq owns DNS. The client neither overwrites `/etc/resolv.conf`
+  nor adopts foreign DNS markers. Configure LAN DNS through the router.
+- Physical routes retain write-ahead journaling. Ownership uses the current
+  `boot_id`, interface and explicit `single-network` scope, never a fake cookie.
+  Locks, exact-route checks and the live-TUN recovery guard remain in force.
+- Host sysctls are **read-only**. Gateway forwarding must already be enabled
+  by firmware; otherwise setup refuses it and reports the required `/proc/sys/...`
+  value. Optional mismatches may warn. Disconnect has no sysctl value to restore,
+  since none was changed; existing sysctl journals are not deleted.
+- Namespaces present but `SO_NETNS_COOKIE` absent is **not** this mode:
+  an inode alone cannot safely authorize crash recovery.
+
+Read-only router diagnostics:
+
+```sh
+uname -r
+ls -ld /proc/self/ns /proc/self/ns/net /proc/self/ns/mnt
+cat /proc/sys/kernel/random/boot_id
+cat /proc/sys/net/ipv4/ip_forward
+# For an IPv6 gateway:
+cat /proc/sys/net/ipv6/conf/all/forwarding
+```
+
+Missing `ns/net` is expected only in compatibility mode. Missing `ns/mnt` or
+unavailable `boot_id` is still an error. Source/lab checks do not qualify real
+firmware: verify connection, disconnect and restart on the actual router.
 
 > **Benchmark scope:** any Reality speed or double-framing estimate in this document comes from
 > the legacy carrier through 0.7.16. The current genuine H2 carrier needs a separate router benchmark.

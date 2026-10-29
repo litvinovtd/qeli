@@ -16,7 +16,8 @@ struct QeliIOSApp: App {
                 // LocalizedStringKey against this locale.
                 .environment(\.locale, model.settings.language.locale)
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            model.setSceneActive(phase == .active)
             guard phase == .active else { return }
             Task {
                 await model.refreshManagedConfiguration()

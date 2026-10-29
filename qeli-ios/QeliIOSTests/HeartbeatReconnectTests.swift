@@ -45,6 +45,28 @@ final class HeartbeatReconnectTests: XCTestCase {
             .stop(.retryLimitReached)
         )
     }
+    func testInitialDNSFailureRespectsDisabledAndFiniteRetryBudgets() throws {
+        let policies = [ReconnectPolicy(enabled: false), ReconnectPolicy(maximumRetries: 0),
+                        ReconnectPolicy(maximumRetries: 2)]
+        for (index, policy) in policies.enumerated() {
+            let firstFailure = try policy.nextFailureCount(
+                previous: 0, sessionWasEstablished: false, connectedMilliseconds: 0)
+            XCTAssertEqual(firstFailure, 1)
+            let firstDecision = try policy.decision(
+                failureCount: firstFailure, millisecondsSinceAttemptStarted: 5_000)
+            if index == 0 { XCTAssertEqual(firstDecision, .stop(.disabled)) }
+            else if index == 1 { XCTAssertEqual(firstDecision, .stop(.retryLimitReached)) }
+            else {
+                guard case .retry(attempt: 1, afterMilliseconds: _) = firstDecision else {
+                    return XCTFail("The first failed lookup must enter the existing retry loop")
+                }
+                XCTAssertEqual(try policy.decision(
+                    failureCount: 3, millisecondsSinceAttemptStarted: 5_000),
+                    .stop(.retryLimitReached))
+            }
+        }
+    }
+
     func testStableSessionAndForcedCycleBudget() throws {
         let policy = ReconnectPolicy(maximumRetries: 0)
         XCTAssertEqual(try policy.nextFailureCount(previous: 2, sessionWasEstablished: true,

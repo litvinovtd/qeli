@@ -474,9 +474,13 @@ table; verify the origin of an exact entry before removing it manually.
 ## Client physical route recovery
 
 The Linux managed-TUN client persists physical bypass/exclude and blackhole routes in
-`$STATE_DIRECTORY/client-routes.state` (default `/var/lib/qeli/client-routes.state`). This requires `SO_NETNS_COOKIE` and a trusted
+`$STATE_DIRECTORY/client-routes.state` (default `/var/lib/qeli/client-routes.state`). With network namespaces enabled, this requires `SO_NETNS_COOKIE` and a trusted
 state directory writable by the process owner, without symlinks or group/world write.
 This also applies with `dns = off`/`system`. DNS, sysctl and firewall journals share this root.
+Since 0.8.4, a client on a kernel proven to have `CONFIG_NET_NS` disabled uses
+an explicit `single-network` scope and `boot_id`, retaining route ownership checks.
+DNS and sysctls remain under firmware control in this mode.
+[Keenetic compatibility requirements](KEENETIC-DEPLOY.md#kernels-without-network-namespaces-084).
 All clients sharing a network must see the same directory and `client-routes.state.lock`.
 Configuration remains INI; the journal is internal recovery state.
 

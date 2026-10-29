@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010010)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010011)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -111,7 +111,8 @@ enum qeli_client_core_capability {
     QELI_CORE_NETWORK_PLAN_V2 = UINT64_C(1) << 12,
     QELI_CORE_PATH_TRANSACTIONS = UINT64_C(1) << 13,
     QELI_CORE_PATH_REFRESH_EVENTS = UINT64_C(1) << 14,
-    QELI_CORE_MANAGEMENT_EVENTS = UINT64_C(1) << 15
+    QELI_CORE_MANAGEMENT_EVENTS = UINT64_C(1) << 15,
+    QELI_CORE_CARRIER_DIAGNOSTICS = UINT64_C(1) << 16
 };
 
 typedef struct qeli_client_event {
@@ -350,7 +351,11 @@ int32_t qeli_client_socket_protect_result(uint64_t handle,
                                           size_t reason_len);
 /*
  * ABI 1.4. QELI_CLIENT_SERVER_IDENTITY carries
- * {"server_id":"host:port","public_key":"64 lowercase hex chars"} as UTF-8 JSON.
+ * {"server_id":"tcp://host:port","public_key":"64 lowercase hex chars"} as UTF-8 JSON.
+ * Since 0.8.4 server_id includes tcp:// or udp://; IPv6 literals are bracketed.
+ * This is a local trust-store name, not a wire/session identifier. Preserve legacy
+ * host:port trust only after matching its key; do not silently reset TOFU on upgrade.
+ * Explicitly configured keys are verified in the core without a platform TOFU request.
  * The handshake publishes it only after the peer proves possession of that key. The event
  * sequence is a one-shot request id for platform known-host/pinning policy; unknown,
  * repeated or cancelled ids return QELI_CLIENT_STALE_REQUEST.
@@ -400,6 +405,23 @@ int32_t qeli_client_poll_event(uint64_t handle,
 int32_t qeli_client_state(uint64_t handle, uint32_t *out_state);
 /* Initialise *out_stats with QELI_CLIENT_STATS_INIT before its first use. */
 int32_t qeli_client_stats(uint64_t handle, qeli_client_stats_t *out_stats);
+/* ABI 1.17: a bounded, eventually consistent JSON schema-1 carrier snapshot. This reads
+ * telemetry without consuming control events or changing the session/stats layout.
+ * A NULL output with capacity zero performs a size query (BUFFER_TOO_SMALL). A short
+ * buffer receives no partial data. out_len receives the required/written byte count,
+ * excluding any NUL terminator; JSON bytes are not NUL-terminated. A later snapshot may
+ * differ in length, so either retry a bounded size query or allocate the maximum below.
+ * Capacity above the maximum, NULL out_len, or NULL output with nonzero capacity returns
+ * INVALID_ARGUMENT before modifying out_len. Other failures leave out_len zero; an
+ * unexpectedly oversized internal snapshot returns INVALID_STATE. Output/length storage
+ * must not overlap. Invalid/freed handles use the normal generation-safe registry errors.
+ * Snapshot metadata describes local TCP writes, not peer acknowledgements or VPN health. */
+#define QELI_CLIENT_MAX_CARRIER_DIAGNOSTICS_BYTES UINT32_C(65536)
+int32_t qeli_client_carrier_diagnostics(uint64_t handle,
+                                      uint8_t *output,
+                                      size_t capacity,
+                                      size_t *out_len);
+
 int32_t qeli_client_free(uint64_t handle);
 
 /* ABI 1.16: bounded editor/policy DTO request; size query returns -6. */

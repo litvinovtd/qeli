@@ -5,6 +5,29 @@ pub(super) const LIMIT: u64 = 8 * 1024 * 1024;
 const MAX_GROUPS: usize = 128;
 const MAX_RECORDS: usize = 8192;
 
+/// Numeric cookies retain the v1 wire representation. The explicitly tagged
+/// singleton belongs to Store.boot, never to a fabricated SO_NETNS_COOKIE.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(untagged)]
+enum Scope {
+    Cookie(u64),
+    Single(SingleNetwork),
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+enum SingleNetwork {
+    #[serde(rename = "single-network")]
+    Boot,
+}
+impl From<u64> for Scope {
+    fn from(cookie: u64) -> Self {
+        Self::Cookie(cookie)
+    }
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Store {
@@ -15,7 +38,7 @@ struct Store {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Group {
-    cookie: u64,
+    cookie: Scope,
     interface: String,
     owned: Vec<Vec<String>>,
     pending: Vec<Vec<String>>,
@@ -59,7 +82,7 @@ impl Store {
     }
     fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.version == 1
+            matches!(self.version, 1 | 2)
                 && !self.boot.is_empty()
                 && self.boot.len() <= 128
                 && !self.boot.chars().any(char::is_control),
@@ -78,7 +101,8 @@ impl Store {
         let mut identities = BTreeSet::new();
         for group in &self.groups {
             anyhow::ensure!(
-                group.cookie != 0
+                group.cookie != Scope::Cookie(0)
+                    && (self.version == 2 || matches!(group.cookie, Scope::Cookie(_)))
                     && valid_interface(&group.interface)
                     && identities.insert((group.cookie, &group.interface)),
                 "invalid route journal owner"
@@ -113,7 +137,13 @@ impl Store {
         }
         Ok(())
     }
-    fn records(&self, cookie: u64, interface: &str, pending: bool) -> Vec<Vec<String>> {
+    fn records(
+        &self,
+        cookie: impl Into<Scope>,
+        interface: &str,
+        pending: bool,
+    ) -> Vec<Vec<String>> {
+        let cookie = cookie.into();
         self.groups
             .iter()
             .find(|g| g.cookie == cookie && g.interface == interface)
@@ -126,7 +156,13 @@ impl Store {
             })
             .unwrap_or_default()
     }
-    fn check_unclaimed(&self, cookie: u64, interface: &str, spec: &[String]) -> anyhow::Result<()> {
+    fn check_unclaimed(
+        &self,
+        cookie: impl Into<Scope>,
+        interface: &str,
+        spec: &[String],
+    ) -> anyhow::Result<()> {
+        let cookie = cookie.into();
         validate_key(spec)?;
         for group in &self.groups {
             if group.cookie == cookie
@@ -144,11 +180,15 @@ impl Store {
     }
     fn change(
         &mut self,
-        cookie: u64,
+        cookie: impl Into<Scope>,
         interface: &str,
         spec: &[String],
         change: Change,
     ) -> anyhow::Result<()> {
+        let cookie = cookie.into();
+        if matches!(cookie, Scope::Single(_)) {
+            self.version = 2; // Old clients must refuse this new ownership domain.
+        }
         if matches!(change, Change::ForgetOwned | Change::ForgetPending) {
             validate_key(spec)?;
         } else {

@@ -170,6 +170,7 @@ rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"]
 jni = { version = "0.21", default-features = false, optional = true }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 # ServiceExt::oneshot for driving real requests through a Router in tests (tower's
 # default feature set omits `util`). Test-only — never in the release binary.
 tower = { version = "0.5", features = ["util"] }

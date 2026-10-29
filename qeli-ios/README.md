@@ -4,20 +4,18 @@ Native iPhone client for the qeli protocol. The project mirrors the Android clie
 three primary surfaces (Connection, Profiles, Log) and uses a Packet Tunnel Provider
 extension for the VPN data plane.
 
-## Status: feature-complete, simulator-built, device-unverified
+## Status: implementation under verification; Apple runtime unqualified
 
-**Neither a preview nor a release.** Not a preview, because the client is not a sketch —
-it mirrors the Android client feature for feature, and that logic is proven in the field.
-Not a release, because **the iOS application/extension has not been exercised on a physical
-device**. CI builds the device/simulator XCFramework, compiles the generated Xcode project for
-the simulator and runs its unit tests, but no real-hardware result exists and nothing ships from
-this directory.
+The Android/iOS source audit and its implemented changes are recorded in
+[the parity ledger](PARITY.md) and [the detailed audit](AUDIT-PARITY-20261028.ru.md).
+Common Rust transport support does not prove that Apple's UI, Keychain, camera,
+NetworkExtension and background lifecycle behave identically to Android.
 
-Read the Apple-specific list below as *what is implemented*, not *what is verified*.
-The common Rust transport is exercised by the repository/lab matrix; the Swift adapter
-still needs a signed physical-device pass — install, connect on each wire mode,
-background/foreground, a Wi-Fi ↔ cellular switch, and On Demand behaviour — after which
-this section should say what was actually observed, not only what was built.
+The CI workflow builds the device/simulator XCFramework, compiles the generated Xcode
+project and runs simulator tests. Its existence is not a passing result for uncommitted
+changes. The current parity changes still require that Apple build/test run and a signed
+device pass. Linux Swift tests cover the portable policies and storage logic only.
+No physical-device result is claimed by this audit.
 
 The version tracks the rest of the repository (see `MARKETING_VERSION` in `project.yml`,
 kept in step by `scripts/sync_version.py`) because the code is the same generation as
@@ -36,18 +34,31 @@ every other client, not because a build of it was released.
   network change, sleep or an app update also retain it, as do unspecified On Demand
   stops while the desired connection remains armed (including trusted-Wi-Fi waiting).
   Manual **Clear** remains independent. A forced process kill may prevent cleanup.
+- **Settings → Profile availability → Automatically check profiles** is off by default.
+  The interval defaults to 30 seconds (10–3,600 seconds). Checks run only in the foreground
+  with the system VPN disconnected, at most four concurrent workers; explicit Connect
+  cancels scheduled work. They contact profile endpoints using the same reachability probe
+  as a manual check. Cancellation does not release a worker slot until its native work ends.
+- **Log → Report** exports bounded metadata: event times, session IDs, event categories
+  and available numeric carrier metrics. It omits free-text logs, profiles, keys and network
+  addresses. Metrics are sampled every 20 seconds while connected and at attempt completion;
+  local write completion is not proof of delivery to the peer. Missing data stays unavailable.
+  **Settings → Diagnostic reports → Keep the last error report** is opt-in and off by default.
+  **Clear** removes current diagnostics and the retained report; disabling retention removes
+  the retained report. Files already exported to another app cannot be recalled.
 - Encrypted profile storage shared with the tunnel extension (App Group + Keychain).
   An encrypted archive with no profiles is rejected before legacy ID normalization;
   existing bytes remain available for recovery.
 - INI and `qeli://` profile import/export (256 KiB per configuration, matching the native core).
-- QR scanning/generation, profile editing, duplication, ordering and sharing.
+- QR scanning through AVFoundation (camera permission required) and QR generation through CoreImage, profile editing, duplication, ordering and sharing.
+  INI import validates the original text without removing comments or reordering its keys.
   Editing the active profile while connected saves it, then asks for a manual disconnect
   and reconnect so the running tunnel takes the new settings.
   An editor or delete confirmation opened before that profile changes is refused on save/delete.
 - Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM): 8 MiB plaintext JSON and 12 MiB encrypted-file limits.
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- `NEPacketTunnelProvider` target over the current ABI 1.16 core, requiring ABI 1.16 for the configuration service, optional ABI 1.12-1.14 path transactions and ABI 1.15 management events. Swift applies
+- `NEPacketTunnelProvider` target over the current ABI 1.17 core, requiring ABI 1.17 for numeric carrier diagnostics (configuration service introduced in ABI 1.16), optional ABI 1.12-1.14 path transactions and ABI 1.15 management events. Swift applies
   authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
   packet batches between `NEPacketTunnelFlow` and Rust.
 - The common Rust whole-client core owns each plain/fake-TLS/obfs/REALITY TCP/UDP/QUIC
@@ -68,7 +79,7 @@ every other client, not because a build of it was released.
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
 The production Packet Tunnel uses the same versioned Rust transport ABI as Linux, Android,
-Windows and macOS. The current adapter requires ABI 1.16 for the shared configuration service;
+Windows and macOS. The current adapter requires a rebuilt ABI 1.17 core for carrier diagnostics;
 ABI 1.12-1.14 activates the optional path-command/path-refresh contracts, and ABI 1.15 adds
 NOTICE/KICK management events. Ordinary TCP and every UDP camouflage mode
 use that one Rust roaming policy. Explicit `local`/non-zero `lport`, a default or older core,

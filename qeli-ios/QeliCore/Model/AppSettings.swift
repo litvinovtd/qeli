@@ -84,6 +84,9 @@ struct AppSettings: Codable, Equatable, Sendable {
     var trustedWiFiEnabled = false
     var trustedWiFiSSIDs: [String] = []
     var allowLAN = false
+    var autoProbeProfiles = ProfileAutoProbePolicy.defaultEnabled
+    var probeIntervalSeconds = ProfileAutoProbePolicy.defaultIntervalSeconds
+    var retainLastErrorReport = false
     var checkForUpdates = false
     var logTimeFormat: LogTimeFormat = .time
     var logLevel: ClientLogLevel = .info
@@ -118,6 +121,14 @@ struct AppSettings: Codable, Equatable, Sendable {
                 ?? fallback.trustedWiFiSSIDs
         )
         allowLAN = try container.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? fallback.allowLAN
+        autoProbeProfiles = try container.decodeIfPresent(Bool.self, forKey: .autoProbeProfiles)
+            ?? fallback.autoProbeProfiles
+        probeIntervalSeconds = ProfileAutoProbePolicy.clampIntervalSeconds(
+            try container.decodeIfPresent(Int.self, forKey: .probeIntervalSeconds)
+                ?? fallback.probeIntervalSeconds
+        )
+        retainLastErrorReport = try container.decodeIfPresent(Bool.self, forKey: .retainLastErrorReport)
+            ?? fallback.retainLastErrorReport
         checkForUpdates = try container.decodeIfPresent(Bool.self, forKey: .checkForUpdates)
             ?? fallback.checkForUpdates
         logTimeFormat = try container.decodeIfPresent(LogTimeFormat.self, forKey: .logTimeFormat)

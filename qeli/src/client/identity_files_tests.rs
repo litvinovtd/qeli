@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn scoped_pins_preserve_legacy_trust_without_crossing_transports() {
+    let a = "aa".repeat(32);
+    let b = "bb".repeat(32);
+    let content = format!("h:443 {a}\ntcp://h:443 {b}\nudp://h:443 {a}\n");
+    assert!(check_scoped_pin(&content, "tcp://h:443", &b).unwrap());
+    assert!(check_scoped_pin(&content, "udp://h:443", &a).unwrap());
+    assert!(check_scoped_pin(&content, "tcp://h:443", &a).is_err());
+    assert!(check_scoped_pin(&content, "udp://h:443", &b).is_err());
+    assert!(!check_scoped_pin(&format!("h:443 {a}\n"), "tcp://h:443", &a).unwrap());
+    assert!(check_scoped_pin(&format!("h:443 {a}\n"), "tcp://h:443", &b).is_err());
+    assert!(!check_scoped_pin(&format!("udp://h:443 {a}\n"), "tcp://h:443", &b).unwrap());
+    assert!(check_scoped_pin("h:443 malformed\n", "tcp://h:443", &a).is_err());
+    assert!(!check_scoped_pin(
+        &format!("2001:db8::1:443 {a}\n"),
+        "udp://[2001:db8::1]:443",
+        &a
+    )
+    .unwrap());
+}
+
+#[test]
 fn device_reads_only_the_existing_id_prefix() {
     struct Prefix {
         used: bool,

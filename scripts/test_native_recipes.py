@@ -621,17 +621,63 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("def dns_resolves", source)
         self.assertNotIn("| head -1 || echo FAIL", source)
 
-    def test_native_recipes_require_the_abi_1_12_roaming_exports(self):
+    def test_native_recipes_require_abi_1_17_carrier_exports_without_changing_jni(self):
         source = (Path(__file__).parent / "build_android_so_11.py").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(desktop.EXPECTED_CLIENT_EXPORTS, "22")
-        self.assertIn('EXPECTED_CLIENT_EXPORTS = "22"', source)
+        self.assertEqual(desktop.EXPECTED_CLIENT_EXPORTS, "23")
+        self.assertIn('EXPECTED_CLIENT_EXPORTS = "23"', source)
         self.assertIn('EXPECTED_JNI_EXPORTS = "22"', source)
         jni_source = (Path(__file__).resolve().parents[1] / "qeli/src/transport_core/jni.rs").read_text(encoding="utf-8")
         self.assertEqual(jni_source.count('pub extern "system" fn Java_com_qeli_TransportCore_'), 22)
         self.assertIn("core.strip() != EXPECTED_CLIENT_EXPORTS", source)
         self.assertIn("jni.strip() != EXPECTED_JNI_EXPORTS", source)
+        for recipe in ["build_android_so_11.py", "build_native_libs_p4.py"]:
+            checked_source = (Path(__file__).parent / recipe).read_text(encoding="utf-8")
+            self.assertIn("qeli_client_carrier_diagnostics$", checked_source)
+            self.assertIn('carrier.strip() != "1"', checked_source)
+        ios = (Path(__file__).resolve().parents[1] / "qeli-ios/build_native.sh").read_text(encoding="utf-8")
+        self.assertIn("for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios", ios)
+        self.assertIn(" T _qeli_client_carrier_diagnostics$", ios)
+
+    def test_ios_carrier_header_exactly_mirrors_the_public_abi(self):
+        root = Path(__file__).resolve().parents[1]
+        public = (root / "qeli/include/qeli_transport_core.h").read_bytes()
+        mirror = (root / "qeli-ios/QeliCore/Native/include/qeli_transport_core.h").read_bytes()
+        self.assertEqual(public, mirror)
+        self.assertIn(b"QELI_CLIENT_ABI_VERSION UINT32_C(0x00010011)", public)
+        self.assertIn(b"QELI_CORE_CARRIER_DIAGNOSTICS = UINT64_C(1) << 16", public)
+
+    def test_export_guards_reject_missing_carrier_symbol_even_when_counts_match(self):
+        class ExportClient:
+            def __init__(self, missing):
+                self.missing = missing
+
+            def checked(self, _command, label):
+                if label.endswith("carrier diagnostics export"):
+                    return "0" if label.startswith(self.missing) else "1"
+                if label.endswith("Reality exports"):
+                    return "6"
+                if label.endswith("client exports"):
+                    return "23"
+                if label.endswith("JNI exports"):
+                    return "22"
+                if label.endswith("configuration editor export") or label.endswith("configuration JNI export"):
+                    return "1"
+                if label.endswith("architecture probe"):
+                    return "universal x86_64 arm64"
+                if label.endswith("stat"):
+                    return "12345"
+                raise AssertionError(f"unexpected export query: {label}")
+
+        for missing in ["Windows", "macOS"]:
+            with self.subTest(platform=missing):
+                with self.assertRaisesRegex(RuntimeError, "ABI 1.17 carrier diagnostics API"):
+                    desktop.verify_exports(ExportClient(missing))
+        for missing in android.ABIS:
+            with self.subTest(platform=missing):
+                with self.assertRaisesRegex(RuntimeError, "ABI 1.17 carrier diagnostics API"):
+                    android.verify_exports(ExportClient(missing))
 
     def test_native_library_target_avoids_qeli_executable_pdb_collision(self):
         root = Path(__file__).resolve().parents[1]

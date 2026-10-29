@@ -139,6 +139,19 @@ fn check_pin(content: &str, server_id: &str, received_hex: &str) -> anyhow::Resu
     Ok(found)
 }
 
+fn check_scoped_pin(content: &str, server_id: &str, received_hex: &str) -> anyhow::Result<bool> {
+    if check_pin(content, server_id, received_hex)? {
+        return Ok(true);
+    }
+    if let Some(legacy) = crate::transport_core::server_identity::legacy_id(server_id) {
+        // A legacy mismatch is not a new trust decision. An operator must verify
+        // and explicitly pin the correct profile key before resolving ambiguity.
+        check_pin(content, &legacy, received_hex)?;
+    }
+    // Unknown or matching legacy: write the qualified pin under the normal lock.
+    Ok(false)
+}
+
 pub(super) fn trust_on_first_use_at(
     path: &str,
     server_id: &str,
@@ -158,7 +171,7 @@ pub(super) fn trust_on_first_use_at(
     );
     // Read/parse errors are never an empty store, including in allow_unpinned mode.
     let content = snapshot(path)?;
-    if check_pin(&content, server_id, received_hex)? {
+    if check_scoped_pin(&content, server_id, received_hex)? {
         return Ok(());
     }
     if let Some(parent) = Path::new(path)
@@ -172,7 +185,7 @@ pub(super) fn trust_on_first_use_at(
         Err(error) => return persistence_failure(path, server_id, allow_unpinned, error),
     };
     let mut content = snapshot(path)?;
-    if check_pin(&content, server_id, received_hex)? {
+    if check_scoped_pin(&content, server_id, received_hex)? {
         return Ok(());
     }
     // Atomic replacement preserves the old store on a partial write/file-fsync error.
