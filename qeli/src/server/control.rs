@@ -766,7 +766,11 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     message: None,
                 };
             }
-            match state.usage.reset_and_flush(&req.username) {
+            match state
+                .usage
+                .reset_and_flush_async(req.username.clone())
+                .await
+            {
                 Ok(()) => Response {
                     ok: true,
                     error: None,

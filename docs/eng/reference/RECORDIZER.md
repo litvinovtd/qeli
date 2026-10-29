@@ -9,7 +9,8 @@ VPN protocol, H2 or another cipher.
 Current settings and defaults belong in the
 [obfuscation manual](../manuals/OBFUSCATION.md) and
 [configuration reference](../manuals/CONFIG.md). This page describes the mechanism;
-specific results belong in the [20 October 2026 measurements](../reports/benchmarks/recordizer_required_off_2026-10-20.md).
+specific results belong in the [20 October required/off throughput measurements](../reports/benchmarks/recordizer_required_off_2026-10-20.md)
+and [26–29 October latency/low latency report with charts](../reports/benchmarks/recordizer_latency_2026-10-29.md).
 
 ## Data path
 
@@ -48,7 +49,7 @@ encryption. Check `PACKET_MUX_V1 active`, not just the INI setting.
 
 ## Aggregation and limits
 
-The first packet starts a flush deadline. A record may also become ready when its
+In `timed`, the first packet starts a flush deadline. A record may also become ready when its
 target size or batch limits are reached. The target stays within the carrier/path
 budget; it is a send threshold, not a promise to pad every record to that size.
 Queues, fragment counts, incomplete packets and reassembly memory are bounded.
@@ -62,6 +63,80 @@ and loss as well.
 Recordizer does not resize the TUN queue, eliminate CPU limits or replace outer TCP
 or H2 flow control. Recordizer aggregation, H2 carrier batching and producer-side
 handoff of ready packets are separate stages.
+
+## Two batching strategies
+
+Policy `off/prefer/required` controls negotiation. Separate
+`obf.recordizer.batch.mode` controls waiting **after Recordizer is enabled**:
+
+| Mode | Algorithm | Trade-off |
+| --- | --- | --- |
+| `timed` (default) | First packet starts a random `delay_min_ms..delay_max_ms` deadline (2..8 ms); flush earlier at target/limits | Existing temporal morphology and better sparse ACK coalescing, with accumulation delay |
+| `opportunistic` | Writer drains bounded already-ready packets without waiting for future input; sends ready records and explicitly flushes the partial tail at batch completion | Almost removes accumulation delay; smaller batches increase processing/send costs |
+
+This is not ACK suppression, wire V2 or unbounded accumulation. Opportunistic has
+no Recordizer deadline: callers must complete ready batches with `finish_ready_batch`.
+Current TCP/UDP pumps do so at both ends. Ready drains are bounded by `MAX_BATCH`;
+individual records still obey `max_packets`/payload budgets. Limits are not enlarged.
+
+For Reality-TLS, the new strategy also switches H2 DATA accumulation to ready-only
+reads: `Pending` ends the batch. H2 flow control, backpressure, deadlines, AEAD and
+reassembly remain. Pre-authentication H2 keeps the old strategy. With `policy=off`,
+the field is dormant and does not independently switch H2 batching.
+
+### Enable and roll back
+
+In the server's **existing** profile section:
+
+```ini
+[profile:interactive]
+obf.recordizer.policy = required
+obf.recordizer.batch.mode = opportunistic
+```
+
+This is a fragment, not a complete profile. Preserve listener/identity/TUN/obfuscation
+fields. In the panel: profile → obfuscation → PACKET_MUX recordizer → Batch mode.
+Delay inputs are disabled in opportunistic but their values are preserved.
+No client INI or qeli-link edits are needed.
+
+Both cores must contain the implementation. An older client can advertise
+`PACKET_MUX_V1` yet ignore the new field. Update both sides, apply configuration
+through the normal lifecycle and reconnect. Verify `PACKET_MUX_V1 active` **and**
+`Recordizer batching: opportunistic`, then measure latency. Set `timed` and reconnect
+to roll back.
+
+`delay_min_ms`/`delay_max_ms` no longer wait in opportunistic but must remain valid
+(`min <= max`) and are retained for rollback. `timed` with `0/0` flushes every push;
+it is **not** opportunistic ready draining. `max_packets` counts mux frames including
+fragments; it, `max_queue_bytes`, `record.*` and `fragment.*` remain active. MTU,
+TUN queues, padding, shaping, stealth and bandwidth settings are unchanged; the
+latter can independently add delays. This is not a hard delivery-time guarantee.
+
+### Gain and cost
+
+In the [measured A/B](../reports/benchmarks/recordizer_latency_2026-10-29.md), sparse
+VoIP p50 fell from 13.3–13.4 ms (25.7–25.9 ms with Reality/H2) to 0.82–0.95 ms;
+p99 jitter fell from roughly 10–16 ms to 1.5–3.3 ms. **Artificial accumulation delay
+is almost removed at around 8–9% peak TCP P4 upload cost for FakeTLS.** Reality-TLS
+throughput increased; other directions differ, so there is no universal 8% penalty.
+These are experimental SHA-specific Linux LAN results, not final dist qualification.
+Temporal camouflage changes; equal DPI resistance was not established. The new
+strategy is explicit opt-in, not a replacement default.
+
+### Measuring timing and distinguishability
+
+The [29 October Reality-TLS pilot with charts](../reports/benchmarks/recordizer_masking_pilot_2026-10-29.md)
+used one binary, required, `timed/opportunistic` and a synthetic TLS/H2 control:
+ten independent sessions per arm. Inner/outer timing correlation rose from 0.113
+to 0.796 for voice and 0.033 to 0.782 for games: temporal blurring really decreased.
+Control correlation was higher still (0.965/0.972), so rhythm is not a VPN fingerprint.
+
+Sizes and timing separated both modes from this small control (AUROC 1.00);
+timing alone separated the new mode less well (1.00 → 0.93). This is not a “stealth
+percentage” or industrial-DPI/browser-corpus qualification. A 0/10 result at threshold
+0.5 is not invisibility: predeclared maximum-window aggregation detected the new
+mode in 10/10 with 0/10 false positives in this control. All threshold/aggregation
+results, limitations, overhead and restoration are retained in the report.
 
 ## What the measurements established
 

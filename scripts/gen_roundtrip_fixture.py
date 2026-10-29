@@ -120,6 +120,7 @@ obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
 obf.recordizer.policy = {recordizer_policy}
+obf.recordizer.batch.mode = opportunistic
 obf.recordizer.batch.delay_min_ms = 3
 obf.recordizer.batch.delay_max_ms = 11
 obf.recordizer.batch.max_packets = 7

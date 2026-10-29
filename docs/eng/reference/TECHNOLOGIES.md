@@ -11,6 +11,8 @@ throughput is not a performance guarantee.
 | --- | --- | --- |
 | Recordizer record organization | [How PACKET_MUX_V1 works](RECORDIZER.md); [settings and compatibility](../manuals/OBFUSCATION.md) | [Required versus off across 12 profiles, 20 October 2026](../reports/benchmarks/recordizer_required_off_2026-10-20.md) — one engineering pass of the same build |
 | Shared transport layer | [Rust transport core and platform adapters](TRANSPORT-CORE.md) | Contracts and verification boundaries are listed in the core reference |
+| Low latency Recordizer and H2 | [Timed/opportunistic strategies](RECORDIZER.md); [switching](../manuals/OPERATIONS.md#recordizer-batch-mode) | [26–29 October A/B, RTT/jitter/throughput and charts](../reports/benchmarks/recordizer_latency_2026-10-29.md): almost no accumulation delay, around 8–9% FakeTLS upload cost; not final dist |
+| Recordizer timing pattern | [Rhythm blurring and VPN detection are different goals](RECORDIZER.md) | [29 October Reality-TLS pilot](../reports/benchmarks/recordizer_masking_pilot_2026-10-29.md): timing correlation, classifiers, charts and limited H2 control; not a DPI-protection percentage |
 | Camouflage and Reality TLS/H2 | [Obfuscation layers](../manuals/OBFUSCATION.md); [threat model](THREAT-MODEL.md) | [DPI analysis](../reports/DPI-AUDIT.md); throughput alone does not establish DPI resistance |
 | Linux TUN, queues and diagnostics | [TUN settings](../manuals/CONFIG.md); [troubleshooting](../manuals/TROUBLESHOOTING.md) | TUN drops in the [current Recordizer comparison](../reports/benchmarks/recordizer_required_off_2026-10-20.md); not FULL_RING tracing |
 | IPv6 and routing | [Dual stack, routes and NDP](../manuals/IPV6.md) | Dated reports include an IPv4/IPv6 matrix |

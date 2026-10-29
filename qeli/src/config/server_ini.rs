@@ -650,6 +650,11 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "obf.recordizer.policy", &o.recordizer.policy);
     put(
         &mut s,
+        "obf.recordizer.batch.mode",
+        &o.recordizer.batch.mode,
+    );
+    put(
+        &mut s,
         "obf.recordizer.batch.delay_min_ms",
         o.recordizer.batch.delay_min_ms,
     );
@@ -1037,6 +1042,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.recordizer.policy = s
         .get("obf.recordizer.policy")
         .unwrap_or(&bo.recordizer.policy)
+        .to_string();
+    o.recordizer.batch.mode = s
+        .get("obf.recordizer.batch.mode")
+        .unwrap_or(&bo.recordizer.batch.mode)
         .to_string();
     o.recordizer.batch.delay_min_ms = s.parse_or(
         "obf.recordizer.batch.delay_min_ms",
@@ -2232,6 +2241,7 @@ obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
 obf.recordizer.policy = prefer
+obf.recordizer.batch.mode = opportunistic
 obf.recordizer.batch.delay_min_ms = 3
 obf.recordizer.batch.delay_max_ms = 11
 obf.recordizer.batch.max_packets = 7
@@ -2355,6 +2365,7 @@ obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
 obf.recordizer.policy = required
+obf.recordizer.batch.mode = opportunistic
 obf.recordizer.batch.delay_min_ms = 3
 obf.recordizer.batch.delay_max_ms = 11
 obf.recordizer.batch.max_packets = 7

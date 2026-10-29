@@ -2897,3 +2897,19 @@ drops, along with retransmissions and RTT.
 [operational verification](OPERATIONS.md#client-tun-tx-queue).
 [Report with loss, retransmission and latency measurements](../reports/TUN-QUEUE-SIZE-2026-10-16.md)
 and [queue-size recommendations](../reports/TUN-QUEUE-SIZE-2026-10-16.md#choosing-a-size).
+
+## Recordizer: high ping or batch.mode not taking effect
+
+`obf.recordizer.batch.mode` belongs to the **server profile**, not client `[qeli]`.
+If the server rejects `opportunistic`, check support in its actual binary. If it
+accepts the setting but RTT remains unchanged, verify both core versions, worker
+configuration application, reconnect, active mux and selected batching logs. An
+older V1 client may ignore the field. With `policy=off` it is dormant; Reality-TLS
+retains the old H2 accumulation strategy.
+
+Delay fields do not wait in opportunistic but `min <= max` is still validated.
+Do not bypass validation. Queues, stealth/bandwidth pacing, CPU/I/O or the network
+can also raise RTT. A good p99 does not exclude a rare stall; retain maximums and
+time series. Distinguish IRTT reflector rejection from Qeli drops and keep reflector
+settings identical between arms. [Switching procedure](OPERATIONS.md#recordizer-batch-mode),
+[report and method corrections](../reports/benchmarks/recordizer_latency_2026-10-29.md).

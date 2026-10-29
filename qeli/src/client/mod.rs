@@ -6012,13 +6012,28 @@ where
 
                     pt = out_rx.recv() => {
                         let Some(pt) = pt else { break };
+                        let opportunistic = cfg.recordizer.as_ref().is_some_and(|mux| mux.opportunistic);
+                        let mut packets = Vec::new();
+                        if opportunistic {
+                            while packets.len() + 1 < crate::transport_core::udp_batch::MAX_BATCH {
+                                match out_rx.try_recv() {
+                                    Ok(packet) => {
+                                        if packets.is_empty() { packets.reserve_exact(crate::transport_core::udp_batch::MAX_BATCH - 1); }
+                                        packets.push(packet);
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                        let batch_len = packets.len() + 1;
+                        for (batch_index, pt) in std::iter::once(pt).chain(packets).enumerate() {
                         let QueuedUplink { packet: pt, ticket } = pt;
                         if let Some(ticket) = ticket { in_flight.push(ticket); }
                         let data_len = pt.as_ref().len();
                         if let Some(mux) = recordizer.as_mut() {
                             let ready = mux.push(pt.as_ref(), std::time::Instant::now());
                             drop(pt);
-                            let payloads = match ready {
+                            let mut payloads = match ready {
                                 Ok(payloads) => {
                                     total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
                                     payloads
@@ -6028,9 +6043,13 @@ where
                                     // state; stop claiming exact completion thereafter.
                                     in_flight.invalidate();
                                     log::debug!("TCP recordizer dropped a packet: {error}");
+                                    if opportunistic { break 'writer; }
                                     continue;
                                 }
                             };
+                            if batch_index + 1 == batch_len {
+                                if let Some(payload) = mux.finish_ready_batch() { payloads.push(payload); }
+                            }
                             for payload in payloads {
                                 let payload_bytes = crate::protocol::recordizer::encoded_payload_len(&payload);
                                 if payload_bytes.is_none() { in_flight.invalidate(); }
@@ -6083,7 +6102,7 @@ where
                                     &mut cover_record,
                                     &mut padding,
                                 ).await {
-                                    break;
+                                    break 'writer;
                                 }
                                 in_flight.finish_bytes(data_len, true);
                                 last_tx_ms = base.elapsed().as_millis() as u64;
@@ -6098,6 +6117,7 @@ where
                         }
                     }
 
+                        }
                     _ = tokio::time::sleep_until(mux_deadline),
                         if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
                     {
@@ -6611,6 +6631,7 @@ where
     // fires — under bidirectional load that desynced the framing (PacketTooLarge
     // / connection drop). The writer stays in the select loop (writes inside a
     // branch body run to completion and are never cancelled).
+    stream.set_opportunistic_batching(recordizer.as_ref().is_some_and(|mux| mux.opportunistic));
     let (primary_r, primary_w) = stream.split_io();
     // Plain mode uses raw records directly. Current reality-tls uses the same
     // private raw framing inside genuine HTTP/2; legacy camouflage modes retain
@@ -6655,6 +6676,14 @@ where
     let cover_budget = crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());
     if recordizer.is_some() {
         log::info!("Packet recordizer: PACKET_MUX_V1 active on TCP");
+        log::info!(
+            "Recordizer batching: {} on TCP",
+            if recordizer.as_ref().is_some_and(|mux| mux.opportunistic) {
+                "opportunistic"
+            } else {
+                "timed"
+            }
+        );
     }
 
     let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
@@ -6778,6 +6807,11 @@ where
                     };
                     match join {
                         Ok((rx, tx)) => {
+                            s.set_opportunistic_batching(
+                                pump.recordizer
+                                    .as_ref()
+                                    .is_some_and(|mux| mux.opportunistic),
+                            );
                             let (r, w) = s.split_io();
                             crate::util::lock_or_recover(&outs, "client::outs").push(spawn_stream(
                                 r,
@@ -6885,6 +6919,12 @@ where
                     .unwrap_or_else(|_| Err(anyhow::anyhow!("JOIN handshake timed out")))
                     {
                         Ok((rx, tx)) => {
+                            s.set_opportunistic_batching(
+                                pump_r
+                                    .recordizer
+                                    .as_ref()
+                                    .is_some_and(|mux| mux.opportunistic),
+                            );
                             let (r, w) = s.split_io();
                             crate::util::lock_or_recover(&outs_r, "client::outs_r").push(
                                 spawn_stream(
@@ -7046,7 +7086,13 @@ where
                 };
 
                 match joined {
-                    Ok((stream, rx, tx)) => {
+                    Ok((mut stream, rx, tx)) => {
+                        stream.set_opportunistic_batching(
+                            pump_m
+                                .recordizer
+                                .as_ref()
+                                .is_some_and(|mux| mux.opportunistic),
+                        );
                         let (reader, writer) = stream.split_io();
                         let replacement = spawn_stream(
                             reader,
@@ -7213,7 +7259,8 @@ where
                 .await;
 
                 match attempt {
-                    Ok((stream, rx, tx)) => {
+                    Ok((mut stream, rx, tx)) => {
+                        stream.set_opportunistic_batching(pump_h.recordizer.as_ref().is_some_and(|mux| mux.opportunistic));
                         let (reader, writer) = stream.split_io();
                         let replacement = spawn_stream(
                             reader,
@@ -9692,6 +9739,7 @@ mod udp_control_recordizer_tests {
 
     fn config() -> RuntimeConfig {
         RuntimeConfig {
+            opportunistic: false,
             delay_min: Duration::from_millis(25),
             delay_max: Duration::from_millis(25),
             max_packets: 1,
@@ -11286,6 +11334,17 @@ pub(crate) async fn run_udp_tunnel(
         udp_recordizer_runtime.map(crate::protocol::recordizer::Reassembler::new);
     if udp_tx_recordizer.is_some() {
         log::info!("Packet recordizer: PACKET_MUX_V1 active on UDP");
+        log::info!(
+            "Recordizer batching: {} on UDP",
+            if udp_recordizer_config
+                .as_ref()
+                .is_some_and(|mux| mux.batch.mode == "opportunistic")
+            {
+                "opportunistic"
+            } else {
+                "timed"
+            }
+        );
     }
     let mut tx_record_id: u64 = rand::random();
     let mut data_reassembler = crate::protocol::data_frag::DataReassembler::new();
@@ -12063,6 +12122,7 @@ pub(crate) async fn run_udp_tunnel(
                             }
                         }
                     }
+                    if let Some(payload) = mux.finish_ready_batch() { payloads.push(payload); }
                     let send_outcome = send_client_udp_payloads(
                         &payloads,
                         &mut client_tx,
@@ -13844,6 +13904,7 @@ mod obf_push_tests {
         let recordizer = crate::config::RecordizerConfig {
             policy: "required".into(),
             batch: crate::config::RecordizerBatchConfig {
+                mode: "opportunistic".into(),
                 max_packets: 7,
                 ..Default::default()
             },
@@ -13875,6 +13936,7 @@ mod obf_push_tests {
         assert_eq!(po.traffic_normalization.round_sizes, vec![10, 20, 30]);
         let recordizer = po.recordizer.expect("authenticated recordizer push");
         assert_eq!(recordizer.policy, "required");
+        assert_eq!(recordizer.batch.mode, "opportunistic");
         assert_eq!(recordizer.batch.max_packets, 7);
     }
 

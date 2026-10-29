@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="660" viewBox="0 0 1120 660" role="img">
+<title>Qeli versus synthetic H2: held-out session ROC</title>
+<desc>10 negative H2 sessions only; FPR steps are 10 percentage points. No 1%/0.1% FPR qualification.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<text x="32" y="35" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#172033">Qeli versus synthetic H2: held-out session ROC</text>
+<text x="32" y="61" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">10 negative H2 sessions only; FPR steps are 10 percentage points. No 1%/0.1% FPR qualification.</text>
+<rect x="32" y="83" width="12" height="12" fill="#2563eb"/>
+<text x="52" y="94" font-family="Arial, sans-serif" font-size="14" text-anchor="start" fill="#172033">timed</text>
+<rect x="322" y="83" width="12" height="12" fill="#d97706"/>
+<text x="342" y="94" font-family="Arial, sans-serif" font-size="14" text-anchor="start" fill="#172033">opportunistic</text>
+<text x="80" y="130" font-family="Arial, sans-serif" font-size="17" text-anchor="start" fill="#172033">full passive features</text>
+<path d="M80 150V520 M80 520H500" stroke="#e2e8f0"/>
+<text x="80" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0</text>
+<text x="68" y="524" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0</text>
+<path d="M185.0 150V520 M80 427.5H500" stroke="#e2e8f0"/>
+<text x="185.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.25</text>
+<text x="68" y="431.5" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.25</text>
+<path d="M290.0 150V520 M80 335.0H500" stroke="#e2e8f0"/>
+<text x="290.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.5</text>
+<text x="68" y="339.0" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.5</text>
+<path d="M395.0 150V520 M80 242.5H500" stroke="#e2e8f0"/>
+<text x="395.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.75</text>
+<text x="68" y="246.5" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.75</text>
+<path d="M500 150V520 M80 150H500" stroke="#e2e8f0"/>
+<text x="500" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">1</text>
+<text x="68" y="154" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">1</text>
+<path d="M80 520L500 150" stroke="#94a3b8" stroke-dasharray="5 5"/>
+<path d="M80.0,520.0 L80.0,483.0 L80.0,446.0 L80.0,409.0 L80.0,372.0 L80.0,335.0 L80.0,298.0 L80.0,261.0 L80.0,224.0 L80.0,187.0 L80.0,150.0 L122.0,150.0 L164.0,150.0 L206.0,150.0 L248.0,150.0 L290.0,150.0 L332.0,150.0 L374.0,150.0 L416.0,150.0 L458.0,150.0 L500.0,150.0 L500.0,150.0" stroke="#2563eb" stroke-width="2" fill="none"/>
+<text x="80" y="576" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">timed: AUROC 1.000</text>
+<path d="M80.0,520.0 L80.0,483.0 L80.0,446.0 L80.0,409.0 L80.0,372.0 L80.0,335.0 L80.0,298.0 L80.0,261.0 L80.0,224.0 L80.0,187.0 L80.0,150.0 L122.0,150.0 L164.0,150.0 L206.0,150.0 L248.0,150.0 L290.0,150.0 L332.0,150.0 L374.0,150.0 L416.0,150.0 L458.0,150.0 L500.0,150.0 L500.0,150.0" stroke="#d97706" stroke-width="2" fill="none" stroke-dasharray="7 4"/>
+<text x="80" y="598" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">opportunistic: AUROC 1.000</text>
+<text x="290.0" y="620" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#172033">False positive rate</text>
+<text x="625" y="130" font-family="Arial, sans-serif" font-size="17" text-anchor="start" fill="#172033">timing-only passive features</text>
+<path d="M625 150V520 M625 520H1045" stroke="#e2e8f0"/>
+<text x="625" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0</text>
+<text x="613" y="524" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0</text>
+<path d="M730.0 150V520 M625 427.5H1045" stroke="#e2e8f0"/>
+<text x="730.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.25</text>
+<text x="613" y="431.5" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.25</text>
+<path d="M835.0 150V520 M625 335.0H1045" stroke="#e2e8f0"/>
+<text x="835.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.5</text>
+<text x="613" y="339.0" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.5</text>
+<path d="M940.0 150V520 M625 242.5H1045" stroke="#e2e8f0"/>
+<text x="940.0" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.75</text>
+<text x="613" y="246.5" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">0.75</text>
+<path d="M1045 150V520 M625 150H1045" stroke="#e2e8f0"/>
+<text x="1045" y="542" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">1</text>
+<text x="613" y="154" font-family="Arial, sans-serif" font-size="12" text-anchor="end" fill="#172033">1</text>
+<path d="M625 520L1045 150" stroke="#94a3b8" stroke-dasharray="5 5"/>
+<path d="M625.0,520.0 L625.0,483.0 L625.0,446.0 L625.0,409.0 L625.0,372.0 L625.0,335.0 L625.0,298.0 L625.0,261.0 L625.0,224.0 L625.0,187.0 L625.0,150.0 L667.0,150.0 L709.0,150.0 L751.0,150.0 L793.0,150.0 L835.0,150.0 L877.0,150.0 L919.0,150.0 L961.0,150.0 L1003.0,150.0 L1045.0,150.0 L1045.0,150.0" stroke="#2563eb" stroke-width="2" fill="none"/>
+<text x="625" y="576" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">timed: AUROC 1.000</text>
+<path d="M625.0,520.0 L625.0,483.0 L625.0,446.0 L625.0,409.0 L625.0,372.0 L625.0,335.0 L625.0,298.0 L667.0,298.0 L667.0,261.0 L667.0,224.0 L667.0,187.0 L709.0,187.0 L751.0,187.0 L793.0,187.0 L793.0,150.0 L835.0,150.0 L877.0,150.0 L919.0,150.0 L961.0,150.0 L1003.0,150.0 L1045.0,150.0 L1045.0,150.0" stroke="#d97706" stroke-width="2" fill="none" stroke-dasharray="7 4"/>
+<text x="625" y="598" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">opportunistic: AUROC 0.930</text>
+<text x="835.0" y="620" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#172033">False positive rate</text>
+<text x="32" y="642" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">Primary score: mean of four workload-window scores; grouped leave-one-block-out; no real-browser corpus.</text>
+</svg>

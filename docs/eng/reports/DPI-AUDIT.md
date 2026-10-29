@@ -10,6 +10,15 @@ key_share, ALPN, the sig_algs cleanup).
 It complements [AUDIT.md](AUDIT.md) (which has the crypto/auth security model); here —
 only detectability on the wire.
 
+## Recordizer timing pilot (2026-10-29)
+
+A [separate Reality-TLS timed/opportunistic pilot](benchmarks/recordizer_masking_pilot_2026-10-29.md)
+measured rhythm transfer and distinguishability against synthetic TLS/H2 control.
+Ten sessions per arm establish reduced temporal blurring, not a universal DPI-risk
+percentage. Full features achieved AUROC 1.00 for both strategies: a small-corpus
+ceiling, not an industrial detection probability. The older 0/6 below uses a
+different corpus/classifier and is not replaced by this new experiment.
+
 ## Current 0.8.0 Reality/H2 status (2026-08-26)
 
 Current `reality-tls` is **REALITY TLS 1.3 + genuine HTTP/2**, not the former second

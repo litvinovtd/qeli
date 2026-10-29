@@ -9,6 +9,15 @@ Algorithm overview: [Recordizer and record organization](../reference/RECORDIZER
 provide engineering results for one build, CPU, loss and interpretation limits,
 not a public release benchmark. [Other technologies and measurements](../reference/TECHNOLOGIES.md).
 
+[26–29 October latency A/B with charts](../reports/benchmarks/recordizer_latency_2026-10-29.md)
+separates off/required from timed/opportunistic: accumulation delay is almost removed
+at around 8–9% FakeTLS TCP upload cost, not for every profile. It is not final dist qualification.
+
+The [29 October timing pilot](../reports/benchmarks/recordizer_masking_pilot_2026-10-29.md)
+measured reduced rhythm blurring, not a percentage increase in VPN detectability:
+the control is synthetic, not browser traffic; sizes/timing separated both modes
+from it. Do not turn throughput percentages into “camouflage percentages”.
+
 ## 1. What the recordizer changes
 
 The legacy data plane usually turned one inner IPv4/IPv6 packet into one encrypted qeli record.
@@ -71,8 +80,9 @@ after every client core is upgraded; an old client is then rejected before addre
 | Key | Default | Meaning and limits |
 |---|---:|---|
 | `obf.recordizer.policy` | `off` in the sparse schema baseline; `prefer` in shipped and newly created profiles | `off`, `prefer`, or `required`; negotiation policy described above |
-| `obf.recordizer.batch.delay_min_ms` | `2` | lower bound of the random flush deadline started by the first queued packet |
-| `obf.recordizer.batch.delay_max_ms` | `8` | upper bound of that deadline; must be at least `delay_min_ms`; `0/0` flushes immediately |
+| `obf.recordizer.batch.mode` | `timed` | `timed` retains the randomized wait; `opportunistic` groups already-ready packets and immediately flushes the bounded batch tail |
+| `obf.recordizer.batch.delay_min_ms` | `2` | lower bound of the random flush deadline in `timed` mode |
+| `obf.recordizer.batch.delay_max_ms` | `8` | upper `timed` deadline; must be at least `delay_min_ms`; `0/0` flushes each push, unlike opportunistic batching |
 | `obf.recordizer.batch.max_packets` | `16` | maximum mux frames placed in one record; must be greater than zero |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | hard per-direction queue/record memory ceiling, `64..=4194304` bytes |
 | `obf.recordizer.record.max_payload_bytes` | `0` | `0` uses the largest safe plaintext for the active carrier and path; an explicit value is clamped to that safe budget and must be `64..=MAX_TUNNEL_MTU` |
@@ -89,20 +99,46 @@ A target size is a flush target, not padding by itself. A sparse batch can be se
 target when its deadline expires. Padding and traffic normalization run afterwards and can
 increase the encrypted record size up to the carrier budget.
 
+`batch.mode` is configured by the server and pushed after authentication with Recordizer. In a new client, `opportunistic` also removes the additional Reality-TLS H2 DATA accumulation wait; pre-authentication keeps the existing `timed` behavior. Older clients may ignore the new field and retain their existing behavior. QRM1, AEAD, memory bounds, fragmentation and HTTP/2 flow control remain enabled. The delay values are retained for switching back to `timed`.
+
+To enable, edit the **existing server profile**:
+
+```ini
+obf.recordizer.policy = required
+obf.recordizer.batch.mode = opportunistic
+```
+
+An already negotiated `prefer` policy need not change for batching. This is not a
+complete profile. The default stays `timed`. Both server **and** client cores need
+support; an older client's `PACKET_MUX_V1` capability alone does not prove support
+for this field. Apply configuration through the normal lifecycle and reconnect;
+check active mux and `Recordizer batching: opportunistic` logs at both ends.
+To roll back, set `timed` and reconnect. The panel exposes the strategy selector;
+delay fields are disabled in opportunistic but not zeroed.
+
+`delay_min_ms <= delay_max_ms` is required in the new strategy too; retain the values
+for rollback. Limits, `record.*`, `fragment.*`, MTU, TUN queue, padding and shaping
+remain active. In `off`, batching is dormant and does not independently switch H2.
+No intentional accumulation does not mean zero RTT: backpressure, pacing and
+scheduling remain. [Full algorithm](../reference/RECORDIZER.md),
+[operational verification](OPERATIONS.md#recordizer-batch-mode).
+
+The low-latency strategy changes temporal morphology and does not promise identical DPI resistance. Explicit bandwidth/stealth pacing still applies. Latency gains and peak-throughput cost require a separate A/B on the exact build; an experimental candidate is not a published release.
+
 ## 4. Compatibility with the other masking controls
 
 | Feature | Compatible? | Interaction |
 |---|---|---|
 | TCP `plain` | Yes | Boundary correlation is reduced, but the outer stream remains uncamouflaged high-entropy traffic. Use only on trusted networks. |
 | TCP `fake-tls` | Yes | The inner relation is hidden; fake-TLS syntax and active-probe behaviour remain separate tells. |
-| TCP `reality-tls` / Reality/H2 | Yes | Recordizer runs inside genuine TLS/H2. Its batch delay and the H2 carrier batch can add together for sparse traffic. |
+| TCP `reality-tls` / Reality/H2 | Yes | Recordizer runs inside genuine TLS/H2. In `timed`, its batch delay and H2 accumulation can add together; `opportunistic` removes both post-AUTH waits when both cores support it. |
 | TCP `obfs`, with or without WebSocket | Yes | Recordizer is inside the obfs/WS carrier; it does not make a WS session reproduce browser application semantics. |
 | UDP `fake-tls` / `obfs` | Yes | The payload budget is derived from the UDP carrier and PMTU. Large batches can amplify loss because one lost datagram can contain several inner packets. |
 | `obf.quic.enabled` | Yes, UDP only | QUIC-shaped overhead is included in the automatic safe budget. It remains QUIC shape, not a genuine QUIC/HTTP/3 implementation. |
 | `obf.awg.*` | Yes | AWG junk is a pre-handshake feature; recordizer begins only after authenticated negotiation. TCP obfs still requires matching `jc`. |
 | `obf.padding.*` | Yes | Padding is generated after recordization. It complements boundary changes but costs bytes. |
 | `obf.traffic_normalization.*` | Yes | Round-size padding applies to the recordized plaintext. Keep round sizes within the real carrier/MTU budget. |
-| `obf.traffic_shaping.*` | Yes | Idle cover remains independent. `stealth` pacing can reduce throughput; recordizer still contributes its own batch delay. |
+| `obf.traffic_shaping.*` | Yes | Idle cover is independent. `stealth` pacing can reduce throughput and add delay in either strategy; Recordizer's separate timer wait exists only in `timed`. |
 | `obf.heartbeat.*` | Yes | Heartbeat records are control/cover traffic, not source packets to batch. Shaping replaces fixed heartbeat; Reality/H2 disables the qeli heartbeat. |
 | `obf.fragmentation.*` | Yes, but different | This legacy control fragments selected handshake/carrier writes. It does not reassemble inner IP packets and does not replace `obf.recordizer.fragment.*`. |
 | negotiated UDP `DATA_FRAG` / PMTU | Yes, automatic | This outer layer splits an encrypted record to fit the path. Recordizer fragmentation is inside encryption and preserves one inner-packet boundary for the receiver. |

@@ -290,6 +290,69 @@ impl UsageStore {
         self.lock().usage.clone()
     }
 
+    /// Keep mutex waits as well as disk I/O off the reactor. The owned host
+    /// worker joins on cancellation; no flush can outlive the worker's lease.
+    pub async fn track_async(
+        self: &Arc<Self>,
+        session_id: u64,
+        user: String,
+        down: Arc<AtomicU64>,
+        up: Arc<AtomicU64>,
+    ) -> anyhow::Result<()> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-read", move || {
+            store.track(session_id, &user, down, up);
+        })
+        .await
+    }
+
+    pub async fn collect_snapshot_async(
+        self: &Arc<Self>,
+    ) -> anyhow::Result<HashMap<String, UserUsage>> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-read", move || {
+            store.collect();
+            store.snapshot()
+        })
+        .await
+    }
+
+    pub async fn used_down_async(self: &Arc<Self>, user: String) -> anyhow::Result<u64> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-read", move || store.used_down(&user)).await
+    }
+
+    pub async fn reset_and_flush_async(self: &Arc<Self>, user: String) -> anyhow::Result<()> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-save", move || store.reset_and_flush(&user))
+            .await?
+    }
+
+    pub async fn reload_snapshot_async(
+        self: &Arc<Self>,
+    ) -> anyhow::Result<HashMap<String, UserUsage>> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-read", move || {
+            store.reload()?;
+            Ok(store.snapshot())
+        })
+        .await?
+    }
+
+    pub async fn flush_async(self: &Arc<Self>) -> anyhow::Result<()> {
+        self.flush_with_writer_async(|path, bytes| crate::util::write_atomic(path, bytes))
+            .await
+    }
+
+    async fn flush_with_writer_async(
+        self: &Arc<Self>,
+        write: impl FnOnce(&str, &[u8]) -> anyhow::Result<()> + Send + 'static,
+    ) -> anyhow::Result<()> {
+        let store = self.clone();
+        crate::profile_teardown::blocking("qeli-usage-save", move || store.flush_with_writer(write))
+            .await?
+    }
+
     /// Re-read the on-disk file — used by the supervisor/panel to observe the
     /// worker's flushes (the two run in separate processes).
     pub fn reload(&self) -> anyhow::Result<()> {
@@ -305,6 +368,13 @@ impl UsageStore {
     /// A read-only handle never writes — see the `read_only` field for why the
     /// supervisor must not.
     pub fn flush(&self) -> anyhow::Result<()> {
+        self.flush_with_writer(|path, bytes| crate::util::write_atomic(path, bytes))
+    }
+
+    fn flush_with_writer(
+        &self,
+        write: impl FnOnce(&str, &[u8]) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
         if self.read_only {
             log::trace!("usage: flush skipped (read-only handle)");
             return Ok(());
@@ -316,7 +386,7 @@ impl UsageStore {
         Self::collect_inner(&mut inner);
         let json = serde_json::to_vec_pretty(&inner.usage)
             .map_err(|error| anyhow::anyhow!("failed to encode {}: {error}", self.path))?;
-        crate::util::write_atomic(&self.path, &json)
+        write(&self.path, &json)
             .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", self.path))
     }
 }
@@ -336,6 +406,89 @@ impl Drop for UsageStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn blocked_usage_persistence_leaves_reactor_live_and_reset_ordered() {
+        let path = empty_store_path("async-blocked-flush");
+        let store = Arc::new(UsageStore::load(&path).unwrap());
+        let (down, up) = counters(&store, 71);
+        down.store(700, Ordering::Relaxed);
+        up.store(30, Ordering::Relaxed);
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let saving = store.clone();
+        let flush = tokio::spawn(async move {
+            saving
+                .flush_with_writer_async(move |path, bytes| {
+                    assert_eq!(std::thread::current().name(), Some("qeli-usage-save"));
+                    let _ = entered.send(());
+                    held.recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap();
+                    crate::util::write_atomic(path, bytes)
+                })
+                .await
+        });
+        waiting.await.unwrap();
+        let resetting = store.clone();
+        let reset =
+            tokio::spawn(async move { resetting.reset_and_flush_async("alice".into()).await });
+        let tracking = store.clone();
+        let track = tokio::spawn(async move {
+            tracking
+                .track_async(
+                    73,
+                    "bob".into(),
+                    Arc::new(AtomicU64::new(30)),
+                    Arc::new(AtomicU64::new(0)),
+                )
+                .await
+        });
+        // A single-thread Tokio runtime must still serve timers while both disk
+        // I/O and the reset's mutex acquisition are blocked on owned OS threads.
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            tokio::time::sleep(std::time::Duration::from_millis(2)),
+        )
+        .await
+        .unwrap();
+        assert!(!flush.is_finished());
+        assert!(!reset.is_finished());
+        assert!(!track.is_finished());
+        release.send(()).unwrap();
+        flush.await.unwrap().unwrap();
+        reset.await.unwrap().unwrap();
+        track.await.unwrap().unwrap();
+        down.fetch_add(20, Ordering::Relaxed);
+        store.flush_async().await.unwrap();
+        assert_eq!(store.used_down_async("alice".into()).await.unwrap(), 20);
+        assert_eq!(UsageStore::load_read_only(&path).used_down("alice"), 20);
+        assert_eq!(store.used_down_async("bob".into()).await.unwrap(), 30);
+        drop((down, up, store));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn async_usage_failure_preserves_accounting_for_retry() {
+        let path = empty_store_path("async-failed-flush");
+        let store = Arc::new(UsageStore::load(&path).unwrap());
+        let (down, up) = counters(&store, 72);
+        down.store(90, Ordering::Relaxed);
+        assert!(store
+            .flush_with_writer_async(|_, _| anyhow::bail!("injected write failure"))
+            .await
+            .is_err());
+        assert_eq!(
+            store.collect_snapshot_async().await.unwrap()["alice"].used_down,
+            90
+        );
+        store.flush_async().await.unwrap();
+        assert_eq!(
+            store.reload_snapshot_async().await.unwrap()["alice"].used_down,
+            90
+        );
+        drop((down, up, store));
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// A path for a store that must start EMPTY.
     ///

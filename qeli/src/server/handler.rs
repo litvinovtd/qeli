@@ -1397,12 +1397,19 @@ where
                 // the report stays here, and both surfaces show it as unknown.
                 client_info: Arc::new(std::sync::Mutex::new(None)),
             });
-            server_state.usage.track(
-                session.session_id,
-                &session.username,
-                session.bytes_sent.clone(),
-                session.bytes_recv.clone(),
-            );
+            if let Err(error) = server_state
+                .usage
+                .track_async(
+                    session.session_id,
+                    session.username.clone(),
+                    session.bytes_sent.clone(),
+                    session.bytes_recv.clone(),
+                )
+                .await
+            {
+                profile.pool.lock().await.release(&dkey);
+                return Err(error.context("cannot register usage counters"));
+            }
             let mut replaced_session = None;
             let mut replaced_routes = Vec::new();
             {
@@ -1621,6 +1628,15 @@ where
     // Attach this connection as a stream and pump it until it closes. Teardown
     // (release IP, drop session) happens inside when the LAST stream detaches.
     let server_tx = Arc::new(std::sync::Mutex::new(server_tx_codec));
+    stream.set_opportunistic_batching(
+        session
+            .recordizer
+            .as_ref()
+            .is_some_and(|mux| mux.batch.mode == "opportunistic"),
+    );
+    if let Some(mux) = session.recordizer.as_ref() {
+        log::info!("Recordizer batching: {} on server TCP", mux.batch.mode);
+    }
     let (read_half, write_half) = stream.split_io();
     run_stream(
         profile,
@@ -2829,6 +2845,23 @@ async fn run_stream<R, W>(
                     }
 
                     Some(packet) = rx.recv() => {
+                        let opportunistic = session.recordizer.as_ref().is_some_and(|mux| mux.batch.mode == "opportunistic");
+                        let mut packets = Vec::new();
+                        if opportunistic && !shaper.stealth() && session.bandwidth_limit_mbps.load(Ordering::Relaxed) == 0 {
+                            while packets.len() + 1 < crate::transport_core::udp_batch::MAX_BATCH {
+                                match rx.try_recv() {
+                                    Ok(packet) => {
+                                        let priority = crate::protocol::control_v2::is_control_v2(packet.as_ref());
+                                        if packets.is_empty() { packets.reserve_exact(crate::transport_core::udp_batch::MAX_BATCH - 1); }
+                                        packets.push(packet);
+                                        if priority { break; }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                        let batch_len = packets.len() + 1;
+                        for (batch_index, packet) in std::iter::once(packet).chain(packets).enumerate() {
                         last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                         crate::trace::record(
                             crate::trace::Dir::Tx, "server.stream", packet.len(), stream_id,
@@ -2895,6 +2928,7 @@ async fn run_stream<R, W>(
                                 Ok(payloads) => payloads,
                                 Err(error) => {
                                     log::debug!("server TCP recordizer dropped a packet: {error}");
+                                    if opportunistic { break 'writer; }
                                     continue;
                                 }
                             };
@@ -2902,6 +2936,9 @@ async fn run_stream<R, W>(
                                 if let Some(payload) = mux.flush() {
                                     payloads.push(payload);
                                 }
+                            }
+                            if batch_index + 1 == batch_len {
+                                if let Some(payload) = mux.finish_ready_batch() { payloads.push(payload); }
                             }
                             for payload in payloads {
                                 if !encrypt_server_stream_payload(
@@ -2943,7 +2980,7 @@ async fn run_stream<R, W>(
                             drop(packet);
                             if encrypted {
                                 if write_half.write_all_flush(&wire_record).await.is_err() {
-                                    break;
+                                    break 'writer;
                                 }
                                 last_tx_ms = base.elapsed().as_millis() as u64;
                                 heartbeat_deadline = tokio::time::Instant::now()
@@ -2955,6 +2992,7 @@ async fn run_stream<R, W>(
                         }
                     }
 
+                        }
                     _ = tokio::time::sleep_until(mux_deadline),
                         if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
                     {
@@ -3814,7 +3852,10 @@ pub async fn verify_client_auth(
     }
     if data_limit_gb > 0 {
         // The cap applies to DOWNLOAD only (server→client); uploads are unmetered.
-        let used = server_state.usage.used_down(username);
+        let used = server_state
+            .usage
+            .used_down_async(username.to_owned())
+            .await?;
         if used >= data_limit_gb.saturating_mul(1_000_000_000) {
             log::warn!(
                 "AUTH DENIED {} {}: user={} — download quota exhausted ({} / {} GB down)",
@@ -4236,6 +4277,7 @@ mod auth_ok_prefix_tests {
     fn recordizer_is_pushed_only_to_a_packet_mux_capable_client() {
         let mut profile = crate::config::server::ProfileConfig::baseline();
         profile.obfuscation.recordizer.policy = "prefer".into();
+        profile.obfuscation.recordizer.batch.mode = "opportunistic".into();
         profile.obfuscation.recordizer.batch.max_packets = 7;
 
         let legacy = build_auth_ok("10.20.0.2", &profile, "[]", &[0; JOIN_TOKEN_LEN], 1, None);
@@ -4266,6 +4308,10 @@ mod auth_ok_prefix_tests {
         )
         .unwrap();
         assert_eq!(current["obfuscation"]["recordizer"]["policy"], "prefer");
+        assert_eq!(
+            current["obfuscation"]["recordizer"]["batch"]["mode"],
+            "opportunistic"
+        );
         assert_eq!(
             current["obfuscation"]["recordizer"]["batch"]["max_packets"],
             7

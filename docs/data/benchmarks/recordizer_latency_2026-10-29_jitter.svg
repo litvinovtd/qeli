@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="400" viewBox="0 0 1120 400" role="img">
+<title>Recordizer: sparse VoIP jitter / ms</title>
+<desc>IPv4; n=3 paired windows; medians of window quantiles. Off is a separate archived experiment.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<g font-family="Arial, sans-serif">
+<text x="32.0" y="34.0" font-size="22" text-anchor="start" fill="#172033">Recordizer: sparse VoIP jitter / ms</text>
+<text x="32.0" y="58.0" font-size="13" text-anchor="start" fill="#172033">IPv4; n=3 paired windows; medians of window quantiles. Off is a separate archived experiment.</text>
+<rect x="32" y="79" width="12" height="12" fill="#2563eb"/>
+<text x="52.0" y="90.0" font-size="13" text-anchor="start" fill="#172033">off / archived build</text>
+<rect x="330" y="79" width="12" height="12" fill="#d97706"/>
+<text x="350.0" y="90.0" font-size="13" text-anchor="start" fill="#172033">required timed / archived</text>
+<rect x="655" y="79" width="12" height="12" fill="#059669"/>
+<text x="675.0" y="90.0" font-size="13" text-anchor="start" fill="#172033">required opportunistic / candidate</text>
+<text x="32.0" y="122.0" font-size="17" text-anchor="start" fill="#172033">p99 absolute RTT IPDV (not RTP jitter)</text>
+<path d="M250.0 140v170" stroke="#dbe1e8"/>
+<text x="250.0" y="330.0" font-size="12" text-anchor="middle" fill="#172033">0</text>
+<path d="M437.5 140v170" stroke="#dbe1e8"/>
+<text x="437.5" y="330.0" font-size="12" text-anchor="middle" fill="#172033">5</text>
+<path d="M625.0 140v170" stroke="#dbe1e8"/>
+<text x="625.0" y="330.0" font-size="12" text-anchor="middle" fill="#172033">10</text>
+<path d="M812.5 140v170" stroke="#dbe1e8"/>
+<text x="812.5" y="330.0" font-size="12" text-anchor="middle" fill="#172033">15</text>
+<path d="M1000.0 140v170" stroke="#dbe1e8"/>
+<text x="1000.0" y="330.0" font-size="12" text-anchor="middle" fill="#172033">20</text>
+<text x="236.0" y="159.0" font-size="13" text-anchor="end" fill="#172033">tcp-faketls</text>
+<rect x="250" y="140.0" width="122.02" height="7" fill="#2563eb"/>
+<path d="M358.094401 143.5H372.72977275 M358.094401 141.0v5 M372.72977275 141.0v5" stroke="#172033" stroke-width="1"/>
+<text x="377.7" y="147.0" font-size="10" text-anchor="start" fill="#2563eb">3.25</text>
+<rect x="250" y="148.0" width="380.67" height="7" fill="#d97706"/>
+<path d="M628.4826429999999 151.5H631.8334255 M628.4826429999999 149.0v5 M631.8334255 149.0v5" stroke="#172033" stroke-width="1"/>
+<text x="636.8" y="155.0" font-size="10" text-anchor="start" fill="#d97706">10.15</text>
+<rect x="250" y="156.0" width="104.28" height="7" fill="#059669"/>
+<path d="M353.99206225 159.5H365.22579774999997 M353.99206225 157.0v5 M365.22579774999997 157.0v5" stroke="#172033" stroke-width="1"/>
+<text x="370.2" y="163.0" font-size="10" text-anchor="start" fill="#059669">2.78</text>
+<text x="236.0" y="193.0" font-size="13" text-anchor="end" fill="#172033">tcp-reality-tls</text>
+<rect x="250" y="174.0" width="385.37" height="7" fill="#2563eb"/>
+<path d="M628.739038 177.5H636.11603575 M628.739038 175.0v5 M636.11603575 175.0v5" stroke="#172033" stroke-width="1"/>
+<text x="641.1" y="181.0" font-size="10" text-anchor="start" fill="#2563eb">10.28</text>
+<rect x="250" y="182.0" width="603.56" height="7" fill="#d97706"/>
+<path d="M849.2905974999995 185.5H865.0034755 M849.2905974999995 183.0v5 M865.0034755 183.0v5" stroke="#172033" stroke-width="1"/>
+<text x="870.0" y="189.0" font-size="10" text-anchor="start" fill="#d97706">16.09</text>
+<rect x="250" y="190.0" width="123.01" height="7" fill="#059669"/>
+<path d="M305.50332099999997 193.5H375.96576475 M305.50332099999997 191.0v5 M375.96576475 191.0v5" stroke="#172033" stroke-width="1"/>
+<text x="381.0" y="197.0" font-size="10" text-anchor="start" fill="#059669">3.28</text>
+<text x="236.0" y="227.0" font-size="13" text-anchor="end" fill="#172033">udp-faketls</text>
+<rect x="250" y="208.0" width="88.33" height="7" fill="#2563eb"/>
+<path d="M300.641941 211.5H343.66904875 M300.641941 209.0v5 M343.66904875 209.0v5" stroke="#172033" stroke-width="1"/>
+<text x="348.7" y="215.0" font-size="10" text-anchor="start" fill="#2563eb">2.36</text>
+<rect x="250" y="216.0" width="382.06" height="7" fill="#d97706"/>
+<path d="M626.23326325 219.5H633.82930825 M626.23326325 217.0v5 M633.82930825 217.0v5" stroke="#172033" stroke-width="1"/>
+<text x="638.8" y="223.0" font-size="10" text-anchor="start" fill="#d97706">10.19</text>
+<rect x="250" y="224.0" width="97.19" height="7" fill="#059669"/>
+<path d="M299.03045125 227.5H367.03433725 M299.03045125 225.0v5 M367.03433725 225.0v5" stroke="#172033" stroke-width="1"/>
+<text x="372.0" y="231.0" font-size="10" text-anchor="start" fill="#059669">2.59</text>
+<text x="236.0" y="261.0" font-size="13" text-anchor="end" fill="#172033">udp-quic</text>
+<rect x="250" y="242.0" width="64.21" height="7" fill="#2563eb"/>
+<path d="M310.107979 245.5H376.3667905 M310.107979 243.0v5 M376.3667905 243.0v5" stroke="#172033" stroke-width="1"/>
+<text x="381.4" y="249.0" font-size="10" text-anchor="start" fill="#2563eb">1.71</text>
+<rect x="250" y="250.0" width="379.06" height="7" fill="#d97706"/>
+<path d="M614.0338345 253.5H631.529542 M614.0338345 251.0v5 M631.529542 251.0v5" stroke="#172033" stroke-width="1"/>
+<text x="636.5" y="257.0" font-size="10" text-anchor="start" fill="#d97706">10.11</text>
+<rect x="250" y="258.0" width="71.93" height="7" fill="#059669"/>
+<path d="M314.98143624999994 261.5H341.38248024999996 M314.98143624999994 259.0v5 M341.38248024999996 259.0v5" stroke="#172033" stroke-width="1"/>
+<text x="346.4" y="265.0" font-size="10" text-anchor="start" fill="#059669">1.92</text>
+<text x="236.0" y="295.0" font-size="13" text-anchor="end" fill="#172033">udp-obfs</text>
+<rect x="250" y="276.0" width="100.14" height="7" fill="#2563eb"/>
+<path d="M299.83012225 279.5H366.89986524999995 M299.83012225 277.0v5 M366.89986524999995 277.0v5" stroke="#172033" stroke-width="1"/>
+<text x="371.9" y="283.0" font-size="10" text-anchor="start" fill="#2563eb">2.67</text>
+<rect x="250" y="284.0" width="380.79" height="7" fill="#d97706"/>
+<path d="M630.485725 287.5H631.002325 M630.485725 285.0v5 M631.002325 285.0v5" stroke="#172033" stroke-width="1"/>
+<text x="636.0" y="291.0" font-size="10" text-anchor="start" fill="#d97706">10.15</text>
+<rect x="250" y="292.0" width="89.93" height="7" fill="#059669"/>
+<path d="M333.18285549999996 295.5H356.62402525 M333.18285549999996 293.0v5 M356.62402525 293.0v5" stroke="#172033" stroke-width="1"/>
+<text x="361.6" y="299.0" font-size="10" text-anchor="start" fill="#059669">2.40</text>
+<text x="32.0" y="375.0" font-size="13" text-anchor="start" fill="#172033">Whiskers: min/max of 3 windows. Not one-way delay or maximum; rare stalls may lie outside p99.</text>
+</g></svg>

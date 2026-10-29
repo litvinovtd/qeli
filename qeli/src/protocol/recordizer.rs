@@ -51,6 +51,7 @@ pub(crate) fn encoded_payload_len(record: &[u8]) -> Option<usize> {
 
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
+    pub opportunistic: bool,
     pub delay_min: Duration,
     pub delay_max: Duration,
     pub max_packets: usize,
@@ -87,6 +88,7 @@ impl RuntimeConfig {
             ));
         }
         Ok(Self {
+            opportunistic: config.batch.mode == "opportunistic",
             delay_min: Duration::from_millis(config.batch.delay_min_ms),
             delay_max: Duration::from_millis(config.batch.delay_max_ms),
             max_packets: usize::from(config.batch.max_packets),
@@ -170,6 +172,16 @@ impl Recordizer {
 
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline
+    }
+
+    /// Finish a bounded producer batch without waiting for future input.
+    /// The authenticated envelope/fragment format is identical in both modes.
+    pub fn finish_ready_batch(&mut self) -> Option<Vec<u8>> {
+        if self.config.opportunistic {
+            self.flush()
+        } else {
+            None
+        }
     }
 
     pub fn push(&mut self, packet: &[u8], now: Instant) -> Result<Vec<Vec<u8>>, RecordizerError> {
@@ -278,7 +290,7 @@ impl Recordizer {
                 }
             }
         }
-        if self.config.delay_max.is_zero() {
+        if !self.config.opportunistic && self.config.delay_max.is_zero() {
             if let Some(record) = self.flush() {
                 ready.push(record);
             }
@@ -309,7 +321,11 @@ impl Recordizer {
         }
         self.current.extend_from_slice(MAGIC);
         self.current_target = choose_target(&self.config);
-        self.deadline = Some(now + random_duration(self.config.delay_min, self.config.delay_max));
+        self.deadline = if self.config.opportunistic {
+            None
+        } else {
+            Some(now + random_duration(self.config.delay_min, self.config.delay_max))
+        };
     }
 }
 
@@ -563,6 +579,7 @@ mod tests {
 
     fn config(max_payload_bytes: usize) -> RuntimeConfig {
         RuntimeConfig {
+            opportunistic: false,
             delay_min: Duration::ZERO,
             delay_max: Duration::ZERO,
             max_packets: 32,
@@ -717,6 +734,70 @@ mod tests {
         assert!(tx.push(b"packet", now).unwrap().is_empty());
         assert!(tx.flush_due(now + Duration::from_millis(4)).is_none());
         assert!(tx.flush_due(now + Duration::from_millis(5)).is_some());
+    }
+
+    #[test]
+    fn opportunistic_batches_ready_packets_without_a_timer() {
+        let mut cfg = config(256);
+        cfg.opportunistic = true;
+        // Zero is not the legacy per-push immediate-flush mode in this strategy.
+        let mut tx = Recordizer::new(cfg.clone());
+        assert!(tx.push(b"first", Instant::now()).unwrap().is_empty());
+        assert!(tx.push(b"second", Instant::now()).unwrap().is_empty());
+        assert!(tx.deadline().is_none());
+        let record = tx.finish_ready_batch().unwrap();
+        let mut rx = Reassembler::new(cfg);
+        assert_eq!(
+            rx.decode(&record).unwrap(),
+            vec![b"first".to_vec(), b"second".to_vec()]
+        );
+        assert!(!tx.is_pending());
+        assert!(tx.finish_ready_batch().is_none());
+    }
+
+    #[test]
+    fn timed_finish_preserves_the_legacy_deadline() {
+        let mut cfg = config(256);
+        cfg.delay_min = Duration::from_millis(5);
+        cfg.delay_max = cfg.delay_min;
+        let now = Instant::now();
+        let mut tx = Recordizer::new(cfg);
+        assert!(tx.push(b"packet", now).unwrap().is_empty());
+        assert!(tx.finish_ready_batch().is_none());
+        assert_eq!(tx.deadline(), Some(now + Duration::from_millis(5)));
+    }
+
+    #[test]
+    fn opportunistic_ignores_nonzero_delays_and_flushes_a_single_packet() {
+        let mut cfg = config(256);
+        cfg.opportunistic = true;
+        cfg.delay_min = Duration::from_millis(2);
+        cfg.delay_max = Duration::from_millis(8);
+        let now = Instant::now();
+        let mut tx = Recordizer::new(cfg.clone());
+        assert!(tx.push(b"sparse", now).unwrap().is_empty());
+        assert!(tx.deadline().is_none());
+        assert!(tx.flush_due(now + Duration::from_secs(60)).is_none());
+        let record = tx.finish_ready_batch().expect("ready tail must not await a timer");
+        let mut rx = Reassembler::new(cfg);
+        assert_eq!(rx.decode(&record).unwrap(), vec![b"sparse".to_vec()]);
+        assert!(!tx.is_pending());
+    }
+
+    #[test]
+    fn opportunistic_fragment_tail_is_flushed_and_reassembled() {
+        let mut cfg = config(80);
+        cfg.opportunistic = true;
+        let mut tx = Recordizer::new(cfg.clone());
+        let packet = vec![7; 200];
+        let mut records = tx.push(&packet, Instant::now()).unwrap();
+        if let Some(tail) = tx.finish_ready_batch() {
+            records.push(tail);
+        }
+        let mut rx = Reassembler::new(cfg);
+        let packets: Vec<_> = records.iter().flat_map(|r| rx.decode(r).unwrap()).collect();
+        assert_eq!(packets, vec![packet]);
+        assert!(!tx.is_pending());
     }
 
     #[test]

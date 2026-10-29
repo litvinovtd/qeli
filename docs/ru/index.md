@@ -91,6 +91,8 @@
 | --- | --- |
 | [Технологии и измерения](reference/TECHNOLOGIES.md) | Каталог механизмов и правила размещения новых материалов |
 | [Recordizer](reference/RECORDIZER.md) | PACKET_MUX_V1, путь данных, согласование и ограничения |
+| [Recordizer: задержки и низколатентный режим, 26–29 октября](reports/benchmarks/recordizer_latency_2026-10-29.md) | A/B off/required и timed/opportunistic, графики RTT/jitter/скорости, компромисс около 8–9% FakeTLS upload |
+| [Recordizer: временной рисунок и распознаваемость, 29 октября](reports/benchmarks/recordizer_masking_pilot_2026-10-29.md) | Пилот timed/opportunistic и H2-контроль, графики корреляции/ROC; не оценка промышленного DPI |
 | [Required и off на 12 профилях 20 октября 2026](reports/benchmarks/recordizer_required_off_2026-10-20.md) | Инженерный n=1 прогон одной сборки 0.8.2; не публичный бенчмарк релиза |
 
 ## Архив (`archive/`)

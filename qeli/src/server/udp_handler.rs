@@ -4879,6 +4879,9 @@ async fn handle_udp_auth(
         .max_data_for_record_budget(initial_record_budget)
         .expect("conservative UDP budget fits encrypted record overhead");
     let writer_recordizer_config = negotiated_recordizer.clone();
+    if let Some(mux) = writer_recordizer_config.as_ref() {
+        log::info!("Recordizer batching: {} on server UDP", mux.batch.mode);
+    }
     let writer_recordizer_runtime = writer_recordizer_config.as_ref().map(|config| {
         crate::protocol::recordizer::RuntimeConfig::from_config(
             config,
@@ -4973,12 +4976,21 @@ async fn handle_udp_auth(
         revoked,
         closing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     });
-    server_state.usage.track(
-        session.session_id,
-        &session.username,
-        session.bytes_sent.clone(),
-        session.bytes_recv.clone(),
-    );
+    if let Err(error) = server_state
+        .usage
+        .track_async(
+            session.session_id,
+            session.username.clone(),
+            session.bytes_sent.clone(),
+            session.bytes_recv.clone(),
+        )
+        .await
+    {
+        log::error!("UDP: cannot register usage counters: {error}");
+        sessions.write().await.remove(&addr);
+        profile.pool.lock().await.release(&session.device_key);
+        return;
+    }
     // The writer task outlives this function and needs the rate bucket + byte
     // counter, but `session` is moved into the profile map below — clone first.
     let writer_session = session.clone();
@@ -5358,6 +5370,9 @@ async fn handle_udp_auth(
                                 if let Some(payload) = recordizer.as_mut().and_then(|mux| mux.flush()) {
                                     payloads.push(payload);
                                 }
+                            }
+                            if let Some(payload) = recordizer.as_mut().and_then(|mux| mux.finish_ready_batch()) {
+                                payloads.push(payload);
                             }
                             (payloads, priority_control)
                         }

@@ -422,6 +422,9 @@ pub struct RecordizerConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RecordizerBatchConfig {
+    /// `timed` retains morphology delays; `opportunistic` batches ready input only.
+    #[serde(default = "default_recordizer_batch_mode")]
+    pub mode: String,
     #[serde(default = "default_recordizer_delay_min")]
     pub delay_min_ms: u64,
     #[serde(default = "default_recordizer_delay_max")]
@@ -473,6 +476,7 @@ impl Default for RecordizerConfig {
 impl Default for RecordizerBatchConfig {
     fn default() -> Self {
         Self {
+            mode: default_recordizer_batch_mode(),
             delay_min_ms: default_recordizer_delay_min(),
             delay_max_ms: default_recordizer_delay_max(),
             max_packets: default_recordizer_max_packets(),
@@ -531,6 +535,9 @@ impl RecordizerConfig {
         }
         if self.is_off() {
             return Ok(());
+        }
+        if !matches!(self.batch.mode.as_str(), "timed" | "opportunistic") {
+            anyhow::bail!("{label}.batch.mode must be timed or opportunistic");
         }
         if self.batch.delay_min_ms > self.batch.delay_max_ms {
             anyhow::bail!("{label}.batch.delay_min_ms must be <= delay_max_ms");
@@ -1246,6 +1253,30 @@ fn default_recordizer_policy() -> String {
 }
 fn default_recordizer_delay_min() -> u64 {
     2
+}
+fn default_recordizer_batch_mode() -> String {
+    "timed".into()
+}
+
+#[cfg(test)]
+mod recordizer_batch_mode_tests {
+    use super::*;
+    #[test]
+    fn absent_mode_is_timed_and_unknown_mode_is_rejected() {
+        let batch: RecordizerBatchConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(batch.mode, "timed");
+        let mut cfg = RecordizerConfig {
+            policy: "required".into(),
+            ..Default::default()
+        };
+        cfg.batch.mode = "opportunistic".into();
+        cfg.validate("test").unwrap();
+        let round_trip: RecordizerConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(round_trip.batch.mode, "opportunistic");
+        cfg.batch.mode = "unknown".into();
+        assert!(cfg.validate("test").is_err());
+    }
 }
 fn default_recordizer_delay_max() -> u64 {
     8

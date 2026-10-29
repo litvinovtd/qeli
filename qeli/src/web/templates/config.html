@@ -1427,14 +1427,22 @@
               </select>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.recordizer.policy !== 'off'" class="space-y-4">
+              <div>
+                <label class="field-label" for="recordizer-batch-mode">Batch mode</label>
+                <select id="recordizer-batch-mode" class="inp inp-fit" x-model="cfg.profiles[activeTab].obfuscation.recordizer.batch.mode" @change="markDirty()" aria-describedby="recordizer-batch-mode-help">
+                  <option value="timed">Timed accumulation</option>
+                  <option value="opportunistic">Low latency ready batches</option>
+                </select>
+                <p id="recordizer-batch-mode-help" class="field-desc">Low latency sends ready batches without waiting for new packets. Delay values are retained for Timed. Update both cores and reconnect; throughput and traffic timing may change.</p>
+              </div>
               <div class="grid grid-cols-4 gap-4">
                 <div>
                   <label class="field-label">Batch delay min (ms)</label>
-                  <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.recordizer.batch.delay_min_ms" @input="markDirty()">
+                  <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.recordizer.batch.delay_min_ms" :disabled="cfg.profiles[activeTab].obfuscation.recordizer.batch.mode === 'opportunistic'" @input="markDirty()">
                 </div>
                 <div>
                   <label class="field-label">Batch delay max (ms)</label>
-                  <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.recordizer.batch.delay_max_ms" @input="markDirty()">
+                  <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.recordizer.batch.delay_max_ms" :disabled="cfg.profiles[activeTab].obfuscation.recordizer.batch.mode === 'opportunistic'" @input="markDirty()">
                 </div>
                 <div>
                   <label class="field-label">Max packets per batch</label>
@@ -2054,7 +2062,7 @@ function configPage() {
           traffic_normalization: {}, traffic_shaping: {},
           recordizer: {
             policy: 'off',
-            batch: { delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 },
+            batch: { mode: 'timed', delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 },
             record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 },
             fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 },
           },

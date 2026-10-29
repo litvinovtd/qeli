@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700" role="img">
+<title>Reality-TLS: timing transfer and RTT pilot</title>
+<desc>10 fresh sessions per arm; fixed useful load; IPv4; test NIC offloads disabled. Not a secrecy percentage.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<text x="32" y="35" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#172033">Reality-TLS: timing transfer and RTT pilot</text>
+<text x="32" y="61" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">10 fresh sessions per arm; fixed useful load; IPv4; test NIC offloads disabled. Not a secrecy percentage.</text>
+<rect x="32" y="83" width="12" height="12" fill="#2563eb"/>
+<text x="52" y="94" font-family="Arial, sans-serif" font-size="14" text-anchor="start" fill="#172033">timed</text>
+<rect x="322" y="83" width="12" height="12" fill="#d97706"/>
+<text x="342" y="94" font-family="Arial, sans-serif" font-size="14" text-anchor="start" fill="#172033">opportunistic</text>
+<rect x="612" y="83" width="12" height="12" fill="#059669"/>
+<text x="632" y="94" font-family="Arial, sans-serif" font-size="14" text-anchor="start" fill="#172033">control-h2</text>
+<text x="32" y="127" font-family="Arial, sans-serif" font-size="17" text-anchor="start" fill="#172033">Peak inner-to-outer timing correlation</text>
+<path d="M230.0 145v170" stroke="#dbe1e8"/>
+<text x="230.0" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0</text>
+<path d="M427.5 145v170" stroke="#dbe1e8"/>
+<text x="427.5" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.25</text>
+<path d="M625.0 145v170" stroke="#dbe1e8"/>
+<text x="625.0" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.5</text>
+<path d="M822.5 145v170" stroke="#dbe1e8"/>
+<text x="822.5" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0.75</text>
+<path d="M1020.0 145v170" stroke="#dbe1e8"/>
+<text x="1020.0" y="337" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">1</text>
+<text x="218" y="168.0" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">voip</text>
+<rect x="230" y="145.0" width="89.44798555346931" height="8" fill="#2563eb"/>
+<text x="324.4479855534693" y="153.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.113</text>
+<rect x="230" y="155.0" width="629.0737546513764" height="8" fill="#d97706"/>
+<text x="864.0737546513764" y="163.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.796</text>
+<rect x="230" y="165.0" width="762.0033357701986" height="8" fill="#059669"/>
+<text x="997.0033357701986" y="173.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.965</text>
+<text x="218" y="224.66666666666666" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">game</text>
+<rect x="230" y="201.66666666666666" width="26.31997119857971" height="8" fill="#2563eb"/>
+<text x="261.3199711985797" y="209.66666666666666" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.033</text>
+<rect x="230" y="211.66666666666666" width="618.0875213991991" height="8" fill="#d97706"/>
+<text x="853.0875213991991" y="219.66666666666666" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.782</text>
+<rect x="230" y="221.66666666666666" width="767.9478839577732" height="8" fill="#059669"/>
+<text x="1002.9478839577732" y="229.66666666666666" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.972</text>
+<text x="218" y="281.3333333333333" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">burst</text>
+<rect x="230" y="258.3333333333333" width="129.7888243491682" height="8" fill="#2563eb"/>
+<text x="364.7888243491682" y="266.3333333333333" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.164</text>
+<rect x="230" y="268.3333333333333" width="599.7419127308522" height="8" fill="#d97706"/>
+<text x="834.7419127308522" y="276.3333333333333" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.759</text>
+<rect x="230" y="278.3333333333333" width="781.6853429401157" height="8" fill="#059669"/>
+<text x="1016.6853429401157" y="286.3333333333333" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.989</text>
+<text x="32" y="397" font-family="Arial, sans-serif" font-size="17" text-anchor="start" fill="#172033">Median echo RTT / ms</text>
+<path d="M230.0 415v170" stroke="#dbe1e8"/>
+<text x="230.0" y="607" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">0</text>
+<path d="M427.5 415v170" stroke="#dbe1e8"/>
+<text x="427.5" y="607" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">7.5</text>
+<path d="M625.0 415v170" stroke="#dbe1e8"/>
+<text x="625.0" y="607" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">15</text>
+<path d="M822.5 415v170" stroke="#dbe1e8"/>
+<text x="822.5" y="607" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">22.5</text>
+<path d="M1020.0 415v170" stroke="#dbe1e8"/>
+<text x="1020.0" y="607" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#172033">30</text>
+<text x="218" y="438.0" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">voip</text>
+<rect x="230" y="415.0" width="684.4954275833334" height="8" fill="#2563eb"/>
+<text x="919.4954275833334" y="423.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">25.993</text>
+<rect x="230" y="425.0" width="31.83296441666667" height="8" fill="#d97706"/>
+<text x="266.83296441666664" y="433.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">1.209</text>
+<rect x="230" y="435.0" width="24.400269166666668" height="8" fill="#059669"/>
+<text x="259.4002691666667" y="443.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.927</text>
+<text x="218" y="480.5" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">game</text>
+<rect x="230" y="457.5" width="619.2794726666667" height="8" fill="#2563eb"/>
+<text x="854.2794726666667" y="465.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">23.517</text>
+<rect x="230" y="467.5" width="30.915392583333336" height="8" fill="#d97706"/>
+<text x="265.91539258333336" y="475.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">1.174</text>
+<rect x="230" y="477.5" width="24.517202333333334" height="8" fill="#059669"/>
+<text x="259.51720233333333" y="485.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.931</text>
+<text x="218" y="523.0" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">burst</text>
+<rect x="230" y="500.0" width="690.4484791666667" height="8" fill="#2563eb"/>
+<text x="925.4484791666667" y="508.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">26.220</text>
+<rect x="230" y="510.0" width="39.47450933333334" height="8" fill="#d97706"/>
+<text x="274.47450933333334" y="518.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">1.499</text>
+<rect x="230" y="520.0" width="29.72808841666667" height="8" fill="#059669"/>
+<text x="264.72808841666665" y="528.0" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">1.129</text>
+<text x="218" y="565.5" font-family="Arial, sans-serif" font-size="14" text-anchor="end" fill="#172033">bulk</text>
+<rect x="230" y="542.5" width="485.98713741666666" height="8" fill="#2563eb"/>
+<text x="720.9871374166667" y="550.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">18.455</text>
+<rect x="230" y="552.5" width="15.493335166666666" height="8" fill="#d97706"/>
+<text x="250.49333516666667" y="560.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.588</text>
+<rect x="230" y="562.5" width="15.181759166666668" height="8" fill="#059669"/>
+<text x="250.18175916666667" y="570.5" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#172033">0.577</text>
+<text x="32" y="660" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">Correlation: 1 ms bins, search 0..40 ms; periodic aliases possible. Bulk omitted from correlation plot.</text>
+<text x="32" y="682" font-family="Arial, sans-serif" font-size="13" text-anchor="start" fill="#172033">Correlation uses known test send times; it is descriptive ground truth, NOT a passive-classifier feature.</text>
+</svg>

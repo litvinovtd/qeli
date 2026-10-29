@@ -138,6 +138,8 @@ mod tests {
         assert!(APP_CSS.contains("html[data-theme=light] .badge-udp{"));
         assert!(APP_CSS.contains(".server-host-badge{"));
         assert!(I18N_JS.contains("'PACKET_MUX recordizer':"));
+        assert!(I18N_JS.contains("'Batch mode':"));
+        assert!(I18N_JS.contains("'Low latency ready batches':"));
         assert!(I18N_JS.contains("(tag === 'OPTION' && !p.hasAttribute('value'))"));
         assert!(I18N_JS.contains("[/^(\\d+) selected$/, 'Выбрано: $1']"));
     }

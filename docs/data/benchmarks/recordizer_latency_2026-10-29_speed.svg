@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="850" viewBox="0 0 1120 850" role="img">
+<title>TCP P4 throughput: opportunistic minus timed / %</title>
+<desc>Same required policy; n=3 paired changes. Point = median; whisker = min/max, not confidence interval.</desc>
+<rect width="100%" height="100%" fill="white"/>
+<g font-family="Arial, sans-serif">
+<text x="32.0" y="34.0" font-size="22" text-anchor="start" fill="#172033">TCP P4 throughput: opportunistic minus timed / %</text>
+<text x="32.0" y="58.0" font-size="13" text-anchor="start" fill="#172033">Same required policy; n=3 paired changes. Point = median; whisker = min/max, not confidence interval.</text>
+<text x="32.0" y="96.0" font-size="17" text-anchor="start" fill="#172033">UPLOAD</text>
+<path d="M265.0 110v280" stroke="#dbe1e8"/>
+<text x="265.0" y="413.0" font-size="12" text-anchor="middle" fill="#172033">-15</text>
+<path d="M330.9090909090909 110v280" stroke="#dbe1e8"/>
+<text x="330.9" y="413.0" font-size="12" text-anchor="middle" fill="#172033">-10</text>
+<path d="M396.8181818181818 110v280" stroke="#dbe1e8"/>
+<text x="396.8" y="413.0" font-size="12" text-anchor="middle" fill="#172033">-5</text>
+<path d="M462.72727272727275 110v280" stroke="#64748b"/>
+<text x="462.7" y="413.0" font-size="12" text-anchor="middle" fill="#172033">+0</text>
+<path d="M594.5454545454545 110v280" stroke="#dbe1e8"/>
+<text x="594.5" y="413.0" font-size="12" text-anchor="middle" fill="#172033">+10</text>
+<path d="M726.3636363636364 110v280" stroke="#dbe1e8"/>
+<text x="726.4" y="413.0" font-size="12" text-anchor="middle" fill="#172033">+20</text>
+<path d="M858.1818181818182 110v280" stroke="#dbe1e8"/>
+<text x="858.2" y="413.0" font-size="12" text-anchor="middle" fill="#172033">+30</text>
+<path d="M990.0 110v280" stroke="#dbe1e8"/>
+<text x="990.0" y="413.0" font-size="12" text-anchor="middle" fill="#172033">+40</text>
+<text x="250.0" y="125.0" font-size="13" text-anchor="end" fill="#172033">tcp-faketls IPv4</text>
+<path d="M329.01952731780995 120H358.0367905557174" stroke="#2563eb" stroke-width="2"/>
+<path d="M329.01952731780995 116v8" stroke="#2563eb"/>
+<path d="M358.0367905557174 116v8" stroke="#2563eb"/>
+<circle cx="345.41024852584707" cy="120" r="4" fill="#2563eb"/>
+<text x="1002.0" y="124.0" font-size="12" text-anchor="start" fill="#172033">-8.90%</text>
+<text x="250.0" y="152.0" font-size="13" text-anchor="end" fill="#172033">tcp-faketls IPv6</text>
+<path d="M324.13838062507233 147H350.7337653916618" stroke="#2563eb" stroke-width="2"/>
+<path d="M324.13838062507233 143v8" stroke="#2563eb"/>
+<path d="M350.7337653916618 143v8" stroke="#2563eb"/>
+<circle cx="339.39226138819436" cy="147" r="4" fill="#2563eb"/>
+<text x="1002.0" y="151.0" font-size="12" text-anchor="start" fill="#172033">-9.36%</text>
+<text x="250.0" y="179.0" font-size="13" text-anchor="end" fill="#172033">tcp-reality-tls IPv4</text>
+<path d="M869.3546031115732 174H921.7125446617608" stroke="#2563eb" stroke-width="2"/>
+<path d="M869.3546031115732 170v8" stroke="#2563eb"/>
+<path d="M921.7125446617608 170v8" stroke="#2563eb"/>
+<circle cx="919.8812904232366" cy="174" r="4" fill="#2563eb"/>
+<text x="1002.0" y="178.0" font-size="12" text-anchor="start" fill="#172033">+34.68%</text>
+<text x="250.0" y="206.0" font-size="13" text-anchor="end" fill="#172033">tcp-reality-tls IPv6</text>
+<path d="M834.7367402867968 201H869.3281771522741" stroke="#2563eb" stroke-width="2"/>
+<path d="M834.7367402867968 197v8" stroke="#2563eb"/>
+<path d="M869.3281771522741 197v8" stroke="#2563eb"/>
+<circle cx="854.5053894367977" cy="201" r="4" fill="#2563eb"/>
+<text x="1002.0" y="205.0" font-size="12" text-anchor="start" fill="#172033">+29.72%</text>
+<text x="250.0" y="233.0" font-size="13" text-anchor="end" fill="#172033">udp-faketls IPv4</text>
+<path d="M347.5220076500339 228H428.1393955335724" stroke="#2563eb" stroke-width="2"/>
+<path d="M347.5220076500339 224v8" stroke="#2563eb"/>
+<path d="M428.1393955335724 224v8" stroke="#2563eb"/>
+<circle cx="350.86157691911046" cy="228" r="4" fill="#2563eb"/>
+<text x="1002.0" y="232.0" font-size="12" text-anchor="start" fill="#172033">-8.49%</text>
+<text x="250.0" y="260.0" font-size="13" text-anchor="end" fill="#172033">udp-faketls IPv6</text>
+<path d="M341.63052781886654 255H358.705158726342" stroke="#2563eb" stroke-width="2"/>
+<path d="M341.63052781886654 251v8" stroke="#2563eb"/>
+<path d="M358.705158726342 251v8" stroke="#2563eb"/>
+<circle cx="353.63119378252617" cy="255" r="4" fill="#2563eb"/>
+<text x="1002.0" y="259.0" font-size="12" text-anchor="start" fill="#172033">-8.28%</text>
+<text x="250.0" y="287.0" font-size="13" text-anchor="end" fill="#172033">udp-quic IPv4</text>
+<path d="M376.5192797174639 282H515.4162900953454" stroke="#2563eb" stroke-width="2"/>
+<path d="M376.5192797174639 278v8" stroke="#2563eb"/>
+<path d="M515.4162900953454 278v8" stroke="#2563eb"/>
+<circle cx="421.13445739570807" cy="282" r="4" fill="#2563eb"/>
+<text x="1002.0" y="286.0" font-size="12" text-anchor="start" fill="#172033">-3.16%</text>
+<text x="250.0" y="314.0" font-size="13" text-anchor="end" fill="#172033">udp-quic IPv6</text>
+<path d="M341.185101140266 309H445.7293263004532" stroke="#2563eb" stroke-width="2"/>
+<path d="M341.185101140266 305v8" stroke="#2563eb"/>
+<path d="M445.7293263004532 305v8" stroke="#2563eb"/>
+<circle cx="395.5830047679749" cy="309" r="4" fill="#2563eb"/>
+<text x="1002.0" y="313.0" font-size="12" text-anchor="start" fill="#172033">-5.09%</text>
+<text x="250.0" y="341.0" font-size="13" text-anchor="end" fill="#172033">udp-obfs IPv4</text>
+<path d="M304.85878582250143 336H409.13004027159906" stroke="#2563eb" stroke-width="2"/>
+<path d="M304.85878582250143 332v8" stroke="#2563eb"/>
+<path d="M409.13004027159906 332v8" stroke="#2563eb"/>
+<circle cx="408.89500236139617" cy="336" r="4" fill="#2563eb"/>
+<text x="1002.0" y="340.0" font-size="12" text-anchor="start" fill="#172033">-4.08%</text>
+<text x="250.0" y="368.0" font-size="13" text-anchor="end" fill="#172033">udp-obfs IPv6</text>
+<path d="M316.2114886967249 363H400.6615628542071" stroke="#2563eb" stroke-width="2"/>
+<path d="M316.2114886967249 359v8" stroke="#2563eb"/>
+<path d="M400.6615628542071 359v8" stroke="#2563eb"/>
+<circle cx="391.0426886922619" cy="363" r="4" fill="#2563eb"/>
+<text x="1002.0" y="367.0" font-size="12" text-anchor="start" fill="#172033">-5.44%</text>
+<text x="32.0" y="446.0" font-size="17" text-anchor="start" fill="#172033">DOWNLOAD</text>
+<path d="M265.0 460v280" stroke="#dbe1e8"/>
+<text x="265.0" y="763.0" font-size="12" text-anchor="middle" fill="#172033">-15</text>
+<path d="M330.9090909090909 460v280" stroke="#dbe1e8"/>
+<text x="330.9" y="763.0" font-size="12" text-anchor="middle" fill="#172033">-10</text>
+<path d="M396.8181818181818 460v280" stroke="#dbe1e8"/>
+<text x="396.8" y="763.0" font-size="12" text-anchor="middle" fill="#172033">-5</text>
+<path d="M462.72727272727275 460v280" stroke="#64748b"/>
+<text x="462.7" y="763.0" font-size="12" text-anchor="middle" fill="#172033">+0</text>
+<path d="M594.5454545454545 460v280" stroke="#dbe1e8"/>
+<text x="594.5" y="763.0" font-size="12" text-anchor="middle" fill="#172033">+10</text>
+<path d="M726.3636363636364 460v280" stroke="#dbe1e8"/>
+<text x="726.4" y="763.0" font-size="12" text-anchor="middle" fill="#172033">+20</text>
+<path d="M858.1818181818182 460v280" stroke="#dbe1e8"/>
+<text x="858.2" y="763.0" font-size="12" text-anchor="middle" fill="#172033">+30</text>
+<path d="M990.0 460v280" stroke="#dbe1e8"/>
+<text x="990.0" y="763.0" font-size="12" text-anchor="middle" fill="#172033">+40</text>
+<text x="250.0" y="475.0" font-size="13" text-anchor="end" fill="#172033">tcp-faketls IPv4</text>
+<path d="M410.50048636683584 470H422.00453806838607" stroke="#2563eb" stroke-width="2"/>
+<path d="M410.50048636683584 466v8" stroke="#2563eb"/>
+<path d="M422.00453806838607 466v8" stroke="#2563eb"/>
+<circle cx="416.36957809885456" cy="470" r="4" fill="#2563eb"/>
+<text x="1002.0" y="474.0" font-size="12" text-anchor="start" fill="#172033">-3.52%</text>
+<text x="250.0" y="502.0" font-size="13" text-anchor="end" fill="#172033">tcp-faketls IPv6</text>
+<path d="M416.6250796359409 497H438.8474078375799" stroke="#2563eb" stroke-width="2"/>
+<path d="M416.6250796359409 493v8" stroke="#2563eb"/>
+<path d="M438.8474078375799 493v8" stroke="#2563eb"/>
+<circle cx="420.4053168176512" cy="497" r="4" fill="#2563eb"/>
+<text x="1002.0" y="501.0" font-size="12" text-anchor="start" fill="#172033">-3.21%</text>
+<text x="250.0" y="529.0" font-size="13" text-anchor="end" fill="#172033">tcp-reality-tls IPv4</text>
+<path d="M913.8448621413881 524H944.4912035081828" stroke="#2563eb" stroke-width="2"/>
+<path d="M913.8448621413881 520v8" stroke="#2563eb"/>
+<path d="M944.4912035081828 520v8" stroke="#2563eb"/>
+<circle cx="938.2109509495548" cy="524" r="4" fill="#2563eb"/>
+<text x="1002.0" y="528.0" font-size="12" text-anchor="start" fill="#172033">+36.07%</text>
+<text x="250.0" y="556.0" font-size="13" text-anchor="end" fill="#172033">tcp-reality-tls IPv6</text>
+<path d="M805.1816929708865 551H826.7867626450725" stroke="#2563eb" stroke-width="2"/>
+<path d="M805.1816929708865 547v8" stroke="#2563eb"/>
+<path d="M826.7867626450725 547v8" stroke="#2563eb"/>
+<circle cx="825.9291214920332" cy="551" r="4" fill="#2563eb"/>
+<text x="1002.0" y="555.0" font-size="12" text-anchor="start" fill="#172033">+27.55%</text>
+<text x="250.0" y="583.0" font-size="13" text-anchor="end" fill="#172033">udp-faketls IPv4</text>
+<path d="M398.0421196657993 578H455.4056105641629" stroke="#2563eb" stroke-width="2"/>
+<path d="M398.0421196657993 574v8" stroke="#2563eb"/>
+<path d="M455.4056105641629 574v8" stroke="#2563eb"/>
+<circle cx="427.32242168082166" cy="578" r="4" fill="#2563eb"/>
+<text x="1002.0" y="582.0" font-size="12" text-anchor="start" fill="#172033">-2.69%</text>
+<text x="250.0" y="610.0" font-size="13" text-anchor="end" fill="#172033">udp-faketls IPv6</text>
+<path d="M436.7744393001199 605H500.8412428931763" stroke="#2563eb" stroke-width="2"/>
+<path d="M436.7744393001199 601v8" stroke="#2563eb"/>
+<path d="M500.8412428931763 601v8" stroke="#2563eb"/>
+<circle cx="478.3691299387629" cy="605" r="4" fill="#2563eb"/>
+<text x="1002.0" y="609.0" font-size="12" text-anchor="start" fill="#172033">+1.19%</text>
+<text x="250.0" y="637.0" font-size="13" text-anchor="end" fill="#172033">udp-quic IPv4</text>
+<path d="M363.85007346883714 632H407.4240511862135" stroke="#2563eb" stroke-width="2"/>
+<path d="M363.85007346883714 628v8" stroke="#2563eb"/>
+<path d="M407.4240511862135 628v8" stroke="#2563eb"/>
+<circle cx="395.67017321852563" cy="632" r="4" fill="#2563eb"/>
+<text x="1002.0" y="636.0" font-size="12" text-anchor="start" fill="#172033">-5.09%</text>
+<text x="250.0" y="664.0" font-size="13" text-anchor="end" fill="#172033">udp-quic IPv6</text>
+<path d="M369.57381747600596 659H440.34513732845437" stroke="#2563eb" stroke-width="2"/>
+<path d="M369.57381747600596 655v8" stroke="#2563eb"/>
+<path d="M440.34513732845437 655v8" stroke="#2563eb"/>
+<circle cx="426.8991670324397" cy="659" r="4" fill="#2563eb"/>
+<text x="1002.0" y="663.0" font-size="12" text-anchor="start" fill="#172033">-2.72%</text>
+<text x="250.0" y="691.0" font-size="13" text-anchor="end" fill="#172033">udp-obfs IPv4</text>
+<path d="M324.4619394657915 686H550.4462027904237" stroke="#2563eb" stroke-width="2"/>
+<path d="M324.4619394657915 682v8" stroke="#2563eb"/>
+<path d="M550.4462027904237 682v8" stroke="#2563eb"/>
+<circle cx="468.5254675507748" cy="686" r="4" fill="#2563eb"/>
+<text x="1002.0" y="690.0" font-size="12" text-anchor="start" fill="#172033">+0.44%</text>
+<text x="250.0" y="718.0" font-size="13" text-anchor="end" fill="#172033">udp-obfs IPv6</text>
+<path d="M378.05553981202195 713H485.08053939079764" stroke="#2563eb" stroke-width="2"/>
+<path d="M378.05553981202195 709v8" stroke="#2563eb"/>
+<path d="M485.08053939079764 709v8" stroke="#2563eb"/>
+<circle cx="473.4311496122672" cy="713" r="4" fill="#2563eb"/>
+<text x="1002.0" y="717.0" font-size="12" text-anchor="start" fill="#172033">+0.81%</text>
+<text x="32.0" y="824.0" font-size="13" text-anchor="start" fill="#172033">15 s with -O 3. Around 8-9% loss is specific to FakeTLS upload, not a universal Recordizer penalty.</text>
+</g></svg>

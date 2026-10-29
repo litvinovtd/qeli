@@ -1898,19 +1898,25 @@ impl<W: CarrierWriteControl> CarrierWriteControl for crate::protocol::stream_io:
 pub trait SplitStream {
     type R: AsyncRead + Unpin + Send + 'static;
     type W: CarrierWriteControl + Unpin + Send + 'static;
+    /// Apply the authenticated session batching policy before splitting the carrier.
+    /// Non-batching carriers have nothing to configure.
+    fn set_opportunistic_batching(&mut self, _enabled: bool) {}
     fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
         None
     }
     fn split_io(self) -> (Self::R, Self::W);
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> SplitStream
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + SplitStream + 'static> SplitStream
     for crate::protocol::stream_io::StallGuard<S>
 {
     type R = tokio::io::ReadHalf<Self>;
     type W = crate::protocol::stream_io::StallGuard<tokio::io::WriteHalf<Self>>;
     fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
         Some(self.progress())
+    }
+    fn set_opportunistic_batching(&mut self, enabled: bool) {
+        self.inner_mut().set_opportunistic_batching(enabled);
     }
     fn split_io(self) -> (Self::R, Self::W) {
         let progress = self.progress();

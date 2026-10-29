@@ -9,6 +9,15 @@
 содержат инженерные результаты одной сборки, CPU, потери и границы интерпретации;
 это не публичный бенчмарк релиза. [Другие технологии и измерения](../reference/TECHNOLOGIES.md).
 
+[A/B задержек 26–29 октября с графиками](../reports/benchmarks/recordizer_latency_2026-10-29.md)
+разделяет off/required и timed/opportunistic: почти убрана задержка накопления ценой
+около 8–9% TCP upload у FakeTLS, но не у всех профилей. Это не проверка финального dist.
+
+[Пилот временного рисунка 29 октября](../reports/benchmarks/recordizer_masking_pilot_2026-10-29.md)
+измерил уменьшение размытия ритма, но не установил процент ухудшения обнаружимости
+VPN: контроль синтетический, не браузерный; по размерам/таймингам оба режима
+отделялись от него. Не переносите проценты скорости на «проценты маскировки».
+
 ## 1. Что меняет recordizer
 
 В legacy data-plane один внутренний IPv4/IPv6-пакет обычно превращался в одну зашифрованную
@@ -70,8 +79,9 @@ AUTH. Клиентских ключей `obf.recordizer.*` нет, qeli-ссыл
 | Ключ | Дефолт | Назначение и ограничения |
 |---|---:|---|
 | `obf.recordizer.policy` | `off` в разреженном schema-baseline; `prefer` в поставляемых и новых профилях | `off`, `prefer` или `required`; политика согласования описана выше |
-| `obf.recordizer.batch.delay_min_ms` | `2` | нижняя граница случайного flush deadline, запускаемого первым пакетом очереди |
-| `obf.recordizer.batch.delay_max_ms` | `8` | верхняя граница deadline; не меньше `delay_min_ms`; `0/0` отправляет сразу |
+| `obf.recordizer.batch.mode` | `timed` | `timed` сохраняет случайное ожидание; `opportunistic` объединяет только уже готовые пакеты и сразу отправляет остаток ограниченного batch |
+| `obf.recordizer.batch.delay_min_ms` | `2` | нижняя граница случайного flush deadline в режиме `timed` |
+| `obf.recordizer.batch.delay_max_ms` | `8` | верхняя граница deadline `timed`; не меньше `delay_min_ms`; `0/0` отправляет каждый push сразу, в отличие от opportunistic batch |
 | `obf.recordizer.batch.max_packets` | `16` | максимум mux-фреймов в одной записи; строго больше нуля |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | жёсткий предел памяти очереди/записи на направление, `64..=4194304` байт |
 | `obf.recordizer.record.max_payload_bytes` | `0` | `0` выбирает максимальный безопасный plaintext по активному carrier/path; явное значение ограничивается этим budget и должно быть `64..=MAX_TUNNEL_MTU` |
@@ -88,20 +98,46 @@ AUTH. Клиентских ключей `obf.recordizer.*` нет, qeli-ссыл
 цели по истечении deadline. Padding и traffic normalization выполняются после recordizer и могут
 увеличить зашифрованную запись до безопасного carrier budget.
 
+`batch.mode` задаётся на сервере и передаётся после аутентификации вместе с Recordizer. В новом клиенте `opportunistic` также убирает дополнительное накопление H2 DATA в Reality-TLS; до аутентификации действует прежний `timed`. Старый клиент может игнорировать новое поле и сохранить старое поведение. QRM1, AEAD, пределы памяти, фрагментация и HTTP/2 flow control не отключаются. Значения `delay_min_ms`/`delay_max_ms` сохраняются для возврата в `timed`.
+
+Низколатентная стратегия меняет временной рисунок маскировки: она не обещает ту же DPI-устойчивость. Уже заданные bandwidth/stealth-паузы остаются в силе. Выигрыш задержки и цена по максимальной скорости должны проверяться отдельным A/B на конкретной сборке; экспериментальный кандидат не является опубликованным релизом.
+
+Для включения измените **существующий серверный профиль**:
+
+```ini
+obf.recordizer.policy = required
+obf.recordizer.batch.mode = opportunistic
+```
+
+Если policy уже согласована как `prefer`, менять её ради batching не обязательно.
+Это не полный профиль. Default `timed` сохранён. Новый режим требует поддержки
+на сервере **и** клиенте; capability `PACKET_MUX_V1` старого клиента сама по себе
+не гарантирует поддержку поля. Примените конфиг штатно и переподключитесь;
+проверьте активный mux и лог `Recordizer batching: opportunistic` на обеих сторонах.
+Для rollback верните `timed` и переподключитесь. В панели есть переключатель режима;
+delay-поля недоступны в opportunistic, но не обнуляются.
+
+`delay_min_ms <= delay_max_ms` требуется и в новом режиме; значения сохраняются
+для rollback. Все лимиты, `record.*`, `fragment.*`, MTU, TUN queue, padding и shaping
+сохраняются. В `off` режим batching неактивен и H2 самостоятельно не переключает.
+Отсутствие намеренного накопления не гарантирует нулевой RTT: backpressure, pacing
+и планирование остаются. [Полный алгоритм](../reference/RECORDIZER.md),
+[проверка применения](OPERATIONS.md#recordizer-batch-mode).
+
 ## 4. Совместимость с остальными параметрами маскировки
 
 | Функция | Совместима? | Взаимодействие |
 |---|---|---|
 | TCP `plain` | Да | Корреляция границ снижается, но внешний поток остаётся немаскированным high-entropy трафиком. Используйте только в доверенных сетях. |
 | TCP `fake-tls` | Да | Внутренняя связь скрыта; синтаксис fake-TLS и поведение при active probe остаются отдельными признаками. |
-| TCP `reality-tls` / Reality/H2 | Да | Recordizer работает внутри настоящего TLS/H2. Его batch delay и batching H2 carrier могут складываться на редком трафике. |
+| TCP `reality-tls` / Reality/H2 | Да | Recordizer работает внутри настоящего TLS/H2. В `timed` его batch delay и накопление H2 могут складываться; `opportunistic` убирает оба ожидания после AUTH при поддержке обоих ядер. |
 | TCP `obfs` с WebSocket или без него | Да | Recordizer находится внутри obfs/WS carrier; WS-сессия от этого не воспроизводит прикладную семантику браузера. |
 | UDP `fake-tls` / `obfs` | Да | Payload budget вычисляется из UDP carrier и PMTU. Большой batch усиливает потери: одна потерянная датаграмма может содержать несколько внутренних пакетов. |
 | `obf.quic.enabled` | Да, только UDP | Overhead QUIC shape учтён в автоматическом budget. Это по-прежнему форма QUIC, не настоящий QUIC/HTTP/3. |
 | `obf.awg.*` | Да | AWG junk работает до handshake, recordizer — только после аутентифицированного согласования. Для TCP obfs по-прежнему нужен одинаковый `jc`. |
 | `obf.padding.*` | Да | Padding генерируется после recordization. Он дополняет изменение границ, но расходует трафик. |
 | `obf.traffic_normalization.*` | Да | Округление размеров применяется к recordized plaintext. Размеры должны помещаться в реальный carrier/MTU budget. |
-| `obf.traffic_shaping.*` | Да | Idle cover независим. `stealth` pacing может снижать скорость; recordizer отдельно добавляет batch delay. |
+| `obf.traffic_shaping.*` | Да | Idle cover независим. `stealth` pacing может снижать скорость и добавлять задержку в обоих режимах; отдельный timer batch delay Recordizer есть только в `timed`. |
 | `obf.heartbeat.*` | Да | Heartbeat — control/cover, а не исходный пакет для batch. Shaping заменяет фиксированный heartbeat; Reality/H2 отключает qeli heartbeat. |
 | `obf.fragmentation.*` | Да, но это другой слой | Legacy-параметр дробит выбранные handshake/carrier writes. Он не собирает внутренние IP-пакеты и не заменяет `obf.recordizer.fragment.*`. |
 | согласованные UDP `DATA_FRAG` / PMTU | Да, автоматически | Внешний слой делит уже зашифрованную запись под путь. Recordizer fragment находится внутри шифрования и восстанавливает границу исходного пакета. |

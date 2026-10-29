@@ -3425,8 +3425,9 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
 | `obf.recordizer.policy` | `off` | `off` — legacy data-plane; `prefer` — включить с клиентом, поддерживающим `PACKET_MUX_V1`, иначе legacy; `required` — отклонить несовместимый клиент до выдачи адреса |
-| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | случайное максимальное окно ожидания первой записи перед отправкой batch |
-| `obf.recordizer.batch.max_packets` | `16` | максимум исходных IP-пакетов в очереди batch |
+| `obf.recordizer.batch.mode` | `timed` | `timed` — прежняя временная маскировка; `opportunistic` — объединение уже готовых пакетов без ожидания будущих |
+| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | случайное окно ожидания в `timed`; в `opportunistic` значения сохраняются, но не создают ожидания |
+| `obf.recordizer.batch.max_packets` | `16` | максимум mux-фреймов (в том числе фрагментов) в одной записи |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | жёсткий предел памяти очереди на направление (`64..=4194304`) |
 | `obf.recordizer.record.max_payload_bytes` | `0` | `0` = автоматически выбрать безопасный payload по carrier/path; иначе `64..=tun MTU ceiling` |
 | `obf.recordizer.record.small_min_ratio` / `small_max_ratio` | `0.25` / `0.875` | диапазон случайной неполной цели относительно безопасного максимума (`0 < min ≤ max ≤ 1`) |
@@ -3446,6 +3447,23 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 не блокируя независимое сохранение панели, и снова строго проверяются после переключения на
 `prefer` или `required`. Поэтому временное выключение и возврат настроенного режима не теряет
 параметры.
+
+Низкая латентность включается в существующем серверном профиле ключом
+`obf.recordizer.batch.mode = opportunistic` при активной policy `prefer/required`.
+Default — `timed`; отдельного клиентского ключа нет. Обновите оба ядра и переподключите
+сессии: старый `PACKET_MUX_V1` клиент может проигнорировать новый режим. В панели
+режим доступен в блоке PACKET_MUX recordizer. `opportunistic` отправляет уже готовую
+ограниченную пачку и её хвост без ожидания будущих пакетов; в Reality-TLS также
+убирает дополнительное накопление H2 DATA после AUTH, но не H2 flow control.
+
+`delay_min_ms`/`delay_max_ms` сохраняются и проверяются (`min <= max`), но не создают
+ожидания в opportunistic; `timed` с `0/0` — другой режим, отдельная отправка каждого
+push. Лимиты batch/record/reassembly, MTU, очередь TUN и остальные настройки остаются
+в силе. Stealth/bandwidth pacing и сетевые очереди могут отдельно добавлять задержку.
+В лабораторном A/B **почти убрана задержка накопления ценой около 8–9% TCP P4 upload
+скорости FakeTLS**, не всех профилей; неизменная DPI-устойчивость не доказана.
+[Алгоритм и rollback](../reference/RECORDIZER.md),
+[методика, SHA, графики и ограничения](../reports/benchmarks/recordizer_latency_2026-10-29.md).
 
 Recordizer убирает связь «один IP-пакет = одна qeli-запись» у всех режимов, но не превращает
 их в один и тот же carrier: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoint и внешние тайминги

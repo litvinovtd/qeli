@@ -91,6 +91,8 @@ Mechanism design, interactions and dated engineering verification.
 | --- | --- |
 | [Technologies and measurements](reference/TECHNOLOGIES.md) | Mechanism catalog and placement rules |
 | [Recordizer](reference/RECORDIZER.md) | PACKET_MUX_V1, data path, negotiation and limits |
+| [Recordizer: latency and low latency strategy, 26–29 October](reports/benchmarks/recordizer_latency_2026-10-29.md) | Off/required and timed/opportunistic A/B, RTT/jitter/throughput charts, around 8–9% FakeTLS upload trade-off |
+| [Recordizer: timing and distinguishability, 29 October](reports/benchmarks/recordizer_masking_pilot_2026-10-29.md) | Timed/opportunistic and H2-control pilot, correlation/ROC charts; not industrial DPI qualification |
 | [Required versus off on 12 profiles on 20 October 2026](reports/benchmarks/recordizer_required_off_2026-10-20.md) | Engineering n=1 comparison of one 0.8.2 build, not a public release benchmark |
 
 ## Archive (`archive/`)

@@ -11,6 +11,8 @@
 | --- | --- | --- |
 | Организация записей Recordizer | [Как работает PACKET_MUX_V1](RECORDIZER.md); [параметры и совместимость](../manuals/OBFUSCATION.md) | [Required и off на 12 профилях, 20 октября 2026](../reports/benchmarks/recordizer_required_off_2026-10-20.md) — инженерный одиночный прогон одной сборки |
 | Общий транспортный слой | [Rust transport core и платформенные адаптеры](TRANSPORT-CORE.md) | Контракты и границы проверки перечислены в описании ядра |
+| Низколатентный Recordizer и H2 | [Стратегии timed/opportunistic](RECORDIZER.md); [переключение](../manuals/OPERATIONS.md#recordizer-batch-mode) | [A/B 26–29 октября, RTT/jitter/скорость и графики](../reports/benchmarks/recordizer_latency_2026-10-29.md): почти убрано накопление, около 8–9% цены FakeTLS upload; не финальный dist |
+| Временной рисунок Recordizer | [Размытие ритма и распознавание VPN — разные цели](RECORDIZER.md) | [Пилот Reality-TLS 29 октября](../reports/benchmarks/recordizer_masking_pilot_2026-10-29.md): корреляция ритма, классификаторы, графики и ограниченный H2-контроль; не процент защиты от DPI |
 | Маскировка и Reality TLS/H2 | [Слои обфускации](../manuals/OBFUSCATION.md); [модель угроз](THREAT-MODEL.md) | [DPI-анализ](../reports/DPI-AUDIT.md); throughput сам по себе не доказывает устойчивость к DPI |
 | Linux TUN, очереди и диагностика | [Параметры TUN](../manuals/CONFIG.md); [диагностика](../manuals/TROUBLESHOOTING.md) | TUN drops в [текущем сравнении Recordizer](../reports/benchmarks/recordizer_required_off_2026-10-20.md); это не трассировка FULL_RING |
 | IPv6 и маршрутизация | [Dual-stack, маршруты и NDP](../manuals/IPV6.md) | Матрица IPv4/IPv6 присутствует в датированных отчётах |

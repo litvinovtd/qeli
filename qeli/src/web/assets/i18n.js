@@ -1427,6 +1427,11 @@
       'Transport-independent packet/record boundary masking. The server pushes these values after authentication.':
         'Независимая от транспорта маскировка границ пакетов и записей. Сервер передаёт эти значения после аутентификации.',
       'Batch delay min (ms)': 'Мин. задержка пакета (мс)',
+      'Batch mode': 'Режим объединения пакетов',
+      'Timed accumulation': 'Накопление с таймером',
+      'Low latency ready batches': 'Готовые пачки без ожидания',
+      'Low latency sends ready batches without waiting for new packets. Delay values are retained for Timed. Update both cores and reconnect; throughput and traffic timing may change.':
+        'Низколатентный режим отправляет готовые пачки без ожидания новых пакетов. Значения задержек сохраняются для режима с таймером. Обновите оба ядра и переподключитесь; скорость и временной рисунок трафика могут измениться.',
       'Batch delay max (ms)': 'Макс. задержка пакета (мс)',
       'Max packets per batch': 'Макс. пакетов в группе',
       'Queue ceiling (bytes)': 'Лимит очереди (байт)',

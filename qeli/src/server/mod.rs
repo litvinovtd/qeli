@@ -4257,7 +4257,15 @@ async fn usage_sweep(state: Arc<ServerState>, mut shutdown: tokio::sync::watch::
     // fresh notice while a long-lived session is not spammed every ten seconds.
     let mut management_notices: HashMap<u64, u8> = HashMap::new();
     while crate::profile_tasks::worker_tick(&mut tick, &mut shutdown).await {
-        state.usage.collect();
+        let usage_snapshot = match state.usage.collect_snapshot_async().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::error!("usage: cannot collect quota snapshot: {error}");
+                // Required-service termination makes the worker fail closed rather
+                // than silently skipping quota and authorization enforcement.
+                return;
+            }
+        };
         // Recheck immutable packet permissions and reduced device caps as well as
         // absence/disablement: admission may have finished after the reload scan.
         control::apply_user_policy_to_sessions(&state).await;
@@ -4302,8 +4310,10 @@ async fn usage_sweep(state: Arc<ServerState>, mut shutdown: tokio::sync::watch::
                             allowed.is_empty() || allowed.iter().any(|name| name == pname)
                         });
                     let gb = limit_gb.get(&s.username).copied().unwrap_or(0);
-                    let over = gb > 0
-                        && state.usage.used_down(&s.username) >= gb.saturating_mul(1_000_000_000);
+                    let used_down = usage_snapshot
+                        .get(&s.username)
+                        .map_or(0, |usage| usage.used_down);
+                    let over = gb > 0 && used_down >= gb.saturating_mul(1_000_000_000);
                     let expired = expire
                         .get(&s.username)
                         .copied()
@@ -4313,7 +4323,7 @@ async fn usage_sweep(state: Arc<ServerState>, mut shutdown: tokio::sync::watch::
                     #[cfg(feature = "experimental-roaming")]
                     if !over && gb > 0 {
                         let limit = gb.saturating_mul(1_000_000_000);
-                        let used = state.usage.used_down(&s.username);
+                        let used = used_down;
                         let percent = used.saturating_mul(100) / limit.max(1);
                         let (bit, threshold) = if percent >= 95 {
                             (2, 95)
@@ -4405,7 +4415,7 @@ async fn usage_sweep(state: Arc<ServerState>, mut shutdown: tokio::sync::watch::
             }
         }
 
-        if let Err(error) = state.usage.flush() {
+        if let Err(error) = state.usage.flush_async().await {
             log::error!("usage: periodic flush failed: {error}");
         }
 

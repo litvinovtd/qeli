@@ -934,3 +934,27 @@ Qeli requires no additional CAP_BPF or bpffs.
 DEB update qualification: package downgrade restored the configured DB and service after two faults in an isolated fixture. Remove/purge preserved operator data. This does not guarantee every profile is healthy: updater checks supervisor PID stability; verify a client connection and logs after updating. Details and limits: [Q33 DEB/update](../reports/audit-0.8.2/AUDIT-Q33-PACKAGE-MANAGER.md).
 
 Additional release package qualification confirms VPN traffic through systemd after install, upgrade and both rollbacks with a pinned server key. Each stage uses a new client connection; uninterrupted sessions during restart are not guaranteed. IPv4/IPv6, TCP/UDP, DNS and MTU matrix also passed. [Scope and evidence](../reports/audit-0.8.2/AUDIT-Q33-PACKAGE-MANAGER.md).
+
+<a id="recordizer-batch-mode"></a>
+## Switching low latency Recordizer
+
+1. Save configuration and server/client binary SHA values. Update **both cores**
+   to builds supporting `batch.mode`; `PACKET_MUX_V1` alone is not a version check.
+2. In the existing server profile retain negotiated `prefer/required` policy and
+   set `obf.recordizer.batch.mode = opportunistic`. In the panel: Config → profile →
+   Obfuscation → PACKET_MUX recordizer → Batch mode.
+3. Saving to disk alone does not update a running worker. Apply through the normal
+   lifecycle (`Apply & Restart` in the panel, interrupting sessions), then reconnect.
+4. Verify `PACKET_MUX_V1 active` and `Recordizer batching: opportunistic` at both
+   ends; for Reality-TLS verify low RTT rather than merely successful AUTH.
+5. Compare p50/p95/p99, jitter/loss idle and with identical background, TCP P1/P4,
+   retransmits/TUN drops. Do not simultaneously change queues, MTU, padding or shaping.
+6. Roll back with `timed`, apply and reconnect. Delay values remain valid and
+   preserved but do not wait in opportunistic. Do not replace them with `0/0`:
+   that is a different forwarding strategy.
+
+The new strategy almost removed lab accumulation delay **at around 8–9% FakeTLS TCP
+upload cost**, not for every profile. The default remains `timed`. Pacing/backpressure
+still apply and unchanged DPI resistance is not guaranteed. Final dist needs its own
+SHA-specific test. [Method, charts and results](../reports/benchmarks/recordizer_latency_2026-10-29.md),
+[mode contract](../reference/RECORDIZER.md).

@@ -497,6 +497,13 @@ identity keys), а для TCP-режимов — предупреждение п
   `handrolled`/`peek`, padding, heartbeat, fragmentation, автоматический Reality/H2 carrier (без пользовательского переключателя), traffic-norm,
   anti-fingerprint, QUIC, **multipath**), производительность (лимиты,
   rate-limit/new-session, TCP/TUN-буферы).
+- **Recordizer batching:** профиль → Obfuscation → PACKET_MUX recordizer.
+  `timed` сохраняет накопление с таймером; `opportunistic` отправляет готовую пачку
+  без ожидания будущих пакетов. Delay-поля в новом режиме недоступны, но сохраняются
+  для возврата. `Save to Disk` не меняет worker; после применения нужны новые сессии
+  и обновлённые ядра с обеих сторон. Почти убранное ожидание стоило около 8–9% TCP
+  upload у FakeTLS, не всех профилей. [Графики и ограничения](../reports/benchmarks/recordizer_latency_2026-10-29.md),
+  [порядок применения](OPERATIONS.md#recordizer-batch-mode).
 - **Global** — Authentication (вкл. `bind_static_to_session` H-1), Web UI (вкл. TLS,
   allowlist, public_host, admin-пароль), Logging, **Server identity keys** (показ
   pinned-ключа каждого профиля + кнопка **Rotate**).

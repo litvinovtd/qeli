@@ -14,6 +14,10 @@ use rand::RngExt;
 use std::future::poll_fn;
 use std::io;
 use std::pin::Pin;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{
@@ -84,12 +88,16 @@ impl Drop for Tasks {
 #[derive(Debug)]
 pub struct Carrier {
     application: DuplexStream,
+    opportunistic: Arc<AtomicBool>,
     _tasks: Tasks,
 }
 
 impl crate::protocol::obfs::SplitStream for Carrier {
     type R = ReadHalf<Self>;
     type W = WriteHalf<Self>;
+    fn set_opportunistic_batching(&mut self, enabled: bool) {
+        self.opportunistic.store(enabled, Ordering::Release);
+    }
     fn split_io(self) -> (Self::R, Self::W) {
         tokio::io::split(self)
     }
@@ -222,14 +230,14 @@ async fn send_with_flow_control_budget(
     Ok(())
 }
 
-/// Read the private byte stream, then jointly randomize the carrier's DATA size
-/// and timing.  The first byte is never held longer than 2..8 ms; under load the
-/// batch normally grows toward a browser-like 16 KiB DATA frame.  At low rates a
-/// shorter frame is emitted at the randomized deadline instead of manufacturing
-/// a fixed-rate beacon or excessive cover traffic.
+/// Read the private byte stream and form bounded DATA batches. Before authenticated
+/// mode selection, and in `timed`, a randomized 2..8 ms accumulation deadline is
+/// used (not an end-to-end latency bound). In `opportunistic`, poll only immediately
+/// available bytes and flush on Pending; H2 flow-control/backpressure still applies.
 async fn outbound(
     mut source: ReadHalf<DuplexStream>,
     mut stream: SendStream<Bytes>,
+    opportunistic: Arc<AtomicBool>,
 ) -> io::Result<()> {
     let mut scratch = vec![0u8; H2_FRAME_MAX];
     loop {
@@ -257,6 +265,31 @@ async fn outbound(
                 break;
             }
             let want = (target - batch.len()).min(scratch.len());
+            if opportunistic.load(Ordering::Acquire) {
+                // Poll available bytes once; Pending ends the batch rather than
+                // starting a new timer. EOF, capacity and driver ownership keep
+                // their existing semantics. The target bounds each drain.
+                let available = poll_fn(|cx| {
+                    let mut buf = ReadBuf::new(&mut scratch[..want]);
+                    match Pin::new(&mut source).poll_read(cx, &mut buf) {
+                        Poll::Ready(Ok(())) => Poll::Ready(Ok(Some(buf.filled().len()))),
+                        Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                        Poll::Pending => Poll::Ready(Ok(None)),
+                    }
+                })
+                .await?;
+                match available {
+                    Some(0) => {
+                        send_with_flow_control(&mut stream, Bytes::from(batch), false).await?;
+                        return send_with_flow_control(&mut stream, Bytes::new(), true).await;
+                    }
+                    Some(read) => {
+                        batch.extend_from_slice(&scratch[..read]);
+                        continue;
+                    }
+                    None => break,
+                }
+            }
             match tokio::time::timeout(remaining, source.read(&mut scratch[..want])).await {
                 Ok(Ok(0)) => {
                     send_with_flow_control(&mut stream, Bytes::from(batch), false).await?;
@@ -292,13 +325,15 @@ fn bridge(
     spawner: &TaskSpawner,
 ) -> io::Result<Carrier> {
     let (application, worker) = tokio::io::duplex(BRIDGE_CAPACITY);
+    let opportunistic = Arc::new(AtomicBool::new(false));
+    let outbound_mode = opportunistic.clone();
     let (source, sink) = tokio::io::split(worker);
     let driver = Tasks(tasks.0.clone());
     let worker = spawner.spawn(async move {
         let mut driver = driver;
         // A failure in either direction drops the other future and the driver.
         // A clean half-close may still receive a reply until the owner is dropped.
-        match tokio::try_join!(outbound(source, send), inbound(recv, sink)) {
+        match tokio::try_join!(outbound(source, send, outbound_mode), inbound(recv, sink)) {
             Err(error) => log::warn!("HTTP/2 carrier ended: {error}"),
             // Both halves ended cleanly. Leave the owner in charge so the driver can
             // flush the queued END_STREAM before the application drops the carrier.
@@ -308,6 +343,7 @@ fn bridge(
     tasks.0.push(worker);
     Ok(Carrier {
         application,
+        opportunistic,
         _tasks: tasks,
     })
 }
@@ -597,6 +633,34 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "server")]
+    #[tokio::test(start_paused = true)]
+    async fn opportunistic_echo_does_not_advance_the_clock() {
+        use crate::protocol::obfs::SplitStream;
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let server = tokio::spawn(async move {
+            let mut carrier = accept(server_io).await.unwrap();
+            assert!(!carrier.opportunistic.load(Ordering::Acquire));
+            carrier.set_opportunistic_batching(true);
+            let mut bytes = [0; 128];
+            carrier.read_exact(&mut bytes).await.unwrap();
+            carrier.write_all(&bytes).await.unwrap();
+            carrier.read_u8().await.unwrap(); // retain bridge until peer receipt
+        });
+        let carrier = connect(client_io, "example.com").await.unwrap();
+        assert!(!carrier.opportunistic.load(Ordering::Acquire));
+        let mut carrier = crate::protocol::stream_io::StallGuard::new(carrier);
+        carrier.set_opportunistic_batching(true);
+        let start = tokio::time::Instant::now();
+        carrier.write_all(&[42; 128]).await.unwrap();
+        let mut reply = [0; 128];
+        carrier.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply, [42; 128]);
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        carrier.write_u8(1).await.unwrap();
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn healthy_connection_pings_do_not_renew_a_stalled_stream_window() {

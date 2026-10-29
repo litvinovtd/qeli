@@ -3447,8 +3447,9 @@ boundaries, and can split one IP packet across several inner records.
 | Key | Default | Purpose |
 |---|---|---|
 | `obf.recordizer.policy` | `off` | `off` — legacy data plane; `prefer` — enable with a `PACKET_MUX_V1` client, otherwise legacy; `required` — reject an incompatible client before allocating an address |
-| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | randomized maximum wait for the first queued item before flushing a batch |
-| `obf.recordizer.batch.max_packets` | `16` | maximum source IP packets queued in one batch |
+| `obf.recordizer.batch.mode` | `timed` | `timed` retains temporal morphology; `opportunistic` batches ready input without waiting for future packets |
+| `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | randomized wait in `timed`; retained but not used for waiting in `opportunistic` |
+| `obf.recordizer.batch.max_packets` | `16` | maximum mux frames (including fragments) per record |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | hard per-direction queue-memory limit (`64..=4194304`) |
 | `obf.recordizer.record.max_payload_bytes` | `0` | `0` selects the safe carrier/path payload automatically; otherwise `64..=tun MTU ceiling` |
 | `obf.recordizer.record.small_min_ratio` / `small_max_ratio` | `0.25` / `0.875` | randomized partial target range relative to the safe maximum (`0 < min ≤ max ≤ 1`) |
@@ -3468,6 +3469,23 @@ change requires reconnecting sessions, not merely editing the file.
 When `policy = off`, the nested `batch`, `record` and `fragment` values are dormant: they are
 preserved without blocking an unrelated panel save and are validated again when policy changes to
 `prefer` or `required`. This makes disabling and later restoring a tuned profile lossless.
+
+Enable low latency in an existing server profile with
+`obf.recordizer.batch.mode = opportunistic`, with an active `prefer/required` policy.
+The default remains `timed`; there is no client key. Update both cores and reconnect:
+an older `PACKET_MUX_V1` client may ignore the new mode. The panel exposes it in
+PACKET_MUX recordizer. Opportunistic sends bounded ready batches and their tails
+without waiting for future packets. Reality-TLS also removes post-AUTH H2 DATA
+accumulation waits, not H2 flow control.
+
+Delay values are preserved and validated (`min <= max`) but do not wait in opportunistic.
+`timed` with `0/0` is different: each push flushes individually. Batch/record/reassembly
+limits, MTU, TUN queue and other settings remain active. Stealth/bandwidth pacing and
+network queues can independently add delays. Lab A/B **almost removed accumulation
+delay at around 8–9% FakeTLS TCP P4 upload throughput cost**, not for every profile;
+unchanged DPI resistance was not established.
+[Algorithm and rollback](../reference/RECORDIZER.md),
+[method, SHA values, charts and limitations](../reports/benchmarks/recordizer_latency_2026-10-29.md).
 
 The recordizer removes the “one IP packet = one qeli record” relation from every mode, but it does
 not make their carriers identical: TLS/REALITY/H2, WebSocket, QUIC-shape, endpoints and outer timing

@@ -497,6 +497,13 @@ leak verification are documented in the [IPv6 guide](IPV6.md).
   `handrolled`/`peek`, padding, heartbeat, fragmentation, the automatic Reality/H2 carrier (no user switch), traffic-norm,
   anti-fingerprint, QUIC, **multipath**), performance (limits, rate-limit/
   new-session, TCP/TUN buffers).
+- **Recordizer batching:** profile → Obfuscation → PACKET_MUX recordizer.
+  `timed` retains timed accumulation; `opportunistic` sends ready batches without
+  waiting for future packets. Delay inputs are disabled but preserved for rollback.
+  `Save to Disk` does not update the worker; applying requires new sessions and
+  updated cores at both ends. Almost removing accumulation delay cost around 8–9%
+  TCP upload for FakeTLS, not every profile. [Charts and limits](../reports/benchmarks/recordizer_latency_2026-10-29.md),
+  [application procedure](OPERATIONS.md#recordizer-batch-mode).
 - **Global** — Authentication (incl. `bind_static_to_session` H-1), Web UI (TLS,
   allowlist, public_host, admin password), Logging, **Server identity keys**
   (show each profile's pinned key + **Rotate**).
