@@ -97,6 +97,11 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+#if QELI_BUILD_TOOLS
+        // Memory regressions exercise real headless controls, never startup recovery.
+        if (args.Length > 0 && string.Equals(args[0], "ui-memory-selftest", StringComparison.OrdinalIgnoreCase))
+            return GuiMemorySelfTest.Run();
+#endif
         // Self-tests and asset renderers require no network or root. Dispatch them
         // before startup recovery so validation or rendering a build icon cannot
         // restore host DNS/firewall state or require daemon control directories.

@@ -51,10 +51,11 @@ public partial class MainWindow : Window
     // PER-PROFILE log buffers (keyed by VpnConfig.Id). The tunnel runs ONE profile at a
     // time, so a log line belongs to the running profile (_activeProfile) — or, when idle,
     // to the selected one. Selecting a profile shows that profile's buffer (separate logs).
-    // Each builder is capped to MaxLogChars (trimmed to whole lines off the front) — Avalonia's
-    // TextBox has no AppendText, so we render `LogBox.Text = buffer.ToString()` on change.
-    private readonly System.Collections.Generic.Dictionary<string, System.Text.StringBuilder> _logs = new();
-    private const int MaxLogChars = 256 * 1024;
+    // Producers append directly to a bounded store, not to an unbounded dispatcher
+    // queue. Only the visible log is materialized, at most four times per second.
+    private readonly DesktopLogBuffer _logs = new();
+    private readonly BufferedLogView _logView;
+    private const string ServiceLogKey = "service:";
 
     // Update check (opt-in; notification-only): once per app run, only while the tunnel is up.
     private bool _updateChecked;
@@ -77,6 +78,21 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _logView = new BufferedLogView(LogBox, _logs, () => VisibleLogKey);
+        PropertyChanged += (_, change) =>
+        {
+            if (change.Property == IsVisibleProperty || change.Property == WindowStateProperty)
+                UpdatePresentationState();
+        };
+        Closed += (_, _) =>
+        {
+            _logView.Dispose();
+            _statsTimer?.Stop();
+            _spinTimer?.Stop();
+            _probeTimer?.Stop();
+            StopServicePolling();
+            _tunnel.LogLine -= OnLog;
+        };
         _tunnel.LogLevel = AppSettings.Current.LogLevel;
         ProfilesList.ItemsSource = _profiles;
 
@@ -171,6 +187,31 @@ public partial class MainWindow : Window
 
     private VpnConfig? Selected => ProfilesList.SelectedItem as VpnConfig;
 
+    private string VisibleLogKey => _serviceMode ? ServiceLogKey : LogKey(Selected);
+    private bool CanRenderUi => IsVisible && WindowState != WindowState.Minimized && !_exiting;
+
+    private void SetActiveProfile(VpnConfig? profile)
+    {
+        _activeProfile = profile;
+        _logs.SetTarget(LogKey(profile ?? Selected));
+    }
+
+    private void UpdatePresentationState()
+    {
+        bool visible = CanRenderUi;
+        // The daemon continues writing its bounded log while the GUI is hidden.
+        // Read its latest tail once on return, instead of copying it every second.
+        if (visible && _serviceMode) TailServiceLog();
+        _logView.SetActive(visible);
+        if (visible && _status == VpnStatus.Connected)
+        {
+            if (_statsTimer?.IsEnabled != true) StartStatsTimer();
+        }
+        else _statsTimer?.Stop();
+        if (visible && _status == VpnStatus.Connecting) StartSpinner();
+        else _spinTimer?.Stop();
+    }
+
     private IBrush B(string key) => this.FindResource(key) as IBrush ?? Brushes.Gray;
 
     // ── spinner ──────────────────────────────────────────────────────────────────
@@ -181,11 +222,13 @@ public partial class MainWindow : Window
         _spinTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
         _spinTimer.Tick -= SpinTick;
         _spinTimer.Tick += SpinTick;
-        _spinTimer.Start();
+        if (CanRenderUi) _spinTimer.Start();
     }
 
-    private void SpinTick(object? sender, EventArgs e) =>
-        _spinRotate.Angle = (_spinRotate.Angle + 8) % 360;
+    private void SpinTick(object? sender, EventArgs e)
+    {
+        if (CanRenderUi && _status == VpnStatus.Connecting) _spinRotate.Angle = (_spinRotate.Angle + 8) % 360;
+    }
 
     private void StopSpinner()
     {
@@ -332,7 +375,7 @@ public partial class MainWindow : Window
             _toggleBusy = false;
             ConnectBtn.IsEnabled = _serviceMode || Selected != null;
         }
-        TailServiceLog();
+        if (CanRenderUi) TailServiceLog();
     }
 
     private void TailServiceLog()
@@ -501,6 +544,7 @@ public partial class MainWindow : Window
     {
         if (Interlocked.Exchange(ref _exitStarted, 1) != 0) return;
         _exiting = true;
+        UpdatePresentationState();
         try
         {
             await Task.Run(_tunnel.Stop);
@@ -509,6 +553,7 @@ public partial class MainWindow : Window
         {
             Interlocked.Exchange(ref _exitStarted, 0);
             _exiting = false;
+            UpdatePresentationState();
             (Application.Current as App)?.ResetTerminationSignal();
             await Dialogs.InfoAsync(this, error.Message, "Qeli");
             return;
@@ -532,9 +577,9 @@ public partial class MainWindow : Window
         // date + time + ms — readable at a glance and precise enough to read reconnect /
         // MTU-probe timing off the log (the ISO-8601 UTC stamp confused users whose wall
         // clock differs from Z). Read per line, so it applies without a restart.
-        // Attributed per-profile inside LogAppend.
-        Dispatcher.UIThread.Post(() =>
-            LogAppend($"{Qeli.Shared.LogTime.Prefix(AppSettings.Current.LogTimeFormat)}{line}\n"));
+        // Capture directly, including while hidden/busy: no per-line dispatcher
+        // jobs retaining strings/windows, and no selection lookup off the UI thread.
+        _logs.AppendCurrent($"{Qeli.Shared.LogTime.Prefix(AppSettings.Current.LogTimeFormat)}{line}\n");
 
     private void OnStatus(VpnStatus status, string? extra) =>
         Dispatcher.UIThread.Post(() =>
@@ -558,7 +603,7 @@ public partial class MainWindow : Window
                     // before publishing Disconnected, so IsRunning is false in the real case.
                     if (!_tunnel.IsRunning)
                     {
-                        _activeProfile = null;
+                        SetActiveProfile(null);
                         CheckReachabilityAll();
                     }
                     break;
@@ -573,7 +618,7 @@ public partial class MainWindow : Window
             // correctly reports true. Re-render after completion so the macOS button/profile
             // lock cannot remain stuck on Disconnect exactly like the Windows frontend.
             if (_status != VpnStatus.Error || _tunnel.IsRunning) return;
-            _activeProfile = null;
+            SetActiveProfile(null);
             RenderStatus(_status, _lastExtra);
             CheckReachabilityAll();
         });
@@ -634,7 +679,7 @@ public partial class MainWindow : Window
         // the click. Connecting counts too — the tunnel is already bound to a profile.
         ProfilesList.Classes.Set("locked", status is VpnStatus.Connected or VpnStatus.Connecting);
 
-        StopStatsTimer(); // live speed readout is only meaningful while connected
+        if (status != VpnStatus.Connected) StopStatsTimer();
 
         switch (status)
         {
@@ -652,7 +697,7 @@ public partial class MainWindow : Window
                 StatusText.Text = Loc.T("StatusConnected");
                 StatusText.Foreground = B("Fg");
                 ConnectBtn.Content = Loc.T("Disconnect");
-                StartStatsTimer();
+                if (CanRenderUi && _statsTimer?.IsEnabled != true) StartStatsTimer();
                 break;
 
             case VpnStatus.Error:
@@ -692,24 +737,11 @@ public partial class MainWindow : Window
     // ── per-profile log helpers ─────────────────────────────────────────────────────
     private static string LogKey(VpnConfig? p) => p?.Id ?? "";
 
-    private System.Text.StringBuilder LogBuf(string id)
-    {
-        if (!_logs.TryGetValue(id, out var sb)) { sb = new System.Text.StringBuilder(); _logs[id] = sb; }
-        return sb;
-    }
-
-    /// <summary>Show the selected profile's accumulated log in the box.</summary>
-    private void RenderLog(VpnConfig? p)
-    {
-        LogBox.Text = _logs.TryGetValue(LogKey(p), out var sb) ? sb.ToString() : "";
-        LogBox.CaretIndex = LogBox.Text.Length;
-    }
-
     /// <summary>Wipe one profile's log (a fresh connect starts a clean session log).</summary>
     private void ClearLog(VpnConfig? p)
     {
-        _logs.Remove(LogKey(p));
-        if (LogKey(Selected) == LogKey(p)) LogBox.Text = "";
+        _logs.Clear(_serviceMode ? ServiceLogKey : LogKey(p));
+        _logView.Flush();
     }
 
     /// <summary>Clear the currently-viewed profile's log (the Clear button).</summary>
@@ -717,27 +749,7 @@ public partial class MainWindow : Window
 
     private void LogAppend(string text)
     {
-        // Attribute to the RUNNING profile (its reconnect loop emits the lines); when nothing
-        // is running, to the selected one. Only rewrite the box if the user is viewing that
-        // profile — a background profile's lines accumulate in its buffer, shown on switch.
-        var id = LogKey(_activeProfile ?? Selected);
-        var buf = LogBuf(id);
-        buf.Append(text);
-        // Bound the buffer: if over the cap, drop from the front on a line boundary so we
-        // never leave a torn partial line at the top.
-        if (buf.Length > MaxLogChars)
-        {
-            int overflow = buf.Length - MaxLogChars;
-            int cut = overflow;
-            for (int i = overflow; i < buf.Length; i++)
-                if (buf[i] == '\n') { cut = i + 1; break; }
-            buf.Remove(0, cut);
-        }
-        if (LogKey(Selected) == id)
-        {
-            LogBox.Text = buf.ToString();
-            LogBox.CaretIndex = LogBox.Text.Length; // scroll to end
-        }
+        _logs.Append(_serviceMode ? ServiceLogKey : LogKey(_activeProfile ?? Selected), text);
     }
 
     // ── search filter ────────────────────────────────────────────────────────────
@@ -769,8 +781,10 @@ public partial class MainWindow : Window
     // Log toolbar actions (the log fills the right column and is always open).
     private void OnCopyLog(object? sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(LogBox.Text))
-            TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(LogBox.Text);
+        if (_serviceMode) TailServiceLog();
+        string text = _logs.Read(VisibleLogKey);
+        if (text.Length > 0)
+            TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(text);
     }
 
     private void OnClearLog(object? sender, RoutedEventArgs e) => LogClear();
@@ -844,7 +858,8 @@ public partial class MainWindow : Window
 
         // Show THIS profile's log (separate per-profile buffers). In service mode the box
         // holds the daemon's single log, so leave it be.
-        if (!_serviceMode) RenderLog(p);
+        _logs.SetTarget(LogKey(_activeProfile ?? p));
+        if (!_serviceMode) _logView.Flush();
         // Persist the pick so the next launch restores it (5.1). Skip the screenshot verb
         // and redundant writes when the Id is unchanged.
         if (!App.ShotMode && AppSettings.Current.LastProfile != p.Id)
@@ -940,14 +955,15 @@ public partial class MainWindow : Window
 
     private async Task<bool> StartTunnel(VpnConfig profile)
     {
+        _logs.SetTarget(LogKey(profile)); // Startup can emit logs before Start returns.
         bool started = await Task.Run(() => _tunnel.Start(profile));
         if (started)
         {
-            _activeProfile = profile;
+            SetActiveProfile(profile);
         }
         else if (!_tunnel.IsRunning)
         {
-            _activeProfile = null;
+            SetActiveProfile(null);
         }
         return started;
     }
@@ -968,7 +984,7 @@ public partial class MainWindow : Window
             try
             {
                 await Task.Run(_tunnel.Stop);
-                _activeProfile = null;
+                SetActiveProfile(null);
             }
             catch (Exception error)
             {
@@ -1035,7 +1051,7 @@ public partial class MainWindow : Window
             try
             {
                 await Task.Run(_tunnel.Stop);
-                _activeProfile = null;
+                SetActiveProfile(null);
             }
             catch (Exception error)
             {
@@ -1064,11 +1080,13 @@ public partial class MainWindow : Window
             return;
         }
         _profileRevision++;
+        _logs.Clear(LogKey(p)); // Deleted profiles must not retain their old buffers.
         Programmatic(() =>
         {
             _profiles.Remove(p);
             ApplyFilter();
         });
+        _logs.SetTarget(LogKey(_activeProfile ?? Selected));
         UpdateEmptyHint();
     }
 
@@ -1197,12 +1215,13 @@ public partial class MainWindow : Window
 
     private void StartStatsTimer()
     {
-        var (up, down, _) = StatsSource();
+        var (up, down, since) = StatsSource();
         _prevUp = up; _prevDown = down; _prevStatsTick = Environment.TickCount64;
         _statsTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _statsTimer.Tick -= StatsTick;
         _statsTimer.Tick += StatsTick;
         _statsTimer.Start();
+        RenderStats(up, down, since, 0, 0); // Fresh totals; wait for a real rate interval.
     }
 
     private void StopStatsTimer()
@@ -1221,6 +1240,7 @@ public partial class MainWindow : Window
 
     private void StatsTick(object? sender, EventArgs e)
     {
+        if (!CanRenderUi || _status != VpnStatus.Connected) return; // Reject stale queued ticks too.
         var (up, down, since) = StatsSource();
         long now = Environment.TickCount64;
         double secs = Math.Max(now - _prevStatsTick, 1) / 1000.0;
@@ -1228,6 +1248,11 @@ public partial class MainWindow : Window
         long downRate = (long)Math.Max((down - _prevDown) / secs, 0);
         _prevUp = up; _prevDown = down; _prevStatsTick = now;
 
+        RenderStats(up, down, since, upRate, downRate);
+    }
+
+    private void RenderStats(long up, long down, DateTime? since, long upRate, long downRate)
+    {
         DownVal.Text = FormatRate(downRate);
         UpVal.Text = FormatRate(upRate);
         SessionVal.Text = since is DateTime t ? FormatDuration(DateTime.Now - t) : "—";
@@ -1311,7 +1336,7 @@ public partial class MainWindow : Window
                 try
                 {
                     await Task.Run(_tunnel.Stop);
-                    _activeProfile = null;
+                    SetActiveProfile(null);
                 }
                 catch (Exception error)
                 {

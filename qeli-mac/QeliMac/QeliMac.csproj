@@ -32,7 +32,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(QeliBuildTools)' != 'true'">
-    <Compile Remove="UiShot.cs" />
+    <Compile Remove="UiShot.cs;GuiMemorySelfTest.cs" />
   </ItemGroup>
 
   <ItemGroup>

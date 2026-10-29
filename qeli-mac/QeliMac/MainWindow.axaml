@@ -264,7 +264,7 @@
                     </Grid>
                     <Border BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,1,0,0" Margin="1,0,1,1">
                         <TextBox x:Name="LogBox" Background="Transparent" Foreground="{DynamicResource FgDim}"
-                                 BorderThickness="0" FontFamily="Menlo, Monaco, Consolas" FontSize="12" IsReadOnly="True"
+                                 BorderThickness="0" FontFamily="Menlo, Monaco, Consolas" FontSize="12" IsReadOnly="True" IsUndoEnabled="False"
                                  Padding="12,8" VerticalContentAlignment="Top"
                                  TextWrapping="Wrap" AcceptsReturn="True"/>
                     </Border>
