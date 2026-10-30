@@ -19,6 +19,8 @@ layout live in the root [README.md](../README.md).
 
 - `manuals/` — практические руководства по установке, настройке и эксплуатации;
   practical installation, configuration and operations guides.
+- `scenarios/` — сценарии использования: готовые схемы, конфиги, проверка и восстановление;
+  use cases: complete deployments, configs, verification and recovery.
 - `reference/` — технические контракты, модель угроз и архитектура;
   technical contracts, threat model and architecture.
 - `plans/` — актуальные roadmap и планы реализации; active roadmaps and implementation plans.
@@ -27,12 +29,20 @@ layout live in the root [README.md](../README.md).
 - `archive/plans/`, `archive/audits/` — завершённые планы и датированные отчёты, которые
   не переписываются задним числом; frozen completed plans and point-in-time audit reports.
 
-Новый двуязычный документ добавляется в одинаковый путь обеих локалей и в `index.md`.
+Новый двуязычный документ добавляется в одинаковый путь обеих локалей и в каталог
+раздела, доступный из `index.md`.
 Паритет деревьев, охват оглавлением и относительные ссылки проверяет
 [`scripts/check_docs.py`](../scripts/check_docs.py).
 
 Актуальная безопасность: [RU](ru/reports/AUDIT.md) · [EN](eng/reports/AUDIT.md).
 Настройка recordizer: [RU](ru/manuals/OBFUSCATION.md) · [EN](eng/manuals/OBFUSCATION.md).
+
+## Сценарии использования · Use cases
+
+Каталог практических схем: [RU](ru/scenarios/README.md) · [EN](eng/scenarios/README.md).
+Первый сценарий — клиент → A → B → Интернет:
+[RU](ru/scenarios/CHAINED-SERVERS.md) · [EN](eng/scenarios/CHAINED-SERVERS.md).
+Требования к версии, правам и результаты проверки указаны внутри инструкции.
 
 ## Технологии и измерения · Technologies and measurements
 

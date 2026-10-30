@@ -215,7 +215,7 @@ def catalog_linked_documents(index: Path, document_root: Path) -> set[str]:
 
 
 def check_index_coverage() -> None:
-    allowed_roots = {"manuals", "reference", "plans", "reports", "archive"}
+    allowed_roots = {"manuals", "scenarios", "reference", "plans", "reports", "archive"}
     for lang in LANGS:
         d = ROOT / "docs" / lang
         index = d / "index.md"
@@ -233,7 +233,7 @@ def check_index_coverage() -> None:
                 fail(
                     "index",
                     f"docs/{lang}/{rel_posix} is uncategorized; move it under "
-                    "manuals/, reference/, plans/, reports/ or archive/",
+                    "manuals/, scenarios/, reference/, plans/, reports/ or archive/",
                 )
             elif len(rel.parts) > 1 and rel.parts[0] not in allowed_roots:
                 fail("index", f"docs/{lang}/{rel_posix} uses an unknown document category")

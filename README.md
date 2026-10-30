@@ -12,6 +12,9 @@ panel.
 **Документация на русском → [docs/ru/index.md](docs/ru/index.md)** ·
 **Documentation in English → [docs/eng/index.md](docs/eng/index.md)**
 
+**Сценарии использования → [RU](docs/ru/scenarios/README.md)** ·
+**Use cases → [EN](docs/eng/scenarios/README.md)**
+
 ---
 
 ## What it is

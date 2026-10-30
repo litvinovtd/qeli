@@ -791,6 +791,14 @@ profile with `autostart = true` is connected when the supervisor starts. Autosta
 reads only a stable client INI up to 256 KiB; a file that changes during reading
 or exceeds the limit is skipped.
 
+This does not create a separate client systemd service: the manager inside the main
+Qeli starts `/etc/qeli/clients/<name>.conf`. `autostart=true` controls startup;
+`reconnect=true` controls retries in the running client. In **planned 0.8.4**, Linux
+`post_up` will repeat after successful TUN recreation to restore custom routes;
+0.8.3 does not do this. Hooks remain file-only: edit the file on the server, not through
+panel/API saves. Autostart is not a watchdog for an exited process; use Connect to
+start it again. [A → B recipe](../scenarios/CHAINED-SERVERS.md).
+
 **The status is honest, not "is the process alive".** The list refreshes every 5 s and reads
 the Rust client's structured status: **● Connected**, **◌ Connecting…**, **⚠ Error —
 retrying** (the process is alive but the tunnel is looping on reconnect — e.g.

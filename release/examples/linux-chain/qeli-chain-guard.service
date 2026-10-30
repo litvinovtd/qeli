@@ -1,0 +1,17 @@
+[Unit]
+Description=Qeli transit fail-closed guard and route watcher
+Wants=network-online.target
+After=network-online.target
+Before=qeli-chain-in.service qeli-chain-upstream.service
+
+[Service]
+Type=simple
+User=root
+ExecStartPre=/usr/bin/python3 /usr/local/libexec/qeli-chain-guard.py --state /var/lib/qeli-chain/guard --once
+ExecStart=/usr/bin/python3 /usr/local/libexec/qeli-chain-guard.py --state /var/lib/qeli-chain/guard
+Restart=on-failure
+RestartSec=5
+# No ExecStop cleanup: kernel protection must outlive the watcher.
+
+[Install]
+WantedBy=multi-user.target

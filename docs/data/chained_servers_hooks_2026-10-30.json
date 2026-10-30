@@ -1,0 +1,338 @@
+{
+  "schema": 1,
+  "status": "complete",
+  "raw_root": "/opt/qeli-chain-operational-20261030-r01",
+  "binary_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+  "version": "0.8.3",
+  "transport": "tcp-faketls",
+  "recordizer": "required",
+  "inner_ip": "IPv4",
+  "mtu": 1400,
+  "server_vcpus": 2,
+  "server_ram_gib": 2,
+  "runtime_checks": 79,
+  "runtime_failed_checks": 0,
+  "scenarios": [
+    {
+      "label": "initial",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "repeat-hooks-1",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "repeat-hooks-2",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "repeat-hooks-3",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-a-server-1",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-a-client-1",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-b-server-1",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-a-server-2",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-a-client-2",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "restart-b-server-2",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "client-process-crash",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "transport-restored",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "repair-deleted-working-route",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "repair-deleted-nat",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "a-boot-then-b-start",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "b-reboot",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    },
+    {
+      "label": "a-reboot-b-ready",
+      "checks": {
+        "one_rule": true,
+        "one_working_route": true,
+        "one_blocking_route": true,
+        "one_v4_rule": true,
+        "one_v6_rule": true,
+        "one_nat_rule": true,
+        "path_via_b": true
+      }
+    }
+  ],
+  "real_reboots": [
+    "a",
+    "b",
+    "a"
+  ],
+  "own_wan_probes": [
+    "initial",
+    "repeat-hooks-1",
+    "repeat-hooks-2",
+    "repeat-hooks-3",
+    "restart-a-server-1",
+    "restart-a-client-1",
+    "restart-b-server-1",
+    "restart-a-server-2",
+    "restart-a-client-2",
+    "restart-b-server-2",
+    "client-process-crash",
+    "transport-unavailable",
+    "transport-restored",
+    "repair-deleted-working-route",
+    "repair-deleted-nat",
+    "a-boot-b-unavailable",
+    "a-boot-then-b-start",
+    "b-reboot",
+    "a-reboot-b-ready"
+  ],
+  "restoration": {
+    "a": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true,
+      "full_qdisc": true
+    },
+    "b": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true,
+      "full_qdisc": true
+    },
+    "c": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true
+    },
+    "t": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true
+    }
+  },
+  "final_audit": "restored",
+  "cleanup_followup": {
+    "status": "complete",
+    "raw_root": "/opt/qeli-chain-hooks-cleanup-20261030-r03",
+    "checkpoint_states": 8,
+    "runtime_checks": 68,
+    "runtime_failed_checks": 0,
+    "post_up_unchanged": true,
+    "native_post_down": ["a_server", "upstream_client", "b_server"],
+    "additional_cleanup_repetitions_per_role": 3,
+    "client_preserves_server_policy": true,
+    "server_preserves_client_working_route": true,
+    "forward_policy": "DROP in isolated A/B namespaces",
+    "own_wan_during_stops": true,
+    "reboots_in_followup": 0,
+    "restored_vms": [300, 301, 304, 305],
+    "full_qdisc_restored": true,
+    "binary_sha256_unchanged": true,
+    "final_audit": "restored",
+    "retained_initial_attempts": {
+      "r01": "observer incorrectly required empty stderr from iptables -C on absent rule",
+      "r02": "test VLAN creation returned EEXIST before Qeli startup"
+    }
+  }
+}

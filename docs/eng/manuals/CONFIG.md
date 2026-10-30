@@ -1,5 +1,8 @@
 # qeli configuration
 
+Practical [C → A → B server chain](../scenarios/CHAINED-SERVERS.md): client_subnet on B,
+separate A roles, policy routing and permanent iptables bypass protection.
+
 > **Documentation status:** current development tree **0.8.4**; planned full-IPv6 release **0.8.4**;
 > package version covered by this guide **0.8.3**.
 > `qeli --version` reports the version of the binary actually installed.
@@ -2960,13 +2963,15 @@ notifications. It runs through `/bin/sh -c` with the same privileges as the qeli
 
 ### When client hooks run
 
-- `post_up` runs once after authentication and successful application of the first
-  `NetworkPlan`: TUN/TAP exists and addresses, routes, DNS and gateway/exit firewall state are
+- **In development 0.8.4**, `post_up` will run once per successfully applied TUN/TAP
+  generation, including full reconnect. TUN/TAP exists and addresses, routes, DNS and gateway/exit firewall state are
   already applied. Packet forwarding starts immediately after the hook returns. Authentication
   failures and rejected plans do not run it.
-- A normal reconnect creates a new network generation but does not run `post_up` again. Its
-  context snapshot is refreshed, so the eventual `post_down` receives the latest successfully
-  applied plan.
+- In the tested 0.8.3, `post_up` was one-shot per process and did not repeat on reconnect.
+  The 0.8.4 fix restores custom routes after TUN recreation; hooks must be idempotent.
+  Repeated processing of the same generation and carrier recovery preserving the TUN do
+  not rerun it. Failed apply/ACK does not authorize an invocation. The context snapshot
+  is refreshed and `post_down` receives the latest successfully applied plan.
 - `post_down` runs once on a handled terminal exit: SIGINT/SIGTERM, reconnect disabled, a terminal
   server kick, exhausted `reconnect_retries`, or core startup/teardown failure after kill-switch
   setup. A hook invocation does not mean that cleanup succeeded. Core teardown failure takes

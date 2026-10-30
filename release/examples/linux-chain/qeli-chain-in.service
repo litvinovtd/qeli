@@ -1,0 +1,18 @@
+[Unit]
+Description=Qeli incoming server A
+Wants=network-online.target qeli-chain-guard.service
+After=network-online.target qeli-chain-guard.service
+
+[Service]
+User=root
+Environment=STATE_DIRECTORY=/var/lib/qeli-chain/in
+Environment=QELI_CONTROL_SOCKET=/var/lib/qeli-chain/in/control.sock
+ExecStartPre=/usr/local/libexec/qeli-chain-ready
+ExecStart=/usr/local/bin/qeli server -c /etc/qeli-chain/in.ini
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

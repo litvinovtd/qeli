@@ -1,0 +1,368 @@
+{
+  "schema": 1,
+  "status": "complete",
+  "version": "0.8.4",
+  "binary_sha256": "dbcb5717ebb17338542f4b14ba69e0cf25fbd759020ab39859d38a43b5958abb",
+  "raw_root": "/opt/qeli-chain-panel-084-20261030-r01",
+  "build_root": "/opt/qeli-client-hook-reconnect-084-20261030-r01",
+  "source_head": "a56aa7a415f1414e544ac878bccec8d83c3e0681",
+  "native_source_digest": "26a4059be65d5f37d276174ebca84af630f876bbe700a338e0c6c2615a6ad7a3",
+  "formatted_client_sha256": "1b98ffb42802aef333516a88f9b118b9f8cc44b9e864059f0835e007969b7241",
+  "runtime_checks": 53,
+  "runtime_failures": 0,
+  "scenarios": [
+    {
+      "label": "initial-native-autostart",
+      "time": 1793369079.7520928,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true
+      },
+      "client": {
+        "pid": 5261,
+        "ppid": 5250
+      },
+      "post_up_calls": 1,
+      "ifindex": "3",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "repeated-panel-connect",
+      "time": 1793369081.0043101,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true
+      },
+      "client": {
+        "pid": 5261,
+        "ppid": 5250
+      },
+      "post_up_calls": 1,
+      "ifindex": "3",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "b-server-restart-1",
+      "time": 1793369102.3771274,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true,
+        "hook_repeated": true
+      },
+      "client": {
+        "pid": 5261,
+        "ppid": 5250
+      },
+      "post_up_calls": 2,
+      "ifindex": "4",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "b-server-restart-2",
+      "time": 1793369125.1426418,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true,
+        "hook_repeated": true
+      },
+      "client": {
+        "pid": 5261,
+        "ppid": 5250
+      },
+      "post_up_calls": 3,
+      "ifindex": "5",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "b-server-restart-3",
+      "time": 1793369153.3417866,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true,
+        "hook_repeated": true
+      },
+      "client": {
+        "pid": 5261,
+        "ppid": 5250
+      },
+      "post_up_calls": 4,
+      "ifindex": "6",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "panel-disconnect-connect",
+      "time": 1793369164.9292166,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true
+      },
+      "client": {
+        "pid": 5878,
+        "ppid": 5250
+      },
+      "post_up_calls": 5,
+      "ifindex": "7",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "b-real-reboot",
+      "time": 1793369193.3633454,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true,
+        "hook_repeated": true
+      },
+      "client": {
+        "pid": 5878,
+        "ppid": 5250
+      },
+      "post_up_calls": 6,
+      "ifindex": "9",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "a-real-reboot-b-ready",
+      "time": 1793369223.7211525,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true
+      },
+      "client": {
+        "pid": 834,
+        "ppid": 820
+      },
+      "post_up_calls": 7,
+      "ifindex": "3",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    },
+    {
+      "label": "a-boot-before-b",
+      "time": 1793369272.1088533,
+      "checks": {
+        "path_via_b": true,
+        "one_upstream_child": true,
+        "panel_autostart": true,
+        "panel_connected": true,
+        "one_rule": true,
+        "one_working_route": true,
+        "one_nat_rule": true,
+        "no_upstream_service": true,
+        "same_client_pid": true,
+        "hook_repeated": true
+      },
+      "client": {
+        "pid": 828,
+        "ppid": 814
+      },
+      "post_up_calls": 8,
+      "ifindex": "3",
+      "panel": {
+        "name": "upstream",
+        "autostart": true,
+        "connected": true,
+        "state": "up",
+        "dev": "qeli-out"
+      }
+    }
+  ],
+  "real_reboots": [
+    "b",
+    "a",
+    "a"
+  ],
+  "restoration": {
+    "a": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true,
+      "historical_083_sha256": true,
+      "full_qdisc": true
+    },
+    "b": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true,
+      "historical_083_sha256": true,
+      "full_qdisc": true
+    },
+    "c": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true,
+      "binary_sha256": true,
+      "historical_083_sha256": true
+    },
+    "t": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true,
+      "no_lease": true,
+      "no_owned_units": true
+    }
+  },
+  "host_profile_log_paths_restored": {
+    "a": true,
+    "b": true
+  },
+  "final_audit": "restored",
+  "tests": {
+    "lifecycle-tests": [
+      "test client::lifecycle_adapter_tests::post_up_ignores_failed_plan_copy_and_empty_command ... ok",
+      "test client::lifecycle_adapter_tests::post_up_repeats_after_committed_reconnect_without_duplicate_generation ... ok",
+      "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2615 filtered out; finished in 0.07s"
+    ],
+    "hook-tests": [
+      "test result: ok. 3 passed; 0 failed; 3 ignored; 0 measured; 2622 filtered out; finished in 0.01s"
+    ],
+    "manager-tests": [
+      "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2621 filtered out; finished in 0.42s"
+    ]
+  },
+  "format_only_build_files": [
+    "qeli/src/protocol/recordizer.rs",
+    "qeli/src/web/pages/config.rs"
+  ],
+  "experimental_not_release": true,
+  "published": false
+}

@@ -16,6 +16,7 @@
 | Маскировка и Reality TLS/H2 | [Слои обфускации](../manuals/OBFUSCATION.md); [модель угроз](THREAT-MODEL.md) | [DPI-анализ](../reports/DPI-AUDIT.md); throughput сам по себе не доказывает устойчивость к DPI |
 | Linux TUN, очереди и диагностика | [Параметры TUN](../manuals/CONFIG.md); [диагностика](../manuals/TROUBLESHOOTING.md) | TUN drops в [текущем сравнении Recordizer](../reports/benchmarks/recordizer_required_off_2026-10-20.md); это не трассировка FULL_RING |
 | IPv6 и маршрутизация | [Dual-stack, маршруты и NDP](../manuals/IPV6.md) | Матрица IPv4/IPv6 присутствует в датированных отчётах |
+| Цепочка серверов | [C → A → B, policy routing, client_subnet и iptables](../scenarios/CHAINED-SERVERS.md) | [Квалификация 0.8.3](../reports/CHAINED-SERVERS-2026-10-30.md); [INI-хуки 0.8.3](../reports/CHAINED-SERVERS-HOOKS-2026-10-30.md); [0.8.4: reconnect, автозапуск панели и reboot](../reports/CHAINED-SERVERS-084-2026-10-30.md) |
 | Веб-панель и управление сервером | [Панель](../manuals/PANEL.md); [эксплуатация](../manuals/OPERATIONS.md) | Статус проверок — в [каталоге аудита](../reports/audit-0.8.2/README.md) |
 
 ## Где хранить материалы

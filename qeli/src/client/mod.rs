@@ -527,8 +527,8 @@ pub(crate) struct PendingLifecycleHook;
 /// Stable, secret-free process-lifecycle snapshot supplied to Linux client hooks.
 ///
 /// The connection can rebuild its TUN several times while the outer client process remains
-/// alive. `post_up` consumes the first committed snapshot; this value is refreshed after every
-/// later committed NetworkPlan so the eventual `post_down` sees the latest generation.
+/// alive. `post_up` runs once per committed TUN generation, including full reconnects;
+/// the eventual terminal `post_down` sees the latest committed NetworkPlan.
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
 struct ClientHookContext {
@@ -637,6 +637,33 @@ fn hook_roaming_mode(plan: Option<&NetworkPlan>) -> String {
 
 #[cfg(target_os = "linux")]
 impl ClientHookContext {
+    /// Claim at most one invocation per successfully committed tunnel generation. Preparing
+    /// a plan updates a private context copy; a failed apply/ACK never publishes it here.
+    /// Do not consume the configured command: full reconnect must restore custom routes.
+    fn take_post_up(
+        &self,
+        command: &str,
+        last_generation: &mut Option<u64>,
+        duration: u64,
+    ) -> Option<PendingLifecycleHook> {
+        if command.trim().is_empty() {
+            return None;
+        }
+        let generation = self.plan.as_ref()?.generation;
+        if *last_generation == Some(generation) {
+            return None;
+        }
+        *last_generation = Some(generation);
+        Some(self.invocation(
+            command.to_string(),
+            "post_up",
+            "connected",
+            "",
+            "",
+            duration,
+        ))
+    }
+
     fn new(config: &crate::config::client::ClientConfig, config_path: &str) -> Self {
         let canonical_path = std::fs::canonicalize(config_path)
             .unwrap_or_else(|_| std::path::PathBuf::from(config_path));
@@ -1737,8 +1764,8 @@ pub(crate) trait ClientPlatform {
         }
         Ok(())
     }
-    /// Consume the client `post_up` hook after the first successfully applied NetworkPlan.
-    /// Non-Linux adapters and later reconnect generations have no pending hook.
+    /// Claim the client `post_up` hook once per successfully applied TUN generation.
+    /// Non-Linux adapters and repeated calls for the same generation have no pending hook.
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
         None
     }
@@ -1800,6 +1827,7 @@ struct LinuxCoreAdapter {
     diagnostic_writer: Option<status_writer::Writer<serde_json::Value>>,
     cleanup_failures: crate::client_cleanup::Failures,
     post_up: Option<String>,
+    post_up_generation: Option<u64>,
     hook_context: Option<ClientHookContext>,
     connected_since: Option<std::time::Instant>,
     attempt_connected_since: Option<std::time::Instant>,
@@ -2150,6 +2178,7 @@ impl LinuxCoreAdapter {
                 diagnostic_writer,
                 cleanup_failures: crate::client_cleanup::Failures::default(),
                 post_up: None,
+                post_up_generation: None,
                 hook_context: None,
                 connected_since: None,
                 attempt_connected_since: None,
@@ -2447,14 +2476,14 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
-        let command = self.post_up.take()?;
+        let command = self.post_up.as_ref()?;
         let duration = self
             .connected_since
             .map(|started| started.elapsed().as_secs())
             .unwrap_or(0);
-        self.hook_context
-            .as_ref()
-            .map(|context| context.invocation(command, "post_up", "connected", "", "", duration))
+        self.hook_context.as_ref().and_then(|context| {
+            context.take_post_up(command, &mut self.post_up_generation, duration)
+        })
     }
 }
 
@@ -2998,8 +3027,8 @@ async fn run_client_inner(
 
     // Build a secret-free hook context before the first dial. It starts with configured
     // values, then each committed authenticated NetworkPlan refreshes the actual interface,
-    // address, gateway, DNS, route, data-plane and physical-carrier facts. `post_up` consumes
-    // the first committed snapshot; `post_down` receives the latest one.
+    // address, gateway, DNS, route, data-plane and physical-carrier facts. `post_up` claims
+    // each committed TUN generation once; `post_down` receives the latest snapshot.
     core_adapter.configure_hooks(post_up.clone());
 
     // Engage the kill-switch BEFORE the first connect, so even the first attempt
@@ -3025,8 +3054,8 @@ async fn run_client_inner(
     }
     // Gateway and exit-node firewalling are installed by `setup_tunnel` only after the
     // authenticated NetworkPlan identifies the active families. This keeps an IPv6-only
-    // router independent from IPv4 iptables/sysctls (and vice versa). `post_up` is consumed
-    // immediately afterwards by the data-plane setup, once on the first successful plan.
+    // router independent from IPv4 iptables/sysctls (and vice versa). `post_up` is claimed
+    // immediately afterwards by the data-plane setup, once per successful TUN generation.
 
     let mut retry_count = 0i64;
     let mut carrier_generation = 0usize;
@@ -13602,6 +13631,72 @@ mod lifecycle_adapter_tests {
         assert!(!hook
             .context_json
             .contains("1111111111111111111111111111111111111111111111111111111111111111"));
+    }
+
+    #[test]
+    fn post_up_repeats_after_committed_reconnect_without_duplicate_generation() {
+        let config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        let mut context = ClientHookContext::new(&config, "upstream.conf");
+        let mut last_generation = None;
+        // Config alone, failed auth and an unapplied plan do not authorize a hook.
+        assert!(context
+            .take_post_up("true", &mut last_generation, 0)
+            .is_none());
+        assert_eq!(last_generation, None);
+        for generation in [7, 8, 9] {
+            context.refresh(&plan(generation), "qeli-out");
+            let hook = context
+                .take_post_up("true", &mut last_generation, 12)
+                .unwrap();
+            let json: serde_json::Value = serde_json::from_str(&hook.context_json).unwrap();
+            assert_eq!(json["network_plan"]["generation"], generation);
+            assert_eq!(hook.positional_arguments, ["qeli-out", "10.20.0.1"]);
+            assert_eq!(last_generation, Some(generation));
+            // Repeated polls or a preserved-plan carrier recovery must not rerun commands.
+            assert!(context
+                .take_post_up("true", &mut last_generation, 13)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn post_up_ignores_failed_plan_copy_and_empty_command() {
+        let config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        let mut committed = ClientHookContext::new(&config, "upstream.conf");
+        committed.refresh(&plan(7), "qeli-out");
+        let mut last_generation = None;
+        assert!(committed
+            .take_post_up(" ", &mut last_generation, 0)
+            .is_none());
+        assert_eq!(last_generation, None);
+        assert!(committed
+            .take_post_up("true", &mut last_generation, 0)
+            .is_some());
+        let mut failed_apply = committed.clone();
+        failed_apply.refresh(&plan(8), "not-committed");
+        drop(failed_apply); // prepare_tunnel publishes only after apply + ACK success.
+        assert!(committed
+            .take_post_up("true", &mut last_generation, 0)
+            .is_none());
+        let mut next = plan(9);
+        next.tunnel_address = "10.20.0.9".into();
+        next.addresses[0].address = next.tunnel_address.clone();
+        committed.refresh(&next, "qeli-next");
+        let hook = committed
+            .take_post_up("true", &mut last_generation, 15)
+            .unwrap();
+        let env = hook
+            .environment
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(env["QELI_IFNAME"], "qeli-next");
+        assert_eq!(env["QELI_IPV4_ADDRESS"], "10.20.0.9");
     }
 
     #[test]

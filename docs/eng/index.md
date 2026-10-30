@@ -36,6 +36,15 @@ Practical installation, configuration and operations guides.
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Connection diagnostics and error reference |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
 
+## Use cases (`scenarios/`)
+
+Complete deployments with required inputs, configs, verification and recovery steps.
+
+| Document | What it covers |
+| --- | --- |
+| [Use-case catalog](scenarios/README.md) | Available scenarios, requirements and qualification reports |
+| [Client → A → B → Internet](scenarios/CHAINED-SERVERS.md) | Two servers, built-in A → B client, INI hooks, root/non-root and autostart |
+
 ## Reference (`reference/`)
 
 Technical contracts and architecture that describe the current implementation.
@@ -80,6 +89,9 @@ General analysis, the security model and published benchmarks. Detailed release-
 | [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
 | [DPI-AUDIT.md](reports/DPI-AUDIT.md) | DPI detectability analysis and mitigations |
 | [BENCHMARK.md](reports/BENCHMARK.md) | Load-testing method and per-mode measurements |
+| [C → A → B chain, 30 October 2026](reports/CHAINED-SERVERS-2026-10-30.md) | Independent C/T, faults, real A/B reboots and qualification limits |
+| [INI-hook chain, 30 October 2026](reports/CHAINED-SERVERS-HOOKS-2026-10-30.md) | 17 scenarios: repeat application without duplicates, restarts, transport loss and A/B reboots |
+| [0.8.4 chain: reconnect and panel autostart](reports/CHAINED-SERVERS-084-2026-10-30.md) | Repeated post_up, one client process, 9 scenarios and A/B reboots without a separate client service |
 | [Qeli 0.8.0: 34 VPN modes](reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md) | Full dated cross-protocol run, CPU/RSS, and interpretation limits |
 | [COMPARISON.md](reports/COMPARISON.md) | Comparison with WireGuard, OpenVPN and V2Ray |
 

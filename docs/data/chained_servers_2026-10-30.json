@@ -1,0 +1,1225 @@
+{
+  "status": "complete_after_explicit_qdisc_restoration",
+  "date": "2026-10-30",
+  "binary_version": "0.8.3",
+  "binary_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+  "platform": {
+    "a": {
+      "kernel": "6.12.111+deb13-amd64",
+      "iptables": "iptables v1.8.11 (nf_tables)",
+      "cpu_count": 2
+    },
+    "b": {
+      "kernel": "6.12.111+deb13-amd64",
+      "iptables": "iptables v1.8.11 (nf_tables)",
+      "cpu_count": 2
+    },
+    "c": {
+      "kernel": "6.12.113+deb13-cloud-amd64",
+      "iptables": "iptables v1.8.11 (nf_tables)",
+      "cpu_count": 1
+    },
+    "t": {
+      "kernel": "6.12.113+deb13-cloud-amd64",
+      "iptables": "iptables v1.8.11 (nf_tables)",
+      "cpu_count": 1
+    }
+  },
+  "outer_transport": "TCP FakeTLS on both hops",
+  "recordizer": "required, actual PACKET_MUX_V1",
+  "inner_family": "IPv4; external IPv6 blocked",
+  "mtu": 1400,
+  "functional_window_seconds": 5,
+  "functional_offered_mbps": 20,
+  "functional": [
+    {
+      "label": "r1-tcp-up",
+      "mbps": 20.03173132489266,
+      "loss": null,
+      "retransmits": 7
+    },
+    {
+      "label": "r1-tcp-down",
+      "mbps": 20.128500651765346,
+      "loss": null,
+      "retransmits": 4
+    },
+    {
+      "label": "r1-udp-up",
+      "mbps": 19.922233554309024,
+      "loss": 0,
+      "retransmits": null
+    },
+    {
+      "label": "r1-udp-down",
+      "mbps": 20.020036353383684,
+      "loss": 0,
+      "retransmits": null
+    },
+    {
+      "label": "r2-tcp-up",
+      "mbps": 20.0537836581159,
+      "loss": null,
+      "retransmits": 1
+    },
+    {
+      "label": "r2-tcp-down",
+      "mbps": 20.127599121580836,
+      "loss": null,
+      "retransmits": 5
+    },
+    {
+      "label": "r2-udp-up",
+      "mbps": 19.902383343677933,
+      "loss": 0,
+      "retransmits": null
+    },
+    {
+      "label": "r2-udp-down",
+      "mbps": 20.022882700366594,
+      "loss": 0,
+      "retransmits": null
+    },
+    {
+      "label": "r3-tcp-up",
+      "mbps": 20.033234258375682,
+      "loss": null,
+      "retransmits": 1
+    },
+    {
+      "label": "r3-tcp-down",
+      "mbps": 20.128500651765346,
+      "loss": null,
+      "retransmits": 0
+    },
+    {
+      "label": "r3-udp-up",
+      "mbps": 19.906551709520187,
+      "loss": 0,
+      "retransmits": null
+    },
+    {
+      "label": "r3-udp-down",
+      "mbps": 20.00779579575015,
+      "loss": 0,
+      "retransmits": null
+    }
+  ],
+  "fault_recovery": [
+    {
+      "cycle": 0,
+      "kind": "transport",
+      "seconds": 2.4564976692199707,
+      "old_ifindex": "2",
+      "new_ifindex": "2"
+    },
+    {
+      "cycle": 1,
+      "kind": "stop-upstream",
+      "seconds": 6.774183034896851,
+      "old_ifindex": "2",
+      "new_ifindex": "4"
+    },
+    {
+      "cycle": 2,
+      "kind": "delete-route",
+      "seconds": 1.5131304264068604,
+      "old_ifindex": "4",
+      "new_ifindex": "4"
+    },
+    {
+      "cycle": 3,
+      "kind": "sigkill",
+      "seconds": 6.90629506111145,
+      "old_ifindex": "4",
+      "new_ifindex": "5"
+    },
+    {
+      "cycle": 4,
+      "kind": "restart-b",
+      "seconds": 4.31312894821167,
+      "old_ifindex": "5",
+      "new_ifindex": "6"
+    },
+    {
+      "cycle": 5,
+      "kind": "transport",
+      "seconds": 1.4412286281585693,
+      "old_ifindex": "6",
+      "new_ifindex": "6"
+    },
+    {
+      "cycle": 6,
+      "kind": "stop-upstream",
+      "seconds": 3.2737019062042236,
+      "old_ifindex": "6",
+      "new_ifindex": "7"
+    },
+    {
+      "cycle": 7,
+      "kind": "delete-route",
+      "seconds": 1.501164197921753,
+      "old_ifindex": "7",
+      "new_ifindex": "7"
+    },
+    {
+      "cycle": 8,
+      "kind": "sigkill",
+      "seconds": 6.853238344192505,
+      "old_ifindex": "7",
+      "new_ifindex": "8"
+    },
+    {
+      "cycle": 9,
+      "kind": "restart-b",
+      "seconds": 4.32058310508728,
+      "old_ifindex": "8",
+      "new_ifindex": "9"
+    },
+    {
+      "cycle": 10,
+      "kind": "transport",
+      "seconds": 1.4500758647918701,
+      "old_ifindex": "9",
+      "new_ifindex": "9"
+    },
+    {
+      "cycle": 11,
+      "kind": "stop-upstream",
+      "seconds": 3.230560541152954,
+      "old_ifindex": "9",
+      "new_ifindex": "10"
+    },
+    {
+      "cycle": 12,
+      "kind": "delete-route",
+      "seconds": 1.518669843673706,
+      "old_ifindex": "10",
+      "new_ifindex": "10"
+    },
+    {
+      "cycle": 13,
+      "kind": "sigkill",
+      "seconds": 6.872391700744629,
+      "old_ifindex": "10",
+      "new_ifindex": "11"
+    },
+    {
+      "cycle": 14,
+      "kind": "restart-b",
+      "seconds": 4.346094608306885,
+      "old_ifindex": "11",
+      "new_ifindex": "12"
+    },
+    {
+      "cycle": 15,
+      "kind": "transport",
+      "seconds": 1.4299731254577637,
+      "old_ifindex": "12",
+      "new_ifindex": "12"
+    },
+    {
+      "cycle": 16,
+      "kind": "stop-upstream",
+      "seconds": 3.2246744632720947,
+      "old_ifindex": "12",
+      "new_ifindex": "13"
+    },
+    {
+      "cycle": 17,
+      "kind": "delete-route",
+      "seconds": 1.48665189743042,
+      "old_ifindex": "13",
+      "new_ifindex": "13"
+    },
+    {
+      "cycle": 18,
+      "kind": "sigkill",
+      "seconds": 5.560260534286499,
+      "old_ifindex": "13",
+      "new_ifindex": "14"
+    },
+    {
+      "cycle": 19,
+      "kind": "restart-b",
+      "seconds": 4.318134784698486,
+      "old_ifindex": "14",
+      "new_ifindex": "15"
+    }
+  ],
+  "checks": [
+    {
+      "name": "hostname a",
+      "pass": true
+    },
+    {
+      "name": "no qeli/iperf process a",
+      "pass": true
+    },
+    {
+      "name": "binary SHA a",
+      "pass": true
+    },
+    {
+      "name": "hostname b",
+      "pass": true
+    },
+    {
+      "name": "no qeli/iperf process b",
+      "pass": true
+    },
+    {
+      "name": "binary SHA b",
+      "pass": true
+    },
+    {
+      "name": "hostname c",
+      "pass": true
+    },
+    {
+      "name": "no qeli/iperf process c",
+      "pass": true
+    },
+    {
+      "name": "binary SHA c",
+      "pass": true
+    },
+    {
+      "name": "hostname t",
+      "pass": true
+    },
+    {
+      "name": "no qeli/iperf process t",
+      "pass": true
+    },
+    {
+      "name": "routed A direct path T",
+      "pass": true
+    },
+    {
+      "name": "routed C external IPv6 baseline",
+      "pass": true
+    },
+    {
+      "name": "controlled DNS baseline False",
+      "pass": true
+    },
+    {
+      "name": "controlled DNS baseline True",
+      "pass": true
+    },
+    {
+      "name": "external observer positive control",
+      "pass": true
+    },
+    {
+      "name": "external v6 observer positive control",
+      "pass": true
+    },
+    {
+      "name": "both mux hops ready",
+      "pass": true
+    },
+    {
+      "name": "transit table 208",
+      "pass": true
+    },
+    {
+      "name": "B delegated reverse route",
+      "pass": true
+    },
+    {
+      "name": "HTTP through B 1",
+      "pass": true
+    },
+    {
+      "name": "private no-NAT original source 1",
+      "pass": true
+    },
+    {
+      "name": "two users 1",
+      "pass": true
+    },
+    {
+      "name": "DNS False 1",
+      "pass": true
+    },
+    {
+      "name": "DNS True 1",
+      "pass": true
+    },
+    {
+      "name": "configured resolver 1",
+      "pass": true
+    },
+    {
+      "name": "file SHA 1",
+      "pass": true
+    },
+    {
+      "name": "traffic r1-tcp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r1-tcp-down",
+      "pass": true
+    },
+    {
+      "name": "traffic r1-udp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r1-udp-down",
+      "pass": true
+    },
+    {
+      "name": "HTTP through B 2",
+      "pass": true
+    },
+    {
+      "name": "private no-NAT original source 2",
+      "pass": true
+    },
+    {
+      "name": "two users 2",
+      "pass": true
+    },
+    {
+      "name": "DNS False 2",
+      "pass": true
+    },
+    {
+      "name": "DNS True 2",
+      "pass": true
+    },
+    {
+      "name": "configured resolver 2",
+      "pass": true
+    },
+    {
+      "name": "file SHA 2",
+      "pass": true
+    },
+    {
+      "name": "traffic r2-tcp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r2-tcp-down",
+      "pass": true
+    },
+    {
+      "name": "traffic r2-udp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r2-udp-down",
+      "pass": true
+    },
+    {
+      "name": "HTTP through B 3",
+      "pass": true
+    },
+    {
+      "name": "private no-NAT original source 3",
+      "pass": true
+    },
+    {
+      "name": "two users 3",
+      "pass": true
+    },
+    {
+      "name": "DNS False 3",
+      "pass": true
+    },
+    {
+      "name": "DNS True 3",
+      "pass": true
+    },
+    {
+      "name": "configured resolver 3",
+      "pass": true
+    },
+    {
+      "name": "file SHA 3",
+      "pass": true
+    },
+    {
+      "name": "traffic r3-tcp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r3-tcp-down",
+      "pass": true
+    },
+    {
+      "name": "traffic r3-udp-up",
+      "pass": true
+    },
+    {
+      "name": "traffic r3-udp-down",
+      "pass": true
+    },
+    {
+      "name": "IPv6 blocked after IPv4-only VPN",
+      "pass": true
+    },
+    {
+      "name": "original source tun-in",
+      "pass": true
+    },
+    {
+      "name": "original source tun-out",
+      "pass": true
+    },
+    {
+      "name": "original source tun-b",
+      "pass": true
+    },
+    {
+      "name": "T sees B NAT source",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 0",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 0",
+      "pass": true
+    },
+    {
+      "name": "observer live 0 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 0 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 1",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 1",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 1",
+      "pass": true
+    },
+    {
+      "name": "observer live 1 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 1 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 2",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 2",
+      "pass": true
+    },
+    {
+      "name": "observer live 2 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 2 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 3",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 3",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 3",
+      "pass": true
+    },
+    {
+      "name": "observer live 3 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 3 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 4",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 4",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 4",
+      "pass": true
+    },
+    {
+      "name": "observer live 4 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 4 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 5",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 5",
+      "pass": true
+    },
+    {
+      "name": "observer live 5 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 5 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 6",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 6",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 6",
+      "pass": true
+    },
+    {
+      "name": "observer live 6 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 6 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 7",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 7",
+      "pass": true
+    },
+    {
+      "name": "observer live 7 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 7 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 8",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 8",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 8",
+      "pass": true
+    },
+    {
+      "name": "observer live 8 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 8 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 9",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 9",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 9",
+      "pass": true
+    },
+    {
+      "name": "observer live 9 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 9 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 10",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 10",
+      "pass": true
+    },
+    {
+      "name": "observer live 10 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 10 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 11",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 11",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 11",
+      "pass": true
+    },
+    {
+      "name": "observer live 11 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 11 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 12",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 12",
+      "pass": true
+    },
+    {
+      "name": "observer live 12 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 12 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 13",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 13",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 13",
+      "pass": true
+    },
+    {
+      "name": "observer live 13 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 13 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 14",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 14",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 14",
+      "pass": true
+    },
+    {
+      "name": "observer live 14 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 14 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 15",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 15",
+      "pass": true
+    },
+    {
+      "name": "observer live 15 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 15 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 16",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 16",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 16",
+      "pass": true
+    },
+    {
+      "name": "observer live 16 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 16 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 17",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 17",
+      "pass": true
+    },
+    {
+      "name": "observer live 17 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 17 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 18",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 18",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 18",
+      "pass": true
+    },
+    {
+      "name": "observer live 18 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 18 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "first tunnel live 19",
+      "pass": true
+    },
+    {
+      "name": "T unavailable during failure 19",
+      "pass": true
+    },
+    {
+      "name": "new TUN generation 19",
+      "pass": true
+    },
+    {
+      "name": "observer live 19 qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer live 19 qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "stopped watcher leaves first tunnel alive",
+      "pass": true
+    },
+    {
+      "name": "stopped watcher is fail-closed",
+      "pass": true
+    },
+    {
+      "name": "iptables blocks main-table fallback without policy rule",
+      "pass": true
+    },
+    {
+      "name": "real reboot recovery a",
+      "pass": true,
+      "seconds": 23.78183150291443
+    },
+    {
+      "name": "observer survived reboot a qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer survived reboot a qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "real reboot recovery b",
+      "pass": true,
+      "seconds": 24.933656215667725
+    },
+    {
+      "name": "observer survived reboot b qualification-a-wan",
+      "pass": true
+    },
+    {
+      "name": "observer survived reboot b qualification-c-wan",
+      "pass": true
+    },
+    {
+      "name": "qcf-soak-tcp clean exit",
+      "pass": true
+    },
+    {
+      "name": "qcf-soak-tcp no iperf error",
+      "pass": true
+    },
+    {
+      "name": "qcf-soak-udp clean exit",
+      "pass": true
+    },
+    {
+      "name": "qcf-soak-udp no iperf error",
+      "pass": true
+    },
+    {
+      "name": "no bypass packets qualification-a-wan",
+      "pass": true,
+      "duration": 2013.9080607891083
+    },
+    {
+      "name": "no bypass packets qualification-c-wan",
+      "pass": true,
+      "duration": 2013.8400065898895
+    },
+    {
+      "name": "all successful monitored HTTP peers are B",
+      "pass": true,
+      "samples": 8509
+    },
+    {
+      "name": "mixed phase short connections have no failure",
+      "pass": true,
+      "samples": 8024
+    },
+    {
+      "name": "mixed phase DNS UDP/TCP has no failure",
+      "pass": true
+    }
+  ],
+  "captures": {
+    "control-a-direct": {
+      "started": 1793357823.28724,
+      "ended": 1793357823.8312652,
+      "counts": {
+        "10.230.2.2>198.18.0.10": 7,
+        "198.18.0.10>10.230.2.2": 5
+      },
+      "packets": 12,
+      "kernel_received": 12,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "wan-a"
+    },
+    "control-c-v6": {
+      "started": 1793357824.027176,
+      "ended": 1793357825.551278,
+      "counts": {
+        "fd42:230:1::2>fd42:230:4::10": 2,
+        "fd42:230:4::10>fd42:230:1::2": 2
+      },
+      "packets": 4,
+      "kernel_received": 4,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "wan-c"
+    },
+    "tun-in": {
+      "started": 1793357831.3151762,
+      "ended": 1793357900.1872926,
+      "counts": {
+        "198.18.0.10>10.80.1.10": 70560,
+        "10.80.1.10>198.18.0.10": 69050,
+        "10.80.1.10>198.19.0.10": 21,
+        "198.19.0.10>10.80.1.10": 15,
+        "10.80.1.11>198.18.0.10": 21,
+        "198.18.0.10>10.80.1.11": 15
+      },
+      "packets": 139682,
+      "kernel_received": 139686,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "qeli-in"
+    },
+    "tun-out": {
+      "started": 1793357831.7272582,
+      "ended": 1793357900.3191998,
+      "counts": {
+        "10.80.1.10>198.18.0.10": 69040,
+        "198.18.0.10>10.80.1.10": 70552,
+        "10.80.1.10>198.19.0.10": 21,
+        "198.19.0.10>10.80.1.10": 15,
+        "10.80.1.11>198.18.0.10": 21,
+        "198.18.0.10>10.80.1.11": 15
+      },
+      "packets": 139664,
+      "kernel_received": 139668,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "qeli-out"
+    },
+    "tun-b": {
+      "started": 1793357832.1836553,
+      "ended": 1793357900.5315497,
+      "counts": {
+        "10.80.1.10>198.18.0.10": 69032,
+        "198.18.0.10>10.80.1.10": 70546,
+        "10.80.1.10>198.19.0.10": 21,
+        "198.19.0.10>10.80.1.10": 15,
+        "10.80.1.11>198.18.0.10": 21,
+        "198.18.0.10>10.80.1.11": 15
+      },
+      "packets": 139650,
+      "kernel_received": 139653,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "qeli-b"
+    },
+    "t-wan": {
+      "started": 1793357832.6192658,
+      "ended": 1793357900.6271367,
+      "counts": {
+        "10.230.3.2>198.18.0.10": 57207,
+        "198.18.0.10>10.230.3.2": 41107,
+        "10.80.1.10>198.19.0.10": 21,
+        "198.19.0.10>10.80.1.10": 15
+      },
+      "packets": 98350,
+      "kernel_received": 98356,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "wan"
+    },
+    "qualification-a-wan": {
+      "started": 1793357830.4512255,
+      "ended": 1793359844.3592863,
+      "counts": {},
+      "packets": 0,
+      "kernel_received": 2373211,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "wan-a"
+    },
+    "qualification-c-wan": {
+      "started": 1793357830.8831692,
+      "ended": 1793359844.7231758,
+      "counts": {},
+      "packets": 0,
+      "kernel_received": 1175613,
+      "kernel_drops": 0,
+      "header_only": true,
+      "interface": "wan-c"
+    }
+  },
+  "soak": {
+    "tcp": {
+      "seconds": 1800.017347,
+      "received": {
+        "start": 0,
+        "end": 1800.017347,
+        "seconds": 1800.017347,
+        "bytes": 4500094976,
+        "bits_per_second": 20000229.36890063,
+        "sender": true
+      },
+      "sent": {
+        "start": 0,
+        "end": 1800.001299,
+        "seconds": 1800.001299,
+        "bytes": 4500094976,
+        "bits_per_second": 20000407.681928013,
+        "retransmits": 237,
+        "sender": true
+      },
+      "journal_success": true
+    },
+    "udp": {
+      "seconds": 1800.001031,
+      "received": {
+        "start": 0,
+        "end": 1800.001031,
+        "seconds": 1800.001031,
+        "bytes": 2249985600,
+        "bits_per_second": 9999930.27226216,
+        "jitter_ms": 1.4362158096958935,
+        "lost_packets": 0,
+        "packets": 1874988,
+        "lost_percent": 0,
+        "sender": false
+      },
+      "sent": {
+        "start": 0,
+        "end": 1800.009598,
+        "seconds": 1800.009598,
+        "bytes": 2250012000,
+        "bits_per_second": 10000000.01111105,
+        "jitter_ms": 0,
+        "lost_packets": 0,
+        "packets": 1875010,
+        "lost_percent": 0,
+        "sender": true
+      },
+      "journal_success": true
+    }
+  },
+  "monitor_summary": {
+    "samples": 8509,
+    "success": 8393,
+    "failures": 116
+  },
+  "mixed_http_samples": 8024,
+  "restoration_checks": {
+    "a": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true
+    },
+    "b": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true
+    },
+    "c": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true
+    },
+    "t": {
+      "addresses": true,
+      "routes": true,
+      "routes6": true,
+      "rules": true,
+      "iptables4": true,
+      "iptables6": true,
+      "namespaces": true,
+      "forwarding": true,
+      "forwarding6": true,
+      "sysctl": true,
+      "qeli_services": true
+    }
+  },
+  "original_controller_status_preserved": "failed",
+  "qdisc_restoration": {
+    "reason": "guest reboot resets a runtime-only eth1 qdisc",
+    "source_sha256": "793e96c913afbddf9541e69e86bbb5b2cca2e96779d0c61a5227a661f79de1e3",
+    "source_boot_matches": true,
+    "after": [
+      {
+        "kind": "fq",
+        "handle": "8001:",
+        "root": true,
+        "refcnt": 2,
+        "options": {
+          "limit": 10000,
+          "flow_limit": 100,
+          "buckets": 1024,
+          "orphan_mask": 1023,
+          "bands": 3,
+          "priomap ": [
+            1,
+            2,
+            2,
+            2,
+            1,
+            2,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "weights ": [
+            589824,
+            196608,
+            65536
+          ],
+          "quantum": 3028,
+          "initial_quantum": 15140,
+          "low_rate_threshold": 68750,
+          "refill_delay": 40000,
+          "timer_slack": 10000,
+          "horizon": 10000000,
+          "horizon_drop": null
+        }
+      }
+    ],
+    "status": "complete"
+  },
+  "manual_helper_checks": {
+    "guard_ready_nat": true,
+    "foreign_ownership_refused": true,
+    "unit_syntax_and_dependency_graph": true,
+    "no_test_namespace_or_service_installed": true
+  },
+  "manual_helper_sha256": {
+    "scripts/qeli_chain_guard.py": "ca847e69b08fec8c22a18b43e6a62cf22d037d60ab807b9b55dd7020ba251402",
+    "scripts/qeli_chain_ready.sh": "4c78d5e8b6b69389bcbd04115ca38f153c836d602b8cebe1c7f5dbfbaf5d7c14",
+    "scripts/qeli_chain_egress.sh": "6839aaf8abbd0851192257e6300c7ce0d55dadbe1407e4aa06d8690fa1233a2e"
+  },
+  "raw_directory_on_each_guest": "/opt/qeli-chain-e2e-20261030-r08",
+  "limits": [
+    "one outer transport, not all 12 profiles",
+    "paced delivery, not maximum throughput",
+    "controlled targets, not arbitrary Internet or DNS/IPC APIs",
+    "root namespace commands; no non-root apps or C reboot qualification"
+  ]
+}

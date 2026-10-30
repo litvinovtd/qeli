@@ -1,0 +1,16 @@
+[Unit]
+Description=Qeli delegated client prefix NAT on B
+Wants=network-online.target
+After=network-online.target
+Before=qeli-chain-b.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+EnvironmentFile=/etc/qeli-chain/egress.env
+ExecStart=/usr/local/libexec/qeli-chain-egress start
+ExecStop=/usr/local/libexec/qeli-chain-egress stop
+
+[Install]
+WantedBy=multi-user.target

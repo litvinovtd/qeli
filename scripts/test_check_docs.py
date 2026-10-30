@@ -71,6 +71,26 @@ class CatalogNavigationTests(unittest.TestCase):
         self.write('reports/audit-0.8.2/AUDIT-Q01.md', '# Q01\n')
         self.assertEqual([], self.coverage_failures())
 
+    def test_scenario_catalog_covers_guide_and_previous_manual_address(self):
+        self.write('index.md', '[Use cases](scenarios/README.md)\n')
+        self.write('scenarios/README.md', '[Chain](CHAINED-SERVERS.md)\n'
+                   '[Old address](../manuals/CHAINED-SERVERS.md)\n')
+        self.write('scenarios/CHAINED-SERVERS.md', '# Chain\n')
+        self.write('manuals/CHAINED-SERVERS.md',
+                   '[Moved](../scenarios/CHAINED-SERVERS.md)\n')
+        self.assertEqual([], self.coverage_failures())
+
+    def test_orphan_scenario_and_unknown_category_still_fail(self):
+        self.write('index.md', '[Use cases](scenarios/README.md)\n'
+                   '[Unknown](unknown/page.md)\n')
+        self.write('scenarios/README.md', '# Use cases\n')
+        self.write('scenarios/orphan.md', '# Not linked\n')
+        self.write('unknown/page.md', '# Unknown category\n')
+        failures = self.coverage_failures()
+        self.assertEqual(2, len(failures))
+        self.assertTrue(any('scenarios/orphan.md is not reachable' in f for f in failures))
+        self.assertTrue(any('unknown/page.md uses an unknown document category' in f for f in failures))
+
     def test_orphan_in_linked_catalog_is_still_rejected(self):
         self.write('index.md', '[Audit](reports/audit/README.md)\n')
         self.write('reports/audit/README.md', '# Audit\n')

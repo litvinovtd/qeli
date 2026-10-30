@@ -209,6 +209,7 @@ Qeli mechanisms and connects them to configuration and dated engineering reports
 
 Most used:
 
+- **[Use cases](scenarios/README.md)** — complete deployments; [client → A → B](scenarios/CHAINED-SERVERS.md), configs and autostart.
 - **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — install and first run, step by step.
 - **[CONFIG.md](manuals/CONFIG.md)** — configuration (flat-INI), every parameter.
 - **[IPV6.md](manuals/IPV6.md)** — complete dual-stack/IPv6-only, `off/manual/route/nat66`, NDP proxy setup and troubleshooting.

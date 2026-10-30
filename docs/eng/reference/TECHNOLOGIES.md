@@ -16,6 +16,7 @@ throughput is not a performance guarantee.
 | Camouflage and Reality TLS/H2 | [Obfuscation layers](../manuals/OBFUSCATION.md); [threat model](THREAT-MODEL.md) | [DPI analysis](../reports/DPI-AUDIT.md); throughput alone does not establish DPI resistance |
 | Linux TUN, queues and diagnostics | [TUN settings](../manuals/CONFIG.md); [troubleshooting](../manuals/TROUBLESHOOTING.md) | TUN drops in the [current Recordizer comparison](../reports/benchmarks/recordizer_required_off_2026-10-20.md); not FULL_RING tracing |
 | IPv6 and routing | [Dual stack, routes and NDP](../manuals/IPV6.md) | Dated reports include an IPv4/IPv6 matrix |
+| Chained servers | [C → A → B, policy routing, client_subnet and iptables](../scenarios/CHAINED-SERVERS.md) | [0.8.3 qualification](../reports/CHAINED-SERVERS-2026-10-30.md); [0.8.3 INI hooks](../reports/CHAINED-SERVERS-HOOKS-2026-10-30.md); [0.8.4: reconnect, panel autostart and reboot](../reports/CHAINED-SERVERS-084-2026-10-30.md) |
 | Web panel and server management | [Panel](../manuals/PANEL.md); [operations](../manuals/OPERATIONS.md) | Verification status is recorded in the [audit catalog](../reports/audit-0.8.2/README.md) |
 
 ## Where material belongs

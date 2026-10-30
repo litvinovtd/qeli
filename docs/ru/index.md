@@ -36,6 +36,15 @@
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Диагностика подключения и справочник ошибок |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Пошаговый деплой клиента на Keenetic |
 
+## Сценарии использования (`scenarios/`)
+
+Готовые схемы применения с вводными данными, конфигами, проверками и восстановлением.
+
+| Документ | О чём |
+| --- | --- |
+| [Каталог сценариев](scenarios/README.md) | Доступные сценарии, требования и ссылки на результаты испытаний |
+| [Клиент → A → B → Интернет](scenarios/CHAINED-SERVERS.md) | Два сервера, встроенный клиент A → B, INI-hooks, root/non-root и автозапуск |
+
 ## Справочники и архитектура (`reference/`)
 
 Технические контракты и описание текущей реализации.
@@ -80,6 +89,9 @@
 | [AUDIT.md](reports/AUDIT.md) | Актуальная модель безопасности и статус аудита |
 | [DPI-AUDIT.md](reports/DPI-AUDIT.md) | Анализ обнаружимости DPI и меры устранения |
 | [BENCHMARK.md](reports/BENCHMARK.md) | Методика нагрузочного тестирования и замеры по режимам |
+| [Цепочка C → A → B, 30 октября 2026](reports/CHAINED-SERVERS-2026-10-30.md) | Независимые C/T, отказы, реальные reboot A/B и границы квалификации |
+| [Цепочка через INI-хуки, 30 октября 2026](reports/CHAINED-SERVERS-HOOKS-2026-10-30.md) | 17 сценариев: повторное применение без дублей, рестарты, обрыв связи и reboot A/B |
+| [Цепочка 0.8.4: reconnect и автозапуск панели](reports/CHAINED-SERVERS-084-2026-10-30.md) | Повтор post_up, один клиентский процесс, 9 сценариев и reboot A/B без отдельной клиентской службы |
 | [Qeli 0.8.0: 34 VPN-режима](reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md) | Полный датированный сравнительный прогон, CPU/RSS и ограничения интерпретации |
 | [COMPARISON.md](reports/COMPARISON.md) | Сравнение с WireGuard, OpenVPN и V2Ray |
 

@@ -207,6 +207,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 Чаще всего нужны:
 
+- **[Сценарии использования](scenarios/README.md)** — готовые схемы; [клиент → A → B](scenarios/CHAINED-SERVERS.md), конфиги и автозапуск.
 - **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — установка и начало работы, пошагово.
 - **[CONFIG.md](manuals/CONFIG.md)** — конфигурация (flat-INI), все параметры.
 - **[IPV6.md](manuals/IPV6.md)** — полная настройка dual-stack/IPv6-only, `off/manual/route/nat66`, NDP proxy и диагностика.
