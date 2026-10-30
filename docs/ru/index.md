@@ -43,6 +43,17 @@
 | Документ | О чём |
 | --- | --- |
 | [Каталог сценариев](scenarios/README.md) | Доступные сценарии, требования и ссылки на результаты испытаний |
+| [VPS как full-tunnel VPN](scenarios/FULL-TUNNEL.md) | NAT, DNS, IPv6 и проверка блокировки без VPN |
+| [Только домашняя сеть](scenarios/HOME-LAN.md) | LAN без смены интернет-шлюза и обязательный обратный маршрут |
+| [Несколько профилей](scenarios/MULTI-PROFILE.md) | Разные listeners, TUN, пулы, ключи и разрешения |
+| [Основной и резервный канал](scenarios/PRIMARY-BACKUP.md) | Reality TLS и UDP QUIC с ручным переключением |
+| [Раздельная маршрутизация ресурсов](scenarios/SPLIT-ROUTING.md) | include/exclude, server push и desktop route_file |
+| [Мобильная и нестабильная сеть](scenarios/MOBILE-ROAMING.md) | Смена Wi-Fi/LTE, reconnect, roaming и MTU |
+| [Две локальные сети](scenarios/SITE-TO-SITE.md) | Linux-шлюзы, client_subnet и site-to-site без NAT |
+| [Домашний выходной узел](scenarios/EXIT-NODE.md) | Интернет других клиентов через WAN Linux-клиента |
+| [Выбранные приложения](scenarios/PER-APP.md) | apps_mode/apps, матрица платформ и проверка разделения |
+| [Внешний TUN или TAP](scenarios/EXTERNAL-TUN.md) | dev_attach и ответственность внешнего владельца |
+| [Личные, домашние и гостевые профили](scenarios/ACCESS-PROFILES.md) | Пользователи, группы, ACL, лимиты и отзыв доступа |
 | [Клиент → A → B → Интернет](scenarios/CHAINED-SERVERS.md) | Два сервера, встроенный клиент A → B, INI-hooks, root/non-root и автозапуск |
 
 ## Справочники и архитектура (`reference/`)

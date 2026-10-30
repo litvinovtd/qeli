@@ -43,6 +43,17 @@ Complete deployments with required inputs, configs, verification and recovery st
 | Document | What it covers |
 | --- | --- |
 | [Use-case catalog](scenarios/README.md) | Available scenarios, requirements and qualification reports |
+| [Full tunnel through a VPS](scenarios/FULL-TUNNEL.md) | NAT, DNS, IPv6 and blocking-without-VPN checks |
+| [Home LAN access only](scenarios/HOME-LAN.md) | LAN access without replacing the Internet gateway; return routing |
+| [Multiple profiles](scenarios/MULTI-PROFILE.md) | Distinct listeners, TUNs, pools, keys and permissions |
+| [Primary and backup transport](scenarios/PRIMARY-BACKUP.md) | Reality TLS and UDP QUIC with manual switching |
+| [Split routing by destination](scenarios/SPLIT-ROUTING.md) | include/exclude, server push and desktop route_file |
+| [Mobile and unstable networks](scenarios/MOBILE-ROAMING.md) | Wi-Fi/LTE changes, reconnect, roaming and MTU |
+| [Two local networks](scenarios/SITE-TO-SITE.md) | Linux gateways, client_subnet and site-to-site without NAT |
+| [Home exit node](scenarios/EXIT-NODE.md) | Other clients use a Linux client's WAN for Internet egress |
+| [Selected applications](scenarios/PER-APP.md) | apps_mode/apps, platform requirements and separation tests |
+| [External TUN or TAP](scenarios/EXTERNAL-TUN.md) | dev_attach and external interface ownership |
+| [Personal, home and guest access](scenarios/ACCESS-PROFILES.md) | Users, groups, ACLs, limits and revocation |
 | [Client → A → B → Internet](scenarios/CHAINED-SERVERS.md) | Two servers, built-in A → B client, INI hooks, root/non-root and autostart |
 
 ## Reference (`reference/`)
