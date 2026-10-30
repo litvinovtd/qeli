@@ -1,6 +1,6 @@
 [Unit]
 Description=Qeli VPN Server
-Documentation=https://qeli.dev
+Documentation=https://qeli.ru
 After=network.target network-online.target
 Wants=network-online.target
 
