@@ -8,6 +8,7 @@ verification and recovery after reboot.
 | Use case | Goal | Version and qualification |
 | --- | --- | --- |
 | [Full tunnel through a VPS](FULL-TUNNEL.md) | Device Internet egress through the VPS, NAT and tunnel DNS | 0.8.3 settings; verify IPv6 and blocking without VPN separately |
+| [IPv4 and IPv6 through one VPN](DUAL-STACK.md) | Full dual stack through a VPS, NAT44/NAT66 or a routed IPv6 prefix | Address plan, DNS, required/auto, both-family and failure checks |
 | [Home LAN access only](HOME-LAN.md) | Reach a NAS, cameras and LAN without replacing the Internet gateway | Routed access without NAT requires a return route |
 | [Multiple server profiles](MULTI-PROFILE.md) | Separate TCP/UDP listeners, ports, TUNs and pools | Complete profile template and independent identity keys |
 | [Primary and backup transport](PRIMARY-BACKUP.md) | Reality TLS and UDP QUIC on one server | Manual profile selection; roaming does not switch profiles |
@@ -55,6 +56,30 @@ Before editing, privately back up configs, `users.conf`, ownership/permissions,
 routes and service drop-ins. Keep an SSH or console path outside the VPN.
 Create credentials through `add-client` or the panel; do not expose real passwords
 in `--password`, shell history or public reports.
+
+### Tunnel DNS on Linux
+
+For `dns=tunnel`, the Linux client needs a working `systemd-resolved` used by the
+system resolver. Qeli checks actual `nameserver` entries in `/etc/resolv.conf`
+(`127.0.0.53`/`127.0.0.54`), not just the symlink name. Installing `resolvectl`
+alone is insufficient. Before connecting, check:
+
+```sh
+systemctl is-active systemd-resolved
+readlink -f /etc/resolv.conf
+resolvectl status
+```
+
+Also inspect `/etc/resolv.conf`: an additional third-party upstream alongside the
+stub does not meet this contract. The client process needs access to resolved and
+the intended network namespace. An incompatible configuration causes Qeli to refuse
+DNS application rather than silently overwrite somebody else's resolver.
+
+If NetworkManager/dnsmasq/firmware owns DNS, coordinate with that owner following
+[CONFIG](../manuals/CONFIG.md). `dns=off`/`system` leaves the system resolver outside
+Qeli's control and is not an automatically safe workaround: separately ensure DNS
+routing and prevent unwanted direct resolution. Do not blindly replace
+`/etc/resolv.conf` on a remote host.
 
 ## Common verification and rollback
 

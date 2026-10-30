@@ -44,6 +44,7 @@
 | --- | --- |
 | [Каталог сценариев](scenarios/README.md) | Доступные сценарии, требования и ссылки на результаты испытаний |
 | [VPS как full-tunnel VPN](scenarios/FULL-TUNNEL.md) | NAT, DNS, IPv6 и проверка блокировки без VPN |
+| [IPv4 и IPv6 через один VPN](scenarios/DUAL-STACK.md) | Адресный план dual-stack, NAT66/route, DNS и проверки обеих семей при обрывах |
 | [Только домашняя сеть](scenarios/HOME-LAN.md) | LAN без смены интернет-шлюза и обязательный обратный маршрут |
 | [Несколько профилей](scenarios/MULTI-PROFILE.md) | Разные listeners, TUN, пулы, ключи и разрешения |
 | [Основной и резервный канал](scenarios/PRIMARY-BACKUP.md) | Reality TLS и UDP QUIC с ручным переключением |

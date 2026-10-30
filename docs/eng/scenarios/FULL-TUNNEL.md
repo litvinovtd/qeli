@@ -60,13 +60,44 @@ On iOS, `kill_switch` does not implement system-wide blocking; on-demand alone
 does not prove leak protection. See the platform conditions in
 [CONFIG](../manuals/CONFIG.md).
 
-## IPv6
+On Linux, first perform the [tunnel DNS checks](README.md#tunnel-dns-on-linux):
+the system must use `systemd-resolved`. Do not blindly replace a resolver setup
+failure with `dns=off`; that changes the promised DNS policy.
+
+## IPv4, IPv6 and dual stack
+
+**Dual stack means IPv4 and IPv6 inside the same VPN simultaneously.** An application
+may reach a site over IPv4 or AAAA/IPv6, and both families need the intended VPN
+routes, permissions and working egress. This is neither two VPNs nor switching
+between primary and backup transports.
+
+The outer TCP/UDP connection to Qeli is independent of the inner traffic: a
+connection to a VPS IPv4 address can carry both IPv4 and IPv6. Conversely, connecting
+to an IPv6 server address does not itself assign IPv6 inside the tunnel.
+
+For dual stack, the server profile specifies `tun.ip_mode=dual`, its IPv4 address/pool
+and `tun.ipv6_address`/`pool.ipv6.cidr`. A client with `ipv6=auto` accepts the negotiated
+plan, but an incomplete IPv6 contract can downgrade to IPv4. When IPv6 is mandatory,
+test with `ipv6=required`: missing support should fail rather than count as successful
+dual stack. A TUN IPv6 address alone does not prove Internet connectivity.
 
 Choose an explicit policy. IPv6 Internet egress requires a usable server IPv6 WAN,
 a TUN IPv6 address, a distinct pool and `routing.ipv6.mode=route` or `nat66`
 following [IPV6](../manuals/IPV6.md). A ULA pool is not Internet-routable by itself.
+`route` requires a routed prefix and return routing; `nat66` masquerades IPv6
+through an IPv6 WAN. NAT66 does not translate IPv6 into IPv4 or replace NAT64.
+IPv4 NAT and IPv6 egress are configured separately, as are routes, ACLs and loss protection.
 If no IPv6 egress is provided, verify that the client captures or blocks IPv6
 rather than sending it directly. An IPv4-only check cannot establish full-tunnel protection.
+`ipv6=off` restricts Qeli negotiation, not IPv6 throughout the OS, and does not
+itself prove physical IPv6 is blocked.
+
+In a split/LAN scenario, dual stack means separate permitted IPv4 and IPv6 networks,
+not necessarily two Internet gateways. Check the destination service, route and DNS
+for each family; for full tunnel, also check external IP and behavior on VPN loss.
+
+For the address plan, server/client fragments and step-by-step checks, see
+[IPv4 and IPv6 through one VPN](DUAL-STACK.md).
 
 ## Startup and verification
 

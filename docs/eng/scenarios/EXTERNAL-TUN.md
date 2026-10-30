@@ -14,7 +14,7 @@ policy. Keenetic OpkgTun is a typical integration.
 | Link up, MTU, addresses and prefixes | External controller |
 | Routes, DNS, NAT and firewall | External controller |
 | AUTH, encryption and packet transport | Qeli |
-| Publish assigned IPv4 | Qeli through `QELI_TUNIP_FILE` |
+| Publish IPv4/IPv6 addresses, prefixes, MTU and generation | Qeli through `QELI_TUNIP_FILE` |
 
 The client and owner must use the same network namespace, compatible TUN/TAP
 type and suitable `/dev/net/tun` permissions. `IFF_NO_PI`, absence of
@@ -46,6 +46,9 @@ dev = ext0
 device_type = tun
 dev_attach = true
 gateway = false
+forward = false
+gateway_nat = false
+exit_node = false
 dns = off
 ```
 
@@ -67,22 +70,48 @@ different from the internal platform contract `QELI_PLATFORM_TUN_FD`.
 
 ## Address and routes after AUTH
 
-Start the interface owner before Qeli. After AUTH, the file contains only the
-assigned IPv4 address **without a prefix length**. The controller must establish
-freshness, validate the expected pool and use the negotiated/configured prefix.
-Do not apply an old session's file or assume every pool is `/24`.
+Start the interface owner before Qeli. In 0.8.3 and current dev, the file is published
+after successful application steps for the authenticated NetworkPlan. It contains
+**multiple lines**, not one IPv4 address. Example dual-stack plan:
 
-For example, only if the server actually assigned `10.9.0.2` from `/24`, the owner
+```text
+10.9.0.2
+ipv4=10.9.0.2/32
+ipv6=fd71:e1:8000:102::2/128
+mtu=1400
+generation=7
+```
+
+The first line is the primary address without a prefix for compatibility; it is
+IPv6 in an IPv6-only plan. `ipv4`/`ipv6` lines appear only for assigned families.
+Named fields contain TUN addresses **with their prefixes**, not allocation-pool
+sizes. In particular, `/32` and `/128` are valid on an L3 TUN: do not substitute
+`/24` or `/64`.
+
+The controller reads one file snapshot and parses data, never shell code
+(`source`/`eval` are forbidden). Validate addresses against expected pools, prefix
+lengths and MTU, required families and the current process lifecycle. `generation`
+distinguishes repeated AUTH within an adapter, including the same address, but can
+reset when the adapter is recreated. It is neither a global ID nor a heartbeat:
+the file's existence does not prove the old session is still alive.
+
+For automatic apply/reconnect, coordinate the owner with the writer as described
+in [Keenetic OpkgTun](../../../release/keenetic/opkgtun/README.md), including the
+publication lock for current dev. Reading the file alone cannot exclude a plan
+change during application. Never remove a lock with an unknown/live owner.
+
+For example, only if the fresh plan actually contains `ipv4=10.9.0.2/32`, the owner
 can manually assign:
 
 ```sh
-sudo ip address add 10.9.0.2/24 dev ext0
+sudo ip address add 10.9.0.2/32 dev ext0
 ```
 
 The owner then installs required routes/firewall policy, retaining a physical
 carrier route outside the tunnel. `gateway=false` alone creates no split routes
-in attach mode. The IPv4 file does not convey IPv6 configuration; that needs a
-separate coordinated mechanism in the owner.
+in attach mode. An `ipv6` field supplies an address/prefix, but the owner still
+applies it and the IPv6 policy. The file does not enumerate routes, DNS or firewall
+rules; addresses and MTU alone cannot reconstruct them.
 
 ## Verification and shutdown
 

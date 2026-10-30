@@ -44,6 +44,7 @@ Complete deployments with required inputs, configs, verification and recovery st
 | --- | --- |
 | [Use-case catalog](scenarios/README.md) | Available scenarios, requirements and qualification reports |
 | [Full tunnel through a VPS](scenarios/FULL-TUNNEL.md) | NAT, DNS, IPv6 and blocking-without-VPN checks |
+| [IPv4 and IPv6 through one VPN](scenarios/DUAL-STACK.md) | Dual-stack address plan, NAT66/route, DNS and both-family failure checks |
 | [Home LAN access only](scenarios/HOME-LAN.md) | LAN access without replacing the Internet gateway; return routing |
 | [Multiple profiles](scenarios/MULTI-PROFILE.md) | Distinct listeners, TUNs, pools, keys and permissions |
 | [Primary and backup transport](scenarios/PRIMARY-BACKUP.md) | Reality TLS and UDP QUIC with manual switching |

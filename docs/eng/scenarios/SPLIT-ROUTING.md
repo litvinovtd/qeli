@@ -63,9 +63,21 @@ exclude = 203.0.113.0/24, 198.51.100.7/32
 dns = tunnel
 ```
 
-These addresses intentionally bypass the VPN. `exclude` is neither a server ACL
-nor a guarantee of compatibility with every platform's kill-switch implementation.
-Test the combination on your OS without disabling protection for the entire profile.
+These addresses intentionally bypass the VPN. `exclude` selects a route; it is
+neither a server ACL nor a firewall permission.
+
+**Linux CLI:** with `gateway=true` and `kill_switch=true`, ordinary direct traffic
+to excluded destinations is blocked by the kill-switch. It allows the TUN, carrier
+and limited system exceptions, but does not generate permissions from `exclude`.
+If you reused [FULL-TUNNEL](FULL-TUNNEL.md) settings, its enabled protection remains:
+this fragment does not disable it. A failed direct connection in this combination
+does not mean the route was not installed.
+
+Do not automatically disable the kill-switch to make exclusions work. Allowing
+direct destinations while blocking other traffic on VPN loss requires a separate,
+verified firewall policy; this INI does not implement it. On Windows/macOS and
+Android, check the actual client and OS rules, including Always-on/lockdown:
+a direct route alone does not guarantee network access.
 
 ## Server routes and DNS
 
