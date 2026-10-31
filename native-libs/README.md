@@ -18,20 +18,27 @@
 
 ## Содержимое
 
-Релизная пересборка 1 ноября 2026 для 0.8.4: Windows x64, macOS universal2 и
+Повторная релизная пересборка 1 ноября 2026 для 0.8.4: Windows x64, macOS universal2 и
 Android arm64-v8a/x86_64 собраны штатными скриптами из чистого производственного
-source cut `ab9bb34f`, source digest
-`601030fadd2b5f96a2b963d63c818cf52820ae60f7a0481d43d73f13fe7d7742`.
+source cut `792f4f6c`, source digest
+`aae2ac0d9e50bae45d6550eee327cb74fcc18b43f053eb3d7e19461560c6588b`.
 Все четыре независимые A/B-пары совпали побайтово. Проверены полный C ABI 1.17,
 Android JNI, обе macOS-архитектуры, install name/UUID/ad-hoc CodeDirectory,
 canonical/consumed копии и 14 SHA-256. Обновлены [provenance](PROVENANCE) и
 [desktop](reproducibility/desktop.json)/[Android](reproducibility/android.json)
 evidence. Ядра включают текущие compact REALITY/INNER_PQ_V1 и настройки клиентов.
-Дополнительный интеграционный roundtrip-fixture хранится в `qeli/tests`, а не в
-производственном `qeli/src`; его добавление не меняет этот native source digest.
+После исправления client-only полей внутреннего PQ-обмена для server-only сборки
+выполнены новые A/B-проходы, а не перенос доказательств первого кандидата.
+Проверки server/client-only с `-D warnings`, форматирование, обе Clippy-конфигурации,
+полный Rust-набор и дополнительные FFI/config-editor тесты прошли.
 Это квалификация сборки и экспортов, не физические Windows/macOS/Android/iOS
 испытания и не заявление о публикации релиза. Runtime-приёмка итогового Linux ELF
 записывается отдельно в [сертификации 0.8.4](../release/certification/0.8.4.json).
+
+Первый кандидат 1 ноября из `ab9bb34f` с digest
+`601030fadd2b5f96a2b963d63c818cf52820ae60f7a0481d43d73f13fe7d7742`
+сохранён в [истории первого кандидата](https://github.com/litvinovtd/qeli/tree/62631f3c9ca5603f4b70bdafb33dc316f2eacadf/native-libs/reproducibility),
+но не является текущей квалификацией.
 
 Предыдущая пересборка 31 октября — 1 ноября 2026 для CI после изменений UDP-буферов и
 default Recordizer: Windows x64, macOS universal2 и обе Android ABI собраны
