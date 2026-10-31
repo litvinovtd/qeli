@@ -1,5 +1,9 @@
 import unittest
+from pathlib import Path
+import subprocess
+import sys
 
+import audit_outer_udp_capture as carrier
 import release_certification
 import run_ipv6_release_matrix as matrix
 
@@ -52,6 +56,35 @@ class Ipv6ReleaseMatrixContractTest(unittest.TestCase):
         self.assertIn(matrix.MTU_CASE_ID, release_certification.REQUIRED_CASES)
         self.assertNotIn(matrix.MTU_CASE_ID, matrix.case_ids())
         self.assertEqual(matrix.MTU_SCRIPT.name, "ipv6_mtu_pair.sh")
+
+    def test_exact_ipv4_mtu_payload_boundary_is_inclusive_but_never_oversize(self):
+        self.assertEqual(1252 + 20 + 8, 1280)
+        for budget, expected in ((548, False), (549, True), (1251, True),
+                                 (1252, True), (1253, False), (65535, False)):
+            with self.subTest(budget=budget):
+                self.assertEqual(carrier.budget_fits_ipv4_path(budget), expected)
+        self.assertFalse(carrier.budget_fits_ipv4_path(1252, 1279))
+        self.assertTrue(carrier.budget_fits_ipv4_path(1251, 1279))
+        for invalid in (None, "1252", 1252.0, True, -1, 0):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(carrier.budget_fits_ipv4_path(invalid))
+
+    def test_budget_cli_uses_the_guard_without_opening_a_capture_socket(self):
+        for budget, expected in ((548, 1), (1252, 0), (1253, 1)):
+            with self.subTest(budget=budget):
+                result = subprocess.run([sys.executable, str(Path(carrier.__file__)),
+                                         "--validate-budget", str(budget)],
+                                        capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_mtu_pair_mandates_real_wire_capture_for_both_modes(self):
+        source = matrix.MTU_SCRIPT.read_text(encoding="utf8")
+        for mode in ("pmtu", "mtu"):
+            self.assertIn('QELI_PACKET_AUDIT=1 bash "$CASE_SCRIPT" "$BIN" 4 6 udp quic full ' + mode, source)
+        case = matrix.CASE_SCRIPT.read_text(encoding="utf8")
+        for direction in ("UPLINK", "DOWNLINK"):
+            self.assertIn("audit_outer_udp_capture.py' --validate-budget '$" + direction + "_BUDGET'", case)
+        self.assertNotIn("-lt 1252", case)
 
     def test_bounded_soak_is_a_required_distinct_gate(self):
         self.assertEqual(matrix.SOAK_CASE_ID, "linux.roaming-flap-soak")

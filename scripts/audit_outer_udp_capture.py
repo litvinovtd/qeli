@@ -4,11 +4,30 @@ import argparse, ipaddress, json, socket, struct, time
 from pathlib import Path
 
 
+def budget_fits_ipv4_path(udp_payload_budget, ip_mtu=1280):
+    """A certified UDP *payload* may exactly fill the carrier's IPv4 MTU.
+
+    This fixture has ordinary 20-byte IPv4 and 8-byte UDP headers. The QUIC/obfs
+    wrapper is already included in qeli's reported UDP payload budget; it must
+    not be subtracted again. Keep the existing strictly-probed (>548) floor.
+    """
+    return (type(udp_payload_budget) is int and type(ip_mtu) is int
+            and 548 < udp_payload_budget and udp_payload_budget + 20 + 8 <= ip_mtu)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("interface")
-    p.add_argument("output", type=Path)
+    p.add_argument("--validate-budget", type=int,
+                   help="check a probed UDP payload against this fixture's 1280-byte IPv4 carrier")
+    p.add_argument("interface", nargs="?")
+    p.add_argument("output", type=Path, nargs="?")
     args = p.parse_args()
+    if args.validate_budget is not None:
+        if args.interface is not None or args.output is not None:
+            p.error("budget validation cannot be combined with packet capture")
+        return 0 if budget_fits_ipv4_path(args.validate_budget) else 1
+    if args.interface is None or args.output is None:
+        p.error("packet capture requires interface and output")
     peers = {ipaddress.IPv4Address(x).packed for x in ("10.46.1.2", "10.46.2.2")}
     counts = {"packets": 0, "fragmented": 0, "over_1280": 0, "uplink": 0, "downlink": 0, "max_ip_length": 0}
     ready, stop = Path(str(args.output)+".ready"), Path(str(args.output)+".stop")

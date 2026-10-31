@@ -622,9 +622,9 @@ if [ "$FLAVOR" = pmtu ]; then
   UPLINK_BUDGET=$(sed -n 's/.*uplink UDP payload budget \([0-9][0-9]*\).*/\1/p' "$WORK/client.log" | tail -n1)
   DOWNLINK_BUDGET=$(sed -n 's/.*reverse-probe certified UDP downlink budget \([0-9][0-9]*\).*/\1/p' "$WORK/server.log" | tail -n1)
   check "uplink budget fits the 1280-byte carrier" \
-    "test -n '$UPLINK_BUDGET' && test '$UPLINK_BUDGET' -gt 548 && test '$UPLINK_BUDGET' -lt 1252"
+    "python3 '$SCRIPT_DIR/audit_outer_udp_capture.py' --validate-budget '$UPLINK_BUDGET'"
   check "downlink budget fits the 1280-byte carrier" \
-    "test -n '$DOWNLINK_BUDGET' && test '$DOWNLINK_BUDGET' -gt 548 && test '$DOWNLINK_BUDGET' -lt 1252"
+    "python3 '$SCRIPT_DIR/audit_outer_udp_capture.py' --validate-budget '$DOWNLINK_BUDGET'"
   check "auto MTU keeps the negotiated 1400-byte inner TUN" \
     "test \"\$(ip netns exec $CLI_NS cat /sys/class/net/$TUN_IF/mtu)\" = 1400"
   check "a 1400-byte inner IPv6 packet crosses the certified path via DATA_FRAG" \

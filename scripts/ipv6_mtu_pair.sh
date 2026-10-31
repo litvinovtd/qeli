@@ -15,9 +15,11 @@ fi
 BIN=$(readlink -f "$BIN")
 
 echo "=== auto PMTU and DATA_FRAG on outer MTU 1280 ==="
-bash "$CASE_SCRIPT" "$BIN" 4 6 udp quic full pmtu
+# Observe the actual carrier in both modes as well as checking reported budgets:
+# both directions must fit 1280 IP bytes, without any outer IPv4 fragmentation.
+QELI_PACKET_AUDIT=1 bash "$CASE_SCRIPT" "$BIN" 4 6 udp quic full pmtu
 
 echo "=== explicit inner MTU 1280 and ICMPv6 PTB ==="
-bash "$CASE_SCRIPT" "$BIN" 4 6 udp quic full mtu
+QELI_PACKET_AUDIT=1 bash "$CASE_SCRIPT" "$BIN" 4 6 udp quic full mtu
 
 echo "=== RESULT MTU 1280/PMTU/PTB: both runtime modes passed ==="
