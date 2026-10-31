@@ -87,9 +87,14 @@ def instrument_sources(session, client):
         raise ValueError('source already instrumented')
     session = replace_exact(session, 'use crate::config::PushedObf;', HELPERS + '\nuse crate::config::PushedObf;')
     session = replace_exact(session,
-        '    if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {\n        stream',
+        '    if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {\n        let RawClientKeys {',
         '    if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {\n'
-        '        audit_auth_barrier("go").await?;\n        let hello_started_ns = audit_auth_clock()?;\n        stream')
+        '        anyhow::ensure!(config.obfuscation.mode != "reality-tls" || !config.obfuscation.reality_compact,\n'
+        '            "native AUTH benchmark does not classify compact INNER_PQ_V1");\n'
+        '        audit_auth_barrier("go").await?;\n        let hello_started_ns = audit_auth_clock()?;\n        let RawClientKeys {')
+    # Require the shared production helper boundary, not a copied/stale raw KDF.
+    raw_call = '} = raw_client_keys(stream, config, &client_kp).await?;'
+    session = replace_exact(session, raw_call, raw_call)
     session = replace_exact(session, '    stream.write_all_flush(&client_hello).await?;',
         '    audit_auth_barrier("go").await?;\n    let hello_started_ns = audit_auth_clock()?;\n'
         '    stream.write_all_flush(&client_hello).await?;')

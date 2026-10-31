@@ -357,6 +357,17 @@
       'Manual IPv6 also leaves DNS firewall access and port 53 redirection to you. IPv4 settings are independent.':
         'В ручном режиме IPv6 доступ к DNS через firewall и перенаправление порта 53 также настраиваете вы. Настройки IPv4 независимы.',
       'Upstream IPv6 NDP proxy': 'Внешний IPv6 NDP proxy',
+      'NDP source IPv6': 'Исходный адрес IPv6 для NDP',
+      'Auto prefers link-local. An explicit address must be assigned to the selected uplink; Qeli pauses NDP if it disappears.':
+        'Автовыбор предпочитает локальный адрес канала. Явно заданный адрес должен принадлежать выбранному uplink; при его исчезновении Qeli приостанавливает NDP.',
+      'NDP refresh interval (seconds)': 'Период обновления NDP (секунды)',
+      '0 disables periodic refresh. Otherwise 10–86400; only active client addresses are announced.':
+        '0 отключает периодические объявления. Допустимы значения 10–86400; объявляются только адреса активных клиентов.',
+      'Enter 0 or a whole number from 10 to 86400.': 'Введите 0 или целое число от 10 до 86400.',
+      'Router flag': 'Флаг Router',
+      'Override flag': 'Флаг Override',
+      'Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; DAD replies never set it.':
+        'Экспертные настройки: оставьте оба флага выключенными, если их не требует вышестоящая сеть. Override может заменить существующую запись соседей; в ответах на DAD этот флаг не устанавливается.',
       'Answer only for active client IPv6 addresses and client_subnet prefixes; needed when the provider treats the delegated prefix as on-link':
         'Отвечает только за IPv6-адреса активных клиентов и префиксы client_subnet; нужен, когда провайдер считает делегированный префикс on-link',
       'IPv6 listen address': 'IPv6-адрес прослушивания',

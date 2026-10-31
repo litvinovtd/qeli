@@ -31,7 +31,7 @@ function component(file, factory, overrides = {}) {
 }
 async function check(name, fn) { await fn(); passed++; console.log('PASS ' + name); }
 async function main() {
-  await check('Recordizer mode defaults to timed and preserves opportunistic plus rollback delays', async () => {
+  await check('Recordizer defaults to opportunistic and preserves explicit timed plus rollback delays', async () => {
     const {model,html}=component('config.html','configPage');
     const cfg={profiles:[{obfuscation:{recordizer:{policy:'required',batch:{mode:'opportunistic',delay_min_ms:3,delay_max_ms:11}}}},{}]};
     model.normalizeProfiles(cfg);
@@ -39,7 +39,7 @@ async function main() {
     assert.equal(batch.mode,'opportunistic');
     assert.equal(batch.delay_min_ms,3);
     assert.equal(batch.delay_max_ms,11);
-    assert.equal(cfg.profiles[1].obfuscation.recordizer.batch.mode,'timed');
+    assert.equal(cfg.profiles[1].obfuscation.recordizer.batch.mode,'opportunistic');
     batch.mode='timed';
     model.normalizeProfiles(cfg);
     assert.equal(batch.delay_min_ms,3);

@@ -52,6 +52,7 @@ fn transcript(client: &[u8], server: &[u8], identity: &[u8; 32]) -> [u8; 32] {
 pub(crate) struct Exchange {
     #[cfg_attr(not(all(target_os = "linux", feature = "server")), allow(dead_code))]
     pub peer_public: PublicKey,
+    #[cfg(any(feature = "client", test))]
     pub ephemeral_shared: zeroize::Zeroizing<[u8; 32]>,
     pub transcript_hash: [u8; 32],
     pub material: SessionKeyMaterial,
@@ -59,6 +60,7 @@ pub(crate) struct Exchange {
 
 /// Requires an explicit pin. Returns keys, not trust: the caller must decrypt
 /// and verify the existing server identity proof before sending ANY credentials.
+#[cfg(any(feature = "client", test))]
 pub(crate) async fn client_exchange<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     client: &Keypair,
@@ -147,6 +149,7 @@ pub(crate) async fn server_exchange<S: AsyncRead + AsyncWrite + Unpin>(
     stream.write_all_flush(&response).await?;
     Ok(Exchange {
         peer_public: public,
+        #[cfg(any(feature = "client", test))]
         ephemeral_shared: zeroize::Zeroizing::new(shared.0),
         transcript_hash: hash,
         material,

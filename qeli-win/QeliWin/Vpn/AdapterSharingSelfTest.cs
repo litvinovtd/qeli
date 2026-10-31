@@ -62,7 +62,9 @@ internal static class AdapterSharingSelfTest
             foreach(var argument in new[] {"-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",Convert.ToBase64String(Encoding.Unicode.GetBytes(mock))}) start.ArgumentList.Add(argument);
             using var process=Process.Start(start) ?? throw new InvalidOperationException("Cannot start isolated PowerShell test");
             var output=process.StandardOutput.ReadToEndAsync(); var error=process.StandardError.ReadToEndAsync();
-            bool finished=process.WaitForExit(5000);
+            // This fixture includes a cold PowerShell process start on hosted CI;
+            // it is not a production command timeout or a performance benchmark.
+            bool finished=process.WaitForExit(30000);
             if(!finished) {try {process.Kill(true);}catch{}}
             check("owned adapter bindings: "+scenario, finished && process.ExitCode==0);
             if(finished && process.ExitCode!=0) Console.WriteLine(error.GetAwaiter().GetResult());

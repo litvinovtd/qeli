@@ -49,11 +49,14 @@ class NativeAuthTests(unittest.TestCase):
             self.assertEqual(before.count('derive_keys_hybrid('), after.count('derive_keys_hybrid('))
             self.assertEqual(before.count('verify_server_identity('), after.count('verify_server_identity('))
         self.assertIn('std::process::exit(0)', session)
+        self.assertIn('does not classify compact INNER_PQ_V1', session)
+        self.assertIn('} = raw_client_keys(stream, config, &client_kp).await?;', session)
 
     def test_source_drift_and_double_instrumentation_are_refused(self):
         session, client = self.sources()
         with self.assertRaises(ValueError): instrument_sources(*instrument_sources(session, client))
         for changed in [session.replace('verify_key(server_static).await?;', 'changed();'),
+                        session.replace('} = raw_client_keys(stream, config, &client_kp).await?;', 'changed();'),
                         session.replace('stream.write_all_flush(&client_hello).await?;', 'changed();')]:
             with self.assertRaises(ValueError): instrument_sources(changed, client)
         with self.assertRaises(ValueError):
