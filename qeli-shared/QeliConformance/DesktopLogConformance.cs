@@ -15,12 +15,14 @@ internal static class DesktopLogConformance
             logs.Read("a") == "first\n" && logs.Read("b") == "second\n");
 
         logs.TryRead("a", -1, out long firstRevision, out _);
+        // Warm the exact measured path before counting allocations. Cold JIT,
+        // tiering and first-use runtime work are not text snapshots from idle polls.
+        bool unchanged = PollUnchanged(logs, firstRevision);
         long before = GC.GetAllocatedBytesForCurrentThread();
-        bool unchanged = true;
-        for (int i = 0; i < 10_000; i++)
-            unchanged &= !logs.TryRead("a", firstRevision, out _, out var text) && text == null;
+        unchanged &= PollUnchanged(logs, firstRevision);
         long idleAllocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        check("desktop log: unchanged polls do not allocate text snapshots", unchanged && idleAllocated < 4096);
+        check($"desktop log: unchanged polls do not allocate text snapshots ({idleAllocated} B)",
+            unchanged && idleAllocated < 4096);
 
         logs.Clear("a");
         check("desktop log: clearing removes only the requested profile",
@@ -62,5 +64,14 @@ internal static class DesktopLogConformance
         check("desktop log: concurrent writers preserve separate bounded profile tails",
             Enumerable.Range(0, 4).All(writer => concurrent.Read($"p{writer}") is var text
                 && text.Length <= 4096 && text.EndsWith($"{writer}:1999\n", StringComparison.Ordinal)));
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static bool PollUnchanged(DesktopLogBuffer logs, long revision)
+    {
+        bool unchanged = true;
+        for (int i = 0; i < 10_000; i++)
+            unchanged &= !logs.TryRead("a", revision, out _, out var text) && text == null;
+        return unchanged;
     }
 }

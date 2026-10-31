@@ -778,7 +778,9 @@ mod tests {
         assert!(tx.push(b"sparse", now).unwrap().is_empty());
         assert!(tx.deadline().is_none());
         assert!(tx.flush_due(now + Duration::from_secs(60)).is_none());
-        let record = tx.finish_ready_batch().expect("ready tail must not await a timer");
+        let record = tx
+            .finish_ready_batch()
+            .expect("ready tail must not await a timer");
         let mut rx = Reassembler::new(cfg);
         assert_eq!(rx.decode(&record).unwrap(), vec![b"sparse".to_vec()]);
         assert!(!tx.is_pending());

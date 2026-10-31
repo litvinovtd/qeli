@@ -636,7 +636,10 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertIn('carrier.strip() != "1"', checked_source)
         ios = (Path(__file__).resolve().parents[1] / "qeli-ios/build_native.sh").read_text(encoding="utf-8")
         self.assertIn("for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios", ios)
-        self.assertIn(" T _qeli_client_carrier_diagnostics$", ios)
+        self.assertIn("rustup component add llvm-tools", ios)
+        self.assertIn('/lib/rustlib/$RUST_HOST/bin/llvm-nm', ios)
+        self.assertIn('sh "$ROOT/../scripts/check_ios_native_exports.sh"', ios)
+        self.assertNotIn("xcrun nm", ios)
 
     def test_ios_carrier_header_exactly_mirrors_the_public_abi(self):
         root = Path(__file__).resolve().parents[1]
@@ -645,6 +648,41 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertEqual(public, mirror)
         self.assertIn(b"QELI_CLIENT_ABI_VERSION UINT32_C(0x00010011)", public)
         self.assertIn(b"QELI_CORE_CARRIER_DIAGNOSTICS = UINT64_C(1) << 16", public)
+
+    @unittest.skipUnless(os.name == "posix", "requires a POSIX shell")
+    def test_ios_archive_gate_requires_success_and_a_defined_carrier_symbol(self):
+        root = Path(__file__).resolve().parents[1]
+        gate = root / "scripts/check_ios_native_exports.sh"
+        with tempfile.TemporaryDirectory(prefix="qeli ios symbols ") as directory:
+            tool = Path(directory) / "llvm-nm"
+            archive = Path(directory) / "libqeli core.a"
+            archive.touch()
+            tool.write_text(
+                '#!/bin/sh\n'
+                'test "$1" = --extern-only && test "$2" = --defined-only || exit 9\n'
+                'test -f "$3" || exit 8\n'
+                'printf "%s\\n" "$QELI_TEST_SYMBOLS"\n'
+                'exit "$QELI_TEST_NM_STATUS"\n',
+                encoding="utf-8",
+            )
+            tool.chmod(0o755)
+            for symbols, status, accepted in (
+                ("00000000 T _qeli_client_carrier_diagnostics", 0, True),
+                ("-------- T _qeli_client_carrier_diagnostics", 0, True),
+                ("         U _qeli_client_carrier_diagnostics", 0, False),
+                ("00000000 t _qeli_client_carrier_diagnostics", 0, False),
+                ("00000000 T _qeli_client_carrier_diagnostics_old", 0, False),
+                ("00000000 T _qeli_client_carrier_diagnostics", 1, False),
+                ("", 0, False),
+            ):
+                with self.subTest(symbols=symbols, status=status):
+                    result = subprocess.run(
+                        ["sh", str(gate), str(tool), str(archive)],
+                        env={**os.environ, "QELI_TEST_SYMBOLS": symbols,
+                             "QELI_TEST_NM_STATUS": str(status)},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_export_guards_reject_missing_carrier_symbol_even_when_counts_match(self):
         class ExportClient:

@@ -31,7 +31,8 @@ mod tests {
 
     #[test]
     fn recordizer_batch_mode_is_editable_without_discarding_timed_delays() {
-        assert!(CONFIG_PAGE.contains("x-model=\"cfg.profiles[activeTab].obfuscation.recordizer.batch.mode\""));
+        assert!(CONFIG_PAGE
+            .contains("x-model=\"cfg.profiles[activeTab].obfuscation.recordizer.batch.mode\""));
         assert!(CONFIG_PAGE.contains("<option value=\"timed\">"));
         assert!(CONFIG_PAGE.contains("<option value=\"opportunistic\">"));
         assert!(CONFIG_PAGE.contains("batch: { mode: 'timed', delay_min_ms: 2, delay_max_ms: 8"));

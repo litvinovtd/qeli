@@ -23,6 +23,16 @@ fi
 cp "$PUBLIC_HEADER" "$IOS_HEADER"
 
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+# Rust archives can contain LLVM bitcode newer than Xcode's nm understands.
+# Inspect them with the tools from the same active Rust toolchain, fail closed
+# if those tools cannot read an archive (never hide nm errors in a grep pipeline).
+rustup component add llvm-tools
+RUST_HOST="$(rustc -vV | sed -n 's/^host: //p')"
+RUST_NM="$(rustc --print sysroot)/lib/rustlib/$RUST_HOST/bin/llvm-nm"
+if [ -z "$RUST_HOST" ] || [ ! -x "$RUST_NM" ]; then
+  echo "Rust toolchain llvm-nm not found: $RUST_NM" >&2
+  exit 1
+fi
 export CARGO_PROFILE_RELEASE_PANIC=unwind
 export CARGO_TARGET_DIR
 
@@ -33,10 +43,8 @@ cargo build --locked --release --lib --no-default-features --features "$RUST_FEA
 # Verify every slice before creating an XCFramework: a matching header alone must not
 # conceal an older archive that cannot satisfy the ABI 1.17 diagnostic reader.
 for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
-  if ! xcrun nm -g "$CARGO_TARGET_DIR/$target/release/libqeli_core.a" | grep -q ' T _qeli_client_carrier_diagnostics$'; then
-    echo "$target archive lacks the ABI 1.17 carrier diagnostics API" >&2
-    exit 1
-  fi
+  sh "$ROOT/../scripts/check_ios_native_exports.sh" "$RUST_NM" \
+    "$CARGO_TARGET_DIR/$target/release/libqeli_core.a"
 done
 
 mkdir -p "$BUILD/device" "$BUILD/simulator"
