@@ -7,6 +7,7 @@
 //! shrinks a live socket and never reacts to wire sequence gaps: those may be real network
 //! loss, which allocating local memory cannot repair.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -124,6 +125,27 @@ pub(crate) struct UdpBufferCounters {
     pub grow_events: AtomicU64,
     pub granted_recv_bytes: AtomicU64,
     pub receive_queue: Arc<super::receive_queue::QueueCounters>,
+    next_socket_id: AtomicU64,
+    sockets: std::sync::Mutex<BTreeMap<u64, UdpSocketBufferSnapshot>>,
+}
+
+/// Metadata only. Raw OS accounting and normalized requests are deliberately separate;
+/// failed getsockopt is null, never a fabricated successful grant. No addresses or keys.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct UdpSocketBufferSnapshot {
+    pub label: String,
+    pub mode: &'static str,
+    pub socket_inode: Option<u64>,
+    pub requested_receive_bytes: u32,
+    pub requested_send_bytes: u32,
+    pub auto_receive_cap_bytes: u32,
+    pub receive_os_bytes: Option<usize>,
+    pub send_os_bytes: Option<usize>,
+    pub receive_normalized_bytes: Option<usize>,
+    pub send_normalized_bytes: Option<usize>,
+    pub receive_clamped: Option<bool>,
+    pub send_clamped: Option<bool>,
+    pub accounting: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -142,6 +164,14 @@ pub(crate) struct UdpBufferSnapshot {
 }
 
 impl UdpBufferCounters {
+    pub(crate) fn socket_diagnostics(&self) -> Vec<UdpSocketBufferSnapshot> {
+        self.sockets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect()
+    }
     pub(crate) fn snapshot(&self) -> UdpBufferSnapshot {
         UdpBufferSnapshot {
             path: self.path.snapshot(),
@@ -279,6 +309,7 @@ pub(crate) struct UdpBufferController {
     last_tick: Instant,
     socket_inode: Option<u64>,
     last_kernel_drops: Option<u64>,
+    socket_id: u64,
 }
 
 impl UdpBufferController {
@@ -350,7 +381,8 @@ impl UdpBufferController {
         // from both the counter and the grow decision.
         let last_kernel_drops = socket_inode.and_then(read_udp_socket_drops);
 
-        Self {
+        let socket_id = counters.next_socket_id.fetch_add(1, Ordering::Relaxed);
+        let mut controller = Self {
             label,
             policy,
             counters,
@@ -361,7 +393,10 @@ impl UdpBufferController {
             last_tick: Instant::now(),
             socket_inode,
             last_kernel_drops,
-        }
+            socket_id,
+        };
+        controller.refresh_diagnostics(&socket_ref);
+        controller
     }
 
     pub(crate) fn note_receive(&mut self, bytes: usize) {
@@ -374,7 +409,7 @@ impl UdpBufferController {
     }
 
     /// Poll local evidence and, if the implicit policy needs it, grow one rung.  This method
-    /// is intentionally synchronous and cheap: one getsockopt plus two small `/proc` reads
+    /// is intentionally synchronous and cheap: two getsockopt calls plus `/proc` reads
     /// per second on Linux/Android, and no filesystem work on other platforms.
     pub(crate) fn tick(&mut self, socket: &UdpSocket) {
         let now = Instant::now();
@@ -383,6 +418,10 @@ impl UdpBufferController {
             return;
         }
         self.last_tick = now;
+        // Read back even fixed/OS-default sockets. A system limit is not evidence of
+        // the value actually granted, and a read error must not leave stale grants.
+        let socket_ref = socket2::SockRef::from(socket);
+        self.refresh_diagnostics(&socket_ref);
 
         let elapsed_ms = elapsed.as_millis().max(1);
         let sample_rate = ((u128::from(self.bytes_in_window) * 1000) / elapsed_ms)
@@ -431,32 +470,69 @@ impl UdpBufferController {
             );
             // Do not retry the same forbidden request every second.
             self.requested_recv_bytes = next;
+            self.refresh_diagnostics(&socket_ref);
             return;
         }
         self.requested_recv_bytes = next;
-        let effective = effective_receive_bytes(&socket_ref).unwrap_or(next as usize);
-        self.granted_recv_bytes = effective.min(u32::MAX as usize) as u32;
-        if effective >= granted as usize {
-            self.counters
-                .granted_recv_bytes
-                .fetch_add((effective - granted as usize) as u64, Ordering::Relaxed);
-        } else {
-            self.counters
-                .granted_recv_bytes
-                .fetch_sub((granted as usize - effective) as u64, Ordering::Relaxed);
-        }
-        if effective > granted as usize {
+        self.refresh_diagnostics(&socket_ref);
+        let effective = self.granted_recv_bytes as usize;
+        if granted > 0 && effective > granted as usize {
             self.counters.grow_events.fetch_add(1, Ordering::Relaxed);
         }
         log::info!(
-            "{}: UDP receive-buffer auto-grow requested {} KiB, granted {} KiB (reason: {}, rate={} Mbit/s, local kernel drops +{})",
+            "{}: UDP receive-buffer auto-grow requested {} KiB, granted {} (reason: {}, rate={} Mbit/s, local kernel drops +{})",
             self.label,
             next / 1024,
-            effective / 1024,
+            if effective > 0 { format!("{} KiB", effective / 1024) } else { "unknown".to_string() },
             if kernel_drop_delta > 0 { "kernel overflow" } else { "measured rate/stall budget" },
             self.smoothed_bytes_per_second.saturating_mul(8) / 1_000_000,
             kernel_drop_delta
         );
+    }
+
+    fn refresh_diagnostics(&mut self, socket: &socket2::SockRef<'_>) {
+        let state = socket_buffer_snapshot(
+            &self.label,
+            self.policy,
+            self.requested_recv_bytes,
+            self.socket_inode,
+            socket.recv_buffer_size().ok(),
+            socket.send_buffer_size().ok(),
+        );
+        let old = self.granted_recv_bytes;
+        let actual = state
+            .receive_normalized_bytes
+            .unwrap_or(0)
+            .min(u32::MAX as usize) as u32;
+        if actual >= old {
+            self.counters
+                .granted_recv_bytes
+                .fetch_add(u64::from(actual - old), Ordering::Relaxed);
+        } else {
+            self.counters
+                .granted_recv_bytes
+                .fetch_sub(u64::from(old - actual), Ordering::Relaxed);
+        }
+        self.granted_recv_bytes = actual;
+        let mut sockets = self
+            .counters
+            .sockets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let changed = sockets.get(&self.socket_id) != Some(&state);
+        if changed {
+            log::info!(
+                "UDP socket buffers: {}",
+                serde_json::to_string(&state).expect("socket metadata serialize")
+            );
+            if state.receive_os_bytes.is_none() || state.send_os_bytes.is_none() {
+                log::warn!("{}: UDP buffer readback unavailable; unknown sizes are null, not requested values", self.label);
+            }
+            if state.receive_clamped == Some(true) || state.send_clamped == Some(true) {
+                log::warn!("{}: OS limited UDP socket buffers; see requested/actual diagnostics and host rmem_max/wmem_max. Qeli does not change system limits", self.label);
+            }
+        }
+        sockets.insert(self.socket_id, state);
     }
 
     fn poll_kernel_drops(&mut self) -> u64 {
@@ -488,6 +564,11 @@ impl UdpBufferController {
 impl Drop for UdpBufferController {
     fn drop(&mut self) {
         self.counters
+            .sockets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.socket_id);
+        self.counters
             .granted_recv_bytes
             .fetch_sub(self.granted_recv_bytes as u64, Ordering::Relaxed);
     }
@@ -517,11 +598,58 @@ fn growth_needed(
 
 fn effective_receive_bytes(socket: &socket2::SockRef<'_>) -> std::io::Result<usize> {
     let raw = socket.recv_buffer_size()?;
+    Ok(normalize_os_bytes(raw))
+}
+
+fn normalize_os_bytes(raw: usize) -> usize {
     // Linux accounts bookkeeping by reporting twice the user-visible SO_RCVBUF request.
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    return Ok(raw / 2);
+    return raw / 2;
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    return Ok(raw);
+    return raw;
+}
+
+fn socket_buffer_snapshot(
+    label: &str,
+    policy: UdpBufferPolicy,
+    requested_receive: u32,
+    inode: Option<u64>,
+    receive: Option<usize>,
+    send: Option<usize>,
+) -> UdpSocketBufferSnapshot {
+    let receive_normalized = receive.map(normalize_os_bytes);
+    let send_normalized = send.map(normalize_os_bytes);
+    UdpSocketBufferSnapshot {
+        label: label.to_string(),
+        mode: if policy.automatic_receive {
+            "auto"
+        } else if policy.receive_bytes == 0 {
+            "os-default"
+        } else {
+            "fixed"
+        },
+        socket_inode: inode,
+        requested_receive_bytes: requested_receive,
+        requested_send_bytes: policy.send_bytes,
+        auto_receive_cap_bytes: if policy.automatic_receive {
+            policy.max_receive_bytes
+        } else {
+            0
+        },
+        receive_os_bytes: receive,
+        send_os_bytes: send,
+        receive_normalized_bytes: receive_normalized,
+        send_normalized_bytes: send_normalized,
+        receive_clamped: receive_normalized
+            .map(|n| requested_receive > 0 && n < requested_receive as usize),
+        send_clamped: send_normalized
+            .map(|n| policy.send_bytes > 0 && n < policy.send_bytes as usize),
+        accounting: if cfg!(any(target_os = "linux", target_os = "android")) {
+            "linux_raw_divided_by_two"
+        } else {
+            "os_readback"
+        },
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -573,6 +701,94 @@ fn parse_proc_udp_drops(table: &str, wanted_inode: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_policy(automatic: bool, receive_bytes: u32) -> UdpBufferPolicy {
+        UdpBufferPolicy {
+            send_bytes: 262144,
+            receive_bytes,
+            automatic_receive: automatic,
+            max_receive_bytes: AUTO_MAX_RECV_BYTES,
+        }
+    }
+
+    #[test]
+    fn failed_readback_is_unknown_never_the_requested_grant() {
+        let value = socket_buffer_snapshot(
+            "test",
+            test_policy(true, AUTO_INITIAL_RECV_BYTES),
+            AUTO_MIDDLE_RECV_BYTES,
+            None,
+            None,
+            None,
+        );
+        let json = serde_json::to_value(value).unwrap();
+        assert!(json["receive_os_bytes"].is_null());
+        assert!(json["receive_normalized_bytes"].is_null());
+        assert!(json["send_os_bytes"].is_null());
+        assert!(json["receive_clamped"].is_null());
+        assert_eq!(json["requested_receive_bytes"], AUTO_MIDDLE_RECV_BYTES);
+    }
+
+    #[test]
+    fn socket_diagnostics_keep_raw_normalized_and_manual_zero_distinct() {
+        let value = socket_buffer_snapshot(
+            "test",
+            test_policy(false, 0),
+            0,
+            Some(42),
+            Some(212992),
+            Some(212992),
+        );
+        assert_eq!(value.mode, "os-default");
+        assert_eq!(value.auto_receive_cap_bytes, 0);
+        assert_eq!(value.receive_os_bytes, Some(212992));
+        assert_eq!(
+            value.receive_normalized_bytes,
+            Some(normalize_os_bytes(212992))
+        );
+        assert_eq!(value.receive_clamped, Some(false));
+        let fixed = socket_buffer_snapshot(
+            "fixed",
+            test_policy(false, AUTO_INITIAL_RECV_BYTES),
+            AUTO_INITIAL_RECV_BYTES,
+            None,
+            Some(425984),
+            Some(212992),
+        );
+        assert_eq!(fixed.mode, "fixed");
+        assert_eq!(fixed.receive_clamped, Some(true));
+        assert_eq!(fixed.send_clamped, Some(true));
+    }
+
+    #[tokio::test]
+    async fn live_socket_diagnostics_match_getsockopt_and_disappear_on_drop() {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let counters = Arc::new(UdpBufferCounters::default());
+        let controller = UdpBufferController::configure(
+            &socket,
+            test_policy(false, 0),
+            counters.clone(),
+            "test",
+        );
+        let value = counters.socket_diagnostics();
+        assert_eq!(value.len(), 1);
+        let reference = socket2::SockRef::from(&socket);
+        assert_eq!(
+            value[0].receive_os_bytes,
+            Some(reference.recv_buffer_size().unwrap())
+        );
+        assert_eq!(
+            value[0].send_os_bytes,
+            Some(reference.send_buffer_size().unwrap())
+        );
+        assert_eq!(
+            counters.snapshot().granted_recv_bytes,
+            value[0].receive_normalized_bytes.unwrap() as u64
+        );
+        drop(controller);
+        assert!(counters.socket_diagnostics().is_empty());
+        assert_eq!(counters.snapshot().granted_recv_bytes, 0);
+    }
 
     #[test]
     fn udp_path_diagnostics_keep_metadata_and_fragment_creation_distinct_from_loss() {

@@ -650,6 +650,10 @@ With `QELI_CLIENT_STATUS` set, one dedicated thread writes status. While a write
 busy, only the latest pending snapshot is retained; intermediate states may never
 appear in the file. Schema 1 and `0600` permissions are unchanged.
 
+`stats.udp_socket_buffers` contains requested/readback RX/TX for every live UDP
+socket; the server exposes the same map via `queue-stats`. `null` means unknown
+readback, not a successful grant. See [UDP buffers](UDP-BUFFERS.md).
+
 Ordinary exit awaits terminal publication after stopping the sampler. Slow fsync keeps
 neighboring async tasks responsive but can delay process exit; there is no hard overall
 deadline. Diagnostics failures do not change the VPN result. If a write fails, the file

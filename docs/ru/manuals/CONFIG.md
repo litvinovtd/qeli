@@ -969,6 +969,9 @@ ss -ulnm | grep -A1 ':8449' | grep -o 'rb[0-9]*'                      # Linux о
 Текущий Qeli запрашивает UDP-буфер сам; `rmem_default=4 МиБ` не является условием
 его autotuning. Для него важны `rmem_max`, собственный RAM-бюджет и ручные ключи.
 
+Режимы auto/fixed/OS-default, requested/readback RX/TX и значение `null` при ошибке
+чтения описаны в [управлении UDP-буферами](UDP-BUFFERS.md).
+
 Для TCP проверьте `sysctl net.ipv4.tcp_moderate_rcvbuf net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.ipv4.tcp_mem`.
 `tcp_moderate_rcvbuf` должен быть `1`. `tcp_rmem`/`tcp_wmem` — тройки min/default/max
 в байтах; 16 МиБ здесь — предел роста одного буфера, а не заранее выделенная память.

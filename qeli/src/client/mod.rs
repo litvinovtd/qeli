@@ -2017,6 +2017,7 @@ impl ClientStatusReporter {
                 "udp_drops_tun_write": udp.tun_write_drops,
                 "udp_buffer_grows": udp.grow_events,
                 "udp_recv_buffer_bytes": udp.granted_recv_bytes,
+                "udp_socket_buffers": counters.udp.socket_diagnostics(),
                 "udp_receive_queue": udp.receive_queue,
                 "udp_data_fragmentation": udp.path,
                 "tcp_uplink_drops": counters.tcp_uplink.snapshot(),

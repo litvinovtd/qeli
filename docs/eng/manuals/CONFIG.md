@@ -977,6 +977,9 @@ the request. Compare with Qeli logs rather than `rmem_default`. Current Qeli
 requests its UDP buffer explicitly; `rmem_default=4 MiB` is not a prerequisite
 for its autotuning. `rmem_max`, its RAM budget and manual keys matter instead.
 
+Auto/fixed/OS-default modes, requested/readback RX/TX and `null` on read errors
+are documented in [UDP buffer management](UDP-BUFFERS.md).
+
 For TCP check `sysctl net.ipv4.tcp_moderate_rcvbuf net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.ipv4.tcp_mem`.
 `tcp_moderate_rcvbuf` must be `1`. `tcp_rmem`/`tcp_wmem` are min/default/max byte
 triples; 16 MiB here limits growth of an individual buffer, not preallocated memory.

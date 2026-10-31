@@ -530,6 +530,15 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
         }
         "queue-stats" => {
             let profiles = state.profiles.read().await;
+            let buffers: std::collections::BTreeMap<_, _> = profiles
+                .iter()
+                .map(|(name, profile)| {
+                    (
+                        name.clone(),
+                        profile.udp_buffer_counters.socket_diagnostics(),
+                    )
+                })
+                .collect();
             let fragmentation: std::collections::BTreeMap<_, _> = profiles.iter().map(|(name, profile)| {
                 let snapshot = profile.udp_buffer_counters.path.snapshot();
                 (name.clone(), serde_json::json!({"fragmented_records":snapshot.fragmented_records,"fragments_created":snapshot.fragments_created}))
@@ -548,7 +557,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 error: None,
                 clients: None,
                 message: Some(
-                    serde_json::json!({"profiles": queues, "scope": "udp_batch_handoff", "data_fragmentation": fragmentation})
+                    serde_json::json!({"profiles": queues, "scope": "udp_batch_handoff", "data_fragmentation": fragmentation, "udp_socket_buffers": buffers})
                         .to_string(),
                 ),
             }

@@ -429,7 +429,7 @@ fn default_udp_recv_buffer() -> u32 {
     crate::transport_core::udp_buffer::AUTO_INITIAL_RECV_BYTES
 }
 
-#[derive(Debug, Default, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ClientPerformanceConfig {
     #[serde(default = "default_true")]
     pub tcp_nodelay: bool,
@@ -455,6 +455,19 @@ pub struct ClientPerformanceConfig {
     pub tun_buffer_size: usize,
     #[serde(default = "default_idle_timeout")]
     pub idle_timeout_secs: u64,
+}
+
+impl Default for ClientPerformanceConfig {
+    fn default() -> Self {
+        Self {
+            tcp_nodelay: true,
+            send_buffer_size: 0,
+            recv_buffer_size: default_udp_recv_buffer(),
+            recv_buffer_auto: true,
+            tun_buffer_size: default_tun_buf(),
+            idle_timeout_secs: default_idle_timeout(),
+        }
+    }
 }
 
 fn default_server_addr() -> String {
@@ -2762,13 +2775,21 @@ sni    = www.cloudflare.com
         // applied them. Two things must hold now, and neither is obvious from the type:
         //
         // 1. A config that never mentions them still gets the 4 MB receive default. The
-        //    struct derives Default, and #[derive(Default)] IGNORES serde attributes — it
-        //    would yield 0 (= leave the kernel's 208 KB alone, i.e. the bug we fixed). Only
-        //    the serde path via baseline() produces the real default, so pin it here: a
-        //    future refactor that swaps baseline() for Default::default() must fail loudly
-        //    rather than silently restore packet loss under load.
+        //    derived Default would ignore serde attributes and yield 0. Keep Rust
+        //    construction, an omitted JSON object, and the public INI path consistent.
         // 2. The send default is deliberately the OPPOSITE (0 = leave the kernel alone),
         //    because pinning a value would LOWER the buffer on a tuned host.
+        for performance in [
+            ClientPerformanceConfig::default(),
+            serde_json::from_str::<ClientConfig>("{}")
+                .unwrap()
+                .performance
+                .clone(),
+        ] {
+            assert_eq!(performance.recv_buffer_size, 4 * 1024 * 1024);
+            assert!(performance.recv_buffer_auto);
+            assert_eq!(performance.send_buffer_size, 0);
+        }
         let bare = ClientConfig::from_ini(&IniDoc::parse("[qeli]\nserver = h:443\n").unwrap())
             .expect("minimal config parses");
         assert_eq!(
