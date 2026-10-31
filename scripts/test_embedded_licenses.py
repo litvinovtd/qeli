@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import embedded_licenses
+from license_lz4 import compress, decompress
 from check_windows_embedded_licenses import bundled_assembly
 
 
@@ -14,6 +15,21 @@ class EmbeddedLicenseTests(unittest.TestCase):
     def test_committed_catalogue_matches_verified_original_inventory(self):
         actual = (ROOT / 'qeli/src/embedded_license_files.rs').read_text('utf8')
         self.assertEqual(actual, embedded_licenses.rust_catalogue(ROOT))
+        self.assertEqual((ROOT / 'qeli/src/embedded_licenses.lz4').read_bytes(), embedded_licenses.rust_resources(ROOT)[1])
+
+    def test_storage_codec_round_trip_boundaries_and_repetition(self):
+        for data in (b'', b'a', bytes(range(256)), b'a' * 70000,
+                     bytes(range(256)) * 300, b'original\r\n\xff' * 7000):
+            packed = compress(data)
+            self.assertEqual(compress(data), packed)
+            self.assertEqual(decompress(packed, len(data)), data)
+            with self.assertRaises(ValueError):
+                decompress(packed, len(data) + 1)
+
+    def test_storage_codec_rejects_malformed_data(self):
+        for data in (b'\xf0', b'\x30a', b'\x00\x00\x00', b'\x00\x01\x00'):
+            with self.assertRaises(ValueError):
+                decompress(data, 10)
 
     def test_catalogue_order_is_explicit_across_host_path_flavours(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(embedded_licenses, 'check_bundle'):

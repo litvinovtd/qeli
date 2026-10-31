@@ -93,6 +93,14 @@ class NativeReproTests(unittest.TestCase):
             native_repro.validate_evidence(self.root, self.identity["source_digest"]), []
         )
 
+    def test_compressed_legal_input_is_hashed_without_newline_normalization(self):
+        packed = self.root / "qeli/src/embedded_licenses.lz4"
+        packed.write_bytes(b"binary\r\nbytes")
+        first = native_repro.source_digest(self.root)
+        self.assertNotEqual(first, self.identity["source_digest"])
+        packed.write_bytes(b"binary\nbytes")
+        self.assertNotEqual(first, native_repro.source_digest(self.root))
+
     def test_tampered_final_artifact_is_rejected(self):
         self.write_all()
         target = self.root / native_repro.EVIDENCE_SPECS["desktop"][0]

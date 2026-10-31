@@ -121,11 +121,15 @@ def source_digest(repo_root: str | os.PathLike[str]) -> str:
     """Digest Rust sources, Cargo config/manifests and the executable build recipes."""
     root = Path(repo_root)
     files = sorted((root / "qeli" / "src").rglob("*.rs"))
+    # CLI legal storage is a binary build input, not newline-normalized source.
+    files.extend((root / "qeli" / "src").rglob("*.lz4"))
     files.extend(root / relative for relative in BUILD_INPUTS)
     aggregate = hashlib.sha256()
     for path in sorted(files):
         relative = path.relative_to(root).as_posix()
-        data = path.read_bytes().replace(b"\r\n", b"\n")
+        data = path.read_bytes()
+        if path.suffix != ".lz4":
+            data = data.replace(b"\r\n", b"\n")
         aggregate.update(f"{relative} {sha256_bytes(data)}\n".encode())
     return aggregate.hexdigest()
 
