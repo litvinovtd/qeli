@@ -14,11 +14,21 @@
 
 Предыдущая [сверка 7 октября 2026](../docs/ru/reports/audit-0.8.2/AUDIT-Q25-NATIVE-REBUILD.md): четыре свежих независимых A/B, все копии/SHA и PROVENANCE PASS; Windows C ABI и Android JNI проверены на пересобранных библиотеках. Mac runtime остаётся исключённым пользователем.
 
-Текущая [квалификация 8 октября, F451–F454](../docs/ru/reports/audit-0.8.2/AUDIT-Q34-DEPENDENCY-POLICY.md): source1751a44f, свежие независимые A/B четырёх native targets, export gates/14SHA/copies/provenance и Windows ABI22 PASS. В пакет входят Rust dependency/CI policy и PEM TLS; Linux unit2445+60ignored/CLI5/14HTTPS/feature/release-checks PASS. Reproducibility проверена внутри собственного CargoHome; новый Android полный runtime и Mac/iOS runtime не заявлены. Q34 остаётся IN_PROGRESS; [завершённый Q33](../docs/ru/reports/audit-0.8.2/AUDIT-Q33-COMPLETION.md) сохранён.
+Историческая [квалификация 8 октября, F451–F454](../docs/ru/reports/audit-0.8.2/AUDIT-Q34-DEPENDENCY-POLICY.md): source1751a44f, свежие независимые A/B четырёх native targets, export gates/14SHA/copies/provenance и Windows ABI22 PASS. В пакет входят Rust dependency/CI policy и PEM TLS; Linux unit2445+60ignored/CLI5/14HTTPS/feature/release-checks PASS. Reproducibility проверена внутри собственного CargoHome; новый Android полный runtime и Mac/iOS runtime не заявлены. Q34 остаётся IN_PROGRESS; [завершённый Q33](../docs/ru/reports/audit-0.8.2/AUDIT-Q33-COMPLETION.md) сохранён.
 
 ## Содержимое
 
-Пересборка 17 октября 2026 после интеграции `tun.tx_queue_len` в `dev`:
+Пересборка 31 октября 2026 для `dev` 0.8.4: Windows x64, macOS universal2
+и обе Android ABI собраны из одного чистого source cut `7a949489`,
+source digest `7d5469261764d8925c095c580bbf81a2de7aeb9672d49de5f997ac373c4abed6`.
+Независимые A/B совпали побайтово; проверены ABI 1.17 exports и canonical/consumed пары.
+С новой Windows DLL прошли 671 managed conformance-проверка, включая отсутствие
+аллокаций текста при повторном чтении неизменного лога (0 B в измеренном цикле).
+Результаты сборок: [desktop](reproducibility/desktop.json) и
+[Android](reproducibility/android.json). Это обновление native cores, не публикация
+релиза и не замена отдельным физическим Mac/Android/iOS runtime-проверкам.
+
+Предыдущая пересборка 17 октября 2026 после интеграции `tun.tx_queue_len` в `dev`:
 четыре свежих независимых A/B и проверка экспортов/копий прошли; source digest —
 `42672aca87de8e95b2e289cad35b576196f88e92874d121e1804e7845152976b`.
 [Идентификаторы native и SDK source cut](../release/certification/evidence/integrated-source-build-20261017.json).
