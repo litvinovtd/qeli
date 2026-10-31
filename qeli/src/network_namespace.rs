@@ -143,32 +143,6 @@ fn single_network_boot() -> anyhow::Result<String> {
     Ok(boot)
 }
 
-#[cfg(test)]
-mod compatibility_tests {
-    use super::*;
-    #[test]
-    fn singleton_requires_positive_kernel_evidence_not_an_access_error() {
-        assert!(accepts_single_network(Some(0), Some(libc::EINVAL)));
-        assert!(accepts_single_network(None, Some(libc::EINVAL)));
-        for errno in [
-            None,
-            Some(libc::EPERM),
-            Some(libc::ENOSYS),
-            Some(libc::EACCES),
-        ] {
-            assert!(!accepts_single_network(Some(0), errno));
-        }
-        assert!(!accepts_single_network(Some(2), Some(libc::EINVAL)));
-        assert!(!accepts_single_network(Some(1), Some(libc::EINVAL)));
-    }
-    #[test]
-    fn current_namespace_uses_thread_scoped_evidence() -> anyhow::Result<()> {
-        let namespace = Namespace::capture()?;
-        assert!(!namespace.is_single_network());
-        namespace.verify()
-    }
-}
-
 /// Kernel generation identifier; unlike nsfs inode numbers it is not recycled in a boot.
 pub(crate) fn cookie() -> io::Result<Option<u64>> {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -204,4 +178,30 @@ pub(crate) fn cookie() -> io::Result<Option<u64>> {
         ));
     }
     Ok(Some(cookie))
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    #[test]
+    fn singleton_requires_positive_kernel_evidence_not_an_access_error() {
+        assert!(accepts_single_network(Some(0), Some(libc::EINVAL)));
+        assert!(accepts_single_network(None, Some(libc::EINVAL)));
+        for errno in [
+            None,
+            Some(libc::EPERM),
+            Some(libc::ENOSYS),
+            Some(libc::EACCES),
+        ] {
+            assert!(!accepts_single_network(Some(0), errno));
+        }
+        assert!(!accepts_single_network(Some(2), Some(libc::EINVAL)));
+        assert!(!accepts_single_network(Some(1), Some(libc::EINVAL)));
+    }
+    #[test]
+    fn current_namespace_uses_thread_scoped_evidence() -> anyhow::Result<()> {
+        let namespace = Namespace::capture()?;
+        assert!(!namespace.is_single_network());
+        namespace.verify()
+    }
 }

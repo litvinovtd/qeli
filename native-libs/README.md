@@ -25,7 +25,8 @@
 Это проверка ядер и экспорта исходников; квалификация приложений и Linux runtime
 фиксируется отдельно, физические платформенные проверки этим не объявляются выполненными.
 
-Текущий ABI общего Rust-клиента — **1.16** (`qeli/src/transport_core/mod.rs`).
+Текущий ABI общего Rust-клиента — **1.17** (`qeli/src/transport_core/mod.rs`),
+включая versioned carrier diagnostics. API редактора конфигурации добавлен в ABI 1.16.
 Проверяемые SHA-256 каждой canonical/consumed пары записаны в
 [SHA256SUMS](SHA256SUMS), соответствие исходникам — в
 [PROVENANCE](PROVENANCE), а два независимых прохода сборки — в
@@ -44,8 +45,8 @@
 Все четыре first-party библиотеки собираются из одного Rust-крейта `qeli`
 с `--no-default-features --features transport-core-ffi`; серверный/web stack
 в них не входит. Экспортная поверхность содержит 6 Reality C ABI,
-22 `qeli_client_*`, `qeli_config_request` (чистый API редактора INI),
-а Android дополнительно требует 21 `Java_com_qeli_TransportCore_*`.
+23 `qeli_client_*`, `qeli_config_request` (чистый API редактора INI),
+а Android дополнительно требует 22 `Java_com_qeli_TransportCore_*`.
 Платформенные приложения хранят интерфейс, системные разрешения и TUN;
 общее ядро выполняет parsing/policy, transport, handshake и data plane.
 Исходный `qeli/src/client` Linux `rp_filter` код компилируется только для Linux
@@ -75,8 +76,8 @@ python scripts/build_android_so_11.py    # arm64-v8a + x86_64 libqeli.so
 4. дважды собирают `--locked --jobs 1` с `CARGO_INCREMENTAL=0`, `panic=unwind`, remap исходного пути
    и разными чистыми `CARGO_TARGET_DIR` (`a`/`b`); после сохранения конечного файла тяжёлый
    target-кэш прохода удаляется, чтобы A/B укладывался в свободное место лабы;
-5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 22 client;
-   Android дополнительно 21 JNI). Для macOS до ad-hoc подписи нормализуются случайный
+5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 23 client;
+   Android дополнительно 22 JNI). Для macOS до ad-hoc подписи нормализуются случайный
    `LC_UUID` и недопустимый нестабильный Zig 0.13 GOT-index, install name закреплён как
    `@rpath/libqeli.dylib`;
 6. только после этого атомарно заменяют canonical/consumed копии и создают

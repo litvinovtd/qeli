@@ -188,6 +188,10 @@ plus `aarch64-apple-ios-sim` and `x86_64-apple-ios` lipo'd into one simulator sl
 packages both with the headers from `QeliCore/Native/include` into the XCFramework. It
 builds `--no-default-features --features 'transport-core-ffi experimental-roaming'` by
 default: the iOS slice is the whole-client static library, with no server or CLI.
+The script installs `llvm-tools` for the active Rust toolchain and uses its
+`llvm-nm` to verify the ABI 1.17 carrier diagnostics export in all three archives.
+This avoids Xcode `nm`/Rust LLVM bitcode version mismatches; an unreadable archive
+or a missing defined public export still stops the build before packaging.
 `QELI_RUST_FEATURES` can override that exact feature set for compatibility checks;
 `QELI_RUST_MANIFEST` and `QELI_CARGO_TARGET_DIR` override the paths for out-of-tree builds.
 

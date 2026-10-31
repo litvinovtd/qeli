@@ -14,13 +14,19 @@ fn singleton_routes_are_boot_scoped_and_never_share_cookie_authority() {
     let mut restored = Store::decode(&store.encode().unwrap(), "boot-a").unwrap();
     assert_eq!(restored.version, 2);
     assert!(restored.records(scope, "vpn0", false).is_empty());
-    assert_eq!(restored.records(scope, "vpn0", true), [route.clone()]);
+    assert_eq!(
+        restored.records(scope, "vpn0", true),
+        std::slice::from_ref(&route)
+    );
     restored
         .change(scope, "vpn0", &route, Change::Confirm)
         .unwrap();
     let bytes = restored.encode().unwrap();
     let mut restored = Store::decode(&bytes, "boot-a").unwrap();
-    assert_eq!(restored.records(scope, "vpn0", false), [route.clone()]);
+    assert_eq!(
+        restored.records(scope, "vpn0", false),
+        std::slice::from_ref(&route)
+    );
     assert!(restored.records(1, "vpn0", false).is_empty());
     assert!(restored.records(scope, "vpn1", false).is_empty());
     assert!(restored.check_unclaimed(scope, "vpn1", &route).is_err());
