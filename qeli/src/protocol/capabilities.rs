@@ -1031,7 +1031,14 @@ mod tests {
             ..ClientCapabilities::default()
         });
         let mut config = crate::config::RecordizerConfig::default();
+        assert_eq!(config.policy, "prefer");
+        assert_eq!(config.batch.mode, "opportunistic");
+        assert!(negotiate_recordizer(&config, capable).unwrap().is_some());
+        assert!(negotiate_recordizer(&config, None).unwrap().is_none());
+
+        config.policy = "off".to_string();
         assert!(negotiate_recordizer(&config, capable).unwrap().is_none());
+        assert!(negotiate_recordizer(&config, None).unwrap().is_none());
 
         config.policy = "prefer".to_string();
         assert!(negotiate_recordizer(&config, capable).unwrap().is_some());

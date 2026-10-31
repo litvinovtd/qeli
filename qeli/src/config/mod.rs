@@ -1142,7 +1142,10 @@ enabled = true
             pushed.padding.probability = value;
             assert!(pushed.validate("obf").is_err());
             for field in 0..3 {
-                let mut cfg = super::RecordizerConfig::default();
+                let mut cfg = super::RecordizerConfig {
+                    policy: "off".into(),
+                    ..Default::default()
+                };
                 match field {
                     0 => cfg.record.small_min_ratio = value,
                     1 => cfg.record.small_max_ratio = value,
@@ -1154,7 +1157,10 @@ enabled = true
         let mut pushed = super::PushedObf::default();
         pushed.padding.enabled = false;
         pushed.padding.probability = -10.0;
-        let mut recordizer = super::RecordizerConfig::default();
+        let mut recordizer = super::RecordizerConfig {
+            policy: "off".into(),
+            ..Default::default()
+        };
         recordizer.record.small_min_ratio = -10.0;
         recordizer.record.small_max_ratio = 42.0;
         recordizer.record.full_probability = 3.0;

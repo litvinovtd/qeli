@@ -35,7 +35,8 @@ mod tests {
             .contains("x-model=\"cfg.profiles[activeTab].obfuscation.recordizer.batch.mode\""));
         assert!(CONFIG_PAGE.contains("<option value=\"timed\">"));
         assert!(CONFIG_PAGE.contains("<option value=\"opportunistic\">"));
-        assert!(CONFIG_PAGE.contains("batch: { mode: 'opportunistic', delay_min_ms: 2, delay_max_ms: 8"));
+        assert!(CONFIG_PAGE
+            .contains("batch: { mode: 'opportunistic', delay_min_ms: 2, delay_max_ms: 8"));
         assert_eq!(CONFIG_PAGE.matches(":disabled=\"cfg.profiles[activeTab].obfuscation.recordizer.batch.mode === 'opportunistic'\"").count(), 2);
         assert!(CONFIG_PAGE.contains("for=\"recordizer-batch-mode\""));
         assert!(CONFIG_PAGE.contains("aria-describedby=\"recordizer-batch-mode-help\""));
