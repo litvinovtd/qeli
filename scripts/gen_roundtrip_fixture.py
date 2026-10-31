@@ -24,10 +24,16 @@ def read_keys():
     return keys, prefixes
 
 
-def embedded_fixture():
-    src = SRC.read_text(encoding="utf-8")
-    test = src.split("fn exhaustive_round_trip_every_server_key()", 1)[1]
-    return test.split('r####"', 1)[1].split('"####;', 1)[0].strip()
+def compiled_fixture():
+    # The current complete fixture is compiled by a cargo integration test. Keep
+    # generated test data out of production src/: updating coverage must not
+    # change the native-core build inputs. The older inline unit fixture remains
+    # an additional regression test, not the current all-key coverage authority.
+    test = (ROOT / "qeli/tests/server_roundtrip_fixture.rs").read_text(encoding="utf-8")
+    include = 'include_str!("../../test/fixtures/roundtrip_fixture_server.ini")'
+    if include not in test:
+        raise RuntimeError("the complete fixture must be compiled into the integration test")
+    return (ROOT / "test/fixtures/roundtrip_fixture_server.ini").read_text(encoding="utf-8").strip()
 
 
 # ---- the fixture -----------------------------------------------------------
@@ -65,6 +71,10 @@ routing.ipv6.mode = route
 routing.ipv6.interface = eth7
 routing.ipv6.ndp_proxy = required
 routing.ipv6.ndp_proxy_interface = eth7
+routing.ipv6.ndp_proxy_source = fe80::1234
+routing.ipv6.ndp_proxy_router = true
+routing.ipv6.ndp_proxy_override = true
+routing.ipv6.ndp_proxy_announce_interval_secs = 45
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.{n}.9.0/24 gateway=10.{n}.0.1 metric=42 desc=lan seg
@@ -87,6 +97,7 @@ dhcp.domain_name = lan.local
 obf.mode = obfs
 obf.obfs_key = shared-secret-{tag}
 obf.obfs_fronting = none
+obf.ws.host = front.example
 obf.tls.server_name = www.bing.com
 obf.tls.reality_proxy.enabled = true
 obf.tls.reality_proxy.target = www.apple.com
@@ -248,7 +259,7 @@ def build():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="check coverage and Rust fixture parity without writing files")
+    parser.add_argument("--check", action="store_true", help="check coverage and compiled integration-fixture parity without writing files")
     args = parser.parse_args()
     fixture = build()
     present = set(re.findall(r'^\s*([a-z_][a-z_.0-9]*)\s*=', fixture, re.M))
@@ -261,10 +272,10 @@ def main():
         print("MISSING from fixture: " + ", ".join(missing))
         raise SystemExit(1)
     if args.check:
-        if embedded_fixture() != fixture.strip():
-            print("Rust roundtrip fixture is stale; synchronize it with build() before trusting coverage")
+        if compiled_fixture() != fixture.strip():
+            print("Compiled roundtrip fixture is stale; regenerate it before trusting coverage")
             raise SystemExit(1)
-        print("PASS: all key names/families covered; embedded Rust fixture matches generator")
+        print("PASS: all key names/families covered; compiled Rust integration fixture matches generator")
         return
     out = ROOT / "test/fixtures/roundtrip_fixture_server.ini"
     out.parent.mkdir(parents=True, exist_ok=True)
