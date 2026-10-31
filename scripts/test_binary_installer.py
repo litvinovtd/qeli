@@ -51,6 +51,7 @@ class BinaryTests(unittest.TestCase):
         cls.stub('adduser', "printf 'qeli:x:234:234:qeli:/nonexistent:/bin/false\\n' >> /etc/passwd\nprintf 'qeli:x:234:\\n' >> /etc/group")
         cls.stub('useradd', 'exit 1')
         cls.stub('setcap', 'exit 0')
+        cls.stub('sysctl', 'exit 0')
         cls.stub('systemctl', 'printf "%s\\n" "$*" >> /records/systemctl.log')
         cls.stub('iptables', 'exit 0')
         cls.stub('ip6tables', 'exit 1')

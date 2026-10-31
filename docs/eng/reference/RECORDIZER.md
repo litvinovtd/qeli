@@ -33,6 +33,10 @@ record over UDP are separate mechanisms.
 The server sets `obf.recordizer.policy` in its profile; effective settings reach the
 client after authentication. There is no separate client `obf.recordizer.policy` key.
 
+Since 0.8.4 omitted keys mean `prefer` + `batch.mode=opportunistic`, consistently in
+the parser, new panel profiles and shipped templates. Upgrades do not rewrite
+explicit `off`, `required` or `timed`; reconnect sessions to change their mode.
+
 | Policy | Behavior |
 | --- | --- |
 | `off` | Legacy data plane: one encrypted record per inner packet |
@@ -71,8 +75,8 @@ Policy `off/prefer/required` controls negotiation. Separate
 
 | Mode | Algorithm | Trade-off |
 | --- | --- | --- |
-| `timed` (default) | First packet starts a random `delay_min_ms..delay_max_ms` deadline (2..8 ms); flush earlier at target/limits | Existing temporal morphology and better sparse ACK coalescing, with accumulation delay |
-| `opportunistic` | Writer drains bounded already-ready packets without waiting for future input; sends ready records and explicitly flushes the partial tail at batch completion | Almost removes accumulation delay; smaller batches increase processing/send costs |
+| `timed` | First packet starts a random `delay_min_ms..delay_max_ms` deadline (2..8 ms); flush earlier at target/limits | Existing temporal morphology and better sparse ACK coalescing, with accumulation delay |
+| `opportunistic` (default since 0.8.4) | Writer drains bounded already-ready packets without waiting for future input; sends ready records and explicitly flushes the partial tail at batch completion | Almost removes accumulation delay; smaller batches increase processing/send costs |
 
 This is not ACK suppression, wire V2 or unbounded accumulation. Opportunistic has
 no Recordizer deadline: callers must complete ready batches with `finish_ready_batch`.

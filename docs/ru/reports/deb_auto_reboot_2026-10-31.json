@@ -1,0 +1,538 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "date": "2026-10-31",
+  "purpose": "real deb install/upgrade/reboot defaults acceptance, not throughput A/B",
+  "source_base": "e3a430fd7ad0f9a2180bf9da7c4f91b728bcf26c",
+  "qualified_source_files_sha256": {
+    "qeli/debian/udp-buffer-limits": "fd75f508e71f5a8bc4d61eb1f66b23a22f695e0c56f9d2de948ba4450dbce53e",
+    "qeli/debian/60-qeli-udp-buffers.conf": "b703a45cde1e418d34536cb25e72f47d69888a2bcb9b3da89e406006160e45b6",
+    "qeli/debian/postinst": "65c6a88ca4523499c0c5ba2e1c38c8e37b7c3a2be90bf1229f638f9f7dc624c9",
+    "qeli/debian/preinst": "2283607c94fa2a0ebe707db329cefbb3fa65a32c6741798809e5a2b82202db64",
+    "qeli/debian/prerm": "e390dd020b23fab124b62338677c674fd47bed6a68c5bc9555d8c97ba985d832",
+    "qeli/debian/Makefile": "bd794c8245d3cbde9a6f0d4d5af136382e153d991f6d993e49de099c4a2a456a",
+    "qeli/debian/control": "2ad7d0070c71c6dcf1d01f4bcd4fe69bf7bd9354868b99c65590a198b486dc92",
+    "qeli/debian/qeli.service": "a06765e17580e021a5a932e8df39102242174272357732647e2dbe8c2452ac7d",
+    "qeli/tests/config_examples.rs": "6d39528ec23d53c79959859db5cb9ef0b43eb90510a5c78e9d9170e760441f3a",
+    "release/reality-tls/server-reality.conf": "f046542f415738c9f372e76a61e5602de0d8dd41e2c5316532307414cc13cb51",
+    "qeli/config/client-maxobf.conf": "e1440f33317118b4b3c081ef510e4272438d5e415ec367f40fab4378da97db83",
+    "qeli/config/client-reality.conf": "ebbf9d4c4cc48dcbf9c5b315186966815b6fabcaf0a9622e43edc8908b26e349",
+    "qeli/config/client.conf": "c0c9c8bb601618bdca0f5807336967be41a6f73b2e6e6669b5b0e90b69487ece",
+    "qeli/config/server-ipv6.conf": "0fd4788f3bbcb9212389bce16fb2900efa3bc9349c34bc2dba8c18a1deadab11",
+    "qeli/config/server-maxobf.conf": "c1a746465d1ed99ea661d86742a658eff0cdf4fd76940367b4e188940d1095d1",
+    "qeli/config/server-multiprofile.conf": "4c08965f77670718fc2b4aaf3af341cd5afd2c07ebbba5c9715a5cdd20002386",
+    "qeli/config/server.conf": "cce517d0b762be8cdfce3f8f9822229ed0c936933933838ff32600900c8a4a84",
+    "qeli/config/users.conf": "8f7e2481cbd17d2aa52e9639483bc4771b61406e04915c410d41d4b65cd3351f",
+    "qeli/src/config/mod.rs": "ad15024f5dd8f97cc0557e419989fb3fa3a65772410f87a1705343b6bfbbbe8f",
+    "qeli/src/config/server.rs": "afd3ed13453304a8c7191f6409b9f489d044cda9da80440e8d8b1f1ef5ce5e13",
+    "qeli/src/web/templates/config.html": "15e125be63b5861ca8d588f14efda1ff29cb256ec2caf0d43e43ba11d67de8a3",
+    "qeli/src/web/pages/config.rs": "33bb0d6f86a00420fe2caa6cf855897d9d80c097cdfa09af9adcae73da6cb666"
+  },
+  "arch": "amd64",
+  "glibc_max": "2.28",
+  "allocator": "jemalloc",
+  "artifacts": {
+    "qeli-linux-amd64": {
+      "sha256": "dc16ba813a5b6124dabfc4f8a105e3d3b0386a8a7b86bcdbd03655f37790c80d",
+      "bytes": 15300832
+    },
+    "qeli_0.8.4_amd64.deb": {
+      "sha256": "3f6d9d6951c76148642fbab5c93b3c95c97f93e6674706ad4d40c6db59f1c4e2",
+      "bytes": 5071372
+    }
+  },
+  "old_deb_sha256": "7afb2033fe3e0dba1f228b2c17b21574fc9eac3e4994e0fe635c8f4afe82291a",
+  "lab": {
+    "vcpu": 2,
+    "ram_gib": 2,
+    "kernel": "6.12.111+deb13-amd64",
+    "server_vm": 300,
+    "client_vm": 301
+  },
+  "recordizer": {
+    "policy": "prefer",
+    "batch_mode": "opportunistic",
+    "carrier": "UDP FakeTLS",
+    "inner_families": [
+      4,
+      6
+    ]
+  },
+  "stress": {
+    "windows": 8,
+    "offered_mbps": 800,
+    "seconds": 8,
+    "omit_seconds": 1,
+    "payload_bytes": 1200,
+    "iperf_socket_request_mib": 4,
+    "receiver_pauses_per_window": 2,
+    "pause_ms": 200,
+    "performance_reference": false
+  },
+  "cases": [
+    {
+      "label": "fresh-before-reboot",
+      "policy": "prefer",
+      "batch_mode": "opportunistic",
+      "ipv4": true,
+      "ipv6": true,
+      "os_limits": {
+        "server": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "1",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        },
+        "client": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "0",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        }
+      },
+      "sockets": {
+        "server": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        },
+        "client": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "fresh-after-reboot",
+      "policy": "prefer",
+      "batch_mode": "opportunistic",
+      "ipv4": true,
+      "ipv6": true,
+      "os_limits": {
+        "server": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "1",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        },
+        "client": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "0",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        }
+      },
+      "sockets": {
+        "server": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        },
+        "client": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "upgrade-before-reboot",
+      "policy": "prefer",
+      "batch_mode": "opportunistic",
+      "ipv4": true,
+      "ipv6": true,
+      "os_limits": {
+        "server": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "1",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        },
+        "client": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "0",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        }
+      },
+      "sockets": {
+        "server": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        },
+        "client": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "upgrade-after-reboot",
+      "policy": "prefer",
+      "batch_mode": "opportunistic",
+      "ipv4": true,
+      "ipv6": true,
+      "os_limits": {
+        "server": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "1",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        },
+        "client": {
+          "net.core.rmem_max": "16777216",
+          "net.core.wmem_max": "16777216",
+          "net.core.rmem_default": "212992",
+          "net.core.wmem_default": "212992",
+          "net.ipv4.ip_forward": "0",
+          "net.ipv6.conf.all.forwarding": "0",
+          "net.ipv6.conf.all.accept_ra": "1",
+          "net.ipv6.conf.default.accept_ra": "1",
+          "net.ipv4.conf.all.rp_filter": "0"
+        }
+      },
+      "sockets": {
+        "server": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            },
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        },
+        "client": {
+          "initial": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 4194304,
+              "receive_os_bytes": 8388608,
+              "receive_normalized_bytes": 4194304,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ],
+          "final": [
+            {
+              "mode": "auto",
+              "requested_receive_bytes": 16777216,
+              "receive_os_bytes": 33554432,
+              "receive_normalized_bytes": 16777216,
+              "auto_receive_cap_bytes": 16777216,
+              "receive_clamped": false
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "upgrade_configuration_preserved": true,
+  "reboots": [
+    {
+      "label": "fresh-installed",
+      "before": {
+        "server": "40e7697f-6cd0-4730-a8d8-aec7fb2d20f6",
+        "client": "803709a0-f209-4db2-9b7f-3e1fe37bea42"
+      },
+      "after": {
+        "server": "cb396ab3-55c7-40e2-9eef-253d9bdfcf81",
+        "client": "a6165b73-2873-492a-98a2-36479fce3123"
+      }
+    },
+    {
+      "label": "upgraded",
+      "before": {
+        "server": "cb396ab3-55c7-40e2-9eef-253d9bdfcf81",
+        "client": "a6165b73-2873-492a-98a2-36479fce3123"
+      },
+      "after": {
+        "server": "f226b52f-c74b-43bf-8298-0d9bfda2ee42",
+        "client": "6beb7a16-f277-4866-9071-5074006d58c4"
+      }
+    }
+  ],
+  "final_reboot": {
+    "before": {
+      "server": "f226b52f-c74b-43bf-8298-0d9bfda2ee42",
+      "client": "6beb7a16-f277-4866-9071-5074006d58c4"
+    },
+    "after": {
+      "server": "ffd9171d-cbe6-440d-81db-26c0e8ba7bd1",
+      "client": "66e32563-1f25-455e-8b58-501853c64fe9"
+    }
+  },
+  "restoration": {
+    "server": {
+      "status": "restored",
+      "checks": {
+        "files": true,
+        "packages": true,
+        "sysctls": true,
+        "accounts": true,
+        "old_opt": true,
+        "cpus": true,
+        "kernel": true,
+        "no_qeli": true,
+        "no_tun": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    },
+    "client": {
+      "status": "restored",
+      "checks": {
+        "files": true,
+        "packages": true,
+        "sysctls": true,
+        "accounts": true,
+        "old_opt": true,
+        "cpus": true,
+        "kernel": true,
+        "no_qeli": true,
+        "no_tun": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    }
+  },
+  "raw": {
+    "lab": "/opt/qeli-release-short-deb-auto-reboot-20261031-r02",
+    "build": "/opt/qeli-deb-auto-reboot-20261031-r01"
+  },
+  "preserved_failures": [
+    "r01: lab DNS-address substitution; restored and independently verified",
+    "r01: immediate SSH disconnect during reboot; reboot waiting fixed",
+    "r02 cleanup: empty ACCEPT tables and tc bytes/s vs bits/s readback; corrected without rerunning windows"
+  ]
+}

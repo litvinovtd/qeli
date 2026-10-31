@@ -2061,8 +2061,8 @@ function configPage() {
           padding: {}, fragmentation: {}, heartbeat: {},
           traffic_normalization: {}, traffic_shaping: {},
           recordizer: {
-            policy: 'off',
-            batch: { mode: 'timed', delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 },
+            policy: 'prefer',
+            batch: { mode: 'opportunistic', delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 },
             record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 },
             fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 },
           },

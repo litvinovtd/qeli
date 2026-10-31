@@ -65,6 +65,27 @@ limit change, recreate the socket by reconnecting/restarting its listener for
 reliable application. Larger buffers absorb brief stalls, not sustained overload
 or hypervisor CPU steal.
 
+## Linux installation and upgrade
+
+[31 October installation/upgrade and Recordizer-default audit](../reports/UDP-INSTALL-DEFAULTS-2026-10-31.md).
+
+[Actual .deb installation/upgrade and VM300/301 reboot](../reports/DEB-AUTO-REBOOT-2026-10-31.md):
+auto 4→16 MiB and prefer/opportunistic confirmed before/after reboot; guests restored.
+
+The full installer sets rmem/wmem max to 16 MiB. Since 0.8.4, the `.deb` also
+ships `/usr/lib/sysctl.d/60-qeli-udp-buffers.conf`; `postinst configure` raises
+only lower runtime ceilings to 16777216 on first install and every upgrade,
+then verifies readback. Higher current ceilings are retained. The package does
+not enlarge every socket default. Kernel/container refusal is a warning, not
+a successful setup. Administrator rules in `/etc/sysctl.d` may override packaged
+values after reboot.
+
+Client and server use auto when receive keys are absent, with no manual tuning.
+Explicit fixed/0 settings are not migrated; Recordizer is server-pushed, defaulting
+to `prefer` + `opportunistic` in 0.8.4. Upgrades preserve existing config files.
+This covers ordinary Linux `.deb`/full installations, not control over Android/iOS
+or router firmware limits, which remain platform-managed.
+
 ## Size diagnostics
 
 Socket creation/state changes log `UDP socket buffers: {…}` with:

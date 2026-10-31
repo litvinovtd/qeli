@@ -105,6 +105,9 @@ stage: check-abi
 	install -m644 49-qeli.rules $(DEB_DIR)/etc/polkit-1/rules.d/49-qeli.rules
 	install -m755 preinst $(DEB_DIR)/DEBIAN/preinst
 	install -m755 postinst $(DEB_DIR)/DEBIAN/postinst
+	install -d $(DEB_DIR)/usr/lib/qeli $(DEB_DIR)/usr/lib/sysctl.d
+	install -m755 udp-buffer-limits $(DEB_DIR)/usr/lib/qeli/udp-buffer-limits
+	install -m644 60-qeli-udp-buffers.conf $(DEB_DIR)/usr/lib/sysctl.d/60-qeli-udp-buffers.conf
 	install -m755 prerm    $(DEB_DIR)/DEBIAN/prerm
 	install -m755 config    $(DEB_DIR)/DEBIAN/config
 	install -m644 templates $(DEB_DIR)/DEBIAN/templates

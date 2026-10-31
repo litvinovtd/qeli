@@ -169,9 +169,9 @@ impl ProfileConfig {
     }
 
     /// Defaults for a newly installed or operator-created profile. This is intentionally
-    /// separate from [`Self::baseline`]: old configs that omit roaming/recordizer settings
-    /// retain their legacy behaviour, while every new profile opts into negotiated roaming
-    /// and PACKET_MUX_V1 with a safe legacy-client fallback.
+    /// separate from [`Self::baseline`] for roaming compatibility. Both paths default
+    /// to negotiated PACKET_MUX_V1 with opportunistic batching; explicit legacy
+    /// Recordizer settings are retained by the parser.
     pub fn new_profile() -> Self {
         let mut profile = Self::baseline();
         profile.roaming.enabled = true;
@@ -185,14 +185,16 @@ mod profile_default_tests {
     use super::ProfileConfig;
 
     #[test]
-    fn new_profiles_enable_roaming_and_prefer_recordizer_without_changing_legacy_baseline() {
+    fn new_and_sparse_profiles_prefer_opportunistic_recordizer() {
         let baseline = ProfileConfig::baseline();
         assert!(!baseline.roaming.enabled);
-        assert_eq!(baseline.obfuscation.recordizer.policy, "off");
+        assert_eq!(baseline.obfuscation.recordizer.policy, "prefer");
+        assert_eq!(baseline.obfuscation.recordizer.batch.mode, "opportunistic");
 
         let created = ProfileConfig::new_profile();
         assert!(created.roaming.enabled);
         assert_eq!(created.obfuscation.recordizer.policy, "prefer");
+        assert_eq!(created.obfuscation.recordizer.batch.mode, "opportunistic");
     }
 }
 

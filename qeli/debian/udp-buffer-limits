@@ -1,0 +1,40 @@
+#!/bin/sh
+# Install/upgrade only: permit Qeli's bounded UDP auto without tuning live sessions.
+# Do not use sysctl --system: it would reapply unrelated administrator settings.
+set -u
+if [ "$(id -u)" != 0 ]; then
+    echo 'qeli: UDP buffer limits require installation as root' >&2
+    exit 1
+fi
+if ! command -v sysctl >/dev/null 2>&1; then
+    echo 'qeli: sysctl unavailable; UDP auto may be capped by the OS' >&2
+    exit 1
+fi
+failed=0
+for key in net.core.rmem_max net.core.wmem_max; do
+    old=$(sysctl -n "$key" 2>/dev/null) || old=''
+    case "$old" in
+        ''|*[!0-9]*)
+            echo "qeli: cannot read $key; no runtime write attempted" >&2
+            failed=1
+            continue ;;
+    esac
+    if [ "$old" -lt 16777216 ]; then
+        if ! sysctl -w "$key=16777216"; then
+            echo "qeli: could not raise $key (previous $old)" >&2
+            failed=1
+        fi
+    fi
+    actual=$(sysctl -n "$key" 2>/dev/null) || actual=''
+    case "$actual" in
+        ''|*[!0-9]*) failed=1 ;;
+        *)
+            if [ "$actual" -ge 16777216 ]; then
+                echo "qeli: UDP auto limit verified: $key=$actual (previous $old)"
+                continue
+            fi
+            failed=1 ;;
+    esac
+    echo "qeli: $key readback insufficient/unavailable; UDP auto is not fully enabled" >&2
+done
+exit "$failed"

@@ -516,6 +516,7 @@ dns.listen_ipv6 = fd71:e1:8000:100::1
 dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 obf.mode = fake-tls
 obf.recordizer.policy = prefer
+obf.recordizer.batch.mode = opportunistic
 obf.recordizer.batch.delay_min_ms = 2
 obf.recordizer.batch.delay_max_ms = 8
 obf.recordizer.batch.max_packets = 16
@@ -3444,8 +3445,8 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
-| `obf.recordizer.policy` | `off` | `off` — legacy data-plane; `prefer` — включить с клиентом, поддерживающим `PACKET_MUX_V1`, иначе legacy; `required` — отклонить несовместимый клиент до выдачи адреса |
-| `obf.recordizer.batch.mode` | `timed` | `timed` — прежняя временная маскировка; `opportunistic` — объединение уже готовых пакетов без ожидания будущих |
+| `obf.recordizer.policy` | `prefer` | `off` — legacy data-plane; `prefer` — включить с клиентом, поддерживающим `PACKET_MUX_V1`, иначе legacy; `required` — отклонить несовместимый клиент до выдачи адреса |
+| `obf.recordizer.batch.mode` | `opportunistic` | `timed` — прежняя временная маскировка; `opportunistic` — объединение уже готовых пакетов без ожидания будущих |
 | `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | случайное окно ожидания в `timed`; в `opportunistic` значения сохраняются, но не создают ожидания |
 | `obf.recordizer.batch.max_packets` | `16` | максимум mux-фреймов (в том числе фрагментов) в одной записи |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | жёсткий предел памяти очереди на направление (`64..=4194304`) |
@@ -3459,9 +3460,9 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 | `obf.recordizer.fragment.max_fragments_per_packet` | `64` | максимум частей одного IP-пакета |
 
 Конфигурация задаётся только на сервере и передаётся клиенту внутри аутентифицированного `AUTH OK`;
-отдельные клиентские ключи не нужны. Разреженный schema-baseline остаётся `off` для существующих
-конфигов без этого ключа, а поставляемые шаблоны, Quick Start и новые профили из панели используют
-`prefer`: обновлённые клиенты получают новую форму без поломки legacy-клиентов. После обновления
+отдельные клиентские ключи не нужны. С 0.8.4 отсутствие ключей означает `prefer` +
+`opportunistic`, как в поставляемых шаблонах и новых профилях панели. Явные `off`,
+`required` и `timed` при обновлении не переписываются. После обновления
 всего парка можно перейти на `required`; изменение действует для новых сессий и требует reconnect.
 При `policy = off` вложенные значения `batch`, `record` и `fragment` неактивны: они сохраняются,
 не блокируя независимое сохранение панели, и снова строго проверяются после переключения на
@@ -3470,7 +3471,7 @@ TCP `plain`, `fake-tls`, `reality-tls`, `obfs`/WebSocket/AWG и UDP `fake-tls`, 
 
 Низкая латентность включается в существующем серверном профиле ключом
 `obf.recordizer.batch.mode = opportunistic` при активной policy `prefer/required`.
-Default — `timed`; отдельного клиентского ключа нет. Обновите оба ядра и переподключите
+Default с 0.8.4 — `opportunistic`; отдельного клиентского ключа нет. Обновите оба ядра и переподключите
 сессии: старый `PACKET_MUX_V1` клиент может проигнорировать новый режим. В панели
 режим доступен в блоке PACKET_MUX recordizer. `opportunistic` отправляет уже готовую
 ограниченную пачку и её хвост без ожидания будущих пакетов; в Reality-TLS также

@@ -967,7 +967,7 @@ WAN остановите профиль и подтвердите успешну
    это иная стратегия отправки.
 
 Новый режим почти убрал лабораторное ожидание накопления, **ценой около 8–9% TCP
-upload FakeTLS**, не всех профилей. Default остаётся `timed`. Pacing/backpressure
+upload FakeTLS**, не всех профилей. С 0.8.4 default — `opportunistic`; явный `timed` сохраняется. Pacing/backpressure
 сохраняются, прежняя DPI-устойчивость не гарантируется. Финальный dist требует
 собственного теста SHA. [Методика, графики и результаты](../reports/benchmarks/recordizer_latency_2026-10-29.md),
 [контракт режима](../reference/RECORDIZER.md).

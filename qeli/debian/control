@@ -5,7 +5,7 @@ Section: net
 Priority: optional
 Maintainer: Qeli Team <team@qeli.dev>
 Homepage: https://qeli.ru
-Depends: adduser, libc6 (>= 2.28), libgcc-s1, iptables, iproute2, libcap2-bin, debconf (>= 0.5) | debconf-2.0
+Depends: adduser, libc6 (>= 2.28), libgcc-s1, iptables, iproute2, procps, libcap2-bin, debconf (>= 0.5) | debconf-2.0
 Suggests: systemd-resolved
 Description: Obfuscated VPN with custom protocol and traffic masking
  A point-to-point VPN with a custom TLS-like handshake, ChaCha20-Poly1305

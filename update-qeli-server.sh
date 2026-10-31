@@ -6,6 +6,8 @@
 # your /etc/qeli state — server.conf, users.conf, the identity key and the client
 # links are all preserved (the package ships only the *.example config, not your
 # generated one). Safe to re-run; a no-op when you are already on the newest build.
+# Package configure hooks may raise UDP socket ceilings to the 16 MiB auto floor;
+# higher runtime ceilings and explicit Qeli configuration values are preserved.
 #
 # It mirrors the installer's release handling: newest GitHub release (pre-releases
 # included), SHA256-verified before install. If the new build fails to start it rolls

@@ -50,6 +50,14 @@ printf 'qeli:x:234:234:qeli:/nonexistent:/bin/false\\n' >> /etc/passwd
 printf 'qeli:x:234:\\n' >> /etc/group
 ''')
         cls.stub('setcap', "printf '%s\\n' \"$*\" >> /records/setcap")
+        # Real packaged UDP helper, isolated sysctl backend (never the host kernel).
+        cls.stub('sysctl', '''case "$1" in
+ -n) cat /records/"$2" ;;
+ -w) printf '%s\\n' "${2#*=}" > /records/"${2%%=*}" ;;
+ *) exit 2 ;;
+esac''')
+        for key in ('net.core.rmem_max','net.core.wmem_max'):
+            (cls.base/'records'/key).write_text('212992\n')
         cls.stub('systemctl', '''printf '%s\\n' "$*" >> /records/systemctl.log
 [ "$1" != stop ] || [ "$(cat /records/mode)" != stop_fail ]
 ''')
@@ -100,7 +108,7 @@ fi
         # Admit the production dependency expression with explicit inert packages,
         # without --force-depends. These qualify maintainer scripts, not dependencies.
         deps = []
-        for name in ['adduser', 'libc6', 'libgcc-s1', 'iptables', 'iproute2', 'libcap2-bin', 'debconf']:
+        for name in ['adduser', 'libc6', 'libgcc-s1', 'iptables', 'iproute2', 'procps', 'libcap2-bin', 'debconf']:
             stage = Path(cls.workspace.name) / ('dep-' + name)
             (stage / 'DEBIAN').mkdir(parents=True)
             (stage / 'DEBIAN/control').write_text(f'Package: {name}\nVersion: 99\nArchitecture: all\nMaintainer: Audit <audit@localhost>\nDescription: inert dependency seam\n')
@@ -160,6 +168,25 @@ fi
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(before, self.snapshot())
         self.assertEqual(self.status(), 'install ok installed 0.8.2')
+
+    def test_udp_limits_delivered_and_verified_on_install_and_upgrade(self):
+        before=self.snapshot()
+        first=self.install('0.8.1')
+        self.assertEqual(first.returncode,0,first.stderr)
+        for key in ('net.core.rmem_max','net.core.wmem_max'):
+            self.assertEqual((self.root/'records'/key).read_text(),'16777216\n')
+            # Simulate an older installation's lower ceiling before upgrading.
+            (self.root/'records'/key).write_text('212992\n')
+        upgraded=self.install()
+        self.assertEqual(upgraded.returncode,0,upgraded.stderr)
+        self.assertEqual(upgraded.stdout.count('limit verified'),2)
+        self.assertEqual(before,self.snapshot())
+        self.assertTrue(os.access(self.root/'usr/lib/qeli/udp-buffer-limits',os.X_OK))
+        policy=self.root/'usr/lib/sysctl.d/60-qeli-udp-buffers.conf'
+        self.assertTrue(policy.is_file())
+        for key in ('net.core.rmem_max','net.core.wmem_max'):
+            self.assertEqual((self.root/'records'/key).read_text(),'16777216\n')
+            self.assertIn(key+' = 16777216',policy.read_text())
 
     def test_dangling_users_refused_without_target(self):
         users = self.root / 'etc/qeli/users.conf'

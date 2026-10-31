@@ -38,10 +38,14 @@ fi
 if [[ "$mode" == restore_deps ]]; then
  /usr/bin/cp /fixtures/ip /usr/local/bin/ip
 fi
+if [[ "$mode" == restore_sysctl ]]; then
+ /usr/bin/cp /fixtures/sysctl /usr/local/bin/sysctl
+fi
 exit 0''')
         cls.stub('dpkg', r'''if [[ "$1" == -i && "$(< /records/mode)" == repair_false ]]; then exit 1; fi
 exec /usr/bin/dpkg "$@"''')
         shutil.copy2(cls.base / 'usr/local/bin/ip', cls.base / 'fixtures/ip')
+        shutil.copy2(cls.base / 'usr/local/bin/sysctl', cls.base / 'fixtures/sysctl')
         (cls.base / 'etc/ssl/certs').mkdir(parents=True)
         (cls.base / 'etc/ssl/certs/ca-certificates.crt').write_text('fixture CA availability only\n')
         stage = Path(cls.workspace.name) / 'broken-dependency'; (stage / 'DEBIAN').mkdir(parents=True)
@@ -93,6 +97,12 @@ exec /usr/bin/dpkg "$@"''')
         (self.root / 'usr/local/bin/ip').unlink(); self.mode('restore_deps')
         p = self.deps(); self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((self.root / 'records/apt.log').read_text().splitlines(), ['update -y', 'install -y --no-install-recommends iproute2'])
+
+    def test_missing_sysctl_installs_procps_and_rechecks(self):
+        (self.root/'usr/local/bin/sysctl').unlink();self.mode('restore_sysctl')
+        p=self.deps();self.assertEqual(p.returncode,0,p.stderr)
+        self.assertEqual((self.root/'records/apt.log').read_text().splitlines(),
+                         ['update -y','install -y --no-install-recommends procps'])
 
     def test_failed_index_refuses_before_package_publish(self):
         (self.root / 'usr/local/bin/ip').unlink(); self.mode('update_fail')

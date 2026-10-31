@@ -356,8 +356,8 @@ _ensure_installer_deps(){
      || { [ -n "${QELI_BIN:-}" ] && [ -z "${QELI_SRC:-}" ]; }; then
     remote=1
   fi
-  for cmd in iptables ip openssl; do
-    case "$cmd" in iptables) pkg=iptables ;; ip) pkg=iproute2 ;; openssl) pkg=openssl ;; esac
+  for cmd in iptables ip openssl sysctl; do
+    case "$cmd" in iptables) pkg=iptables ;; ip) pkg=iproute2 ;; openssl) pkg=openssl ;; sysctl) pkg=procps ;; esac
     checks+=("$cmd")
     command -v "$cmd" >/dev/null 2>&1 || missing+=("$pkg")
   done
@@ -666,6 +666,12 @@ _apply_perf_tuning(){
     case "$key" in ''|'#'*) continue ;; esac
     if previous="$(sysctl -n "$key" 2>> "$PERF_RECEIPT/apply.log")" && [ -n "$previous" ] && [[ "$previous" != *$'\n'* ]]; then
       printf '%s=%s\n' "$key" "$previous" >> "$PERF_RECEIPT/runtime.before"
+      # UDP auto needs a floor, not a reason to lower an administrator's ceiling.
+      case "$key" in net.core.rmem_max|net.core.wmem_max)
+        if [[ "$previous" =~ ^[0-9]+$ ]] && (( previous > desired )); then
+          sed -i "s/^${key}=.*/${key}=${previous}/" "$PERF_RECEIPT/requested.conf"
+        fi ;;
+      esac
     else
       printf '%s: previous value unavailable; runtime write skipped\n' "$key" >> "$PERF_RECEIPT/apply.log"
     fi

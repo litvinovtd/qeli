@@ -155,6 +155,7 @@ fn every_shipped_server_profile_enables_roaming_explicitly() {
 fn every_shipped_server_profile_spells_out_the_balanced_recordizer_block() {
     const KEYS: &[&str] = &[
         "obf.recordizer.policy",
+        "obf.recordizer.batch.mode",
         "obf.recordizer.batch.delay_min_ms",
         "obf.recordizer.batch.delay_max_ms",
         "obf.recordizer.batch.max_packets",
@@ -206,6 +207,19 @@ fn every_shipped_server_profile_spells_out_the_balanced_recordizer_block() {
                 .find(|(key, _)| key == "obf.recordizer.policy")
                 .map(|(_, value)| value.as_str());
             assert_eq!(policy, Some("prefer"), "{name} {}", profile.header());
+            let mode = profile
+                .entries
+                .iter()
+                .find(|(key, _)| key == "obf.recordizer.batch.mode")
+                .map(|(_, value)| value.as_str());
+            assert_eq!(mode, Some("opportunistic"), "{name} {}", profile.header());
+            let cfg = ServerConfig::from_ini(&doc).unwrap();
+            for parsed in &cfg.profiles {
+                assert!(
+                    parsed.performance.udp.recv_buffer_auto,
+                    "{name}: shipped UDP profiles must retain auto receive buffers"
+                );
+            }
         }
         assert!(count > 0, "{name} contains no server profile");
     }

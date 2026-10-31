@@ -966,7 +966,7 @@ Additional release package qualification confirms VPN traffic through systemd af
    that is a different forwarding strategy.
 
 The new strategy almost removed lab accumulation delay **at around 8–9% FakeTLS TCP
-upload cost**, not for every profile. The default remains `timed`. Pacing/backpressure
+upload cost**, not for every profile. Since 0.8.4 the default is `opportunistic`; explicit `timed` is retained. Pacing/backpressure
 still apply and unchanged DPI resistance is not guaranteed. Final dist needs its own
 SHA-specific test. [Method, charts and results](../reports/benchmarks/recordizer_latency_2026-10-29.md),
 [mode contract](../reference/RECORDIZER.md).

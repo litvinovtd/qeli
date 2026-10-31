@@ -79,8 +79,8 @@ after every client core is upgraded; an old client is then rejected before addre
 
 | Key | Default | Meaning and limits |
 |---|---:|---|
-| `obf.recordizer.policy` | `off` in the sparse schema baseline; `prefer` in shipped and newly created profiles | `off`, `prefer`, or `required`; negotiation policy described above |
-| `obf.recordizer.batch.mode` | `timed` | `timed` retains the randomized wait; `opportunistic` groups already-ready packets and immediately flushes the bounded batch tail |
+| `obf.recordizer.policy` | `prefer` (0.8.4+) | `off`, `prefer`, or `required`; negotiation policy described above |
+| `obf.recordizer.batch.mode` | `opportunistic` | `timed` retains the randomized wait; `opportunistic` groups already-ready packets and immediately flushes the bounded batch tail |
 | `obf.recordizer.batch.delay_min_ms` | `2` | lower bound of the random flush deadline in `timed` mode |
 | `obf.recordizer.batch.delay_max_ms` | `8` | upper `timed` deadline; must be at least `delay_min_ms`; `0/0` flushes each push, unlike opportunistic batching |
 | `obf.recordizer.batch.max_packets` | `16` | maximum mux frames placed in one record; must be greater than zero |
@@ -109,7 +109,7 @@ obf.recordizer.batch.mode = opportunistic
 ```
 
 An already negotiated `prefer` policy need not change for batching. This is not a
-complete profile. The default stays `timed`. Both server **and** client cores need
+complete profile. The default since 0.8.4 is `opportunistic`; explicit `timed` is retained. Both server **and** client cores need
 support; an older client's `PACKET_MUX_V1` capability alone does not prove support
 for this field. Apply configuration through the normal lifecycle and reconnect;
 check active mux and `Recordizer batching: opportunistic` logs at both ends.

@@ -1249,22 +1249,51 @@ fn default_round_sizes() -> Vec<u16> {
     vec![64, 128, 256, 512, 1024, 1500]
 }
 fn default_recordizer_policy() -> String {
-    "off".into()
+    "prefer".into()
 }
 fn default_recordizer_delay_min() -> u64 {
     2
 }
 fn default_recordizer_batch_mode() -> String {
-    "timed".into()
+    "opportunistic".into()
 }
 
 #[cfg(test)]
 mod recordizer_batch_mode_tests {
     use super::*;
     #[test]
-    fn absent_mode_is_timed_and_unknown_mode_is_rejected() {
+    fn absent_mode_is_opportunistic_and_explicit_modes_are_preserved() {
         let batch: RecordizerBatchConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(batch.mode, "timed");
+        assert_eq!(batch.mode, "opportunistic");
+        let defaults: RecordizerConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults.policy, "prefer");
+        assert_eq!(RecordizerConfig::default().batch.mode, "opportunistic");
+        let explicit: RecordizerConfig =
+            serde_json::from_str(r#"{"policy":"off","batch":{"mode":"timed"}}"#).unwrap();
+        assert_eq!(explicit.policy, "off");
+        assert_eq!(explicit.batch.mode, "timed");
+        let doc = format::IniDoc::parse("[profile:test]\ntransport = udp\n").unwrap();
+        let sparse = server::ServerConfig::from_ini(&doc).unwrap();
+        assert_eq!(sparse.profiles[0].obfuscation.recordizer.policy, "prefer");
+        assert_eq!(
+            sparse.profiles[0].obfuscation.recordizer.batch.mode,
+            "opportunistic"
+        );
+        assert!(sparse.profiles[0].performance.udp.recv_buffer_auto);
+        for policy in ["off", "required", "prefer"] {
+            let text = format!("[profile:test]\ntransport = udp\nobf.recordizer.policy = {policy}\nobf.recordizer.batch.mode = timed\nperf.udp.recv_buffer_size = 4194304\n");
+            let doc = format::IniDoc::parse(&text).unwrap();
+            let cfg = server::ServerConfig::from_ini(&doc).unwrap();
+            let saved = cfg.to_ini_string();
+            let restored =
+                server::ServerConfig::from_ini(&format::IniDoc::parse(&saved).unwrap()).unwrap();
+            assert_eq!(restored.profiles[0].obfuscation.recordizer.policy, policy);
+            assert_eq!(
+                restored.profiles[0].obfuscation.recordizer.batch.mode,
+                "timed"
+            );
+            assert!(!restored.profiles[0].performance.udp.recv_buffer_auto);
+        }
         let mut cfg = RecordizerConfig {
             policy: "required".into(),
             ..Default::default()

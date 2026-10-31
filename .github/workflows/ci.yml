@@ -157,6 +157,8 @@ jobs:
         run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_secrets.py
       - name: Installer kernel tuning failure and recovery fixtures
         run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_tuning.py
+      - name: UDP install and upgrade defaults in isolated chroots
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_udp_install_defaults.py
       - name: Installer and Debian private state ownership
         run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_service_state_ownership.py
       - name: Installer and updater legacy CLI version discovery

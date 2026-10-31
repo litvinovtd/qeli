@@ -519,6 +519,7 @@ dns.listen_ipv6 = fd71:e1:8000:100::1
 dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 obf.mode = fake-tls
 obf.recordizer.policy = prefer
+obf.recordizer.batch.mode = opportunistic
 obf.recordizer.batch.delay_min_ms = 2
 obf.recordizer.batch.delay_max_ms = 8
 obf.recordizer.batch.max_packets = 16
@@ -3464,8 +3465,8 @@ boundaries, and can split one IP packet across several inner records.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `obf.recordizer.policy` | `off` | `off` — legacy data plane; `prefer` — enable with a `PACKET_MUX_V1` client, otherwise legacy; `required` — reject an incompatible client before allocating an address |
-| `obf.recordizer.batch.mode` | `timed` | `timed` retains temporal morphology; `opportunistic` batches ready input without waiting for future packets |
+| `obf.recordizer.policy` | `prefer` | `off` — legacy data plane; `prefer` — enable with a `PACKET_MUX_V1` client, otherwise legacy; `required` — reject an incompatible client before allocating an address |
+| `obf.recordizer.batch.mode` | `opportunistic` | `timed` retains temporal morphology; `opportunistic` batches ready input without waiting for future packets |
 | `obf.recordizer.batch.delay_min_ms` / `delay_max_ms` | `2` / `8` | randomized wait in `timed`; retained but not used for waiting in `opportunistic` |
 | `obf.recordizer.batch.max_packets` | `16` | maximum mux frames (including fragments) per record |
 | `obf.recordizer.batch.max_queue_bytes` | `262144` | hard per-direction queue-memory limit (`64..=4194304`) |
@@ -3479,9 +3480,9 @@ boundaries, and can split one IP packet across several inner records.
 | `obf.recordizer.fragment.max_fragments_per_packet` | `64` | maximum fragments for one IP packet |
 
 Only the server owns these values and pushes them inside authenticated `AUTH OK`; no client-side
-recordizer keys are required. The sparse schema baseline remains `off` for existing configs that
-omit the key, while shipped templates, Quick Start and profiles newly added in the panel use
-`prefer` so current clients get the new shape without breaking legacy clients. After the whole fleet
+recordizer keys are required. Since 0.8.4, omitted keys mean `prefer` +
+`opportunistic`, matching shipped templates and new panel profiles. Explicit `off`,
+`required` and `timed` settings are not rewritten by upgrades. After the whole fleet
 is upgraded an operator may switch to `required`. Negotiation is per-session, so a config
 change requires reconnecting sessions, not merely editing the file.
 When `policy = off`, the nested `batch`, `record` and `fragment` values are dormant: they are
@@ -3490,7 +3491,7 @@ preserved without blocking an unrelated panel save and are validated again when 
 
 Enable low latency in an existing server profile with
 `obf.recordizer.batch.mode = opportunistic`, with an active `prefer/required` policy.
-The default remains `timed`; there is no client key. Update both cores and reconnect:
+Since 0.8.4 the default is `opportunistic`; there is no client key. Update both cores and reconnect:
 an older `PACKET_MUX_V1` client may ignore the new mode. The panel exposes it in
 PACKET_MUX recordizer. Opportunistic sends bounded ready batches and their tails
 without waiting for future packets. Reality-TLS also removes post-AUTH H2 DATA

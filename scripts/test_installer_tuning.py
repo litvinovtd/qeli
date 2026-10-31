@@ -81,6 +81,15 @@ esac''')
         self.assertEqual((self.root/'records/kernel/net.core.rmem_max').read_text(),'old_net.core.rmem_max\n')
         self.assertTrue((self.receipts()[0]/'runtime.before').read_text().count('=')==11)
 
+    def test_udp_auto_ceilings_are_floors_not_downgrades(self):
+        for key in ('net.core.rmem_max', 'net.core.wmem_max'):
+            (self.root/'records/kernel'/key).write_text('67108864\n')
+        p=self.tune();self.assertEqual(p.returncode,0,p.stderr)
+        self.assertIn('applied and verified (11/11',p.stdout)
+        for key in ('net.core.rmem_max', 'net.core.wmem_max'):
+            self.assertEqual((self.root/'records/kernel'/key).read_text(),'67108864\n')
+            self.assertIn(key+'=67108864', (self.root/'etc/sysctl.d/99-qeli-perf.conf').read_text())
+
     def test_successful_command_without_effect_is_detected(self):
         (self.root/'records/mode').write_text('mismatch')
         p=self.tune();self.assertEqual(p.returncode,0,p.stderr)

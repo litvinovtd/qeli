@@ -78,8 +78,8 @@ AUTH. Клиентских ключей `obf.recordizer.*` нет, qeli-ссыл
 
 | Ключ | Дефолт | Назначение и ограничения |
 |---|---:|---|
-| `obf.recordizer.policy` | `off` в разреженном schema-baseline; `prefer` в поставляемых и новых профилях | `off`, `prefer` или `required`; политика согласования описана выше |
-| `obf.recordizer.batch.mode` | `timed` | `timed` сохраняет случайное ожидание; `opportunistic` объединяет только уже готовые пакеты и сразу отправляет остаток ограниченного batch |
+| `obf.recordizer.policy` | `prefer` (0.8.4+) | `off`, `prefer` или `required`; политика согласования описана выше |
+| `obf.recordizer.batch.mode` | `opportunistic` | `timed` сохраняет случайное ожидание; `opportunistic` объединяет только уже готовые пакеты и сразу отправляет остаток ограниченного batch |
 | `obf.recordizer.batch.delay_min_ms` | `2` | нижняя граница случайного flush deadline в режиме `timed` |
 | `obf.recordizer.batch.delay_max_ms` | `8` | верхняя граница deadline `timed`; не меньше `delay_min_ms`; `0/0` отправляет каждый push сразу, в отличие от opportunistic batch |
 | `obf.recordizer.batch.max_packets` | `16` | максимум mux-фреймов в одной записи; строго больше нуля |
@@ -110,7 +110,7 @@ obf.recordizer.batch.mode = opportunistic
 ```
 
 Если policy уже согласована как `prefer`, менять её ради batching не обязательно.
-Это не полный профиль. Default `timed` сохранён. Новый режим требует поддержки
+Это не полный профиль. Default с 0.8.4 — `opportunistic`; явно заданный `timed` сохраняется. Новый режим требует поддержки
 на сервере **и** клиенте; capability `PACKET_MUX_V1` старого клиента сама по себе
 не гарантирует поддержку поля. Примените конфиг штатно и переподключитесь;
 проверьте активный mux и лог `Recordizer batching: opportunistic` на обеих сторонах.

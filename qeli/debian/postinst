@@ -25,6 +25,13 @@ case "$1" in
             exit 1
         fi
 
+        # Runs on first install AND upgrades, including update-qeli-server.sh.
+        # The packaged sysctl.d defaults persist across reboot. Preserve higher
+        # current ceilings and report denied/clipped writes instead of false PASS.
+        if ! /usr/lib/qeli/udp-buffer-limits; then
+            echo 'qeli: WARNING: UDP auto is limited by the OS; inspect the messages above and socket readback' >&2
+        fi
+
         if ! getent passwd qeli > /dev/null 2>&1; then
             adduser --system --group --no-create-home qeli
         fi
