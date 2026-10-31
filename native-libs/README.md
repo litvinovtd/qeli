@@ -18,11 +18,15 @@
 
 ## Содержимое
 
-Пересборка 31 октября 2026 для `dev` 0.8.4: Windows x64, macOS universal2
-и обе Android ABI собраны из одного чистого source cut `7a949489`,
-source digest `7d5469261764d8925c095c580bbf81a2de7aeb9672d49de5f997ac373c4abed6`.
+Повторная пересборка 31 октября 2026 для `dev` 0.8.4 после сжатия CLI-лицензий:
+Windows x64, macOS universal2 и обе Android ABI собраны из одного чистого
+source cut `32312291`, source digest
+`8e5226ae18230e9058c662be4a5d5311f382861a2491491ad857c29855a9aac0`.
 Независимые A/B совпали побайтово; проверены ABI 1.17 exports и canonical/consumed пары.
-С новой Windows DLL прошли 671 managed conformance-проверка, включая отсутствие
+Все четыре бинарника также совпали с предыдущим набором из `7a949489`: CLI-декодер
+не входит в FFI. Это результат свежей полной A/B-пересборки, а не переноса старого
+evidence на новый digest. Windows managed conformance self-test с этой DLL
+завершился `ALL PASS` (671 проверка), включая отсутствие
 аллокаций текста при повторном чтении неизменного лога (0 B в измеренном цикле).
 Результаты сборок: [desktop](reproducibility/desktop.json) и
 [Android](reproducibility/android.json). Это обновление native cores, не публикация
