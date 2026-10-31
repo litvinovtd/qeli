@@ -1676,16 +1676,31 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 )> {
     let server_kp = Keypair::generate();
     let plain = pcfg.obfuscation.mode == "plain" || inner_raw;
-    // Plain has no outer carrier; current reality-tls already has an authenticated
-    // PQ-capable TLS layer and deliberately avoids a second visible fake-TLS
-    // handshake. Both use classic X25519 for this private inner exchange. Legacy
-    // camouflage modes keep the hybrid X25519+ML-KEM inner exchange.
-    let (client_pub, transcript_hash, mlkem_shared) = if plain {
-        let (cp, th) = raw_server_handshake(stream, &server_kp).await?;
-        (cp, th, None)
+    // Compact clients explicitly require INNER_PQ_V1 inside TLS. Legacy raw
+    // peers stay compatible, but a recognized PQ request may NEVER fall back.
+    let (client_pub, transcript_hash, mlkem_shared, inner_pq) = if plain {
+        let mut prefix = [0u8; 32];
+        stream.read_exact(&mut prefix).await?;
+        if inner_raw && prefix == crate::protocol::inner_pq::SENTINEL {
+            let exchange = crate::protocol::inner_pq::server_exchange(
+                stream,
+                &server_kp,
+                &profile.static_keypair,
+            )
+            .await?;
+            (
+                exchange.peer_public,
+                exchange.transcript_hash,
+                None,
+                Some(exchange.material),
+            )
+        } else {
+            let (cp, th) = raw_server_handshake(stream, &server_kp, prefix).await?;
+            (cp, th, None, None)
+        }
     } else {
         let (cp, th, ml) = server_handshake(stream, &server_kp, pcfg).await?;
-        (cp, th, Some(ml))
+        (cp, th, Some(ml), None)
     };
 
     let shared = server_kp
@@ -1693,29 +1708,34 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
     // H-1: optionally bind the data keys to the server static identity by folding
     // the static-ephemeral DH (es) into the KDF. Gated by `bind_static_to_session`.
-    let es = server_state
-        .config
-        .auth
-        .bind_static_to_session
+    let es = (inner_pq.is_none() && server_state.config.auth.bind_static_to_session)
         .then(|| profile.static_keypair.derive_shared(&client_pub).0);
-    let (server_to_client, client_to_server) = match (&mlkem_shared, &es) {
-        (Some(ml), Some(es)) => derive_keys_hybrid_bound(&shared.0, ml, es),
-        (Some(ml), None) => derive_keys_hybrid(&shared.0, ml),
-        (None, Some(es)) => derive_keys_bound(&shared.0, es),
-        (None, None) => derive_keys(&shared.0),
+    let (server_to_client, client_to_server) = if let Some(material) = &inner_pq {
+        material.data_keys()
+    } else {
+        match (&mlkem_shared, &es) {
+            (Some(ml), Some(es)) => derive_keys_hybrid_bound(&shared.0, ml, es),
+            (Some(ml), None) => derive_keys_hybrid(&shared.0, ml),
+            (None, Some(es)) => derive_keys_bound(&shared.0, es),
+            (None, None) => derive_keys(&shared.0),
+        }
     };
     // The original authenticated handshake is the sole source of the resume secret.  Keep
     // legacy builds bit-for-bit on the existing KDF path; the extra domain-separated material
     // is derived only in an experimental-roaming build and is zeroized when its owner drops.
     #[cfg(feature = "experimental-roaming")]
     let resume_secret = {
-        let material = match (&mlkem_shared, &es) {
-            (Some(ml), Some(es)) => derive_session_material_hybrid_bound(&shared.0, ml, es),
-            (Some(ml), None) => derive_session_material_hybrid(&shared.0, ml),
-            (None, Some(es)) => derive_session_material_bound(&shared.0, es),
-            (None, None) => derive_session_material(&shared.0),
-        };
-        zeroize::Zeroizing::new(*material.resume_secret())
+        if let Some(material) = &inner_pq {
+            zeroize::Zeroizing::new(*material.resume_secret())
+        } else {
+            let material = match (&mlkem_shared, &es) {
+                (Some(ml), Some(es)) => derive_session_material_hybrid_bound(&shared.0, ml, es),
+                (Some(ml), None) => derive_session_material_hybrid(&shared.0, ml),
+                (None, Some(es)) => derive_session_material_bound(&shared.0, es),
+                (None, None) => derive_session_material(&shared.0),
+            };
+            zeroize::Zeroizing::new(*material.resume_secret())
+        }
     };
     #[cfg(not(feature = "experimental-roaming"))]
     let resume_secret = ();
@@ -3412,12 +3432,8 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 async fn raw_server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     server_kp: &Keypair,
+    cp: [u8; 32],
 ) -> anyhow::Result<(crate::crypto::PublicKey, [u8; 32])> {
-    let mut cp = [0u8; 32];
-    stream
-        .read_exact(&mut cp)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read client key (plain): {}", e))?;
     let client_pub = crate::crypto::PublicKey::from_bytes(&cp);
     stream
         .write_all_flush(server_kp.public().as_bytes())

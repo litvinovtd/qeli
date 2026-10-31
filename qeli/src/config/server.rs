@@ -507,6 +507,31 @@ pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolS
         ));
     }
 
+    if profile.routing.ipv6.ndp_proxy != Ipv6NdpProxyMode::Off {
+        let policy = &profile.routing.ipv6;
+        let source = policy.ndp_proxy_source.trim();
+        if !source.is_empty() && source != "auto" {
+            let address = source.parse::<Ipv6Addr>().map_err(|_| {
+                "routing.ipv6.ndp_proxy_source must be auto or a bare IPv6 address".to_string()
+            })?;
+            if address.is_unspecified()
+                || address.is_loopback()
+                || address.is_multicast()
+                || address.to_ipv4_mapped().is_some()
+            {
+                return Err("routing.ipv6.ndp_proxy_source must be a usable unicast IPv6 address assigned to the uplink".into());
+            }
+        }
+        if policy.ndp_proxy_announce_interval_secs != 0
+            && !(10..=86_400).contains(&policy.ndp_proxy_announce_interval_secs)
+        {
+            return Err(
+                "routing.ipv6.ndp_proxy_announce_interval_secs must be 0 (disabled) or 10..86400"
+                    .into(),
+            );
+        }
+    }
+
     // IPv4-only profiles deliberately retain dormant IPv6 addressing values so a panel
     // mode switch is lossless. Active IPv6 routing/NDP was rejected above; the hidden
     // address/pool subtree must not block an unrelated save or IPv4-only startup.
@@ -1222,6 +1247,16 @@ pub struct Ipv6RoutingConfig {
     /// Empty means use the resolved `routing.ipv6.interface` / IPv6 default-route uplink.
     #[serde(default)]
     pub ndp_proxy_interface: String,
+    /// Empty/auto prefers a usable link-local source. Explicit sources must be assigned to the uplink.
+    #[serde(default)]
+    pub ndp_proxy_source: String,
+    #[serde(default)]
+    pub ndp_proxy_router: bool,
+    #[serde(default)]
+    pub ndp_proxy_override: bool,
+    /// Zero disables periodic refresh (initial announcements and NS replies remain enabled).
+    #[serde(default)]
+    pub ndp_proxy_announce_interval_secs: u64,
 }
 
 /// DNS proxy resource bounds. Validation rejects larger file/panel values and the runtime
@@ -1306,6 +1341,10 @@ pub struct ServerObfuscationConfig {
     /// is the legacy raw nonce. Must match the client.
     #[serde(default = "default_obfs_fronting")]
     pub fronting: String,
+    /// Explicit HTTP Host advertised in TCP WebSocket obfs links. None uses the
+    /// connect endpoint; TLS server_name/REALITY target are never reused as Host.
+    #[serde(default)]
+    pub ws_host: Option<String>,
     #[serde(default)]
     pub tls: TlsConfig,
     #[serde(default)]

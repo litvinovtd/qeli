@@ -7,9 +7,10 @@
 //!    share and both sides combine X25519 and ML-KEM in `derive_keys_hybrid`.
 //! 2. **Outer real TLS 1.3** (`reality-tls`): the TLS handshake can negotiate
 //!    X25519MLKEM768, or classic X25519 according to the selected target/server.
-//!    The private inner H2-carried qeli exchange uses classic X25519 with static
-//!    identity binding. It is not a second mandatory PQ exchange. `plain` also
-//!    uses classic X25519, without an outer TLS layer.
+//!    Compact clients require the additional INNER_PQ_V1 hybrid exchange inside
+//!    TLS/H2 before AUTH/JOIN; it binds the full inner transcript and static
+//!    identity and has no classic fallback. Noncompact/legacy REALITY retains
+//!    the classic inner exchange; `plain` has no outer TLS and remains classic.
 //!
 //! Live paths use [`x25519_mlkem768_share_from_ek`] and retain the matching
 //! decapsulation key so the ML-KEM secret is actually used.

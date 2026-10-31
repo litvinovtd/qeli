@@ -16,6 +16,7 @@ import signal
 import statistics
 import time
 import traceback
+import release_short_buffers as buffers
 
 CORE = ('tcp-faketls', 'tcp-reality-tls', 'udp-faketls', 'udp-quic')
 MODES = ('tcp-plain-raw', 'tcp-faketls', 'tcp-padding', 'tcp-frag', 'tcp-obfs',
@@ -124,13 +125,23 @@ def plan():
     return sessions
 
 
-def selected_plan(smoke_only=False, mixed_only=False):
+def selected_plan(smoke_only=False, mixed_only=False, buffer_pilot=False, buffer_reference=False):
+    if buffer_reference:
+        return [dict(stage='perf',mode=m,policy='required',outer=4,rep=rep,scope='p4-udp600')
+                for rep in range(1,4)
+                for m in (CORE if rep==1 else tuple(reversed(CORE)) if rep==2 else CORE[2:]+CORE[:2])]
+    if buffer_pilot:
+        return [dict(stage='buffer_pilot', mode=m, policy='required', outer=4, rep=1) for m in CORE]
     if mixed_only:
         return [dict(stage='mixed',mode=m,policy='required',outer=4) for m in CORE]
     return [dict(stage='smoke',mode=m,policy='required',outer=4) for m in CORE] if smoke_only else plan()
 
 
 def tasks(session, rates):
+    if session['stage'] == 'buffer_pilot' or session.get('scope') == 'p4-udp600':
+        return [dict(family=f, protocol=p, direction=d, streams=4 if p=='TCP' else 1,
+                     seconds=10, omit=2, rate_mbps=600 if p=='UDP' else None)
+                for f in (4,6) for d in ('upload','download') for p in ('TCP','UDP')]
     if session['stage']=='mixed':
         return [dict(family=f,protocol='MIXED',direction='concurrent',streams=4,seconds=30,omit=2,
                      rate_mbps=rates[session['mode']][0]) for f in (4,6)]
@@ -218,23 +229,36 @@ def aggregate(rows):
     return result
 
 
-def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
+def execute(cfg, tag, output, smoke_only=False, mixed_only=False, buffer_pilot=False, buffer_reference=False):
+    require(sum((smoke_only,mixed_only,buffer_pilot,buffer_reference))<=1,'choose one partial scope')
     require(re.fullmatch(r'[a-z0-9-]{1,55}',tag), 'unsafe tag')
     require(not output.exists(), 'refuse to overwrite results or blindly resume')
     require(set(cfg['hosts']) == {'server','client'} and len(set(cfg['hosts'].values())) == 2, 'two distinct guests required')
     require(set(cfg['udp_rates']) == set(CORE), 'fixed rates for each core profile required')
     for rates in cfg['udp_rates'].values():
         require(len(rates)==2 and all(type(v) is int and v>0 for v in rates) and rates[0]<rates[1], 'two increasing fixed UDP rates required')
+    buffer_policy = buffers.policy(cfg.get('udp_buffers'))
     root = '/opt/qeli-release-short-'+tag
     guests, before, locked, created = {}, {}, [], set()
     payload = dict(schema=1, status='running', started_utc=utc(), raw=root, tag=tag,
                    method='qeli-release-short-mixed-v1' if mixed_only else 'qeli-release-short-smoke-v1' if smoke_only else 'qeli-release-short-v1',
                    rates=cfg['udp_rates'], sessions=[], windows=[],
-                   plan=selected_plan(smoke_only,mixed_only),
+                   plan=selected_plan(smoke_only,mixed_only,buffer_pilot,buffer_reference),
+                   buffer_policy=buffer_policy,
                    binary_sha256=cfg['candidate_sha256'], previous_sha256=cfg['previous_sha256'],
                    qualification='MIXED_ONLY' if mixed_only else 'SMOKE_ONLY' if smoke_only else 'PILOT_NO_REGRESSION_BASELINE')
+    if buffer_reference:
+        payload.update(method='qeli-release-short-buffer-reference-v2', qualification='PERFORMANCE_REFERENCE_CANDIDATE')
+    elif buffer_pilot:
+        payload.update(method='qeli-release-short-buffer-pilot-v2', qualification='BUFFER_PILOT_ONLY')
+    elif not smoke_only and not mixed_only:
+        payload['method'] = 'qeli-release-short-v2'
+    else:
+        payload['method'] = payload['method'].replace('-v1', '-v2')
     atomic(output,payload)
     helper_bytes = Path(__file__).with_name('release_short_guest.py').read_bytes()
+    buffer_bytes = Path(__file__).with_name('release_short_buffers.py').read_bytes()
+    payload['buffers_sha256'] = digest(buffer_bytes)
     payload['helper_sha256'] = digest(helper_bytes)
     controller_bytes = Path(__file__).read_bytes()
     payload['controller_sha256'] = digest(controller_bytes)
@@ -251,6 +275,7 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
         for g in guests.values():
             require(g.cmd('ip -j link show type tun') == '[]','TUN remained after owned stop')
     def start(session, label):
+        both('buffer-guard')
         stop()
         outer = cfg['outer_server'][str(session['outer'])]
         previous_side = session.get('previous_side')
@@ -307,12 +332,20 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
         payload['sessions'].append(dict(**session,label=label, recordizer_active=active,
                                          client_qlen=links[0]['txqlen'],server_qlen=slinks[0]['txqlen'],
                                          config_sha256={r:digest(t.encode()) for r,t in configs.items()},outer_peer_verified=True))
+        memory = both('socket-memory', 'UDP' if session['mode'].startswith('udp-') else 'TCP')
+        for role, value in memory.items():
+            guests[role].put(root+'/configs/'+label+'-'+role+'-sockets.json', json.dumps(value,indent=2))
+        payload['sessions'][-1]['buffers'] = {r:buffers.qeli_check(v,session['mode'].startswith('udp-'),
+            buffer_policy['qeli_receive_bytes']) for r,v in memory.items()}
     def window(spec, label, meta, direct=False):
+        both('buffer-guard')
         checkpoint(label)
         f = spec['family']
         spec = dict(spec,label=label,target=(cfg['outer_server'] if direct else cfg['inner_server'])[str(f)],port=5201 if f==4 else 5202)
         for g in guests.values():
             g.cmd('mkdir -m 700 '+root+'/windows/'+label)
+            if spec['protocol'] in ('UDP','MIXED'):
+                g.put(root+'/windows/'+label+'/udp-buffer-check','1')
         ports=(5201,5202) if spec['protocol']=='MIXED' else (spec['port'],)
         for port in ports:
             guests['server'].helper('listen','iperf-'+label+'-'+str(port),f,spec['target'],port)
@@ -339,12 +372,25 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
                 require(row['loss_percent'] is not None and row['loss_percent']<=1,'functional UDP loss exceeds budget')
         finally:
             both('watch-stop',label)
+        if spec['protocol'] in ('UDP','MIXED'):
+            observations = {r:json.loads(g.get(root+'/windows/'+label+'/observations.json')) for r,g in guests.items()}
+            check = buffers.iperf_check(observations, 'upload' if spec['protocol']=='MIXED' else spec['direction'],
+                                        buffer_policy['iperf_receive_rb_bytes'])
+            row['iperf_buffers'] = check
+            payload['windows'][-1]['iperf_buffers'] = check
+        if not direct:
+            session = next(s for s in payload['sessions'] if s['label']==meta['session'])
+            memory = both('socket-memory', 'UDP' if session['mode'].startswith('udp-') else 'TCP')
+            for role, value in memory.items():
+                guests[role].put(root+'/windows/'+label+'/'+role+'-qeli-sockets.json', json.dumps(value,indent=2))
+            payload['windows'][-1]['qeli_buffers'] = {r:buffers.qeli_check(v,session['mode'].startswith('udp-'),
+                buffer_policy['qeli_receive_bytes']) for r,v in memory.items()}
         # Reap only registered iperf/observers, not the two VPN groups.
         # Finished children have receipts until session halt; labels are globally unique.
         return row
     def baseline(phase):
         stop()
-        for rep in range(1,4):
+        for rep in range(1,2 if buffer_pilot else 4):
             for f in (4,6):
                 for d in ('upload','download'):
                     window(dict(family=f,protocol='TCP',direction=d,streams=1,seconds=10,omit=2,rate_mbps=None),
@@ -358,8 +404,11 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
             g.cmd('test ! -e '+root+' && mkdir -m 700 '+root+' '+root+'/owned '+root+'/state '+root+'/configs '+root+'/windows')
             created.add(role)
             g.put(root+'/guest.py',helper_bytes)
+            g.put(root+'/release_short_buffers.py',buffer_bytes)
             g.put(root+'/controller.py',controller_bytes)
-            snap = before[role] = g.helper('snapshot')
+            # Old raw is deliberately retained. Hashing that archive can take
+            # minutes; this is outside traffic and before the mutation lease.
+            snap = before[role] = g.helper('snapshot', timeout=900)
             require(not snap['processes'],'guest has VPN/iperf/build/emulator processes; refuse to disturb')
             require(g.cmd('ip -j link show type tun')=='[]','existing TUN; refuse to disturb')
             require(snap['hostname']==cfg['hostnames'][role],'wrong guest identity')
@@ -374,7 +423,11 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
             g.put(root+'/qeli-'+role,source,True)
         base = {r:guests[r].get(cfg['fixture'][r]).decode() for r in guests}
         payload['fixture_sha256'] = {r:digest(t.encode()) for r,t in base.items()}
+        both('lease-start')
+        payload['buffer_setup'] = both('buffer-prepare', json.dumps(cfg['udp_buffers']))
         checkpoint('prepared')
+        if buffer_pilot:
+            baseline('before')
         for index,session in enumerate(payload['plan']):
             if session['stage']=='perf' and session['rep']==1 and session['mode']==CORE[0]:
                 baseline('before')
@@ -389,10 +442,16 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
             baseline('after')
         payload['aggregates'] = aggregate(payload['windows'])
         require(len(payload['sessions'])==len(payload['plan']),'missing session')
-        require(len(payload['aggregates'])==(0 if smoke_only or mixed_only else 64) and all(g['n']==3 for g in payload['aggregates'].values()),'incomplete performance coverage')
+        require(len(payload['aggregates'])==(0 if smoke_only or mixed_only or buffer_pilot else 32 if buffer_reference else 64) and all(g['n']==3 for g in payload['aggregates'].values()),'incomplete performance coverage')
+        if buffer_reference:
+            require(len(payload['windows'])==120, 'incomplete buffer reference')
+        if buffer_pilot:
+            require(len(payload['windows'])==40, 'incomplete buffer pilot')
         flat=[r for w in payload['windows'] for r in w.get('results',[w])]
         require(len({r['cookie'] for r in flat})==len(flat),'duplicate iperf cookie')
         udp_failed = [k for k,v in payload['aggregates'].items() if '/UDP/' in k and v['max_loss_percent']>1]
+        if buffer_pilot:
+            udp_failed = [w['label'] for w in payload['windows'] if w['protocol']=='UDP' and w['loss_percent']>1]
         payload['udp_failed_groups']=udp_failed
         if mixed_only:
             payload['mixed_loss_warnings']=[r['label'] for r in flat if r['protocol']=='UDP' and r['loss_percent']>1]
@@ -402,6 +461,15 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
         raise
     finally:
         payload['restoration'] = {}
+        # Roll back BOTH guests before expensive protected-file hashing. The
+        # lease is a fallback for controller death, not a replacement for finally.
+        for role,g in guests.items():
+            if role in created:
+                for action in ('halt','buffer-restore','lease-stop'):
+                    try:
+                        g.helper(action)
+                    except BaseException as exc:
+                        payload.setdefault('cleanup_errors',{}).setdefault(role,{})[action]=str(exc)
         for role,g in guests.items():
             try:
                 # Never invoke a helper or write a result in a pre-existing run root.
@@ -409,7 +477,8 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
                     g.helper('halt')
                     time.sleep(.5)
                 if role in before and role in created:
-                    after = g.helper('snapshot')
+                    g.helper('restore-empty-ip6')
+                    after = g.helper('snapshot', timeout=900)
                     g.put(root+'/after.json',json.dumps(after,indent=2))
                     payload['restoration'][role]=restoration(before[role],after)
                     require(all(payload['restoration'][role].values()),'state restoration mismatch')
@@ -417,6 +486,8 @@ def execute(cfg, tag, output, smoke_only=False, mixed_only=False):
                 payload['restoration'][role] = dict(error=str(exc))
                 payload['status']='restoration_failed'
         payload['finished_utc']=utc()
+        if payload.get('cleanup_errors'):
+            payload['status']='restoration_failed'
         atomic(output,payload)
         for g in guests.values():
             try:
@@ -441,15 +512,18 @@ def main():
     p.add_argument('--plan-only',action='store_true')
     p.add_argument('--smoke-only',action='store_true',help='four functional core profiles only; cannot qualify a release')
     p.add_argument('--mixed-only',action='store_true',help='separate short simultaneous TCP/UDP check after full-plan cleanup')
+    p.add_argument('--buffer-pilot',action='store_true',help='40 windows, four required profiles n=1; harness validation, NOT release qualification')
+    p.add_argument('--buffer-reference',action='store_true',help='120 windows: four required profiles, TCP P4/UDP600 n=3 plus n=3 baseline; performance reference only')
     a=p.parse_args()
     cfg=json.loads(a.config.read_text(encoding='utf-8'))
-    require(not(a.smoke_only and a.mixed_only),'choose one partial scope')
+    require(sum((a.smoke_only,a.mixed_only,a.buffer_pilot,a.buffer_reference))<=1,'choose one partial scope')
     if a.plan_only:
-        sessions=selected_plan(a.smoke_only,a.mixed_only)
-        count=sum(len(tasks(s,cfg['udp_rates'])) for s in sessions)+(0 if a.smoke_only or a.mixed_only else 24)
+        buffers.policy(cfg.get('udp_buffers'))
+        sessions=selected_plan(a.smoke_only,a.mixed_only,a.buffer_pilot,a.buffer_reference)
+        count=sum(len(tasks(s,cfg['udp_rates'])) for s in sessions)+(0 if a.smoke_only or a.mixed_only else 8 if a.buffer_pilot else 24)
         print(json.dumps(dict(sessions=sessions,windows=count,iperf_measurements=count*(2 if a.mixed_only else 1)),indent=2))
     else:
-        execute(cfg,a.tag,a.output,a.smoke_only,a.mixed_only)
+        execute(cfg,a.tag,a.output,a.smoke_only,a.mixed_only,a.buffer_pilot,a.buffer_reference)
 
 
 if __name__=='__main__':

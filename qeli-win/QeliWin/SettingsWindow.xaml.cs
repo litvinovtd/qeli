@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         Owner = owner;
         Icon = owner.Icon;
+        WindowWorkArea.Attach(this);
         Loaded += (_, _) => FitToWorkArea();
         Closing += (_, e) => { if (_saving) e.Cancel = true; };
 
@@ -95,10 +96,16 @@ public partial class SettingsWindow : Window
     {
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         var screen = System.Windows.Forms.Screen.FromHandle(handle);
-        double scale = System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
-        double available = Math.Max(MinHeight, screen.WorkingArea.Height / scale - 32);
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        double availableWidth = Math.Max(1, screen.WorkingArea.Width / dpi.DpiScaleX - 32);
+        MinWidth = Math.Min(MinWidth, availableWidth);
+        MaxWidth = availableWidth;
+        Width = Math.Min(Width, availableWidth);
+        double available = Math.Max(1, screen.WorkingArea.Height / dpi.DpiScaleY - 32);
+        MinHeight = Math.Min(MinHeight, available);
         MaxHeight = available;
         Height = Math.Min(Height, available);
+        WindowWorkArea.Clamp(this);
     }
 
     private void OnAutoConnectChanged(object sender, RoutedEventArgs e) => UpdateAutoProfileEnabled();

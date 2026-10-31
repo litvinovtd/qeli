@@ -1,0 +1,9 @@
+{
+  "description": "INNER_PQ_V1 fixed headers and HKDF-SHA256 KAT, independently computed with Python stdlib hmac/hashlib; synthetic ee=00..1f, ml=20..3f, es=40..5f",
+  "client_header": "51454c4950510043000111ec000304c000000000000000000000000000000000",
+  "server_header": "51454c4950510053000111ec0003046000000000000000000000000000000000",
+  "transcript": "2f2964ac1dc4dcae9a13a03688b9d025e5d6ad63bbdc30be454f6321a05c0228",
+  "s2c": "05dd3b20bd94c6ce6511836f50c7175327c97cac0b82706134eb131183d6a631",
+  "c2s": "3dc780c7c5a8abf5888ebfafe176a42720c81704c9da18409fbdd330393cc8e7",
+  "resume": "2f22affafee36f96c9b6fc4623ce726ac3dc099e9b04f096e78c7820b2385212"
+}

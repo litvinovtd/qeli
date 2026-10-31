@@ -71,10 +71,12 @@ pub fn build_client_hello(
 
 /// Build a compact Chrome-like ClientHello without the 1216-byte
 /// X25519MLKEM768 key share. Some mobile DPI paths mishandle a ClientHello that
-/// crosses the first TCP segment; the classic X25519 offer keeps the complete
-/// REALITY discriminator in a single packet while retaining a genuine TLS 1.3
-/// handshake. The server already falls back to X25519 when the hybrid share is
-/// absent.
+/// crosses the first TCP segment; the classic X25519 offer targets a smaller
+/// first flight while retaining a genuine TLS 1.3 handshake. Actual packet
+/// boundaries still depend on TCP/MSS. This explicitly removes the PQ offer;
+/// generating an unused ML-KEM key below does NOT provide PQ protection.
+/// The current compact client gets PQ protection from mandatory INNER_PQ_V1
+/// inside established TLS, not from this outer ClientHello builder.
 pub fn build_client_hello_compact(
     key_public: &PublicKey,
     server_name: &str,
@@ -189,8 +191,8 @@ fn build_client_hello_inner(
     let mut e_sct = Vec::new();
     ext(&mut e_sct, 0x0012, &[]);
     // key_share (0x0033): GREASE (1-byte), X25519MLKEM768 (1216-byte), x25519 (32-byte).
-    // PQ share first like current Chrome; the server selects x25519 (no ML-KEM), so
-    // the PQ key is decorative for fingerprint parity.
+    // PQ share first like current Chrome. When selected by the peer it is a real
+    // hybrid exchange, not decorative padding; compact explicitly omits it.
     let mut e_keyshare = Vec::new();
     {
         let mut pq = mlkem_ek; // ML-KEM-768 ek (1184 B)

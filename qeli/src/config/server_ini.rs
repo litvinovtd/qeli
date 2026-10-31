@@ -455,6 +455,26 @@ fn profile_to(p: &ProfileConfig) -> Section {
         put_str(&mut s, "routing.ipv6.interface", &p.routing.ipv6.interface);
     }
     put(&mut s, "routing.ipv6.ndp_proxy", p.routing.ipv6.ndp_proxy);
+    put_str(
+        &mut s,
+        "routing.ipv6.ndp_proxy_source",
+        &p.routing.ipv6.ndp_proxy_source,
+    );
+    put(
+        &mut s,
+        "routing.ipv6.ndp_proxy_router",
+        p.routing.ipv6.ndp_proxy_router,
+    );
+    put(
+        &mut s,
+        "routing.ipv6.ndp_proxy_override",
+        p.routing.ipv6.ndp_proxy_override,
+    );
+    put(
+        &mut s,
+        "routing.ipv6.ndp_proxy_announce_interval_secs",
+        p.routing.ipv6.ndp_proxy_announce_interval_secs,
+    );
     if !p.routing.ipv6.ndp_proxy_interface.is_empty() {
         put_str(
             &mut s,
@@ -521,6 +541,7 @@ fn profile_to(p: &ProfileConfig) -> Section {
         put_str(&mut s, "obf.obfs_key", &o.obfs_key);
     }
     put_str(&mut s, "obf.obfs_fronting", &o.fronting);
+    put_str(&mut s, "obf.ws.host", o.ws_host.as_deref().unwrap_or(""));
     put_str(&mut s, "obf.tls.server_name", &o.tls.server_name);
     put(
         &mut s,
@@ -884,6 +905,24 @@ fn profile_from(s: &Section) -> ProfileConfig {
         .str_or("routing.ipv6.interface", &base.routing.ipv6.interface)
         .to_string();
     p.routing.ipv6.ndp_proxy = s.parse_or("routing.ipv6.ndp_proxy", base.routing.ipv6.ndp_proxy);
+    p.routing.ipv6.ndp_proxy_source = s
+        .str_or(
+            "routing.ipv6.ndp_proxy_source",
+            &base.routing.ipv6.ndp_proxy_source,
+        )
+        .to_string();
+    p.routing.ipv6.ndp_proxy_router = s.bool_or(
+        "routing.ipv6.ndp_proxy_router",
+        base.routing.ipv6.ndp_proxy_router,
+    );
+    p.routing.ipv6.ndp_proxy_override = s.bool_or(
+        "routing.ipv6.ndp_proxy_override",
+        base.routing.ipv6.ndp_proxy_override,
+    );
+    p.routing.ipv6.ndp_proxy_announce_interval_secs = s.parse_or(
+        "routing.ipv6.ndp_proxy_announce_interval_secs",
+        base.routing.ipv6.ndp_proxy_announce_interval_secs,
+    );
     p.routing.ipv6.ndp_proxy_interface = s
         .str_or(
             "routing.ipv6.ndp_proxy_interface",
@@ -940,6 +979,13 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.mode = s.str_or("obf.mode", &bo.mode).to_string();
     o.obfs_key = s.str_or("obf.obfs_key", &bo.obfs_key).to_string();
     o.fronting = s.str_or("obf.obfs_fronting", &bo.fronting).to_string();
+    o.ws_host = if s.contains_key("obf.ws.host") {
+        s.get("obf.ws.host")
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    } else {
+        bo.ws_host.clone()
+    };
     o.tls.server_name = s
         .str_or("obf.tls.server_name", &bo.tls.server_name)
         .to_string();
@@ -1480,6 +1526,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn websocket_host_clears_and_round_trips_independently_of_sni() {
+        let raw =
+            "[profile:custom]\nobf.mode=obfs\nobf.ws.host=front.example\nobf.tls.server_name=!\n\
+                   [profile:cleared]\nobf.ws.host=\nobf.tls.server_name=!\n\
+                   [profile:explicit]\nobf.ws.host=2001:db8::5\nobf.tls.server_name=!\n";
+        let (original, findings) = crate::config::parse_server_config_reporting(raw).unwrap();
+        assert!(findings.is_empty(), "{findings:?}");
+        assert_eq!(
+            original.profiles[0].obfuscation.ws_host.as_deref(),
+            Some("front.example")
+        );
+        assert_eq!(original.profiles[1].obfuscation.ws_host, None);
+        assert_eq!(
+            original.profiles[2].obfuscation.ws_host.as_deref(),
+            Some("2001:db8::5")
+        );
+        let saved = original.to_ini_string();
+        let restored = crate::config::parse_server_config(&saved).unwrap();
+        for (before, after) in original.profiles.iter().zip(&restored.profiles) {
+            assert_eq!(before.obfuscation.ws_host, after.obfuscation.ws_host);
+            assert_eq!(after.obfuscation.tls.server_name, "!");
+        }
+    }
+
+    #[test]
     fn ipv6_flat_ini_round_trips_without_becoming_a_json_config() {
         let source = r#"
 [profile:v6]
@@ -1547,6 +1618,10 @@ routing.ipv6.mode = route
 routing.ipv6.interface = ens3
 routing.ipv6.ndp_proxy = required
 routing.ipv6.ndp_proxy_interface = ens3
+routing.ipv6.ndp_proxy_source = 2001:db8:1200::1
+routing.ipv6.ndp_proxy_router = true
+routing.ipv6.ndp_proxy_override = true
+routing.ipv6.ndp_proxy_announce_interval_secs = 60
 "#;
         for mode in ["route", "manual"] {
             let original = crate::config::parse_server_config(
@@ -1556,6 +1631,11 @@ routing.ipv6.ndp_proxy_interface = ens3
             let profile = &original.profiles[0];
             assert_eq!(profile.routing.ipv6.ndp_proxy, Ipv6NdpProxyMode::Required);
             assert_eq!(profile.routing.ipv6.ndp_proxy_interface, "ens3");
+            assert_eq!(profile.routing.ipv6.ndp_proxy_source, "2001:db8:1200::1");
+            assert!(
+                profile.routing.ipv6.ndp_proxy_router && profile.routing.ipv6.ndp_proxy_override
+            );
+            assert_eq!(profile.routing.ipv6.ndp_proxy_announce_interval_secs, 60);
             crate::config::server::validate_ipv6_profile(profile).unwrap();
 
             assert_eq!(profile.routing.ipv6.mode.to_string(), mode);
@@ -1575,6 +1655,47 @@ routing.ipv6.ndp_proxy_interface = ens3
                 serde_json::to_value(&reparsed).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn ndp_policy_validation_rejects_unsafe_values_only_when_active() {
+        let mut profile = ProfileConfig::default();
+        profile.tun.ip_mode = IpMode::Ipv6;
+        profile.tun.mtu = 1280;
+        profile.tun.ipv6_address = Some("2001:db8::1".into());
+        profile.pool.ipv6.cidr = "2001:db8::/64".into();
+        profile.routing.ipv6.mode = Ipv6RoutingMode::Manual;
+        profile.routing.ipv6.ndp_proxy = Ipv6NdpProxyMode::Required;
+        for source in ["", "auto", "fe80::1", "2001:db8::2"] {
+            profile.routing.ipv6.ndp_proxy_source = source.into();
+            crate::config::server::validate_ipv6_profile(&profile).unwrap();
+        }
+        for source in [
+            "::",
+            "::1",
+            "ff02::1",
+            "::ffff:192.0.2.1",
+            "fe80::1%ens3",
+            "not-an-ip",
+        ] {
+            profile.routing.ipv6.ndp_proxy_source = source.into();
+            assert!(crate::config::server::validate_ipv6_profile(&profile)
+                .unwrap_err()
+                .contains("ndp_proxy_source"));
+        }
+        profile.routing.ipv6.ndp_proxy_source.clear();
+        for interval in [0, 10, 60, 86_400] {
+            profile.routing.ipv6.ndp_proxy_announce_interval_secs = interval;
+            crate::config::server::validate_ipv6_profile(&profile).unwrap();
+        }
+        for interval in [1, 9, 86_401, u64::MAX] {
+            profile.routing.ipv6.ndp_proxy_announce_interval_secs = interval;
+            assert!(crate::config::server::validate_ipv6_profile(&profile)
+                .unwrap_err()
+                .contains("announce_interval"));
+        }
+        profile.routing.ipv6.ndp_proxy = Ipv6NdpProxyMode::Off;
+        crate::config::server::validate_ipv6_profile(&profile).unwrap();
     }
 
     #[test]

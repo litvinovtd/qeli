@@ -84,6 +84,7 @@ public static class CliRunner
         RunGroup("owned adapter sharing policy", () => AdapterSharingSelfTest.Run(Check));
         RunGroup("persistent Wintun lifecycle", () => PersistentWintunSelfTest.Run(Check));
         RunGroup("adapter mode selection", () => WindowsAdapterPolicySelfTest.Run(Check));
+        RunGroup("desktop issue 69", () => DesktopIssue69SelfTest.Run(Check));
         RunGroup("owned IPv6 point-to-point policy", () => TunnelIpv6PolicySelfTest.Run(Check));
         RunGroup("WinDivert unit", () => WinDivertSelfTest.RunUnit(Check));
         RunGroup("roaming socket", () => WindowsRoamingSocket.RunSelfTest(Check));

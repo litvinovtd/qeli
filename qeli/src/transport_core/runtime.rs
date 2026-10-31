@@ -723,32 +723,10 @@ async fn wrap_reality(
     tasks: &super::tasks::Spawner,
 ) -> anyhow::Result<crate::protocol::h2_carrier::Carrier> {
     let server_name = config.effective_reality_sni().to_string();
-    let ephemeral = crate::crypto::Keypair::generate();
-    let short_id = config
-        .obfuscation
-        .reality_short_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("reality-tls requires reality_short_id"))?;
-    let public_key = config
-        .auth
-        .server_public_key
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .and_then(crate::crypto::parse_pubkey_hex)
-        .ok_or_else(|| anyhow::anyhow!("reality-tls requires a pinned server_public_key"))?;
-    let public_key = crate::crypto::PublicKey::from_bytes(&public_key);
-    let short_id = crate::crypto::reality::short_id_from_hex(short_id);
-    let session_id = crate::crypto::reality::seal_session_id(&public_key, &ephemeral, &short_id);
     let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let established = tokio::time::timeout(
         timeout,
-        crate::protocol::realtls::client::client_handshake(
-            &mut stream,
-            ephemeral,
-            session_id,
-            &server_name,
-        ),
+        super::session::establish_reality_tls(&mut stream, config),
     )
     .await
     .map_err(|_| anyhow::anyhow!("reality-tls handshake timed out"))??;

@@ -14,9 +14,13 @@ internal static class TrafficHistoryConformance
         check("traffic: counter reset starts new baseline", history.Add(300000,0,0,session,true) is null && history.Samples.Count==0);
         check("traffic: changed session has no spike", history.Add(301000,5000,5000,session.AddSeconds(1),true) is null);
         history.Add(302000,6000,6000,session.AddSeconds(1),true);
-        check("traffic: stale observation is a gap", history.Add(303000,7000,7000,session.AddSeconds(1),false) is null && history.Samples.Count==0);
+        check("traffic: stale observation preserves history", history.Add(303000,7000,7000,session.AddSeconds(1),false) is null && history.Samples.Count==1);
         history.Add(304000,8000,8000,session.AddSeconds(1),true);
-        check("traffic: long pause cannot bridge samples", history.Add(320000,9000,9000,session.AddSeconds(1),true) is null && history.Samples.Count==0);
+        check("traffic: long pause cannot bridge samples or erase history", history.Add(320000,9000,9000,session.AddSeconds(1),true) is null && history.Samples.Count==1);
+        history.Pause();
+        check("traffic: UI pause preserves history and clears live rate", history.Samples.Count==1
+            && history.Add(321000,999999,999999,session.AddSeconds(1),true) is null && history.Samples.Count==1);
+        check("traffic: resume after UI pause uses a new baseline", history.Add(322000,1000999,1000999,session.AddSeconds(1),true) is {Up:1000,Down:1000});
 
         var service = new TrafficHistory();
         service.Add(1000,100,200,session,true);
@@ -41,9 +45,9 @@ internal static class TrafficHistoryConformance
             service.Add(6000,3010,6020,session.AddSeconds(1),true) is null && service.Samples.Count==0);
         service.Add(7000,4010,8020,session.AddSeconds(1),true);
         check("traffic: stale duplicate clears the remembered rate",
-            service.Add(7000,4010,8020,session.AddSeconds(1),false) is null && service.Samples.Count==0);
-        check("traffic: first observation after clearing is only a baseline",
-            service.Add(7000,4010,8020,session.AddSeconds(1),true) is null && service.Samples.Count==0);
+            service.Add(7000,4010,8020,session.AddSeconds(1),false) is null && service.Samples.Count==1);
+        check("traffic: first observation after a gap is only a baseline",
+            service.Add(7000,4010,8020,session.AddSeconds(1),true) is null && service.Samples.Count==1);
 
         ServiceClockChecks(check);
         ClockDomainChecks(check);
@@ -91,8 +95,8 @@ internal static class TrafficHistoryConformance
         check("traffic service: advancing uptime with idle counters adds a real zero",
             history.AddService(Snapshot(WallTime.AddHours(-4), 7000, 5100, 10200), true) is { Up: 0, Down: 0 }
             && history.Samples.Count == 4);
-        check("traffic service: stale duplicate clears rate and samples",
-            history.AddService(Snapshot(WallTime, 7000, 5100, 10200), false) is null && history.Samples.Count == 0);
+        check("traffic service: stale duplicate clears rate but preserves samples",
+            history.AddService(Snapshot(WallTime, 7000, 5100, 10200), false) is null && history.Samples.Count == 4);
         check("traffic service: fresh observation after a stale gap is a baseline",
             history.AddService(Snapshot(WallTime, 8000, 6100, 12200), true) is null);
         history.AddService(Snapshot(WallTime, 9000, 7100, 14200), true);

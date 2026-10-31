@@ -24,6 +24,15 @@ import org.junit.Test
  */
 class ConfigImportRangesTest {
 
+    @Test fun `REALITY compact and split survive Android profile editing`() {
+        for (compact in listOf("false", "true")) {
+            val policy = mapOf("reality_compact" to compact, "reality_split" to "sni", "reality_split_delay" to "237")
+            val config = VpnConfig.fromIni(ini(policy.entries.joinToString("\n") { "${it.key}=${it.value}" }))
+            val restored = VpnConfig.fromIni(config.copy(password = "edited").toIni())
+            for ((key, value) in policy) assertEquals(key, value, restored.carriedKeys[key])
+        }
+    }
+
     @Test fun `strict saved profile parsing rejects drafts at every activation boundary`() {
         assertEquals("vpn.example.com", VpnConfig.parse(ini()).serverAddress)
         for (tail in listOf("mtu = 40", "proto = unknown", "timeout = -1", "server = host:99999")) {

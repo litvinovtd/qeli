@@ -35,6 +35,9 @@
 | [OBFUSCATION.md](manuals/OBFUSCATION.md) | Recordizer, совместимость слоёв маскировки и профили тюнинга |
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Диагностика подключения и справочник ошибок |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Пошаговый деплой клиента на Keenetic |
+| [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Консольный Windows-клиент: CMD, batch, PowerShell, служба и коды ошибок |
+| [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | Установка OpenWrt, UCI/LuCI, SDK и границы проверки роутеров |
+| [IOS-MDM.md](manuals/IOS-MDM.md) | Управляемые профили iOS, Per-App VPN, On Demand и ограничения Always On |
 
 ## Сценарии использования (`scenarios/`)
 
@@ -66,6 +69,8 @@
 | [CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md) | Актуальный контракт клиентских ключей по платформам и история миграции |
 | [THREAT-MODEL.md](reference/THREAT-MODEL.md) | Модель угроз, границы доверия и уровень проверенности |
 | [TRANSPORT-CORE.md](reference/TRANSPORT-CORE.md) | Общее транспортное Rust-ядро, source/ABI-контракт и release gates |
+| [REALITY-INNER-PQ.md](reference/REALITY-INNER-PQ.md) | Compact REALITY и INNER_PQ_V1: реализация и ограничения проверки |
+| [IOS-ANDROID-PARITY.md](reference/IOS-ANDROID-PARITY.md) | Функциональное соответствие Android/iOS и границы Apple runtime |
 | [KEENETIC-PORT.md](reference/KEENETIC-PORT.md) | Архитектура порта Keenetic и обоснование dual-arch сборки |
 
 ## Планы (`plans/`)
@@ -99,6 +104,9 @@
 | Документ | О чём |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Актуальная модель безопасности и статус аудита |
+| [Три повтора с буферами, 31 октября 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 окон; эталон всей матрицы не принят |
+| [Пилот socket buffers, 31 октября 2026](reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md) | 40 окон; проверка обвязки, не допуск релиза |
+| [Паритет Android/iOS, 28 октября 2026](reports/IOS-ANDROID-PARITY-2026-10-28.md) | Матрица функций, исправления, portable/native тесты и NOT_RUN Apple |
 | [DPI-AUDIT.md](reports/DPI-AUDIT.md) | Анализ обнаружимости DPI и меры устранения |
 | [BENCHMARK.md](reports/BENCHMARK.md) | Методика нагрузочного тестирования и замеры по режимам |
 | [Цепочка C → A → B, 30 октября 2026](reports/CHAINED-SERVERS-2026-10-30.md) | Независимые C/T, отказы, реальные reboot A/B и границы квалификации |
@@ -146,9 +154,9 @@
 
 | Клиент | Документ |
 |---|---|
-| Windows | [qeli-win/README.md](../../qeli-win/README.md) |
+| Windows GUI / CLI | [GUI](../../qeli-win/README.md) · [CMD / PowerShell](manuals/WINDOWS-CLI.md) |
 | macOS | [qeli-mac/README.md](../../qeli-mac/README.md) |
-| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [qeli-ios/MDM/README.md](../../qeli-ios/MDM/README.md) — реализован полностью, но **на устройстве не проверялся** и не выпускается |
+| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [docs/ru/manuals/IOS-MDM.md](manuals/IOS-MDM.md) — реализован полностью, но **на устройстве не проверялся** и не выпускается |
 | Роутеры (OpenWrt) | [qeli-openwrt/README.md](../../qeli-openwrt/README.md) · Keenetic: [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) |
 | Android | [qeli-android/README.md](../../qeli-android/README.md) |
 | Linux CLI | [GETTING-STARTED §8.2](manuals/GETTING-STARTED.md) |

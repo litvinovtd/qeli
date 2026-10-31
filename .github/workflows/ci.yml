@@ -122,6 +122,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_release_ci_gate.py'
           python3 -B -m unittest discover -s scripts -p 'test_stability_gate.py'
           python3 -B -m unittest discover -s scripts -p 'test_release_layout.py'
+          python3 -B -m unittest discover -s scripts -p 'test_package_windows_cli.py'
           python3 -B -m unittest discover -s scripts -p 'test_benchmark*.py'
           python3 -B -m unittest discover -s scripts -p 'test_roaming_soak_parameters.py'
           python3 -B -m unittest discover -s scripts -p 'test_roaming_netns_isolation.py'
@@ -679,6 +680,17 @@ jobs:
       - name: Build QeliWin (Release)
         working-directory: qeli-win
         run: dotnet build QeliWin/QeliWin.csproj -c Release
+      - name: Build Windows CLI and lifecycle tests
+        working-directory: qeli-win
+        run: dotnet build QeliCliTests/QeliCliTests.csproj -c Release
+      - name: Test Windows CLI lifecycle and command contracts
+        working-directory: qeli-win
+        run: dotnet exec QeliCliTests/bin/Release/net10.0-windows/QeliCliTests.dll
+      - name: Test Windows CLI in CMD and PowerShell
+        working-directory: .
+        env:
+          QELI_CLI_REQUIRED: '1'
+        run: python -B -m unittest discover -s scripts -p 'test_windows_cli.py' -v
       - name: Test Windows publication failure propagation
         working-directory: .
         run: python -B -m unittest discover -s scripts -p 'test_windows_ci_publish.py' -v
@@ -699,6 +711,10 @@ jobs:
             python ../scripts/check_windows_embedded_licenses.py --repo .. --exe "$dir/QeliWin.exe" --reader "$env:RUNNER_TEMP/qeli-license-reader/Reader.dll"
             if ($LASTEXITCODE -ne 0) { throw "embedded original license/native verification failed: $dir" }
           }
+      - name: Publish and verify Windows console packages
+        working-directory: qeli-win
+        shell: pwsh
+        run: ./build-cli.ps1 -OutputDirectory dist/cli -NativeCorePath "$env:QeliNativeCorePath"
       - name: Self-test QeliWin platform adapters
         working-directory: qeli-win
         run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll selftest
@@ -722,6 +738,7 @@ jobs:
           path: |
             qeli-win/dist/net-required/
             qeli-win/dist/standalone/
+            qeli-win/dist/cli/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

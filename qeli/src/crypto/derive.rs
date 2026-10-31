@@ -77,6 +77,30 @@ fn expand_session_material(hk: &Hkdf<Sha256>) -> SessionKeyMaterial {
     }
 }
 
+/// INNER_PQ_V1: mandatory hybrid/static-bound keys for compact REALITY's private
+/// inner exchange. The complete, fixed-layout transcript (including version,
+/// required policy, both public shares and pinned identity) binds every subkey.
+/// No legacy KDF or optional static-binding policy is negotiated in this version.
+pub(crate) fn derive_reality_inner_pq_material(
+    ee: &[u8; 32],
+    mlkem: &[u8; 32],
+    es: &[u8; 32],
+    transcript: &[u8; 32],
+) -> SessionKeyMaterial {
+    let mut ikm = Zeroizing::new([0u8; 96]);
+    ikm[..32].copy_from_slice(ee);
+    ikm[32..64].copy_from_slice(mlkem);
+    ikm[64..].copy_from_slice(es);
+    let hk = Hkdf::<Sha256>::new(Some(b"qeli-reality-inner-pq-v1"), ikm.as_ref());
+    let mut info = b"transcript-bound-session-root\0".to_vec();
+    info.extend_from_slice(transcript);
+    let root = expand_secret(&hk, &info);
+    expand_session_material(
+        &Hkdf::<Sha256>::from_prk(root.as_ref())
+            .expect("SHA-256 session root has the HKDF PRK length"),
+    )
+}
+
 /// Derive a dedicated fragment-MAC subkey from one directional AEAD key. Fragment
 /// authentication and record encryption never reuse a key, while both remain bound to the
 /// same session and direction.
@@ -163,8 +187,9 @@ pub fn derive_keys_hybrid_bound(
 /// shared secret: `(server→client, client→server)`.
 ///
 /// POST-QUANTUM SCOPE: this is the legacy classic-only derivation, kept for the
-/// `plain` wire mode and the private inner exchange of `reality-tls`. The latter
+/// `plain` wire mode and the legacy/noncompact inner exchange of `reality-tls`. The latter
 /// can obtain PQ protection from its outer TLS layer when a hybrid group is negotiated.
+/// Compact REALITY instead requires `derive_reality_inner_pq_material` inside TLS.
 /// The fake-tls / obfs / reality / UDP modes use [`derive_keys_hybrid`], whose
 /// keys also depend on an ML-KEM-768 secret and are therefore harvest-now/
 /// decrypt-later resistant. See [`crate::crypto::mlkem`].

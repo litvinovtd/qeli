@@ -34,8 +34,13 @@
     "qeli-shared/QeliShared/packages.portable.lock.json": "a29c6aa8cfb81874ff8bb78dc369d7416f28c9b8cc47e99592bfc019b20c41eb",
     "qeli-shared/QeliShared/packages.win-x64.lock.json": "c30b149eb0b6c271aabe8d79d7b0318ba25f0bbd2ebf6a08faa3b67056bce9b3",
     "qeli-shared/QeliShared/packages.win-x64.singlefile.lock.json": "904d584a72bd92ccefc6da2b5cdeafffb56c125583124e3910c5f62538cfc677",
-    "qeli-win/QeliWin/packages.win-x64.lock.json": "02edf498f05c10c689165ff9926e39af1d13c59ef845fcbcfede5ebc33e05dfd",
-    "qeli-win/QeliWin/packages.win-x64.singlefile.lock.json": "9b12b691dd5c123fe9203c462fc594aba2b522ecd707af607e09cfd9c12a88a0"
+    "qeli-win/QeliCli/packages.win-x64.lock.json": "13f919d1620e614740a8ef2d934f892cd0fee46729e778d4b1b11a8f82c2c20f",
+    "qeli-win/QeliCliTests/packages.portable.lock.json": "15b444e6ee83124961e9c8d286ce2c2a01e375a925f02af6e2090f6029db714e",
+    "qeli-win/QeliWin/packages.win-x64.lock.json": "45a2dd1cdc3c8e83543d9d6991fa9eb1eaff6be8f82d1e0587109c27cb10edf7",
+    "qeli-win/QeliWin/packages.win-x64.singlefile.lock.json": "10e179483f78b896d16e14345d8ec0397260b08b1c31ab652301cc3305bb6db2",
+    "qeli-win/QeliWindowsRuntime/packages.portable.lock.json": "344fd8698aedbb79ee87ccb325e7d416d4403de1ca78fdb7da794dd3405f0dcb",
+    "qeli-win/QeliWindowsRuntime/packages.win-x64.lock.json": "80f834ef69d5a59a0d25eae9ec002db53b1031e7ed6ea4c2721e5f33a86d03b5",
+    "qeli-win/QeliWindowsRuntime/packages.win-x64.singlefile.lock.json": "a4675afe5505421d0985e8a993075cd65b4152f66bfcf63cf3987f6e6d06d5a1"
   },
   "runtime_inventory_lf_sha256": "6be5b32a798065aecf9acaa3715af7a82e7e47411a4e782f098d4b28ee4960f6",
   "schema": 1

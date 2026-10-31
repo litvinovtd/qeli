@@ -49,8 +49,8 @@ class ServerConfigExampleTests(unittest.TestCase):
     def test_ru_and_english_examples_are_unambiguous_ini(self):
         for lang in ("ru", "eng"):
             text = (ROOT / f"docs/{lang}/manuals/CONFIG.md").read_text(encoding="utf-8")
-            # Includes the explicit net_gateway-to-exclude migration example.
-            self.assertEqual(len(ini_examples(text)), 39, lang)  # Includes the macOS dev_node example.
+            # Includes migration, compact policy and the explicit NDP source/refresh example.
+            self.assertEqual(len(ini_examples(text)), 41, lang)  # Includes the macOS dev_node example.
             check_examples(text)
 
     def test_valid_secret_and_shell_punctuation_are_preserved(self):

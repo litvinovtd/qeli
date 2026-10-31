@@ -176,8 +176,8 @@ class ClientConfigKeyContractTests(unittest.TestCase):
             examples = [m[1] for m in re.finditer(r"^```[^\n]*\n(.*?)^```\s*$", text,
                                                 re.MULTILINE | re.DOTALL)
                         if re.search(r"^\[qeli\]", m[1], re.MULTILINE)]
-            # Includes the net_gateway migration and macOS fixed-utun examples.
-            self.assertEqual(len(examples), 12, lang)
+            # Includes net_gateway migration, compact policy and macOS fixed-utun examples.
+            self.assertEqual(len(examples), 13, lang)
             for example in examples:
                 for line in example.splitlines():
                     if line.lstrip().startswith(("#", ";")):
@@ -245,6 +245,27 @@ class ClientConfigKeyContractTests(unittest.TestCase):
     def test_android_has_no_silently_unsupported_shared_security_keys(self):
         _recognized, unsupported = android_contract()
         self.assertEqual(unsupported, set())
+
+    def test_reality_policy_has_one_handler_for_cli_and_every_native_runtime(self):
+        # Source wiring guard complements byte-capture and real TLS interop Rust tests.
+        # App runtime is target-gated, so a Linux test run alone cannot catch this drift.
+        for relative, start, end in [
+            ("qeli/src/client/mod.rs", "async fn connect_reality", "async fn connect_"),
+            ("qeli/src/transport_core/runtime.rs", "async fn wrap_reality", "async fn "),
+        ]:
+            text = source(relative)
+            first = text.index(start)
+            last = text.find(end, first + len(start))
+            body = text[first:last if last >= 0 else len(text)]
+            self.assertIn("session::establish_reality_tls", body, relative)
+            self.assertNotIn("::client_handshake(", body, relative)
+            self.assertNotIn("::client_handshake_compact(", body, relative)
+        policy = between(source("qeli/src/transport_core/session.rs"),
+                         "pub(crate) async fn establish_reality_tls", "#[derive(Debug)]")
+        for field in ("reality_compact", "reality_split", "reality_split_delay_ms"):
+            self.assertIn(field, policy)
+        for keys in (android_contract()[0], csharp_contract(), swift_contract()):
+            self.assertTrue({"reality_compact", "reality_split", "reality_split_delay"} <= keys)
 
     def test_cli_applied_matrix_keys_match_actual_runtime_reads(self):
         # A GUI-only exemption must not be mistaken for a working CLI setting.

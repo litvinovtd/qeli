@@ -1,5 +1,7 @@
 # qeli-win
 
+Консольный клиент для CMD/PowerShell: [CLI (RU)](../docs/ru/manuals/WINDOWS-CLI.md) · [CLI (EN)](../docs/eng/manuals/WINDOWS-CLI.md).
+
 Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + WPF
 как platform/UI слой и общее Rust transport-ядро ABI 1.16 (compatibility floor 1.16). Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и

@@ -39,7 +39,7 @@ public partial class App : Application
         var settings = Model.AppSettings.Current;
         Loc.SetLanguage(settings.Language);
         Toast.Enabled = settings.ToastsEnabled;
-        if (!await StorageMigration.PrepareGuiAsync(e.Args.Any(a =>
+        if (!await StorageMigrationGui.PrepareGuiAsync(e.Args.Any(a =>
                 a.Equals("--autostart", StringComparison.OrdinalIgnoreCase))))
         {
             Shutdown(1);
@@ -53,7 +53,7 @@ public partial class App : Application
         var win = new MainWindow();
         if (!minimized) win.Show();
         // An explicit migration is not permission to reconnect automatically.
-        if (!StorageMigration.PreparedThisLaunch) win.RunStartupActions();
+        if (!StorageMigrationGui.PreparedThisLaunch) win.RunStartupActions();
     }
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

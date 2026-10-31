@@ -84,6 +84,17 @@ mod tests {
         assert!(CONFIG_PAGE.contains("onIpv6RoutingModeChange(activeTab)"));
         assert!(CONFIG_PAGE.contains("['route', 'manual'].includes"));
         assert!(CONFIG_PAGE.contains("<option value=\"manual\">manual</option>"));
-        assert!(CONFIG_PAGE.contains("ipv6: { ndp_proxy: 'off', ndp_proxy_interface: '' }"));
+        assert!(CONFIG_PAGE.contains("ndp_proxy_source: ''"));
+        assert!(CONFIG_PAGE.contains("ndp_proxy_router: false"));
+        assert!(CONFIG_PAGE.contains("ndp_proxy_override: false"));
+        assert!(CONFIG_PAGE.contains("ndp_proxy_announce_interval_secs: 0"));
+        for key in [
+            "ndp_proxy_source",
+            "ndp_proxy_router",
+            "ndp_proxy_override",
+            "ndp_proxy_announce_interval_secs",
+        ] {
+            assert!(CONFIG_PAGE.contains(&format!("cfg.profiles[activeTab].routing.ipv6.{key}")));
+        }
     }
 }

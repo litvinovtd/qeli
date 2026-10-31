@@ -27,6 +27,7 @@ public sealed class TrayController : IDisposable
     private readonly Action _onSettings;
     private readonly Action _onExit;
     private readonly Func<VpnStatus> _getStatus;
+    private readonly Func<string?> _getTooltipProfile;
 
     public TrayController(
         Func<IReadOnlyList<VpnConfig>> getProfiles,
@@ -36,7 +37,8 @@ public sealed class TrayController : IDisposable
         Action onShowWindow,
         Action onSettings,
         Action onExit,
-        Func<VpnStatus> getStatus)
+        Func<VpnStatus> getStatus,
+        Func<string?>? getTooltipProfile = null)
     {
         _getProfiles = getProfiles;
         _getActive = getActive;
@@ -46,6 +48,7 @@ public sealed class TrayController : IDisposable
         _onSettings = onSettings;
         _onExit = onExit;
         _getStatus = getStatus;
+        _getTooltipProfile = getTooltipProfile ?? (() => _getActive()?.DisplayName);
 
         BuildIcons();
         _menu = new ContextMenuStrip();
@@ -74,13 +77,24 @@ public sealed class TrayController : IDisposable
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
 
-    private static string TooltipFor(VpnStatus s, string? extra) => s switch
+    private string TooltipFor(VpnStatus s, string? extra) => FormatTooltip(s, extra, _getTooltipProfile());
+
+    internal static string FormatTooltip(VpnStatus s, string? extra, string? profile)
+    {
+        string status = s switch
     {
         VpnStatus.Connecting => Loc.T("TrayConnecting"),
         VpnStatus.Connected => string.IsNullOrEmpty(extra) ? Loc.T("TrayConnected") : Loc.F("TrayConnectedIp", extra),
         VpnStatus.Error => string.IsNullOrEmpty(extra) ? Loc.T("TrayError") : Loc.F("TrayErrorMsg", extra),
         _ => Loc.T("TrayDisconnected"),
     };
+        // Put the profile first so NotifyIcon's 63-character budget cannot hide it.
+        string text = string.IsNullOrWhiteSpace(profile) ? status : profile + " — " + status;
+        text = new string(text.Select(c => char.IsControl(c) ? ' ' : c).ToArray());
+        int length = Math.Min(text.Length, 63);
+        if(length > 0 && char.IsHighSurrogate(text[length-1])) length--;
+        return text[..length];
+    }
 
     private void RebuildMenu()
     {

@@ -51,6 +51,8 @@ DEV_TARGETS: list[tuple[str, str, str]] = [
         "macOS per-app MARKETING_VERSION",
     ),
     ("qeli-win/QeliWin/QeliWin.csproj", r"<Version>([^<]+)</Version>", "Windows csproj"),
+    ("qeli-win/QeliCli/QeliCli.csproj", r"<Version>([^<]+)</Version>", "Windows CLI csproj"),
+    ("qeli-win/QeliWindowsRuntime/QeliWindowsRuntime.csproj", r"<Version>([^<]+)</Version>", "Windows runtime csproj"),
     ("qeli-shared/QeliShared/QeliShared.csproj", r"<Version>([^<]+)</Version>", "shared csproj"),
     # iOS keeps both numbers in project.yml; the plists only reference the variables.
     ("qeli-ios/project.yml", r"MARKETING_VERSION:\s*(\S+)", "iOS MARKETING_VERSION"),
@@ -77,6 +79,7 @@ DEV_TARGETS: list[tuple[str, str, str]] = [
 # 0.7.13 and this very gate reported "everything agrees". (Audit 2026-07-27, G4)
 WIN_MANIFEST_TARGETS: list[tuple[str, str, str]] = [
     ("qeli-win/QeliWin/app.manifest", r'<assemblyIdentity version="([^"]+)"', "Windows app.manifest"),
+    ("qeli-win/QeliCli/app.manifest", r'<assemblyIdentity version="([^"]+)"', "Windows CLI app.manifest"),
 ]
 
 # The signed macOS per-app extension uses a numeric CFBundleVersion derived from SemVer.

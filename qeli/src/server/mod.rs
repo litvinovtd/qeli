@@ -2310,6 +2310,16 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 label,
             });
         }
+        if p.bind.transport == "tcp"
+            && p.obfuscation.mode == "obfs"
+            && p.obfuscation.fronting == "websocket"
+        {
+            if let Some(host) = &p.obfuscation.ws_host {
+                if !crate::config::share::valid_websocket_host(host) {
+                    anyhow::bail!("profile '{}': obf.ws.host must be a DNS hostname or bare IP address, not a TLS SNI marker", p.name);
+                }
+            }
+        }
         // Fronting wraps only the `obfs` nonce exchange. Other wire modes neither expose
         // nor consume this field, so retain a dormant value losslessly and validate it
         // when the operator switches the profile to obfs.
@@ -6009,7 +6019,13 @@ async fn run_profile_generation(
             &wan_ipv6,
             &pcfg.routing.ipv6.interface,
         );
-        ndp_proxy::start(&name, pcfg.routing.ipv6.ndp_proxy, interface.as_deref()).await?
+        ndp_proxy::start(
+            &name,
+            pcfg.routing.ipv6.ndp_proxy,
+            interface.as_deref(),
+            &pcfg.routing.ipv6,
+        )
+        .await?
     };
 
     let hook_env = ProfileHookEnv::new(&pcfg, wan_ipv4, wan_ipv6);
@@ -9101,6 +9117,32 @@ pool.cidr = 10.{net}.0.0/24
 
         cfg.profiles[0].obfuscation.fronting = "websocket".into();
         validate_profiles(&cfg).expect("supported fronting must validate after obfs is enabled");
+    }
+
+    #[test]
+    fn websocket_host_validation_matches_client_admission() {
+        let mut cfg = cfg_with("obfs", "tcp");
+        cfg.profiles[0].obfuscation.obfs_key = "test-key".into();
+        for host in ["front.example", "192.0.2.5", "2001:db8::5"] {
+            cfg.profiles[0].obfuscation.ws_host = Some(host.into());
+            validate_profiles(&cfg).unwrap();
+        }
+        for host in [
+            "!",
+            "~",
+            "@",
+            "https://front.example",
+            "front.example:443",
+            " x.example",
+        ] {
+            cfg.profiles[0].obfuscation.ws_host = Some(host.into());
+            assert!(validate_profiles(&cfg)
+                .unwrap_err()
+                .to_string()
+                .contains("obf.ws.host"));
+        }
+        cfg.profiles[0].obfuscation.mode = "fake-tls".into();
+        validate_profiles(&cfg).expect("dormant Host is losslessly retained, not used as SNI");
     }
 
     #[test]

@@ -72,3 +72,16 @@ laboratory reports are maintained in both mirrored locale trees.
   находок аудита 2026-07-05.
 - [AUDIT-2026-07-27-FIXES.md](archive/audits/AUDIT-2026-07-27-FIXES.md) — зафиксированный
   чек-лист исправлений аудита 2026-07-27.
+
+## Размещение документов клиентов · Client documentation placement
+
+Полные инструкции клиентов размещаются в `docs/ru/manuals/` и `docs/eng/manuals/`,
+технические матрицы — в `reference/`, датированные аудиты — в `reports/`.
+Рядом с исходниками остаются README с кратким описанием компонента и ссылками.
+Full client guides belong in the mirrored `manuals/` trees, technical matrices in
+`reference/`, and dated audits in `reports/`. Source directories retain short
+component README entry points linking to both languages, without guide copies.
+
+Windows CLI: [RU](ru/manuals/WINDOWS-CLI.md) · [EN](eng/manuals/WINDOWS-CLI.md).
+OpenWrt: [RU](ru/manuals/OPENWRT-INSTALL.md) · [EN](eng/manuals/OPENWRT-INSTALL.md).
+iOS MDM: [RU](ru/manuals/IOS-MDM.md) · [EN](eng/manuals/IOS-MDM.md).

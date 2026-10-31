@@ -42,7 +42,7 @@
   <ItemGroup>
     <!-- Platform-neutral production lifecycle/model adapters. Managed wire conformance
          is built separately by qeli-shared/QeliConformance. -->
-    <ProjectReference Include="..\..\qeli-shared\QeliShared\QeliShared.csproj" />
+    <ProjectReference Include="../QeliWindowsRuntime/QeliWindowsRuntime.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,11 +52,8 @@
     <!-- QR generation for profile sharing (pure managed, PNG output).
          Version kept in lockstep with qeli-mac (R0 unification). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
-    <!-- DPAPI (ProtectedData) encrypts the at-rest profile store under the current
-         user's login secret (docs/*/archive/plans/RELEASE-FIXES.md E1) and is still used by
-         Model/ProfileStore.cs + Service/ServiceState.cs. It needs NO PackageReference:
-         net10.0-windows ships System.Security.Cryptography.ProtectedData in-box, so an
-         explicit one is redundant and warned about as NU1510. -->
+    <!-- DPAPI storage is implemented by QeliWindowsRuntime. The shared console/service
+         runtime declares ProtectedData explicitly because it does not use Desktop Runtime. -->
   </ItemGroup>
 
   <ItemGroup>
@@ -68,24 +65,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- WireGuard's Wintun userspace TUN driver (amd64), embedded into the exe.
-         Extracted to LocalAppData at startup and resolved via NativeLoader. -->
-    <EmbeddedResource Include="wintun\wintun.dll">
-      <LogicalName>wintun.dll</LogicalName>
-    </EmbeddedResource>
+    <!-- Driver/core resources are embedded once in QeliWindowsRuntime; GUI and CLI
+         use the same protected native extraction and loader. Legal resources stay here. -->
     <!-- Original terms travel inside each EXE and remain readable/exportable via licenses. -->
     <EmbeddedResource Include="wintun\LICENSE.txt">
       <LogicalName>Qeli.Legal/drivers/Wintun-LICENSE.txt</LogicalName>
       <WithCulture>false</WithCulture>
-    </EmbeddedResource>
-    <!-- WinDivert 2.2 packet capture pair used only by per-app profiles. The DLL expects
-         the signed x64 driver beside it; NativeLoader extracts both into one protected
-         directory before opening the filter. -->
-    <EmbeddedResource Include="windivert\WinDivert.dll">
-      <LogicalName>WinDivert.dll</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="windivert\WinDivert64.sys">
-      <LogicalName>WinDivert64.sys</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="windivert\LICENSE.txt">
       <LogicalName>Qeli.Legal/drivers/WinDivert-LICENSE.txt</LogicalName>
@@ -94,12 +79,6 @@
     <EmbeddedResource Include="windivert\NOTICE.txt">
       <LogicalName>Qeli.Legal/drivers/WinDivert-NOTICE.txt</LogicalName>
       <WithCulture>false</WithCulture>
-    </EmbeddedResource>
-    <!-- Rust whole-client transport core (qeli.dll, configuration + transport ABI 1.16), cross-built for win-x64.
-         It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding and the Wintun
-         session/rings; C# retains only interface lifecycle, routes/DNS/trust and UI. -->
-    <EmbeddedResource Include="$(QeliNativeCorePath)">
-      <LogicalName>qeli.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
@@ -125,4 +104,45 @@
   <Target Name="RequireNativeLegalBundle" BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
     <Error Condition="!Exists('..\..\qeli\third-party-notices\rust\INDEX.tsv')" Text="Missing native legal bundle; run scripts/native_licenses.py and review its output." />
   </Target>
+  <!-- One production Windows adapter assembly shared with the console host. -->
+  <ItemGroup>
+    <Compile Remove="Vpn/AdapterSharing.cs" />
+    <Compile Remove="Vpn/KillSwitch.cs" />
+    <Compile Remove="Vpn/NativeLoader.cs" />
+    <Compile Remove="Vpn/NativeModuleCache.cs" />
+    <Compile Remove="Vpn/NetworkConfigurator.cs" />
+    <Compile Remove="Vpn/PendingFragmentBuffer.cs" />
+    <Compile Remove="Vpn/PersistentWintunCommands.cs" />
+    <Compile Remove="Vpn/PersistentWintunDevice.cs" />
+    <Compile Remove="Vpn/PersistentWintunNative.cs" />
+    <Compile Remove="Vpn/PersistentWintunNetwork.cs" />
+    <Compile Remove="Vpn/ProcessAppMap.cs" />
+    <Compile Remove="Vpn/RetainedDriverGates.cs" />
+    <Compile Remove="Vpn/TunnelIpv6Policy.cs" />
+    <Compile Remove="Vpn/VpnTunnel.cs" />
+    <Compile Remove="Vpn/WinDivertAdapter.cs" />
+    <Compile Remove="Vpn/WinDivertDestinationPolicy.cs" />
+    <Compile Remove="Vpn/WinDivertFlowTable.cs" />
+    <Compile Remove="Vpn/WinDivertKillSwitchGate.cs" />
+    <Compile Remove="Vpn/WinDivertNative.cs" />
+    <Compile Remove="Vpn/WinDivertRuntime.cs" />
+    <Compile Remove="Vpn/WindowsAdapterModeGate.cs" />
+    <Compile Remove="Vpn/WindowsAdapterPolicy.cs" />
+    <Compile Remove="Vpn/WindowsRoamingSocket.cs" />
+    <Compile Remove="Vpn/Wintun.cs" />
+    <Compile Remove="Service/ServiceHost.cs" />
+    <Compile Remove="Service/ServiceManager.cs" />
+    <Compile Remove="Service/ServiceMonotonicClock.cs" />
+    <Compile Remove="Service/ServiceObservation.cs" />
+    <Compile Remove="Service/ServiceProfileTransition.cs" />
+    <Compile Remove="Service/ServiceRegistration.cs" />
+    <Compile Remove="Service/ServiceState.cs" />
+    <Compile Remove="Service/StorageLayout.cs" />
+    <Compile Remove="Service/StorageMigration.cs" />
+    <Compile Remove="Model/AppSettings.cs" />
+    <Compile Remove="Model/ProfileStore.cs" />
+    <Compile Remove="Model/WindowDimensions.cs" />
+    <Compile Remove="WindowsCommand.cs" />
+    <Compile Remove="SystemPaths.cs" />
+  </ItemGroup>
 </Project>

@@ -98,6 +98,32 @@ pub(crate) fn supported_endpoint_host(host: &str) -> bool {
     host.parse::<std::net::IpAddr>().is_ok() || supported_dns_host(host)
 }
 
+/// TLS DNS names deliberately exclude bare IPs and the fake-TLS marker tokens.
+pub(crate) fn valid_tls_hostname(value: &str) -> bool {
+    let value = value.strip_suffix('.').unwrap_or(value);
+    !value.is_empty()
+        && value.len() <= 253
+        && value.parse::<std::net::IpAddr>().is_err()
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+/// The legacy client `sni` key is an HTTP Host override for WebSocket obfs.
+/// Keep this grammar identical for server link generation and client admission.
+pub(crate) fn valid_websocket_host(value: &str) -> bool {
+    value.len() <= 253
+        && value.is_ascii()
+        && value.trim() == value
+        && (value.parse::<std::net::IpAddr>().is_ok() || valid_tls_hostname(value))
+}
+
 pub fn supported_public_endpoint(input: &str, default_port: u16) -> Result<(String, u16), String> {
     let value = input.trim();
     if value.is_empty() {
@@ -223,10 +249,14 @@ impl ClientLink {
         // The proxy forwards probes to this target and borrows its TLS identity.
         // A separate server_name can disagree with it (including its default), so
         // generated REALITY links must derive SNI from the active target itself.
-        let link_sni = if reality_on {
-            &rp.target
+        let link_sni = if mode == "obfs" {
+            // `sni` is the backwards-compatible URI/INI name for HTTP Host in
+            // WebSocket obfs. Never copy TLS defaults or !/~/@ marker tokens here.
+            obf.ws_host.clone()
+        } else if reality_on {
+            Some(rp.target.clone())
         } else {
-            &obf.tls.server_name
+            Some(obf.tls.server_name.clone())
         };
         ClientLink {
             host,
@@ -236,7 +266,7 @@ impl ClientLink {
             proto: profile.bind.transport.clone(),
             mode: mode.clone(),
             server_key,
-            sni: Some(link_sni.clone()).filter(|s| {
+            sni: link_sni.filter(|s| {
                 !s.is_empty() && uses_server_name(&profile.bind.transport, &mode, &obf.fronting)
             }),
             reality_sid,
@@ -732,7 +762,7 @@ mod tests {
         for (proto, mode, front, included) in [
             ("tcp", "fake-tls", "websocket", true),
             ("udp", "fake-tls", "websocket", true),
-            ("tcp", "obfs", "websocket", true),
+            ("tcp", "obfs", "websocket", false),
             ("tcp", "obfs", "none", false),
             ("udp", "obfs", "websocket", false),
             ("tcp", "plain", "websocket", false),
@@ -750,6 +780,60 @@ mod tests {
                 None,
             );
             assert_eq!(link.sni.is_some(), included, "{proto} {mode} {front}");
+        }
+    }
+
+    #[test]
+    fn websocket_links_never_inherit_tls_names_or_markers() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.obfuscation.mode = "obfs".into();
+        profile.obfuscation.obfs_key = "test-key".into();
+        for tls_name in ["www.cloudflare.com", "!", "~", "@", "decoy.example"] {
+            profile.obfuscation.tls.server_name = tls_name.into();
+            for host in [
+                None,
+                Some("front.example"),
+                Some("192.0.2.5"),
+                Some("2001:db8::5"),
+            ] {
+                profile.obfuscation.ws_host = host.map(str::to_string);
+                let link = ClientLink::for_profile(
+                    &profile,
+                    "vpn.example".into(),
+                    443,
+                    "user".into(),
+                    "pass".into(),
+                    "11".repeat(32),
+                    None,
+                );
+                assert_eq!(link.sni.as_deref(), host);
+                let imported = crate::config::client::ClientConfig::from_link(
+                    &ClientLink::from_uri(&link.to_uri()).unwrap(),
+                );
+                imported
+                    .validate()
+                    .expect("server link must pass native client admission");
+                assert_eq!(
+                    imported.effective_fronting_host(),
+                    match host {
+                        Some("2001:db8::5") => "[2001:db8::5]",
+                        Some(value) => value,
+                        None => "vpn.example",
+                    }
+                );
+            }
+        }
+        for invalid in [
+            "!",
+            "~",
+            "@",
+            "https://front.example",
+            "front.example:443",
+            " front.example",
+            "front.example\r\nX-Test: yes",
+            "[2001:db8::5]",
+        ] {
+            assert!(!valid_websocket_host(invalid), "accepted {invalid:?}");
         }
     }
 

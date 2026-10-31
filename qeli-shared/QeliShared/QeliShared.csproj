@@ -10,7 +10,7 @@
     <!-- Log lines must be greppable against the English error catalog in
          docs/*/manuals/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
          OS language, so a Russian Windows produced logs mixing qeli's own English strings
-         with .NET messages like "Удаленный хост принудительно разорвал…" — unsearchable,
+         with .NET messages like "РЈРґР°Р»РµРЅРЅС‹Р№ С…РѕСЃС‚ РїСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ СЂР°Р·РѕСЂРІР°Р»вЂ¦" вЂ” unsearchable,
          and confusing when a user reports them. Shipping only the English resources keeps
          `e.Message` in one language. The app's OWN ru/en UI is unaffected: it uses the
          hand-written Loc table, not satellite assemblies. -->
@@ -29,6 +29,8 @@
   <ItemGroup>
     <Compile Remove="Crypto\**\*.cs;Protocol\**\*.cs;Model\LinkConformance.cs" />
     <InternalsVisibleTo Include="QeliConformance" />
+    <InternalsVisibleTo Include="QeliCliTests" />
+    <InternalsVisibleTo Include="QeliWindowsRuntime" />
   </ItemGroup>
 
 </Project>

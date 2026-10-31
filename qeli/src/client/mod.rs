@@ -26,8 +26,8 @@ mod status_writer;
 mod tun_recovery;
 
 use crate::crypto::{
-    derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
-    derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
+    derive_data_frag_key, derive_keys_hybrid, derive_keys_hybrid_bound, handshake_transcript_hash,
+    Keypair,
 };
 #[cfg(feature = "experimental-roaming")]
 use crate::crypto::{derive_session_material_hybrid, derive_session_material_hybrid_bound};
@@ -505,7 +505,7 @@ use crate::transport_core::tcp_carrier_metrics::{CarrierMetrics, CloseGuard, InF
 use portable_atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UdpSocket;
 #[cfg(target_os = "linux")]
 use tokio::net::{TcpSocket, TcpStream};
@@ -4085,75 +4085,7 @@ async fn connect_reality(
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
     let server_name = config.effective_reality_sni().to_string();
-    // Seal the REALITY token into the real ClientHello's session_id with a fresh
-    // ephemeral. Requires a pinned server key + short_id, else the server can't
-    // recognise us and would proxy us to the real site.
-    let eph = crate::crypto::Keypair::generate();
-    let session_id = match (
-        config
-            .obfuscation
-            .reality_short_id
-            .as_deref()
-            .filter(|s| !s.is_empty()),
-        config
-            .auth
-            .server_public_key
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .and_then(crate::crypto::parse_pubkey_hex),
-    ) {
-        (Some(sid_hex), Some(pk)) => {
-            let reality_pub = crate::crypto::PublicKey::from_bytes(&pk);
-            let short_id = crate::crypto::reality::short_id_from_hex(sid_hex);
-            crate::crypto::reality::seal_session_id(&reality_pub, &eph, &short_id)
-        }
-        _ => {
-            return Err(anyhow::anyhow!(
-                "reality-tls requires obfuscation.reality_short_id and auth.server_public_key"
-            ))
-        }
-    };
-    let handshake = async {
-        if !config.obfuscation.reality_split.is_empty()
-            && config.obfuscation.reality_split != "none"
-        {
-            log::info!(
-                "REALITY-TLS ClientHello split={} delay={}ms compact={}",
-                config.obfuscation.reality_split,
-                config.obfuscation.reality_split_delay_ms,
-                config.obfuscation.reality_compact
-            );
-            crate::protocol::realtls::client::client_handshake_evasive(
-                &mut stream,
-                eph,
-                session_id,
-                &server_name,
-                config.obfuscation.reality_compact,
-                &config.obfuscation.reality_split,
-                config.obfuscation.reality_split_delay_ms,
-            )
-            .await
-        } else if config.obfuscation.reality_compact {
-            log::info!(
-                "REALITY-TLS compact ClientHello enabled (X25519-only, single-segment target)"
-            );
-            crate::protocol::realtls::client::client_handshake_compact(
-                &mut stream,
-                eph,
-                session_id,
-                &server_name,
-            )
-            .await
-        } else {
-            crate::protocol::realtls::client::client_handshake(
-                &mut stream,
-                eph,
-                session_id,
-                &server_name,
-            )
-            .await
-        }
-    };
+    let handshake = crate::transport_core::session::establish_reality_tls(&mut stream, config);
     let est = match tokio::time::timeout(to, handshake).await {
         Ok(Ok(established)) => established,
         Ok(Err(error)) => {
@@ -7686,30 +7618,16 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     #[cfg(not(feature = "experimental-roaming"))]
     let resume_pending = false;
 
-    // Plain uses raw framing directly; current reality-tls uses it privately
-    // inside genuine HTTP/2. Both perform the raw X25519 exchange, then present
-    // the JOIN token instead of credentials, mirroring the corresponding primary
-    // handshake branch.
+    // Same key exchange as primary AUTH, including mandatory INNER_PQ_V1 for
+    // compact REALITY. Never leak JOIN/resume credentials via a classic retry.
     if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
-        stream
-            .write_all_flush(client_kp.public().as_bytes())
-            .await?;
-        let mut sp = [0u8; 32];
-        stream
-            .read_exact(&mut sp)
-            .await
-            .map_err(|e| anyhow::anyhow!("JOIN(plain): read server key: {}", e))?;
-        let server_pub = crate::crypto::PublicKey::from_bytes(&sp);
-        let transcript_hash = handshake_transcript_hash(&[client_kp.public().as_bytes(), &sp]);
-        let shared = client_kp
-            .derive_shared_checked(&server_pub)
-            .ok_or_else(|| anyhow::anyhow!("JOIN(plain): rejected low-order server key"))?;
-        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
-            Some(es) => derive_keys_bound(&shared.0, &es),
-            None => derive_keys(&shared.0),
-        };
-        let mut client_rx = PacketCodec::new_raw(server_to_client);
-        let mut client_tx = PacketCodec::new_raw(client_to_server);
+        let crate::transport_core::session::RawClientKeys {
+            rx: mut client_rx,
+            tx: mut client_tx,
+            shared,
+            transcript_hash,
+            ..
+        } = crate::transport_core::session::raw_client_keys(stream, config, &client_kp).await?;
         let auth_proof_record = read_record(stream, Framing::Raw)
             .await
             .map_err(|e| anyhow::anyhow!("JOIN(plain): auth proof: {}", e))?;
@@ -7717,11 +7635,14 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let server_static_pub_bytes = verify_server_identity(
             &auth_proof_msg,
             &client_kp,
-            &shared.0,
+            &shared,
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
         identity_verifier(server_static_pub_bytes).await?;
+        if config.obfuscation.mode == "reality-tls" && config.obfuscation.reality_compact {
+            log::info!("INNER_PQ_V1 confirmed before secondary JOIN/resume");
+        }
         let join = attach.first_message(transcript_hash);
         let join_packet = client_tx.encrypt_packet(&join, &[])?;
         stream.write_all_flush(&join_packet).await?;
@@ -14845,6 +14766,112 @@ mod q13_stealth_writer_tests {
             matches!(Pin::new(&mut send).poll(&mut cx), Poll::Pending),
             "5.6 ms debt must park before the data write"
         );
+    }
+}
+
+#[cfg(all(test, feature = "experimental-roaming"))]
+mod compact_pq_secondary_tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test]
+    async fn compact_pq_join_resume_and_old_server_refusal_share_the_primary_policy() {
+        for resume in [false, true] {
+            for legacy_peer in [false, true] {
+                let identity = crate::crypto::StaticKeypair::generate();
+                let mut config = crate::config::client::ClientConfig::default();
+                config.obfuscation.mode = "reality-tls".into();
+                config.obfuscation.reality_compact = true;
+                config.auth.server_public_key = Some(
+                    identity
+                        .public
+                        .as_bytes()
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect(),
+                );
+                let context = TcpResumeContext {
+                    session_locator: [0x33; crate::protocol::roaming::SESSION_LOCATOR_LEN],
+                    resume_secret: Arc::new(zeroize::Zeroizing::new([0x5a; 32])),
+                    next_epoch: Arc::new(AtomicU64::new(0)),
+                };
+                let token = [0x55; crate::protocol::JOIN_TOKEN_LEN];
+                let (mut io, mut peer) = tokio::io::duplex(32 * 1024);
+                let server = tokio::spawn(async move {
+                    let mut marker = [0u8; 32];
+                    peer.read_exact(&mut marker).await.unwrap();
+                    assert_eq!(marker, crate::protocol::inner_pq::SENTINEL);
+                    let kp = Keypair::generate();
+                    if legacy_peer {
+                        peer.write_all_flush(kp.public().as_bytes()).await.unwrap();
+                        let mut rest = vec![0; crate::protocol::inner_pq::CLIENT_LEN - 32];
+                        peer.read_exact(&mut rest).await.unwrap();
+                        let mut following = Vec::new();
+                        peer.read_to_end(&mut following).await.unwrap();
+                        assert!(
+                            following.is_empty(),
+                            "JOIN/resume or classic retry leaked to old server"
+                        );
+                        return;
+                    }
+                    let exchange =
+                        crate::protocol::inner_pq::server_exchange(&mut peer, &kp, &identity)
+                            .await
+                            .unwrap();
+                    let (s2c, c2s) = exchange.material.data_keys();
+                    let mut tx = PacketCodec::new_raw(s2c);
+                    let mut rx = PacketCodec::new_raw(c2s);
+                    let proof = crate::crypto::build_server_auth_message(
+                        &identity,
+                        &exchange.peer_public,
+                        &exchange.ephemeral_shared,
+                        &exchange.transcript_hash,
+                    );
+                    peer.write_all_flush(&tx.encrypt_packet(&proof, &[]).unwrap())
+                        .await
+                        .unwrap();
+                    let record = read_record(&mut peer, Framing::Raw).await.unwrap();
+                    let join = rx.decrypt_packet(&record).unwrap();
+                    if resume {
+                        let join = crate::protocol::roaming::TcpResumeJoin::decode(&join).unwrap();
+                        assert!(join.verify(&[0x5a; 32]));
+                        assert!(join.matches_transcript(&exchange.transcript_hash));
+                    } else {
+                        assert_eq!(&join[..8], crate::protocol::JOIN_MAGIC);
+                        assert_eq!(&join[8..join.len() - 1], &token);
+                    }
+                    peer.write_all_flush(
+                        &tx.encrypt_packet(crate::protocol::roaming::TCP_RESUME_PREPARED_ACK, &[])
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                });
+                let attach = if resume {
+                    TcpSecondaryAttach::Resume {
+                        context: &context,
+                        resume_epoch: 1,
+                        logical_slot_id: 2,
+                        handover: false,
+                    }
+                } else {
+                    TcpSecondaryAttach::Legacy {
+                        token: &token,
+                        stream_index: 2,
+                    }
+                };
+                let verifier: IdentityVerifier = Arc::new(|_| Box::pin(async { Ok(()) }));
+                let result = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    tcp_secondary_handshake(&mut io, &config, attach, verifier),
+                )
+                .await
+                .unwrap();
+                assert_eq!(result.is_err(), legacy_peer);
+                drop(io);
+                server.await.unwrap();
+            }
+        }
     }
 }
 

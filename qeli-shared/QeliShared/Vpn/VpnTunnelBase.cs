@@ -33,6 +33,7 @@ public abstract class VpnTunnelBase
     public DesktopTunnelAddresses TunnelAddresses => Volatile.Read(ref _tunnelAddresses);
     private void Status(VpnStatus s, string? extra = null)
     {
+        if(s == VpnStatus.Connected) Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Transport);
         if (s != VpnStatus.Connected) Volatile.Write(ref _tunnelAddresses, DesktopTunnelAddresses.Empty);
         NotifyObservers(StatusChanged, observer => observer(s, extra));
     }
@@ -149,6 +150,10 @@ public abstract class VpnTunnelBase
     /// <summary>When the current tunnel reached Connected (for session duration).</summary>
     public DateTime? ConnectedSince { get; private set; }
 
+    private int _failureKind;
+    public TunnelFailureKind FailureKind => (TunnelFailureKind)Volatile.Read(ref _failureKind);
+    private void ObserveFailure(string message) => Volatile.Write(ref _failureKind, (int)TunnelFailurePolicy.FromNativeError(message));
+
     public bool IsRunning => _runTask is { IsCompleted: false };
 
     public bool Start(VpnConfig config)
@@ -173,10 +178,12 @@ public abstract class VpnTunnelBase
                 // shared TUN/socket/route fields. Stop() deliberately leaves its task and
                 // cancellation source published when it cannot prove quiescence, so a later
                 // Stop()/Start() can retry once that task has actually returned.
+                Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Transport);
                 Log($"[SECURITY] previous tunnel did not stop cleanly: {e.Message}");
                 Status(VpnStatus.Error, FirstSentence(e.Message));
                 return false;
             }
+            Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Transport);
             // Validate AFTER Stop(), inside the lock. Returning before it left the PREVIOUS
             // tunnel running while the GUI had already switched to the new profile and shown
             // an error — routes and traffic still belonged to a session the user thought was
@@ -300,6 +307,7 @@ public abstract class VpnTunnelBase
     /// server-assigned tunnel IP. Throws on any protocol/auth failure.</summary>
     public string TestHandshake(VpnConfig config)
     {
+        Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Transport);
         _handshakeOnly = true;
         _handshakeIp = null;
         _userRequestedDisconnect = true; // no reconnect loop
@@ -1102,6 +1110,7 @@ public abstract class VpnTunnelBase
                 // Server identity changed / key mismatch — a possible MITM. Do NOT
                 // retry (a hijacked endpoint won't fix itself and retrying is noisy);
                 // surface a clear security warning and stop. (A5 — TOFU warning.)
+                ObserveFailure(e.Message);
                 Log($"[SECURITY] {e.Message}");
                 Status(VpnStatus.Error, Loc.T("MitmStop"));
                 // Remember WHY we stopped. The give-up tail below announces a generic
@@ -1636,6 +1645,7 @@ public abstract class VpnTunnelBase
                             nativeError = string.IsNullOrWhiteSpace(nativeEvent.Payload)
                                 ? $"native transport error {nativeEvent.ErrorCode}"
                                 : nativeEvent.Payload;
+                            ObserveFailure(nativeError);
                             Log($"ERROR: native transport {nativeEvent.ErrorCode}: {nativeError}");
                             if (ServerIdentityPolicy.IsKeyMismatch(nativeError))
                                 throw new SecurityException(nativeError);
@@ -1788,6 +1798,7 @@ public abstract class VpnTunnelBase
         }
         catch (Exception error)
         {
+            ObserveFailure(error.Message); // Also covers handshake-only probes, outside the reconnect loop.
             try { NativeTransportCore.ServerIdentityResult(handle, sequence, false, error.Message); }
             catch { }
             if (error is SecurityException security) throw security;

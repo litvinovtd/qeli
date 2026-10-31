@@ -482,6 +482,7 @@ tuning uses only flat `perf.*` keys inside `[profile:<name>]`. Example profile:
 | `obf.mode` | `fake-tls` | wire mode before authenticated negotiation |
 | `obf.obfs_key` | — | shared secret required for obfs |
 | `obf.obfs_fronting` | `websocket` | obfs fronting; must match the client |
+| `obf.ws.host` | empty | HTTP Host for generated TCP WebSocket-obfs links; empty uses the connect endpoint. Not TLS SNI |
 | `identity_key` | — | optional identity-key path; omitted = generated per-profile path |
 | `listen` | `[]` | extra address:port listeners, one per repeated line; the primary bind is separate |
 | `pool.exclude` | `[]` | extra IPv4 addresses excluded from allocation; the server address is always reserved |
@@ -1305,7 +1306,7 @@ to `obfs`.
 
 | Value | Behavior |
 |---|---|
-| `"websocket"` (default) | Before the nonce exchange the client sends `GET … Upgrade: websocket`, the server sends `101 Switching Protocols` (with a correct `Sec-WebSocket-Accept`). The first packet is printable HTTP text → it passes the GFW/TSPU "fully encrypted traffic" entropy heuristics. The request is randomized (path/Host/key) — no static signature. **After the upgrade the stream is wrapped in real WebSocket binary frames** (opcode `0x2`, per-frame client mask), so the whole connection is well-formed WebSocket on the wire, not just the opening handshake |
+| `"websocket"` (default) | Before the nonce exchange the client sends `GET … Upgrade: websocket`, the server sends `101 Switching Protocols` (with a correct `Sec-WebSocket-Accept`). The connection starts with HTTP text rather than random bytes; this is not a DPI-bypass guarantee. The path is PSK-derived, the WebSocket key is random, and Host uses the connect endpoint or an explicit override. **After the upgrade the stream uses real WebSocket binary frames** (opcode `0x2`, per-frame client mask), preserving WebSocket framing beyond the handshake |
 | `"none"` | Legacy: an immediate random nonce prologue. "Looks like nothing" — blocked by entropy-based DPI. For rollback only |
 
 An `obfs` example (fragments):
@@ -1362,16 +1363,57 @@ implementation of `udp-obfs`.
   the server shows the real site. Fix: enable automatic time sync (NTP) — most often
   the clock drifts on Android without auto-time and in VMs after suspend.
 
+For TCP `obfs` with `front=websocket`, the default Host is the connect endpoint,
+not `obf.tls.server_name` or the REALITY target. To override it, set server-side
+`obf.ws.host = front.example` in `[profile:name]`. Use a DNS name or
+bare IP, without scheme, port or brackets; fake-TLS markers `!`, `~`, `@` are invalid.
+An empty value restores the connect-endpoint Host. Panel and CLI generators use
+the existing `sni` URI/client-INI field for backwards compatibility. Existing imported
+profiles need their incorrect obfs `sni` removed or corrected manually. UDP and
+`front=none` do not use this Host.
+
 Client-side REALITY ClientHello controls (flat `[qeli]` keys, TCP `reality-tls` only):
 
 | key | default | meaning |
 |---|---|---|
-| `reality_compact` | `false` | emit a compact X25519-only outer TLS ClientHello so it stays below one TCP MSS on paths that drop a segmented ClientHello; the authenticated Qeli handshake remains unchanged |
+| `reality_compact` | `false` | smaller X25519-only outer ClientHello and mandatory inner hybrid INNER_PQ_V1 before AUTH/JOIN; unsupported servers fail without fallback |
 | `reality_split` | `none` | split the ClientHello across writes: `sni`, `record`, or `first`; `none`/empty disables the split |
 | `reality_split_delay` | `100` ms | delay between split writes, valid range `0..5000`; used only when `reality_split` is active |
 
 These are transport-core settings. All native profile editors accept and preserve them even
 when the UI does not expose a dedicated control.
+
+In 0.8.4, CLI and Android/iOS/Windows/macOS use one core handler, including reconnects
+and additional streams. Edit the profile INI; `qeli://` does not carry compact/split,
+so configure them separately on another device. For compact without deliberate splitting:
+
+```ini
+[qeli]
+reality_compact = true
+reality_split = none
+```
+
+**Security and upgrades:** new compact requires `INNER_PQ_V1`: after TLS/H2, both peers
+mix X25519, ML-KEM-768, static-ephemeral DH and the complete inner transcript in a separate
+KDF. Data and resume keys depend on the PQ secret. The client verifies AEAD key confirmation
+and pinned server identity **before** AUTH/JOIN/resume. This version requires static
+binding even when the legacy `bind_static=false` setting is present. Update the server
+first, then native client cores: an old server fails without a classic retry. Old compact
+clients do not acquire this protection automatically. The client never works around an
+INNER_PQ_V1 failure by switching to noncompact.
+
+This targets confidentiality against harvest-now/decrypt-later, not post-quantum identity
+signatures: pinned authentication remains X25519. Default `false` preserves the legacy
+inner format and outer X25519MLKEM768 offer; actual outer negotiation depends on the server.
+Connection failure never switches to compact. A smaller ClientHello does
+not guarantee a single TCP packet: MSS, SNI and the network stack matter. Split writes do
+not guarantee segment boundaries either and may conflict with a DPI requirement not to
+split ClientHello. Confirm a suspected path-specific block with packet captures.
+
+The 1184-byte ML-KEM key travels inside TLS, not in the 32-byte random/session_id;
+session_id remains the REALITY token. Wire format, KDF, compatibility and limitations:
+[INNER_PQ_V1](../reference/REALITY-INNER-PQ.md). See
+[#69](https://github.com/litvinovtd/qeli/issues/69).
 
 ## Server identity (per-profile)
 
@@ -1823,7 +1865,7 @@ failed roam.
 | `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | active outer UDP path probe with manual or automatic MTU; preserves an explicit inner MTU |
 | `gateway` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | full tunnel; common CLI/GUI default `true`; `gateway=false` explicitly selects split tunnel |
 | `pull_routes` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | Accept server-pushed routes; false preserves local routes, gateway and protected tunnel DNS routes; carried in qeli:// |
-| `windows_disable_sharing` | `false` | — | ✓ | — | — | — | Disable ms_msclient/ms_server only on the owned Wintun, with GUID/LUID and readback checks; not used by WinDivert |
+| `windows_disable_sharing` | `false` | — | ✓ | — | — | — | Disable Microsoft sharing and LLDP/LLTD discovery bindings only on the owned Wintun, with GUID/LUID and readback checks; not used by WinDivert |
 | `windows_persistent_adapter` | `false` | — | ✓ | — | — | — | Profile opt-in for experimental permanent Wintun, honored only in app-wide Per profile mode. App default Off; global mode does not edit the flag. Explicit removal, session IP/DNS/route rollback; not `persist_tun`/WinDivert. Other clients preserve it inactive. Reboot qualification pending; see below |
 | `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | pull IPv4 RFC1918 into the tunnel; does not alter IPv6 policy |
 | `include` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list forced **into** the tunnel (Android — split-tunnel only) |
@@ -3858,11 +3900,33 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 | `routing.ipv6.interface` | — | IPv6 uplink; empty = IPv6 default route when present. Required by `nat66`, optional for LAN-only `route`. In `manual`, supplies the default NDP uplink and hook metadata without configuring routing/firewall. In managed `route`/`nat66`, the selected device must exist during rule setup. Empty auto selection rejects ECMP/equal-priority different WANs; `nat66` also refuses a failed/unusable default-route listing without a `route get` fallback. LAN-only `route` without a default route remains valid. In nat66, selection lasts until profile reinstallation; routing through another interface is blocked by the off-WAN guard. In route, current kernel routes determine egress. |
 | `routing.ipv6.ndp_proxy` | `off` | Upstream NDP responder: `off`, best-effort `auto`, or mandatory `required`; enabled only with `routing.ipv6.mode = route` or `manual`. Egress `off`/`nat66` requires `ndp_proxy = off`; `required` does not verify packet delivery |
 | `routing.ipv6.ndp_proxy_interface` | — | Ethernet uplink for NDP; empty = reuse the effective/configured IPv6 interface or discover the IPv6 uplink, including in `manual` |
+| `routing.ipv6.ndp_proxy_source` | — | Empty/`auto` prefers an assigned ready link-local IPv6 source. An explicit bare unicast IPv6 must be assigned and usable on the selected uplink; unavailable source pauses replies/announcements without fallback. `required` rejects startup if it is unavailable |
+| `routing.ipv6.ndp_proxy_router` | `false` | Router bit in Neighbor Advertisements. Expert opt-in only; this does not enable forwarding or emit Router Advertisements |
+| `routing.ipv6.ndp_proxy_override` | `false` | Override bit in solicited and periodic Neighbor Advertisements. May overwrite an existing neighbor entry; leave off unless required by the upstream. Never set on a DAD reply |
+| `routing.ipv6.ndp_proxy_announce_interval_secs` | `0` | `0` = initial announcements + replies only; otherwise `10..86400` seconds since the last successful NA. Best-effort refresh of active concrete leases only, at most 1024 targets and 16 announcements per second; existing rate/ownership checks still apply. No delegated-prefix scanning |
 | `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]`; maximum 256 |
 | `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env includes `QELI_PROFILE`, `QELI_TUN`, explicit `QELI_POOL_IPV4`/`QELI_POOL_IPV6`, actual `QELI_WAN_IPV4`/`QELI_WAN_IPV6`, `QELI_BIND_PORT`; legacy `QELI_POOL`/`QELI_WAN` select the profile's primary family |
 | `routing.post_down` | — | once-per-generation cleanup after completed network setup; disabled/early failure does not run it; SIGKILL cannot guarantee it |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe; minimum `300` while Reality is enabled |
+
+For a provider that filters link-local NA sources, an example in an existing
+IPv6 `route`/`manual` profile is:
+
+```ini
+routing.ipv6.ndp_proxy = required
+routing.ipv6.ndp_proxy_interface = ens3
+routing.ipv6.ndp_proxy_source = 2001:db8:1234::1
+routing.ipv6.ndp_proxy_router = false
+routing.ipv6.ndp_proxy_override = false
+routing.ipv6.ndp_proxy_announce_interval_secs = 60
+```
+
+Replace the documentation address with the server's **existing uplink address**,
+not a client lease. Do not enable Override to conceal an address conflict. Periodic
+NDP is upstream neighbor maintenance, not VPN keepalive; it stops publishing a
+lease when its owning session is gone. New leases take priority over refreshes.
+Values can also be edited in the profile's IPv6 routing section of the panel.
 
 ## Web panel (`[web]`)
 
@@ -4200,8 +4264,8 @@ option. This rule preserves other ICMPv6, including Echo and Packet Too Big.
 Physical interfaces and WinDivert/per-app mode are not changed by this policy.
 
 Windows-only `windows_disable_sharing = false` preserves OS behavior by default.
-When true, “Disable Microsoft Client / File Sharing on Qeli adapter” disables
-only `ms_msclient` and `ms_server` on the Wintun created by Qeli. The creator
+When true, “Disable sharing / L2 discovery on Qeli adapter” disables
+only `ms_msclient`, `ms_server`, `ms_lldp`, `ms_lltdio` and `ms_rspndr` on the Wintun created by Qeli. IPv4/IPv6 and third-party filters are not disabled. The creator
 handle and exact LUID/GUID establish ownership; CIM associations select that
 adapter's binding instances without alias wildcards. The operation has a
 5-second deadline and verifies readback and unchanged IP bindings. Failure

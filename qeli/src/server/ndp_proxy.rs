@@ -40,6 +40,7 @@ pub(crate) struct NdpProxy {
     ifindex: i32,
     mac: [u8; 6],
     memberships: OwnedFd,
+    policy: crate::config::server::Ipv6RoutingConfig,
 }
 
 /// A socket created in the worker's network namespace, before Tokio registration.
@@ -56,6 +57,7 @@ pub(crate) async fn start(
     profile: &str,
     mode: crate::config::server::Ipv6NdpProxyMode,
     interface: Option<&str>,
+    policy: &crate::config::server::Ipv6RoutingConfig,
 ) -> anyhow::Result<Option<NdpProxy>> {
     use crate::config::server::Ipv6NdpProxyMode;
     if mode == Ipv6NdpProxyMode::Off {
@@ -74,7 +76,7 @@ pub(crate) async fn start(
     .await??;
     match bound {
         None => Ok(None),
-        Some(bound) => match NdpProxy::register(bound) {
+        Some(bound) => match NdpProxy::register(bound, policy.clone()) {
             Ok(proxy) => Ok(Some(proxy)),
             Err(error) if mode == Ipv6NdpProxyMode::Auto => {
                 log::warn!("Profile '{profile}': IPv6 NDP proxy auto mode is unavailable: {error} — continuing without it");
@@ -216,13 +218,16 @@ impl BoundNdpProxy {
 }
 
 impl NdpProxy {
-    fn register(bound: BoundNdpProxy) -> anyhow::Result<Self> {
+    fn register(
+        bound: BoundNdpProxy,
+        policy: crate::config::server::Ipv6RoutingConfig,
+    ) -> anyhow::Result<Self> {
         // SAFETY: OwnedFd owns the open socket. NdpProxy never replaces or closes
         // its inner descriptor while registered; I/O only borrows it through
         // get_ref(), and dropping AsyncFd deregisters before dropping OwnedFd.
         let fd = unsafe { AsyncFd::register(bound.fd) }
             .map_err(|error| anyhow::anyhow!("cannot register NDP socket: {error}"))?;
-        assigned_source(bound.ifindex)?;
+        selected_source(bound.ifindex, &policy.ndp_proxy_source)?;
         let raw = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) };
         if raw < 0 {
             return Err(io::Error::last_os_error().into());
@@ -234,6 +239,7 @@ impl NdpProxy {
             ifindex: bound.ifindex,
             mac: bound.mac,
             memberships,
+            policy,
         })
     }
 
@@ -248,9 +254,9 @@ impl NdpProxy {
         let mut limiter = NdpRateLimiter::new(Instant::now());
         let mut refresh = tokio::time::interval(MEMBERSHIP_REFRESH);
         refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut announced = HashMap::<Ipv6Addr, u64>::new();
+        let mut announced = HashMap::<Ipv6Addr, (u64, Instant)>::new();
         let mut groups = HashSet::new();
-        let mut source = assigned_source(self.ifindex).ok();
+        let mut source = selected_source(self.ifindex, &self.policy.ndp_proxy_source).ok();
         loop {
             let incoming = tokio::select! {
                 _ = refresh.tick() => {
@@ -259,7 +265,7 @@ impl NdpProxy {
                     if index != self.ifindex as u32 || mac != self.mac {
                         anyhow::bail!("NDP uplink '{}' was replaced", self.interface);
                     }
-                    let next_source = assigned_source(self.ifindex).ok();
+                    let next_source = selected_source(self.ifindex, &self.policy.ndp_proxy_source).ok();
                     if source.is_some() && next_source.is_none() {
                         log::warn!("Profile '{}': NDP paused: no usable IPv6 source on '{}'", profile.name, self.interface);
                     }
@@ -278,15 +284,14 @@ impl NdpProxy {
                         update_membership(self.memberships.as_raw_fd(), self.ifindex, *group, true)?;
                     }
                     groups = desired;
-                    announced.retain(|address, owner| targets.get(address) == Some(owner));
+                    announced.retain(|address, (owner, _)| targets.get(address) == Some(owner));
                     if let Some(source) = source {
-                        let pending: Vec<_> = targets.iter().filter(|(address, owner)| announced.get(address) != Some(owner))
-                            .map(|(address, owner)| (*address, *owner)).take(ANNOUNCEMENTS_PER_TICK).collect();
+                        let pending = pending_announcements(&targets, &announced, Instant::now(), self.policy.ndp_proxy_announce_interval_secs);
                         for (target, owner) in pending {
                             if !limiter.allow(self.mac, Instant::now()) { break; }
-                            let response = build_unsolicited(target, source, self.mac);
+                            let response = build_unsolicited_with_policy(target, source, self.mac, self.policy.ndp_proxy_router, self.policy.ndp_proxy_override);
                             if self.send_owned(&profile, target, owner, &response).await? {
-                                announced.insert(target, owner);
+                                announced.insert(target, (owner, Instant::now()));
                             }
                         }
                     }
@@ -328,9 +333,21 @@ impl NdpProxy {
                 }
                 continue;
             }
-            let response = build_advertisement(&frame[..length], request, self.mac, source);
-            self.send_owned(&profile, request.target, owner, &response)
-                .await?;
+            let target = request.target;
+            let response = build_advertisement_with_policy(
+                &frame[..length],
+                request,
+                self.mac,
+                source,
+                self.policy.ndp_proxy_router,
+                self.policy.ndp_proxy_override,
+                false,
+            );
+            if self.send_owned(&profile, target, owner, &response).await?
+                && (announced.contains_key(&target) || announced.len() < MAX_KNOWN_TARGETS)
+            {
+                announced.insert(target, (owner, Instant::now()));
+            }
         }
     }
 
@@ -371,7 +388,11 @@ impl NdpProxy {
     }
 }
 
-fn usable_source_rows(rows: &str, ifindex: i32) -> Option<Ipv6Addr> {
+fn usable_source_rows_selected(
+    rows: &str,
+    ifindex: i32,
+    requested: Option<Ipv6Addr>,
+) -> Option<Ipv6Addr> {
     let mut choices = Vec::new();
     for row in rows.lines() {
         let fields: Vec<_> = row.split_whitespace().collect();
@@ -399,14 +420,64 @@ fn usable_source_rows(rows: &str, ifindex: i32) -> Option<Ipv6Addr> {
         choices.push(address);
     }
     choices.sort_by_key(|a| (!a.is_unicast_link_local(), *a));
-    choices.into_iter().next()
+    choices
+        .into_iter()
+        .find(|address| requested.is_none_or(|requested| requested == *address))
 }
 
+#[cfg(test)]
+fn usable_source_rows(rows: &str, ifindex: i32) -> Option<Ipv6Addr> {
+    usable_source_rows_selected(rows, ifindex, None)
+}
+
+#[cfg(test)]
 fn assigned_source(ifindex: i32) -> anyhow::Result<Ipv6Addr> {
+    selected_source(ifindex, "")
+}
+
+fn selected_source(ifindex: i32, requested: &str) -> anyhow::Result<Ipv6Addr> {
+    let requested = match requested.trim() {
+        "" | "auto" => None,
+        value => Some(value.parse::<Ipv6Addr>()?),
+    };
     // procfs reflects the current worker network namespace, not the startup namespace.
     let rows = std::fs::read_to_string("/proc/thread-self/net/if_inet6")?;
-    usable_source_rows(&rows, ifindex)
-        .ok_or_else(|| anyhow::anyhow!("NDP uplink has no usable assigned IPv6 source"))
+    usable_source_rows_selected(&rows, ifindex, requested).ok_or_else(|| {
+        anyhow::anyhow!(
+            "NDP uplink has no usable assigned IPv6 source matching {:?}",
+            requested
+        )
+    })
+}
+
+/// Initial announcements first, then oldest refreshes; bounded work cannot starve later leases.
+fn pending_announcements(
+    targets: &HashMap<Ipv6Addr, u64>,
+    announced: &HashMap<Ipv6Addr, (u64, Instant)>,
+    now: Instant,
+    interval: u64,
+) -> Vec<(Ipv6Addr, u64)> {
+    let mut pending: Vec<_> = targets
+        .iter()
+        .filter_map(|(target, owner)| {
+            let last = announced
+                .get(target)
+                .filter(|(previous, _)| previous == owner)
+                .map(|(_, time)| *time);
+            (last.is_none()
+                || (interval != 0
+                    && last.is_some_and(|time| {
+                        now.saturating_duration_since(time) >= Duration::from_secs(interval)
+                    })))
+            .then_some((last, *target, *owner))
+        })
+        .collect();
+    pending.sort_unstable();
+    pending
+        .into_iter()
+        .take(ANNOUNCEMENTS_PER_TICK)
+        .map(|(_, target, owner)| (target, owner))
+        .collect()
 }
 
 fn update_membership(fd: i32, ifindex: i32, group: Ipv6Addr, join: bool) -> io::Result<()> {
@@ -456,10 +527,21 @@ fn known_targets(sessions: &crate::server::SessionMap) -> HashMap<Ipv6Addr, u64>
     targets.into_iter().take(MAX_KNOWN_TARGETS).collect()
 }
 
+#[cfg(test)]
 fn build_unsolicited(target: Ipv6Addr, source: Ipv6Addr, proxy_mac: [u8; 6]) -> Advertisement {
+    build_unsolicited_with_policy(target, source, proxy_mac, false, false)
+}
+
+fn build_unsolicited_with_policy(
+    target: Ipv6Addr,
+    source: Ipv6Addr,
+    proxy_mac: [u8; 6],
+    router: bool,
+    override_flag: bool,
+) -> Advertisement {
     let mut ethernet = [0u8; 14];
     ethernet[12..14].copy_from_slice(&ETH_P_IPV6.to_be_bytes());
-    build_advertisement(
+    build_advertisement_with_policy(
         &ethernet,
         Solicitation {
             l3_offset: 14,
@@ -470,6 +552,9 @@ fn build_unsolicited(target: Ipv6Addr, source: Ipv6Addr, proxy_mac: [u8; 6]) -> 
         },
         proxy_mac,
         source,
+        router,
+        override_flag,
+        true,
     )
 }
 
@@ -646,15 +731,35 @@ struct Advertisement {
     bytes: Vec<u8>,
 }
 
+#[cfg(test)]
 fn build_advertisement(
     request_frame: &[u8],
     request: Solicitation,
     proxy_mac: [u8; 6],
     source: Ipv6Addr,
 ) -> Advertisement {
-    // RFC 4861 sections 7.2.4 and 7.2.8: a solicited proxy advertisement MUST clear
-    // Override so a real on-link owner can take precedence. DAD replies are unsolicited
-    // all-nodes advertisements; keep both Solicited and Override clear there as well.
+    build_advertisement_with_policy(
+        request_frame,
+        request,
+        proxy_mac,
+        source,
+        false,
+        false,
+        false,
+    )
+}
+
+fn build_advertisement_with_policy(
+    request_frame: &[u8],
+    request: Solicitation,
+    proxy_mac: [u8; 6],
+    source: Ipv6Addr,
+    router: bool,
+    override_flag: bool,
+    unsolicited: bool,
+) -> Advertisement {
+    // Proxy Override defaults to zero (RFC 4861 7.2.8). Expert opt-in never sets
+    // Solicited/Override on a DAD reply; unsolicited refreshes are a separate case.
     let (destination_ip, destination_mac, flags) = if request.dad {
         (
             "ff02::1".parse::<Ipv6Addr>().expect("constant IPv6"),
@@ -664,6 +769,13 @@ fn build_advertisement(
     } else {
         (request.source_ip, request.source_mac, 0x4000_0000u32)
     };
+    let flags = flags
+        | if router { 0x8000_0000 } else { 0 }
+        | if override_flag && (!request.dad || unsolicited) {
+            0x2000_0000
+        } else {
+            0
+        };
     let mut frame = Vec::with_capacity(request.l3_offset + 72);
     frame.extend_from_slice(&request_frame[..request.l3_offset]);
     frame[..6].copy_from_slice(&destination_mac);
@@ -777,6 +889,116 @@ impl NdpRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_source_never_falls_back_or_uses_another_interface() {
+        let rows = "20010db8000000000000000000000001 02 40 00 80 uplink\nfe800000000000000000000000000001 02 40 20 80 uplink\n20010db8000000000000000000000002 03 40 00 80 other\n20010db8000000000000000000000003 02 40 00 88 uplink\n";
+        let selected = "2001:db8::1".parse().unwrap();
+        assert_eq!(
+            usable_source_rows_selected(rows, 2, Some(selected)),
+            Some(selected)
+        );
+        for address in ["2001:db8::2", "2001:db8::3", "2001:db8::4"] {
+            assert_eq!(
+                usable_source_rows_selected(rows, 2, Some(address.parse().unwrap())),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn periodic_announcements_are_bounded_fair_and_generation_aware() {
+        let now = Instant::now();
+        let targets: HashMap<_, _> = (1..=32)
+            .map(|i| {
+                (
+                    Ipv6Addr::from(0x20010db8000000000000000000000000u128 + i),
+                    1,
+                )
+            })
+            .collect();
+        let mut sent = HashMap::new();
+        let first = pending_announcements(&targets, &sent, now, 0);
+        assert_eq!(first.len(), ANNOUNCEMENTS_PER_TICK);
+        for (ip, owner) in &first {
+            sent.insert(*ip, (*owner, now));
+        }
+        let next = pending_announcements(&targets, &sent, now, 0);
+        assert_eq!(next.len(), ANNOUNCEMENTS_PER_TICK);
+        assert!(next.iter().all(|item| !first.contains(item)));
+        for (ip, owner) in &next {
+            sent.insert(*ip, (*owner, now));
+        }
+        assert!(
+            pending_announcements(&targets, &sent, now + Duration::from_secs(600), 0).is_empty()
+        );
+        assert!(
+            pending_announcements(&targets, &sent, now + Duration::from_secs(59), 60).is_empty()
+        );
+        let refreshed = pending_announcements(&targets, &sent, now + Duration::from_secs(60), 60);
+        for (ip, owner) in &refreshed {
+            sent.insert(*ip, (*owner, now + Duration::from_secs(60)));
+        }
+        assert!(
+            pending_announcements(&targets, &sent, now + Duration::from_secs(60), 60)
+                .iter()
+                .all(|item| !refreshed.contains(item))
+        );
+        let mut replacement = targets.clone();
+        replacement.insert(first[0].0, 2);
+        assert_eq!(
+            pending_announcements(&replacement, &sent, now + Duration::from_secs(1), 0),
+            vec![(first[0].0, 2)]
+        );
+    }
+
+    #[test]
+    fn configured_flags_preserve_dad_and_checksum_rules() {
+        let source: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let target = "2001:db8::42".parse().unwrap();
+        let mac = [2, 1, 2, 3, 4, 5];
+        for router in [false, true] {
+            for override_flag in [false, true] {
+                let reply =
+                    build_unsolicited_with_policy(target, source, mac, router, override_flag);
+                let expected: u32 = if router { 0x8000_0000 } else { 0 }
+                    | if override_flag { 0x2000_0000 } else { 0 };
+                assert_eq!(&reply.bytes[58..62], &expected.to_be_bytes());
+                assert_eq!(
+                    icmpv6_checksum(source, "ff02::1".parse().unwrap(), &reply.bytes[54..]),
+                    0
+                );
+                let frame = solicitation(Ipv6Addr::UNSPECIFIED, target, false);
+                let request = parse_solicitation(&frame).unwrap();
+                let reply = build_advertisement_with_policy(
+                    &frame,
+                    request,
+                    mac,
+                    source,
+                    router,
+                    override_flag,
+                    false,
+                );
+                let flags = u32::from_be_bytes(reply.bytes[58..62].try_into().unwrap());
+                assert_eq!(flags & 0x6000_0000, 0, "DAD never sets Solicited/Override");
+                let frame = solicitation("fe80::1234".parse().unwrap(), target, true);
+                let request = parse_solicitation(&frame).unwrap();
+                let reply = build_advertisement_with_policy(
+                    &frame,
+                    request,
+                    mac,
+                    source,
+                    router,
+                    override_flag,
+                    false,
+                );
+                assert_eq!(
+                    u32::from_be_bytes(reply.bytes[58..62].try_into().unwrap()),
+                    expected | 0x4000_0000
+                );
+            }
+        }
+    }
 
     #[test]
     fn required_ndp_refuses_missing_links_and_bind_failures_in_any_routing_mode() {
@@ -1067,10 +1289,22 @@ mod native_network_view_tests {
                     "native-view",
                     crate::config::server::Ipv6NdpProxyMode::Required,
                     Some(name),
+                    &crate::config::server::Ipv6RoutingConfig::default(),
                 ))?
                 .expect("required NDP responder");
             anyhow::ensure!(proxy.ifindex > 0 && proxy.mac == [2, 0x12, 0x34, 0x56, 0x78, 0x9c]);
             anyhow::ensure!(!std::path::Path::new(&format!("/sys/class/net/{name}")).exists());
+            anyhow::ensure!(assigned_source(proxy.ifindex)? == "fe80::69".parse::<Ipv6Addr>()?);
+            anyhow::ensure!(
+                selected_source(proxy.ifindex, "2001:db8:69::1")?
+                    == "2001:db8:69::1".parse::<Ipv6Addr>()?
+            );
+            anyhow::ensure!(selected_source(proxy.ifindex, "2001:db8:69::99").is_err());
+            let removed = crate::system_command::Command::new("ip")
+                .args(["-6", "addr", "del", "2001:db8:69::1/64", "dev", name])
+                .output()?;
+            anyhow::ensure!(removed.status.success());
+            anyhow::ensure!(selected_source(proxy.ifindex, "2001:db8:69::1").is_err());
             anyhow::ensure!(assigned_source(proxy.ifindex)? == "fe80::69".parse::<Ipv6Addr>()?);
             let group = solicited_node_multicast("2001:db8:69::f00d".parse()?);
             let group_hex: String = group.octets().iter().map(|b| format!("{b:02x}")).collect();

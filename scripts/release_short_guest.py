@@ -12,6 +12,7 @@ import signal
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+import release_short_buffers as buffers
 
 
 def require(ok, message):
@@ -32,7 +33,7 @@ def save(path, value):
 def identity(pid):
     p = Path('/proc') / str(pid)
     fields = (p / 'stat').read_text().rsplit(')', 1)[1].split()
-    return str((p / 'exe').resolve()), fields[19], fields[0]
+    return ('' if fields[0] in ('Z', 'X') else str((p / 'exe').resolve(strict=True))), fields[19], fields[0]
 
 
 def spawn(root, label, args, env=None):
@@ -67,8 +68,10 @@ def spawn(root, label, args, env=None):
         exe, current_start, state = identity(p.pid)
 
 
-def halt(root):
+def halt(root, leases=False):
     for receipt in (root / 'owned').glob('*.json'):
+        if receipt.name == 'buffer-lease.json' and not leases:
+            continue
         row = json.loads(receipt.read_text())
         try:
             exe, start, state = identity(row['pid'])
@@ -84,6 +87,9 @@ def halt(root):
                         break
                     time.sleep(.1)
                 else:
+                    exe, start, state = identity(row['pid'])
+                    require(start == row['start'] and exe == row['exe'] and os.getpgid(row['pid']) == row['pid'],
+                            'ownership changed before SIGKILL')
                     os.killpg(row['pid'], signal.SIGKILL)
         except (FileNotFoundError, ProcessLookupError):
             pass
@@ -122,7 +128,8 @@ def snapshot(root):
                     ip6tables=['ip6tables-save'], sysctls=['sysctl', 'net.ipv4.ip_forward',
                     'net.ipv6.conf.all.forwarding', 'net.ipv6.conf.all.accept_ra',
                     'net.ipv6.conf.default.accept_ra', 'net.ipv4.conf.all.rp_filter',
-                    'net.core.rmem_max', 'net.core.wmem_max', 'net.core.netdev_max_backlog'])
+                    'net.core.rmem_max', 'net.core.rmem_default', 'net.core.wmem_max',
+                    'net.core.wmem_default', 'net.core.netdev_max_backlog'])
     hashes = {}
     for path in Path('/opt').glob('qeli-*/**/*'):
         if path.is_file() and not path.is_relative_to(root):
@@ -154,11 +161,118 @@ def observe(root, label, iface, seconds):
         # Only known test data/carrier ports; SSH/management sockets excluded.
         s['ss'] = run(['ss', '-tinmeH', 'state', 'established',
                        '( sport = :5201 or dport = :5201 or sport = :5202 or dport = :5202 or sport = :443 or dport = :443 )']).stdout
+        # One successful UDP memory snapshot per endpoint/window. No fd scans or
+        # packet capture. Short functional windows are covered too. An empty
+        # pre-start poll is not accepted as evidence; retry until traffic exists.
+        if (folder/'udp-buffer-check').exists() and not any('udp_memory' in x for x in samples):
+            text = run(['ss', '-uanmpeH', '( sport = :5201 or dport = :5201 or sport = :5202 or dport = :5202 )']).stdout
+            if buffers.sockets(text):
+                pids = owned_iperf(root)
+                if buffers.owned(buffers.sockets(text), pids):
+                    s['udp_memory'] = dict(t=time.monotonic(), ss=text, processes=pids)
         samples.append(s)
         time.sleep(max(0, .5-(time.monotonic()-started)))
     require((folder / 'stop').exists(), 'observer reached bounded deadline')
     save(folder / 'observations.json', dict(status='complete', clock_ticks=os.sysconf('SC_CLK_TCK'),
                                           samples=samples))
+
+
+def owned_iperf(root):
+    result = {}
+    for path in (root/'owned').glob('*.json'):
+        row = json.loads(path.read_text())
+        if Path(row['exe']).name != 'iperf3':
+            continue
+        try:
+            exe, start, state = identity(row['pid'])
+            if exe == row['exe'] and start == row['start'] and state not in ('Z', 'X'):
+                result[str(row['pid'])] = row
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return result
+
+
+def socket_memory(root, udp):
+    text = run(['ss', '-uanmpeH' if udp else '-tanmpeH',
+                '( sport = :4443 or dport = :4443 )' if udp else '( sport = :443 or dport = :443 )']).stdout
+    return dict(t=time.monotonic(), ss=text, processes=processes(root))
+
+
+def buffer_values():
+    return {key: int(run(['sysctl', '-n', key]).stdout) for key in buffers.KEYS}
+
+
+def buffer_restore(root):
+    path = root/'state/buffer-policy.json'
+    if not path.exists():
+        return dict(status='unchanged')
+    row = json.loads(path.read_text())
+    require(Path('/proc/sys/kernel/random/boot_id').read_text().strip() == row['boot_id'], 'boot changed; refuse buffer restore')
+    errors = []
+    for key, original in row['original'].items():
+        try:
+            current = buffer_values()[key]
+            require(current in (original, row['expected'][key]), 'foreign buffer change; refuse overwrite: ' + key)
+            if current != original:
+                run(['sysctl', '-w', key+'='+str(original)])
+            require(buffer_values()[key] == original, 'buffer rollback failed: ' + key)
+        except Exception as exc:
+            errors.append(str(exc))
+    require(not errors, '; '.join(errors))
+    return dict(status='restored', values=buffer_values())
+
+
+def buffer_prepare(root, value):
+    value = buffers.policy(value)
+    require(not processes(), 'buffer setup requires idle guests')
+    original = buffer_values()
+    expected = {key: buffers.LIMIT for key in buffers.KEYS} if value['apply'] else original
+    if not value['apply']:
+        require(all(v >= buffers.LIMIT for v in original.values()), 'host receive buffers too small; no implicit tuning')
+    row = dict(original=original, expected=expected,
+               boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(), policy=value)
+    path = root/'state/buffer-policy.json'
+    require(not path.exists(), 'buffer setup already attempted')
+    save(path, row)  # Receipt precedes first mutation, including partial failure.
+    try:
+        for key, target in expected.items():
+            if original[key] != target:
+                run(['sysctl', '-w', key+'='+str(target)])
+        require(buffer_values() == expected, 'receive buffer policy not applied')
+    except BaseException:
+        buffer_restore(root)
+        raise
+    return row
+
+
+def buffer_guard(root):
+    row = json.loads((root/'state/buffer-policy.json').read_text())
+    require(buffer_values() == row['expected'], 'runtime receive buffer policy changed')
+    require(Path('/proc/sys/kernel/random/boot_id').read_text().strip() == row['boot_id'], 'guest rebooted')
+    (root/'state/lease-touch').touch()
+    return dict(status='PASS', values=buffer_values())
+
+
+def lease(root):
+    touch = root/'state/lease-touch'
+    while time.time()-touch.stat().st_mtime < 180:
+        time.sleep(2)
+    try:
+        halt(root)
+    finally:
+        buffer_restore(root)
+    save(root/'state/lease-expired.json', dict(expired=True))
+
+
+def restore_empty_ip6(root):
+    """Remove only a newly-created empty ACCEPT filter table, never other rules."""
+    before = json.loads((root/'before.json').read_text())['ip6tables']
+    clean = lambda text: '\n'.join(line for line in text.splitlines() if line and not line.startswith('#'))
+    current = run(['ip6tables-save']).stdout
+    if not clean(before) and clean(current) == '*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT':
+        subprocess.run(['ip6tables-restore', '--table', 'filter'], input='*filter\nCOMMIT\n',
+                       text=True, capture_output=True, timeout=30, check=True)
+    return dict(status='checked')
 
 
 def owned_run(root, folder, label, command, timeout):
@@ -243,7 +357,8 @@ def mixed(root, spec):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('root')
-    parser.add_argument('action', choices=['snapshot', 'halt', 'launch', 'listen', 'watch-start', 'watch', 'watch-stop', 'measure', 'measure-mixed'])
+    parser.add_argument('action', choices=['snapshot', 'halt', 'launch', 'listen', 'watch-start', 'watch', 'watch-stop', 'measure', 'measure-mixed',
+                       'socket-memory', 'buffer-prepare', 'buffer-restore', 'buffer-guard', 'lease-start', 'lease', 'lease-stop', 'restore-empty-ip6'])
     parser.add_argument('args', nargs='*')
     opts = parser.parse_args()
     root = Path(opts.root)
@@ -252,6 +367,23 @@ def main():
     result = {}
     if opts.action == 'snapshot':
         result = snapshot(root)
+    elif opts.action == 'socket-memory':
+        result = socket_memory(root, opts.args[0] == 'UDP')
+    elif opts.action == 'buffer-prepare':
+        result = buffer_prepare(root, json.loads(opts.args[0]))
+    elif opts.action == 'buffer-restore':
+        result = buffer_restore(root)
+    elif opts.action == 'buffer-guard':
+        result = buffer_guard(root)
+    elif opts.action == 'lease-start':
+        (root/'state/lease-touch').touch()
+        result = dict(pid=spawn(root, 'buffer-lease', ['python3', __file__, str(root), 'lease']))
+    elif opts.action == 'lease':
+        lease(root)
+    elif opts.action == 'lease-stop':
+        halt(root, leases=True)
+    elif opts.action == 'restore-empty-ip6':
+        result = restore_empty_ip6(root)
     elif opts.action == 'halt':
         halt(root)
     elif opts.action == 'launch':

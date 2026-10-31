@@ -120,7 +120,10 @@ public partial class MainWindow : Window
             onShowWindow: () => Dispatcher.Invoke(ShowFromTray),
             onSettings: () => Dispatcher.Invoke(() => _ = OpenSettings()),
             onExit: () => Dispatcher.Invoke(ExitApp),
-            getStatus: () => _status);
+            getStatus: () => _status,
+            getTooltipProfile: () => _status is VpnStatus.Connected or VpnStatus.Connecting
+                ? (_serviceMode ? _svc?.ProfileName : _activeProfile?.DisplayName)
+                : Selected?.DisplayName);
 
         Toast.Enabled = AppSettings.Current.ToastsEnabled;
 
@@ -763,7 +766,11 @@ public partial class MainWindow : Window
         if (!_serviceMode) RenderLog(p);
         // Disconnected: just reflect the endpoint (the status text is owned by OnStatus
         // once a tunnel is up, so don't clobber it here).
-        if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
+        if (_status is VpnStatus.Disconnected) {
+            DetailText.Text = p.Endpoint;
+            _tray?.Update(_status, _lastExtra);
+            return;
+        }
         // Skipped for programmatic selection changes, service mode (the Windows service owns
         // the tunnel), and re-selecting the profile that is already running.
         if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
@@ -1164,8 +1171,10 @@ public partial class MainWindow : Window
         if (DownVal == null) return;
         DownVal.Text = UpVal.Text = SessionVal.Text = IpVal.Text = Ip6Val.Text = "—";
         CopyIpv4.IsEnabled = CopyIpv6.IsEnabled = false;
-        _trafficHistory.Clear();
-        TrafficUp.Points.Clear(); TrafficDown.Points.Clear(); TrafficScale.Text = "—";
+        // A status repaint, short service outage or disconnect is not evidence
+        // of a different session. Keep the last graph; new session/counters reset it.
+        _trafficHistory.Pause();
+        RenderTraffic();
         TotalDownVal.Text = TotalUpVal.Text = "—";
         SessionSubVal.Text = IpSubVal.Text = "";
     }

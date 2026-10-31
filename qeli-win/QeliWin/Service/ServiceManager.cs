@@ -19,7 +19,8 @@ public static class ServiceManager
     public const string ServiceName = "QeliWinSvc";
     private const string DisplayName = "Qeli VPN Service";
 
-    private static string ExePath =>
+    private static string? registeredHost;
+    private static string ExePath => registeredHost ??
         Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule!.FileName;
 
     /// <summary>
@@ -200,12 +201,63 @@ public static class ServiceManager
         return sc.Status; // Query failures must not masquerade as Disconnected.
     }
 
-    internal static void EnsureRegistration() => ServiceRegistration.Validate(
-        ServiceRegistration.Read(ServiceName), ExePath, EnsureProtectedLocation);
-
-    public static void Install()
+    internal static void EnsureRegistration()
     {
+        var registration=ServiceRegistration.Read(ServiceName);
+        if(!registration.Command.Equals($"\"{ExePath}\" --service",StringComparison.OrdinalIgnoreCase))
+            UseRegisteredHost();
+        else {
+            ServiceRegistration.Validate(registration,ExePath,EnsureProtectedLocation);
+            EnsureProtectedSidecars(ExePath);
+        }
+    }
+
+    private static void EnsureProtectedSidecars(string executable)
+    {
+        string directory=Path.GetDirectoryName(executable)!;
+        if(!File.Exists(Path.Combine(directory,"QeliWindowsRuntime.dll"))
+            && !File.Exists(Path.ChangeExtension(executable,".runtimeconfig.json"))) return;
+        ValidatePackageTree(directory,path=> {
+            var unsafeAccess=NonAdminWriterOn(path);
+            if(unsafeAccess!=null) throw new UnauthorizedAccessException("Untrusted service dependency: "+path);
+        });
+    }
+
+    internal static void ValidatePackageTree(string directory,Action<string> requireTrusted)
+    {
+        var pending=new Stack<(string path,int depth)>();pending.Push((directory,0));int count=0;
+        while(pending.TryPop(out var item)) {
+            if(item.depth>8 || ++count>2048) throw new IOException("Service package exceeds validation bounds");
+            if((File.GetAttributes(item.path)&FileAttributes.ReparsePoint)!=0) throw new IOException("Linked service dependencies are refused");
+            requireTrusted(item.path);
+            if(Directory.Exists(item.path)) foreach(var child in Directory.EnumerateFileSystemEntries(item.path)) {
+                if(count+pending.Count>=2048) throw new IOException("Service package exceeds validation bounds");
+                pending.Push((child,item.depth+1));
+            }
+        }
+    }
+
+    internal static void UseRegisteredHost()
+    {
+        var registration=ServiceRegistration.Read(ServiceName);
+        const string suffix="\" --service";
+        if(!registration.Command.StartsWith('"') || !registration.Command.EndsWith(suffix,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Unexpected Qeli service registration");
+        string executable=registration.Command[1..^suffix.Length];
+        ServiceRegistration.Validate(registration,executable,EnsureProtectedLocation);
+        EnsureProtectedSidecars(executable);
+        var name=FileVersionInfo.GetVersionInfo(executable).OriginalFilename;
+        if(name is not ("QeliWin.dll" or "qeli-cli.dll")) throw new InvalidOperationException("Service is not a Qeli host");
+        registeredHost=executable;
+    }
+    internal static void InstallIdle() => InstallCore(false);
+    public static void Install() => InstallCore(true);
+    private static void InstallCore(bool connectRequested)
+    {
+        using var commandGate=WindowsControlGate.Acquire();
+        if(!IsInstalled()) registeredHost=null;
         EnsureProtectedLocation(ExePath);
+        EnsureProtectedSidecars(ExePath);
         var scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
         if (scm == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenSCManager failed");
         try
@@ -222,11 +274,12 @@ public static class ServiceManager
             else CloseServiceHandle(svc);
         }
         finally { CloseServiceHandle(scm); }
-        ServiceState.SetDesiredConnected(true);
+        ServiceState.SetDesiredConnected(connectRequested);
     }
 
     public static void Uninstall()
     {
+        using var commandGate=WindowsControlGate.Acquire();
         ServiceState.SetDesiredConnected(false);
         Stop();
         var scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
@@ -256,22 +309,26 @@ public static class ServiceManager
         finally { CloseServiceHandle(scm); }
     }
 
-    public static void Start()
+    public static void Start() => StartWithTimeout(TimeSpan.FromSeconds(20));
+    internal static void StartWithTimeout(TimeSpan budget, bool connectRequested=true)
     {
+        using var commandGate=WindowsControlGate.Acquire();
         EnsureRegistration(); // Refuse legacy/mismatched registration before arming boot intent.
-        ServiceState.SetDesiredConnected(true);
+        if(connectRequested) ServiceState.SetDesiredConnected(true);
+        var clock=Stopwatch.StartNew();
+        TimeSpan Remaining() => budget-clock.Elapsed > TimeSpan.Zero ? budget-clock.Elapsed : throw new System.TimeoutException();
         try
         {
             using var sc = new ServiceController(ServiceName);
             sc.Refresh();
             if (sc.Status == ServiceControllerStatus.StopPending)
             {
-                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(20));
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, Remaining());
                 sc.Refresh();
             }
             if (sc.Status == ServiceControllerStatus.Stopped)
                 sc.Start();
-            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+            sc.WaitForStatus(ServiceControllerStatus.Running, Remaining());
         }
         catch (Exception startFailure)
         {
@@ -282,23 +339,25 @@ public static class ServiceManager
         }
     }
 
-    public static void Stop()
+    public static void Stop() => StopWithTimeout(TimeSpan.FromSeconds(20));
+    internal static void StopWithTimeout(TimeSpan budget)
     {
+        using var commandGate=WindowsControlGate.Acquire();
         // Write this before asking SCM to stop. A crash, timeout or reboot can then only
         // produce an idle auto-started daemon, never an unsolicited VPN connection.
         ServiceState.SetDesiredConnected(false);
         if (!IsInstalled()) return;
         using var sc = new ServiceController(ServiceName);
-        StopController(sc.Refresh, () => sc.Status, () => sc.CanStop, sc.Stop, sc.WaitForStatus);
+        StopController(sc.Refresh, () => sc.Status, () => sc.CanStop, sc.Stop, sc.WaitForStatus, budget);
     }
 
     internal static void StopController(Action refresh, Func<ServiceControllerStatus> status,
-        Func<bool> canStop, Action stop, Action<ServiceControllerStatus, TimeSpan> wait)
+        Func<bool> canStop, Action stop, Action<ServiceControllerStatus, TimeSpan> wait, TimeSpan? budget=null)
     {
         var elapsed = Stopwatch.StartNew();
         void Wait(ServiceControllerStatus target)
         {
-            var remaining = TimeSpan.FromSeconds(20) - elapsed.Elapsed;
+            var remaining = (budget ?? TimeSpan.FromSeconds(20)) - elapsed.Elapsed;
             if (remaining <= TimeSpan.Zero) throw new System.TimeoutException("Service stop exceeded 20 seconds");
             wait(target, remaining);
             refresh();

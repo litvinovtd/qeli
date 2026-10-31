@@ -12,6 +12,31 @@
       "valid": false
     },
     {
+      "name": "explicit compact REALITY policy",
+      "ini": "server = 192.0.2.1:443\nmode = reality-tls\nkey = 0a33d308295d5dc49bff020ca8a73e86b3f6797cbcc7d3aa440eee754729223a\nreality_sid = 0123456789abcdef\nsni = decoy.example\nreality_compact = true\nreality_split = none\nreality_split_delay = 0\n",
+      "valid": true
+    },
+    {
+      "name": "PQ REALITY with explicit split",
+      "ini": "server = 192.0.2.1:443\nmode = reality-tls\nkey = 0a33d308295d5dc49bff020ca8a73e86b3f6797cbcc7d3aa440eee754729223a\nreality_sid = 0123456789abcdef\nsni = decoy.example\nreality_compact = false\nreality_split = sni\nreality_split_delay = 100\n",
+      "valid": true
+    },
+    {
+      "name": "compact requires explicit boolean",
+      "ini": "server = vpn.example:443\nreality_compact = auto\n",
+      "valid": false
+    },
+    {
+      "name": "WebSocket endpoint Host without inherited TLS name",
+      "ini": "server = 192.0.2.1:443\nmode = obfs\nfront = websocket\nobfs_key = secret\n",
+      "valid": true
+    },
+    {
+      "name": "WebSocket explicit IPv6 Host",
+      "ini": "server = 192.0.2.1:443\nmode = obfs\nfront = websocket\nobfs_key = secret\nsni = 2001:db8::5\n",
+      "valid": true
+    },
+    {
       "name": "unsigned negative zero",
       "ini": "server = 127.0.0.1:443\nrecv_buffer_size = -0\n",
       "valid": false

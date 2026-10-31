@@ -9,7 +9,7 @@ namespace QeliWin.Vpn;
 /// Resolves the native libraries embedded in the executable (WireGuard's
 /// <c>wintun.dll</c>, optional <c>WinDivert.dll</c>/<c>WinDivert64.sys</c>, and
 /// <c>qeli.dll</c>, the Rust whole-client core),
-/// so the app ships as a single exe with no loose DLLs. Each is extracted once to a
+/// so both hosts use identical embedded driver/core bytes (the CLI distribution is a folder). Each is extracted once to a
 /// protected %ProgramData% directory when elevated (or %LOCALAPPDATA% without a privilege
 /// boundary) and loaded from there; a module initializer
 /// registers the resolver before any P/Invoke runs.
@@ -25,10 +25,11 @@ internal static class NativeLoader
     private static readonly object _lock = new();
     private static string? _bundleId;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2255", Justification = "One shared Windows runtime registers the native resolver before GUI, CLI or service P/Invoke.")]
     [ModuleInitializer]
     internal static void Init()
     {
-        // wintun.dll is P/Invoked from this (QeliWin) assembly…
+        // Wintun is P/Invoked from this shared Windows runtime assembly.
         NativeLibrary.SetDllImportResolver(typeof(NativeLoader).Assembly, Resolve);
         // …but qeli.dll (whole-client + realtls FFI) is P/Invoked from the shared
         // assembly. SetDllImportResolver is per-assembly, so the resolver must be

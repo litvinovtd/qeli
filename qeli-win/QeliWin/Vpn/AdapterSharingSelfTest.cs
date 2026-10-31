@@ -17,7 +17,12 @@ internal static class AdapterSharingSelfTest
                 $script:sharing=@(
                     [pscustomobject]@{ComponentID='ms_msclient';Enabled=$true;InterfaceDescription='Owned Wintun'},
                     [pscustomobject]@{ComponentID='ms_server';Enabled=$true;InterfaceDescription='Owned Wintun'},
-                    [pscustomobject]@{ComponentID='ms_tcpip';Enabled=$true;InterfaceDescription='Owned Wintun'})
+                    [pscustomobject]@{ComponentID='ms_tcpip';Enabled=$true;InterfaceDescription='Owned Wintun'},
+                    [pscustomobject]@{ComponentID='ms_lldp';Enabled=$true;InterfaceDescription='Owned Wintun'},
+                    [pscustomobject]@{ComponentID='ms_lltdio';Enabled=$true;InterfaceDescription='Owned Wintun'},
+                    [pscustomobject]@{ComponentID='ms_rspndr';Enabled=$true;InterfaceDescription='Owned Wintun'},
+                    [pscustomobject]@{ComponentID='ms_tcpip6';Enabled=$true;InterfaceDescription='Owned Wintun'},
+                    [pscustomobject]@{ComponentID='third_party';Enabled=$true;InterfaceDescription='Owned Wintun'})
                 function Get-NetAdapter {
                     param([switch]$IncludeHidden,$ErrorAction)
                     if($script:scenario -eq 'missing') {return $script:foreign}
@@ -32,7 +37,7 @@ internal static class AdapterSharingSelfTest
                 }
                 function Disable-NetAdapterBinding {
                     param($InputObject,$Confirm,$ErrorAction)
-                    if($InputObject.ComponentID -notin @('ms_msclient','ms_server') -or $InputObject.InterfaceDescription -ne 'Owned Wintun') {throw 'Test caught foreign binding mutation'}
+                    if($InputObject.ComponentID -notin @('ms_msclient','ms_server','ms_lldp','ms_lltdio','ms_rspndr') -or $InputObject.InterfaceDescription -ne 'Owned Wintun') {throw 'Test caught foreign binding mutation'}
                     $script:changed++
                     if($script:scenario -ne 'readback') {$InputObject.Enabled=$false}
                     if($script:scenario -eq 'protocol') {$script:sharing[2].Enabled=$false}
@@ -46,7 +51,7 @@ internal static class AdapterSharingSelfTest
                 """.Replace("SCENARIO", scenario) + AdapterSharing.BuildScript(Guid.Parse("9c2c33f3-69ee-459d-89fa-981622bc6158")) + """
                 }} catch {$failed=$true}
                 if($script:scenario -eq 'owned') {
-                    if($failed -or $script:changed -ne 2 -or -not $script:foreignEnabled -or -not $script:sharing[2].Enabled) {throw 'Owned adapter test failed'}
+                    if($failed -or $script:changed -ne 5 -or -not $script:foreignEnabled -or -not $script:sharing[2].Enabled -or -not $script:sharing[6].Enabled -or -not $script:sharing[7].Enabled) {throw 'Owned adapter test failed'}
                 } elseif(-not $failed) {throw 'Expected identity/readback failure was accepted'}
                 if($script:scenario -in @('missing','duplicate','foreign') -and $script:changed -ne 0) {throw 'Rejected owner still mutated a binding'}
                 """;

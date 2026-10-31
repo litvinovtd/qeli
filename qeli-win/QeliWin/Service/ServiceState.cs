@@ -11,7 +11,16 @@ using Qeli.Shared.Vpn;
 namespace QeliWin.Service;
 
 /// <summary>Status snapshot the service writes and the GUI polls.</summary>
-public sealed class ServiceStatus : DesktopServiceStatus { }
+public sealed class ServiceStatus : DesktopServiceStatus
+{
+    public TunnelFailureKind? FailureKind {get;set;}
+    public int? ControlProtocolVersion {get;set;}
+    public string? ProfileId {get;set;}
+    public string? SessionId {get;set;}
+    // Optional for old services/GUIs. Do not infer the running profile from GUI selection.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProfileName { get; set; }
+}
 
 /// <summary>
 /// Shared state between the Windows Service (writer) and the GUI (reader), stored under
@@ -227,7 +236,7 @@ public static class ServiceState
 
     public static void WriteStatus(VpnStatus status, string? extra,
         long bytesUp = 0, long bytesDown = 0, DateTime? since = null,
-        DesktopTunnelAddresses? addresses = null)
+        DesktopTunnelAddresses? addresses = null, string? profileName = null, string? profileId=null, string? sessionId=null, TunnelFailureKind? failureKind=null)
     {
         try
         {
@@ -238,6 +247,8 @@ public static class ServiceState
             AtomicWrite(StatusFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new ServiceStatus
             {
                 Status = status.ToString(),
+                ProfileId=profileId,SessionId=sessionId,ControlProtocolVersion=1,FailureKind=status==VpnStatus.Error ? failureKind : null,
+                ProfileName = profileName is { Length: > 256 } ? profileName[..256] : profileName,
                 // Bound status even when an upstream error includes a large file/response.
                 Extra = extra is { Length: > 2048 } ? extra[..2048] : extra,
                 Time = sampledAt,
@@ -251,6 +262,20 @@ public static class ServiceState
         catch { /* ignore */ }
     }
 
+    internal static ServiceStatus? ReadExistingStatus()
+    {
+        if(!StorageLayout.Exists(Dir)) return null;
+        RequireTrusted(Dir,privateFile:true);CheckExistingFile(StatusFile);
+        try {using var file=OpenSnapshot(StatusFile);return DecodeStatus(ReadBounded(file,MaximumStatusBytes));}
+        catch(FileNotFoundException) {return null;}
+    }
+    internal static string ReadExistingLog()
+    {
+        if(!StorageLayout.Exists(Dir)) return "";
+        RequireTrusted(Dir,privateFile:true);CheckExistingFile(LogFile);
+        try {using var file=new FileStream(LogFile,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);return ReadLogSnapshot(file);}
+        catch(FileNotFoundException) {return "";}
+    }
     public static ServiceStatus? ReadStatus()
     {
         EnsureDir();
@@ -263,7 +288,14 @@ public static class ServiceState
         catch (FileNotFoundException) { return null; }
     }
 
-    internal static ServiceStatus DecodeStatus(byte[] bytes) => DesktopServiceStatus.Decode<ServiceStatus>(bytes);
+    internal static ServiceStatus DecodeStatus(byte[] bytes)
+    {
+        var status = DesktopServiceStatus.Decode<ServiceStatus>(bytes);
+        if(status.FailureKind.HasValue && !Enum.IsDefined(status.FailureKind.Value)) throw new InvalidDataException("Invalid service failure category");
+        if(status.ProfileId?.Length>64 || status.SessionId?.Length>64 || status.ControlProtocolVersion is <1 or >4096) throw new InvalidDataException("Invalid service control metadata");
+        if (status.ProfileName?.Length > 256) throw new InvalidDataException("Service profile name is too long");
+        return status;
+    }
 
     public static string ReadLog()
     {

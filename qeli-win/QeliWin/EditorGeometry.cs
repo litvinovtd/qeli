@@ -7,6 +7,7 @@ internal static class EditorGeometry
 {
     internal static void Attach(Window window, string key)
     {
+        WindowWorkArea.Attach(window);
         window.Loaded += (_, _) =>
         {
             var settings = AppSettings.Current;
@@ -21,11 +22,8 @@ internal static class EditorGeometry
             window.MaxWidth = width; window.MaxHeight = height;
             window.Width = Math.Clamp(saved is not null && double.IsFinite(saved.Width) ? saved.Width : window.Width, window.MinWidth, width);
             window.Height = Math.Clamp(saved is not null && double.IsFinite(saved.Height) ? saved.Height : window.Height, window.MinHeight, height);
-            // Center again after restoring dimensions and clamp to this monitor's work area.
-            double left = double.IsFinite(window.Left) ? window.Left : area.Left / dpi.DpiScaleX;
-            double top = double.IsFinite(window.Top) ? window.Top : area.Top / dpi.DpiScaleY;
-            window.Left = Math.Clamp(left, area.Left / dpi.DpiScaleX, Math.Max(area.Left / dpi.DpiScaleX, area.Right / dpi.DpiScaleX - window.Width));
-            window.Top = Math.Clamp(top, area.Top / dpi.DpiScaleY, Math.Max(area.Top / dpi.DpiScaleY, area.Bottom / dpi.DpiScaleY - window.Height));
+            // Native coordinates avoid dividing a mixed-DPI virtual desktop origin.
+            WindowWorkArea.Clamp(window);
         };
         window.Closed += (_, _) =>
         {

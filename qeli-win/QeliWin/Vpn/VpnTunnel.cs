@@ -15,7 +15,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     private IDisposable? _adapterModeLease;
     private readonly Func<IDisposable> _acquireModeLease;
     internal Func<VpnConfig,VpnConfig>? AdapterPolicyResolver {get;init;}
-    public VpnTunnel():this(WindowsAdapterModeGate.Shared) { }
+    public VpnTunnel():this(WindowsSessionLease.Acquire) { }
     internal VpnTunnel(Func<IDisposable> acquireModeLease) { _acquireModeLease=acquireModeLease; }
     private readonly Dictionary<ulong, RoamingObservation> _roamingObservations = new();
     private readonly Dictionary<ulong, RoamingCandidate> _roamingCandidates = new();
@@ -552,7 +552,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             cancellationToken.ThrowIfCancellationRequested();
             AdapterSharing.Apply(wintun, (start, operation) => RunForwardingCommand(start, operation));
-            Log("Microsoft Client/File Sharing disabled on the owned Qeli adapter (readback verified)");
+            Log("Microsoft sharing and LLDP/LLTD discovery disabled on the owned Qeli adapter (readback verified)");
         }
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");

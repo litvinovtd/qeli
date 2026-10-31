@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>0.8.4</Version><PlatformTarget>x64</PlatformTarget>
+    <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == ''">$(MSBuildThisFileDirectory)../QeliWin/native/qeli.dll</QeliNativeCorePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../qeli-shared/QeliShared/QeliShared.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.12" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.12" />
+    <InternalsVisibleTo Include="QeliWin" /><InternalsVisibleTo Include="qeli-cli" /><InternalsVisibleTo Include="QeliCliTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../QeliWin/SystemPaths.cs" Link="SystemPaths.cs" />
+    <Compile Include="../QeliWin/Vpn/AdapterSharing.cs" Link="Vpn/AdapterSharing.cs" />
+    <Compile Include="../QeliWin/Vpn/KillSwitch.cs" Link="Vpn/KillSwitch.cs" />
+    <Compile Include="../QeliWin/Vpn/NativeLoader.cs" Link="Vpn/NativeLoader.cs" />
+    <Compile Include="../QeliWin/Vpn/NativeModuleCache.cs" Link="Vpn/NativeModuleCache.cs" />
+    <Compile Include="../QeliWin/Vpn/NetworkConfigurator.cs" Link="Vpn/NetworkConfigurator.cs" />
+    <Compile Include="../QeliWin/Vpn/PendingFragmentBuffer.cs" Link="Vpn/PendingFragmentBuffer.cs" />
+    <Compile Include="../QeliWin/Vpn/PersistentWintunCommands.cs" Link="Vpn/PersistentWintunCommands.cs" />
+    <Compile Include="../QeliWin/Vpn/PersistentWintunDevice.cs" Link="Vpn/PersistentWintunDevice.cs" />
+    <Compile Include="../QeliWin/Vpn/PersistentWintunNative.cs" Link="Vpn/PersistentWintunNative.cs" />
+    <Compile Include="../QeliWin/Vpn/PersistentWintunNetwork.cs" Link="Vpn/PersistentWintunNetwork.cs" />
+    <Compile Include="../QeliWin/Vpn/ProcessAppMap.cs" Link="Vpn/ProcessAppMap.cs" />
+    <Compile Include="../QeliWin/Vpn/RetainedDriverGates.cs" Link="Vpn/RetainedDriverGates.cs" />
+    <Compile Include="../QeliWin/Vpn/TunnelIpv6Policy.cs" Link="Vpn/TunnelIpv6Policy.cs" />
+    <Compile Include="../QeliWin/Vpn/VpnTunnel.cs" Link="Vpn/VpnTunnel.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertAdapter.cs" Link="Vpn/WinDivertAdapter.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertDestinationPolicy.cs" Link="Vpn/WinDivertDestinationPolicy.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertFlowTable.cs" Link="Vpn/WinDivertFlowTable.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertKillSwitchGate.cs" Link="Vpn/WinDivertKillSwitchGate.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertNative.cs" Link="Vpn/WinDivertNative.cs" />
+    <Compile Include="../QeliWin/Vpn/WinDivertRuntime.cs" Link="Vpn/WinDivertRuntime.cs" />
+    <Compile Include="../QeliWin/Vpn/WindowsAdapterModeGate.cs" Link="Vpn/WindowsAdapterModeGate.cs" />
+    <Compile Include="../QeliWin/Vpn/WindowsAdapterPolicy.cs" Link="Vpn/WindowsAdapterPolicy.cs" />
+    <Compile Include="../QeliWin/Vpn/WindowsRoamingSocket.cs" Link="Vpn/WindowsRoamingSocket.cs" />
+    <Compile Include="../QeliWin/Vpn/Wintun.cs" Link="Vpn/Wintun.cs" />
+    <Compile Include="../QeliWin/Service/ServiceHost.cs" Link="Service/ServiceHost.cs" />
+    <Compile Include="../QeliWin/Service/ServiceManager.cs" Link="Service/ServiceManager.cs" />
+    <Compile Include="../QeliWin/Service/ServiceMonotonicClock.cs" Link="Service/ServiceMonotonicClock.cs" />
+    <Compile Include="../QeliWin/Service/ServiceObservation.cs" Link="Service/ServiceObservation.cs" />
+    <Compile Include="../QeliWin/Service/ServiceProfileTransition.cs" Link="Service/ServiceProfileTransition.cs" />
+    <Compile Include="../QeliWin/Service/ServiceRegistration.cs" Link="Service/ServiceRegistration.cs" />
+    <Compile Include="../QeliWin/Service/ServiceState.cs" Link="Service/ServiceState.cs" />
+    <Compile Include="../QeliWin/Service/StorageLayout.cs" Link="Service/StorageLayout.cs" />
+    <Compile Include="../QeliWin/Service/StorageMigration.cs" Link="Service/StorageMigration.cs" />
+    <Compile Include="../QeliWin/Model/AppSettings.cs" Link="Model/AppSettings.cs" />
+    <Compile Include="../QeliWin/Model/ProfileStore.cs" Link="Model/ProfileStore.cs" />
+    <Compile Include="../QeliWin/Model/WindowDimensions.cs" Link="Model/WindowDimensions.cs" />
+    <Compile Include="../QeliWin/WindowsCommand.cs" Link="WindowsCommand.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../QeliWin/wintun/wintun.dll">
+      <LogicalName>wintun.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/windivert/WinDivert.dll">
+      <LogicalName>WinDivert.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/windivert/WinDivert64.sys">
+      <LogicalName>WinDivert64.sys</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(QeliNativeCorePath)">
+      <LogicalName>qeli.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>

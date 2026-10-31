@@ -13,6 +13,19 @@ internal static class ConfigBoundaryConformance
             JsonSerializer.Deserialize<VpnConfig>(JsonSerializer.Serialize(permanent))!.WindowsPersistentAdapter);
         check("persistent adapter: local device installation policy is not exported in URI",
             !VpnConfig.FromQeliUri(permanent.ToQeliUri()).WindowsPersistentAdapter);
+        foreach (var compact in new[] { "false", "true" })
+        {
+            var policy = new Dictionary<string, string> {
+                ["reality_compact"] = compact, ["reality_split"] = "sni", ["reality_split_delay"] = "237"
+            };
+            var config = VpnConfig.FromIni("[qeli]\nserver=vpn.example:443\n" +
+                string.Join("\n", policy.Select(p => $"{p.Key}={p.Value}")) + "\n");
+            var edited = JsonSerializer.SerializeToNode(config)!;
+            edited["Password"] = "edited";
+            var restored = VpnConfig.FromIni(edited.Deserialize<VpnConfig>()!.ToIni());
+            check("REALITY policy survives desktop editing " + compact,
+                policy.All(p => restored.CarriedKeys.TryGetValue(p.Key, out var value) && value == p.Value));
+        }
         foreach (bool pull in new[] { true, false })
         {
             var config = VpnConfig.FromIni("[qeli]\nserver=vpn.example:443\nuser=test\npass=test\npull_routes=" + pull.ToString().ToLowerInvariant() + "\n");

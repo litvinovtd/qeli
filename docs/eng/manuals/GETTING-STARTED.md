@@ -788,7 +788,7 @@ only / Unix / none). If you plan to compare the app log against the server's, se
 > **built from source on macOS** (Xcode 16+, see its README) — there is no prebuilt binary
 > in the releases, and it has not yet been exercised on a physical device. The
 > platform-imposed differences: per-app routing is MDM-only, and VPN On Demand stands in
-> for boot auto-connect — see [`qeli-ios/PARITY.md`](../../../qeli-ios/PARITY.md).
+> for boot auto-connect — see [`docs/eng/reference/IOS-ANDROID-PARITY.md`](../reference/IOS-ANDROID-PARITY.md).
 
 > **macOS 0.8.3:** choose `Qeli-macos-arm64.tar.gz` for Apple Silicon or
 > `Qeli-macos-x86_64.tar.gz` for Intel. Each archive contains a self-contained

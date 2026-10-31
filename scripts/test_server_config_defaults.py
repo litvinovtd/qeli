@@ -124,7 +124,7 @@ def documented_scalar_defaults(text):
 
 class ServerDefaultDocumentationTests(unittest.TestCase):
     def test_all_explicit_scalar_reader_defaults_match_both_references(self):
-        self.assertEqual(len(inventory),134,"update reader extractor/coverage when source changes")
+        self.assertEqual(len(inventory),138,"update reader extractor/coverage when source changes")
         self.assertFalse({k:v["error"] for k,v in inventory.items() if v["error"]})
         for lang in ("ru","eng"):
             docs=documented_scalar_defaults((ROOT/f"docs/{lang}/manuals/CONFIG.md").read_text(encoding="utf-8"))

@@ -386,9 +386,9 @@ pub struct ClientObfuscationConfig {
     /// `auth.server_public_key`) in the session_id. Empty = no REALITY.
     #[serde(default)]
     pub reality_short_id: Option<String>,
-    /// Emit a compact X25519-only REALITY-TLS ClientHello. This keeps the full
-    /// discriminator below one TCP MSS on mobile paths that drop a segmented
-    /// post-quantum ClientHello. It affects only `mode = reality-tls`.
+    /// Small X25519-only outer REALITY-TLS ClientHello; requires INNER_PQ_V1
+    /// (X25519 + ML-KEM-768) inside TLS before AUTH/JOIN. Never retries classic
+    /// on an unsupported peer. TCP segmentation still depends on the actual path.
     #[serde(default)]
     pub reality_compact: bool,
     /// Split the REALITY-TLS ClientHello across writes to evade DPI that only
@@ -1080,21 +1080,7 @@ impl ClientConfig {
             )
         }
 
-        fn valid_dns_hostname(value: &str) -> bool {
-            let value = value.strip_suffix('.').unwrap_or(value);
-            !value.is_empty()
-                && value.len() <= 253
-                && value.parse::<std::net::IpAddr>().is_err()
-                && value.split('.').all(|label| {
-                    !label.is_empty()
-                        && label.len() <= 63
-                        && label.as_bytes()[0].is_ascii_alphanumeric()
-                        && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
-                        && label
-                            .bytes()
-                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-                })
-        }
+        use super::share::{valid_tls_hostname, valid_websocket_host};
 
         // A value that is present is a cryptographic X25519 public key, not an opaque
         // label. The native adapters already reject malformed pins at import time; keep
@@ -1186,7 +1172,7 @@ impl ClientConfig {
                 anyhow::bail!("'sni' exceeds 253 bytes or contains surrounding whitespace or control characters");
             }
             match self.obfuscation.mode.as_str() {
-                "fake-tls" if !matches!(value, "!" | "~" | "@") && !valid_dns_hostname(value) => {
+                "fake-tls" if !matches!(value, "!" | "~" | "@") && !valid_tls_hostname(value) => {
                     anyhow::bail!("'sni' must be a DNS hostname or one of !, ~, @ for fake-tls");
                 }
                 "obfs"
@@ -1194,19 +1180,18 @@ impl ClientConfig {
                         &self.server.protocol,
                         &self.obfuscation.mode,
                         &self.obfuscation.fronting,
-                    ) && !valid_dns_hostname(value)
-                        && value.parse::<std::net::IpAddr>().is_err() =>
+                    ) && !valid_websocket_host(value) =>
                 {
                     anyhow::bail!("'sni' must be a DNS hostname or IP address for WebSocket obfs");
                 }
-                "reality-tls" if !valid_dns_hostname(value) => {
+                "reality-tls" if !valid_tls_hostname(value) => {
                     anyhow::bail!("'sni' must be a DNS hostname for reality-tls");
                 }
                 _ => {}
             }
         }
         if self.obfuscation.mode == "reality-tls"
-            && !valid_dns_hostname(self.effective_reality_sni())
+            && !valid_tls_hostname(self.effective_reality_sni())
         {
             anyhow::bail!(
                 "'mode = reality-tls' needs an explicit DNS 'sni' when 'server' is an IP; \

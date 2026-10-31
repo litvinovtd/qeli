@@ -20,11 +20,16 @@ Each run creates a new `/opt/qeli-release-short-<tag>` on both guests, with priv
 binary copies/configs/raw. Preflight records SHA, boot IDs, kernel/CPU, network state
 and hashes of previous `/opt/qeli-*` files. Existing VPN/TUN/iperf/build/emulator,
 netem or locks cause refusal, not termination of other work. No reboot, package
-installation or service/sysctl/qdisc/offload tuning. Cleanup signals only owned
+installation or service/qdisc/offload tuning. The only optional sysctl change is
+the explicitly authorized lab receive-buffer policy below. Cleanup signals only owned
 process groups with verified PID/start identity. Network/firewall, selected sysctls,
 boot IDs and old files must match before/after; mismatches are failures, not PASS.
 
-## Version 1 plan
+## Version 2 plan
+
+The v1 matrix and workloads remain unchanged; v2 adds mandatory live socket-buffer
+checks. Old raw is never rewritten. Do not treat v1/v2 speed differences as a clean
+version A/B: buffers/observation changed, requiring a fresh reference.
 
 Core profiles: `tcp-faketls`, `tcp-reality-tls`, `udp-faketls`, `udp-quic`.
 Performance: required, MTU 1400, client/server queue 1000. Client: `gateway=false`,
@@ -92,6 +97,57 @@ over snapshots, not per-packet or ICMP latency. CPU/RSS/drop observation include
 iperf throughput/retransmits exclude it. Different intervals cannot prove exact
 drop/retransmission agreement.
 
+### Actual Qeli and iperf buffers
+
+Configuration and `rmem_max` describe requests/limits, not the memory granted to a
+live socket. V2 retains test-port-restricted `ss -uanmpeH` (UDP) / `ss -tanmpeH`
+(TCP): inode, PID and `skmem rb/tb/d`. Qeli is checked after connection and each
+window; its PID must belong to the private run. TCP values are recorded as observed:
+their autotuning is not replaced with a fixed UDP threshold.
+For the iperf TCP receiver, the analyzer also requires live `rb/tb` samples of
+the data connection (`bytes_received` above 1 MB), excluding the control connection;
+missing evidence fails full v2 admission.
+
+The Qeli UDP receive floor is a 4 MiB request. Linux doubles explicit `SO_RCVBUF`
+accounting, so `ss rb >= 8388608` is required (normalized `rb/2 >= 4 MiB`). A new
+iperf UDP socket without `-w` uses `rmem_default`: require `ss rb >= 4194304`
+**without dividing/doubling it again**. These are kernel-accounted bytes, not
+guaranteed payload capacity. One successful iperf snapshot per endpoint/UDP window
+is taken while traffic is live; bounded early polls may precede socket creation.
+The receiver is server for upload, client for download, server for mixed UDP.
+Send `tb` and socket drops `d` are also retained; neither replaces final receiver
+loss or global SNMP. Missing/foreign socket evidence or an insufficient actual
+buffer is FAIL, not zero/skipped. The v2 analyzer repeats these checks from raw,
+including mixed, rather than trusting a PASS flag.
+
+The private JSON now requires:
+
+```json
+"udp_buffers": {
+  "apply": false,
+  "qeli_receive_bytes": 4194304,
+  "iperf_receive_rb_bytes": 4194304
+}
+```
+
+`apply=false` changes nothing and refuses insufficient host receive limits. On
+dedicated lab guests only, explicitly select `apply=true` to temporarily set
+`net.core.rmem_max=4194304` and `net.core.rmem_default=4194304` on **both guests**
+before baseline/socket creation. This affects all new guest sockets; concurrent
+foreign workloads are forbidden. This policy version fixes the sizes; another
+experiment needs a new methodology. `wmem_*`, TUN queues and qdisc remain unchanged.
+No iperf `-w`: it changes send/receive buffers at both endpoints. Original values
+and policy are saved before the first mutation. Session/window guards reject
+unexpected drift. `finally` restores both guests before lengthy protected-file
+hashing; an independent guest lease stops owned traffic and rolls back buffers
+after 180 seconds without controller heartbeat. Unknown foreign values are not
+overwritten: restoration fails visibly. Nothing is persisted in `/etc/sysctl*`.
+New baseline/reference runs must use the same policy. Independent observation
+overhead has not yet been established.
+
+Accounting reference: [Linux 6.12, net/core/sock.c](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c).
+The effect of `-w` on both endpoints is documented in the [iperf3 manual](https://software.es.net/iperf/invoking.html).
+
 Initial thresholds need calibration: absolute baseline drift or CV >5% means INVALID;
 performance-cell CV >5% needs confirmation; UDP loss >1% in any repetition fails to
 confirm the load; median throughput down >10% against a compatible reference means
@@ -125,6 +181,13 @@ matching client INI. Use lab credentials only.
 
 ```bash
 python scripts/release_short_test.py --config private-lab.json --tag rc1 --output rc1.json --plan-only
+# Harness pilot: 4 required profiles, TCP P4/UDP600, v4/v6 up/down, n=1,
+# baseline before/after; 40 windows. NOT release admission/regression proof.
+python -u scripts/release_short_test.py --config private-lab.json --tag buffers-pilot --output buffers-pilot.json --buffer-pilot
+# Same limited workloads, n=3 plus n=3 baseline: 120 windows.
+# Four-profile required-only performance reference, NOT full release admission.
+python -u scripts/release_short_test.py --config private-lab.json --tag buffers-reference --output buffers-reference.json --buffer-reference
+python scripts/release_short_report.py --config private-lab.json --result buffers-reference.json --output buffers-reference-summary.json
 # Optional harness check: four profiles, 16 windows, not release admission.
 python scripts/release_short_test.py --config private-lab.json --tag setup-smoke --output setup-smoke.json --smoke-only
 python -u scripts/release_short_test.py --config private-lab.json --tag rc1 --output rc1.json
@@ -153,6 +216,32 @@ discovery of its sustainable ceiling. `--smoke-only` uses
 a separate method/SMOKE_ONLY status and is rejected by the full-plan analyzer.
 The current helper stores client device-id in the run directory, not global
 `/var/lib/qeli`. No automatic release publication.
+
+`--buffer-pilot` has its own method/qualification (`BUFFER_PILOT_ONLY`) and is also
+rejected by the full-plan analyzer. Full coverage still requires three repetitions,
+functional/compatibility checks and separate mixed. Legacy v1 may be analyzed
+historically, but cannot earn new admission without buffer evidence.
+
+`--buffer-reference` repeats the pilot workloads (TCP P4 and UDP600, 10+2 s,
+IPv4/IPv6 up/down) using three fresh connections per core profile. Profile order
+is forward, reverse, then rotated. This means 96 load windows and 24 direct TCP
+P1 baseline windows (three per family/direction before and after).
+Method `qeli-release-short-buffer-reference-v2` differs from the full plan.
+`PERFORMANCE_REFERENCE_ACCEPTED` means only a limited performance reference:
+all 32 cells have n=3, each CV <=5%, every UDP repetition has loss <=1%,
+baseline CV/absolute drift <=5%, and buffers/restoration verified.
+Instability yields `PERFORMANCE_REFERENCE_REVIEW_REQUIRED`; bad baseline yields
+`INVALID_BASELINE`. Do not replace the initial set with better repetitions.
+This scope omits tunneled P1, UDP300, all-12 checks, compatibility/mixed and
+cannot earn LAB_COMPARISON_PASS/release admission; `--require-pass` rejects it.
+
+Buffer-check pilot:
+[method, SHA, results and VM300/301 restoration](../reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md).
+
+[Three repetitions on four profiles with n=3 baseline](../reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md):
+`PERFORMANCE_REFERENCE_REVIEW_REQUIRED`, not an accepted reference. Bad windows
+had high CPU steal despite good before/after baseline; inspect it per window
+rather than treating baseline as proof of uninterrupted CPU availability.
 
 See the [0.8.0 matrix](../reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md),
 [TUN queue](../reports/TUN-QUEUE-SIZE-2026-10-16.md),

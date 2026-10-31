@@ -20,11 +20,16 @@ tools в гостях. Тест ничего не устанавливает. SS
 бинарников, конфигами и raw. Preflight фиксирует SHA, boot IDs, ядро/CPU, сеть и хеши
 прежних `/opt/qeli-*`. При существующих VPN/TUN/iperf, сборке, эмуляторе, netem
 или lock запуск отвергается, чужая работа не останавливается. Нет reboot, пакетов
-или тюнинга служб/sysctl/qdisc/offload. Cleanup останавливает только свои process
+или тюнинга служб/qdisc/offload. Единственное опциональное изменение sysctl — явно
+разрешённая ниже лабораторная политика receive-буферов. Cleanup останавливает только свои process
 groups с проверкой PID/start identity. Сеть, firewall, проверяемые sysctl, boot IDs
 и прежние файлы должны совпасть до/после. Несовпадение — ошибка, не PASS.
 
-## План версии 1
+## План версии 2
+
+Матрица и нагрузки версии 1 сохранены; версия 2 добавляет обязательную проверку
+живых socket buffers. Старые raw не переписываются. Сравнивать скорость v1/v2 как
+строгий версионный A/B нельзя: изменились буферы/наблюдатель, нужен новый эталон.
 
 Основные профили: `tcp-faketls`, `tcp-reality-tls`, `udp-faketls`, `udp-quic`.
 Скоростная часть: required, MTU 1400, клиентская/серверная очередь 1000.
@@ -94,6 +99,57 @@ baseline и восстановление. RTT/cwnd — выборочные TCP_
 iperf throughput/retransmits прогрев исключают. Разные интервалы не дают точного
 совпадения drops и retransmits.
 
+### Фактические буферы Qeli и iperf
+
+Конфиг и `rmem_max` показывают запрос/предел, но не доказывают, что живой сокет
+получил нужную память. Версия 2 сохраняет ограниченный тестовыми портами
+`ss -uanmpeH` (UDP) / `ss -tanmpeH` (TCP): inode, PID, `skmem rb/tb/d`.
+Qeli проверяется после подключения и каждого окна; PID должен принадлежать
+частной группе запуска. TCP-буферы записываются как есть: их autotuning не
+подменяется фиксированным UDP-порогом. У принимающего iperf TCP анализатор
+также проверяет наличие живых `rb/tb` в выборках data-соединения (`bytes_received`
+более 1 МБ), исключая control connection; отсутствие evidence — FAIL в полном v2.
+
+У UDP Qeli минимальный запрос — 4 МиБ: Linux учитывает явный `SO_RCVBUF`
+удвоенно, поэтому требуется `ss rb >= 8388608` (нормализованно `rb/2 >= 4 МиБ`).
+У нового UDP-сокета iperf без `-w` используется `rmem_default`: требуется
+`ss rb >= 4194304` **без повторного деления/удвоения**. Это kernel-accounted
+bytes, не гарантированный размер payload-очереди. Один успешный снимок iperf
+снимается на каждом конце во время каждого UDP-окна; до появления сокета возможны
+короткие повторные опросы. Приёмник определяется направлением: upload — сервер,
+download — клиент. Для mixed приёмник UDP — сервер. Сохраняются также send `tb`
+и socket drops `d`; они не заменяют итоговые receiver loss и глобальные SNMP.
+Неизмеренный/чужой сокет или недостаточный фактический буфер — FAIL, не ноль/пропуск.
+Анализатор v2 повторяет проверки по raw, включая mixed, а не доверяет флагу PASS.
+
+В приватном JSON теперь обязателен блок:
+
+```json
+"udp_buffers": {
+  "apply": false,
+  "qeli_receive_bytes": 4194304,
+  "iperf_receive_rb_bytes": 4194304
+}
+```
+
+`apply=false` ничего не меняет и отказывает при недостаточных host receive limits.
+Только для выделенной лабы можно явно выбрать `apply=true`: до baseline и запуска
+сокетов тест временно задаёт **на обеих ВМ** `net.core.rmem_max=4194304` и
+`net.core.rmem_default=4194304`. Это влияет на все новые сокеты гостей: чужие
+нагрузки запрещены. Размеры в этой версии политики фиксированы; другой эксперимент
+требует новой методики. `wmem_*`, TUN-очереди и qdisc не меняются; `iperf -w`
+не используется, поскольку он меняет send/receive buffers обоих концов.
+Исходные значения и политика записываются до первого изменения. Проверка перед
+сессией/окном отвергает неожиданный drift. `finally` восстанавливает обе ВМ до
+долгого хеширования файлов; независимая гостевая lease через 180 секунд без heartbeat
+останавливает собственную нагрузку и откатывает буферы при потере контроллера.
+Чужое неизвестное значение не перезаписывается: сохраняется ошибка восстановления.
+Настройки не пишутся в `/etc/sysctl*`. Свежий baseline/эталон должен использовать
+эту же политику. Независимая стоимость нового наблюдателя пока не установлена.
+
+Основание учёта памяти: [Linux 6.12, net/core/sock.c](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c).
+Действие `-w` на оба конца описано в [руководстве iperf3](https://software.es.net/iperf/invoking.html).
+
 Начальные пороги требуют калибровки: модуль baseline drift или CV >5% — INVALID;
 CV скоростной ячейки >5% — перепроверка; UDP loss >1% в любом повторе — нагрузка
 не подтверждена; падение медианы >10% против совместимого эталона — NEEDS_CONFIRMATION.
@@ -128,6 +184,13 @@ RSS >20% и 10 МиБ одновременно, TUN drop ppm более чем �
 
 ```bash
 python scripts/release_short_test.py --config private-lab.json --tag rc1 --output rc1.json --plan-only
+# Проверка новой обвязки: 4 required-профиля, TCP P4/UDP600, v4/v6 up/down,
+# n=1, baseline до/после; 40 окон. Не релизный gate и не проверка регрессии.
+python -u scripts/release_short_test.py --config private-lab.json --tag buffers-pilot --output buffers-pilot.json --buffer-pilot
+# Тот же ограниченный объём нагрузок, но n=3 + baseline n=3: 120 окон.
+# Только скоростной эталон четырёх required-профилей, не полный допуск релиза.
+python -u scripts/release_short_test.py --config private-lab.json --tag buffers-reference --output buffers-reference.json --buffer-reference
+python scripts/release_short_report.py --config private-lab.json --result buffers-reference.json --output buffers-reference-summary.json
 # Необязательная проверка обвязки: четыре профиля, 16 окон, не релизный gate.
 python scripts/release_short_test.py --config private-lab.json --tag setup-smoke --output setup-smoke.json --smoke-only
 python -u scripts/release_short_test.py --config private-lab.json --tag rc1 --output rc1.json
@@ -158,6 +221,32 @@ loss >1% в mixed UDP требует проверки и не даёт авто�
 плана его отвергает. В актуальном helper client device-id хранится в каталоге
 запуска, а не создаётся в глобальном `/var/lib/qeli`.
 Релиз автоматически не публикуется.
+
+`--buffer-pilot` имеет отдельные method/qualification (`BUFFER_PILOT_ONLY`);
+анализатор полного плана его также отвергает. Полный план по-прежнему требует
+трёх повторов, функциональной/совместимой матрицы и отдельного mixed.
+Legacy v1 можно разобрать исторически, но без buffer evidence новый допуск не выдаётся.
+
+`--buffer-reference` повторяет именно нагрузки пилота (TCP P4 и UDP600, 10+2 с,
+IPv4/IPv6 up/down), по три свежих подключения на каждый из четырёх профилей.
+Порядок профилей: прямой, обратный, сдвинутый. Это 96 нагрузочных окон и
+24 direct TCP P1 baseline (три на семейство/направление до и после).
+Методика `qeli-release-short-buffer-reference-v2` отлична от полного плана.
+`PERFORMANCE_REFERENCE_ACCEPTED` означает только ограниченный скоростной эталон:
+все 32 ячейки имеют n=3, CV каждой <=5%, loss каждого UDP-повтора <=1%,
+baseline CV и модуль drift <=5%, buffers и восстановление подтверждены.
+Нестабильность даёт `PERFORMANCE_REFERENCE_REVIEW_REQUIRED`, плохой baseline —
+`INVALID_BASELINE`. Первый набор не заменяется лучшими повторами. Этот scope
+не покрывает P1 внутри VPN, UDP300, все 12 профилей, compatibility/mixed и
+не даёт LAB_COMPARISON_PASS/допуска релиза; `--require-pass` его не принимает.
+
+Пробный запуск с проверкой буферов:
+[методика, SHA, результаты и восстановление 300/301](../reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md).
+
+[Три повтора четырёх профилей с baseline n=3](../reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md):
+`PERFORMANCE_REFERENCE_REVIEW_REQUIRED`, не принятый эталон. В плохих окнах
+наблюдался высокий CPU steal при хорошем baseline до/после; поэтому его нужно
+просматривать по каждому окну, а не считать baseline гарантией отсутствия помех.
 
 См. [матрицу 0.8.0](../reports/benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md),
 [TUN-очередь](../reports/TUN-QUEUE-SIZE-2026-10-16.md),

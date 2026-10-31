@@ -1,16 +1,18 @@
 # Installing the qeli client on OpenWrt
 
+[Русский](../../ru/manuals/OPENWRT-INSTALL.md) · English
+
 > **0.8.3 / issue #205:** install the updated binary **and** init script. The service
 > passes the real `/var` target plus `/lib/qeli` as `STATE_DIRECTORY`; on standard
 > OpenWrt this is `/tmp/lib/qeli`, not a new location. No unsafe directory is chmodded
 > or adopted by init. Direct launches need the same environment; see
-> [state storage and recovery](../docs/eng/manuals/OPERATIONS.md#client-physical-route-recovery).
+> [state storage and recovery](OPERATIONS.md#client-physical-route-recovery).
 > Managed routing requires kernel `SO_NETNS_COOKIE` support even with `dns=off`.
 
 > **0.8.2 audit scope.** Physical router tests were excluded from the agreed audit.
 > SDK and isolated lifecycle evidence does not replace testing on your firmware.
 > Install an artifact from an exact published release tag and verify architecture,
-> TUN support and firewall/interface names. [Audit scope](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+> TUN support and firewall/interface names. [Audit scope](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 Two ways to install: **A) prebuilt binary** (fastest — hand-install + opkg deps) or
 **B) from source** (proper feed package + `.ipk`). Both end with the same UCI/LuCI
@@ -198,7 +200,7 @@ marker so the next start retries; a successful no-op does not reload firewall.
 Partial UCI changes are not rolled back automatically. After correcting the error,
 restart qeli. This behavior is covered by shell/JavaScript fixtures; the historical
 public0.8.0 hardware result above does not qualify these development changes on a
-real router. See [Q31 audit evidence](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+real router. See [Q31 audit evidence](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 Development status polling reads init-visible UCI through the scoped service_status
 RPC; it preserves staged form edits and displays unknown when the read fails.
@@ -241,7 +243,7 @@ are installed without changing the default Rust. Encoded/ambient Rust flags cann
 override the Qeli recipe; explicit MIPS soft-float is retained, compiler overrides
 cleared and wrappers disabled. Global Cargo config/PATH/shared installations and
 upload races remain outside a hermetic/reproducible-build guarantee. This policy
-applies to maintainer helpers; the SDK retains its own Rust feed/toolchain. See [Q31](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+applies to maintainer helpers; the SDK retains its own Rust feed/toolchain. See [Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 The SDK package requires Cargo.lock before compilation and checks the client-only
 graph with cargo metadata --locked before cargo install --locked --jobs1.
@@ -341,7 +343,7 @@ install/upgrade/remove, modified UCI retention and0600 modes, and early refusals
 The initial empty-root failure is retained; live postinst/fw4/procd is unqualified.
 Use a proper offline /target inside an owned chroot rather than offline-root /.
 Six real-Cargo SDK macro tests live in scripts/test_openwrt_compile.py and require
-explicit owned compiler/template fixtures. These do not run against a router. See [Q31 audit](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+explicit owned compiler/template fixtures. These do not run against a router. See [Q31 audit](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ### HTTP/session audit scope
 
@@ -359,7 +361,7 @@ QELI_OPENWRT_ROOTFS_TEMPLATE, QELI_OPENWRT_RPCD_TEMPLATE and QELI_OPENWRT_LUCI_I
 run scripts/test_openwrt_http.py only in an owned lab. No authentication bypass.
 Service verbs use an inert adapter; no live VPN, browser login/DOM, TLS or whole-LuCI
 cookie/CORS/CSRF policy is qualified by these API checks. Firmware remains excluded.
-See [Q31 audit](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+See [Q31 audit](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ## Compiler and intermediate build directory (development0.8.2)
 
@@ -376,11 +378,11 @@ This is scoped environment isolation, not a fully hermetic build. Cargo home/anc
 configuration, forced environment, profile/source/linker overrides, PATH/shared
 registry/tool caches and clean independent Qeli A/B still require qualification.
 7 real-Cargo methods use dependency-free Linux fixtures; they do not certify a fresh
-Qeli cross build, Zig invocation, SDK Rust toolchain or router ABI/runtime. See [Q31](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+Qeli cross build, Zig invocation, SDK Rust toolchain or router ABI/runtime. See [Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 The subsequent F361 runtime generation change has fresh GNU Rust1.97 unit/check/
 production Clippy/fmt coverage. The preceding SDK1.89/musl qualification covers
-the F358 source snapshot, not this subsequent source change. See [Q31](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+the F358 source snapshot, not this subsequent source change. See [Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ## Standalone helper release profile (development0.8.2)
 
@@ -529,7 +531,7 @@ the direct SDK package entry; upstream Rust bootstrap, cold/hermetic compilation
 other SDK targets, production release pin/hash cut and a successful current Actions/
 preflight are still unqualified. Production source pin/hash are unchanged. Use the
 full SDK dependency graph for a release build; the audit's toolchain bootstrap shortcut
-is not release certification. See [Q31](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+is not release certification. See [Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ### Current standalone 32-bit verification (8 October)
 
@@ -540,7 +542,7 @@ production publication-lock/budget modules in the same standalone release policy
 No new regression was found in this scope. This is neither the full cfg(test) suite
 nor firmware/VPN networking, SDK Rust bootstrap or a new independent clean A/B.
 Previous four-target A/B retains its original source/date. See
-[Q31](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md) for artifacts and limits.
+[Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md) for artifacts and limits.
 
 
 ## Rust feed LLVM download failure (SDK24.10.4, 14 October 2026)
@@ -564,7 +566,7 @@ source version/hash and explicit host/target configuration.
 
 The already-qualified SDK/IPK run used a private official prebuilt Rust/std1.89.
 That remains a package integration result, not proof of cold compiler bootstrap.
-See [actual refusal and cleanup evidence](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+See [actual refusal and cleanup evidence](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ### Earlier bounded source-LLVM attempt (14 October 2026)
 
@@ -574,7 +576,7 @@ C++ compilation. Last recorded Ninja indicator: 548/3710. The owned time
 guard stopped the bounded attempt; full LLVM/rustc/dist/Host/Install and final
 cold SDK/IPK still need qualification. Original CI404 failure remains separate.
 This confirms the configured download bypass, not a completed toolchain. The
-production feed was not modified. See the [actual result and cleanup](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+production feed was not modified. See the [actual result and cleanup](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ### Later Clang source attempt: disk capacity limit (14 October 2026)
 
@@ -590,7 +592,7 @@ only a 142834-byte evidence archive was retained locally. Before
 retrying, provide a materially larger disk reserve. The Rust compiler guide
 [recommends 30GB+ free disk](https://rustc-dev-guide.rust-lang.org/building/prerequisites.html);
 that is general guidance, not a measured minimum for this pinned dist build.
-See the [actual Clang disk failure](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+See the [actual Clang disk failure](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 ### Exact GNU-host Clang configuration for the qualified variant
 
@@ -663,4 +665,4 @@ Both owned compiler/runtime roots and their large caches were archived and
 removed after evidence verification. Original CI404, GCC OOM and bounded
 partial outcomes retain their dates. Public source pin/hosted release
 qualification remain open; physical router USER_EXCLUDED.
-See the [qualified source compiler and SDK result](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+See the [qualified source compiler and SDK result](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).

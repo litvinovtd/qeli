@@ -77,7 +77,8 @@ class ReleaseShortTest(unittest.TestCase):
 
     def test_lock_refusal_never_touches_existing_root(self):
         cfg=dict(hosts=dict(server='server',client='client'),udp_rates=self.rates,
-                 candidate_sha256='a'*64,previous_sha256='b'*64)
+                 candidate_sha256='a'*64,previous_sha256='b'*64,
+                 udp_buffers=dict(apply=False,qeli_receive_bytes=4194304,iperf_receive_rb_bytes=4194304))
         for effects in ([RuntimeError('lock busy')], ['',RuntimeError('root exists'),'']):
             guest=SimpleNamespace(role='server',cmd=Mock(side_effect=effects),helper=Mock(),put=Mock(),
                                   c=SimpleNamespace(close=Mock()))
@@ -88,6 +89,25 @@ class ReleaseShortTest(unittest.TestCase):
                 guest.helper.assert_not_called()
                 guest.put.assert_not_called()
                 guest.c.close.assert_called_once()
+
+    def test_buffer_pilot_is_required_only_not_full_qualification(self):
+        sessions=short.selected_plan(buffer_pilot=True)
+        self.assertEqual(len(sessions),4)
+        self.assertTrue(all(s['policy']=='required' for s in sessions))
+        windows=[w for s in sessions for w in short.tasks(s,self.rates)]
+        self.assertEqual(len(windows)+8,40)
+        self.assertEqual({w['rate_mbps'] for w in windows if w['protocol']=='UDP'},{600})
+
+    def test_buffer_reference_is_three_repeats_same_pilot_load(self):
+        sessions=short.selected_plan(buffer_reference=True)
+        self.assertEqual(len(sessions),12)
+        self.assertTrue(all(s['policy']=='required' and s['stage']=='perf' for s in sessions))
+        self.assertEqual({s['rep'] for s in sessions},{1,2,3})
+        self.assertEqual(sum(len(short.tasks(s,self.rates)) for s in sessions)+24,120)
+        self.assertEqual([s['mode'] for s in sessions[:4]],list(short.CORE))
+        self.assertEqual([s['mode'] for s in sessions[4:8]],list(reversed(short.CORE)))
+        self.assertTrue(all(w['streams']==4 if w['protocol']=='TCP' else w['rate_mbps']==600
+                            for s in sessions for w in short.tasks(s,self.rates)))
 
 
 if __name__=='__main__':

@@ -24,6 +24,57 @@ use std::future::Future;
 #[cfg(any(feature = "client", test))]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
+/// One REALITY ClientHello policy for Linux CLI and every native app runtime.
+/// Compact is explicit: there is no failure-triggered downgrade from the PQ offer.
+#[cfg(any(feature = "client", test))]
+pub(crate) async fn establish_reality_tls<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+) -> anyhow::Result<crate::protocol::realtls::client::EstablishedTls> {
+    let short_id = config
+        .obfuscation
+        .reality_short_id
+        .as_deref()
+        .and_then(crate::crypto::reality::parse_short_id)
+        .ok_or_else(|| anyhow::anyhow!("reality-tls requires a valid reality_sid"))?;
+    let public = config
+        .auth
+        .server_public_key
+        .as_deref()
+        .and_then(crate::crypto::parse_pubkey_hex)
+        .filter(|key| key.iter().any(|byte| *byte != 0))
+        .ok_or_else(|| anyhow::anyhow!("reality-tls requires a pinned server_public_key"))?;
+    let ephemeral = Keypair::generate();
+    let session_id = crate::crypto::reality::seal_session_id(
+        &crate::crypto::PublicKey::from_bytes(&public),
+        &ephemeral,
+        &short_id,
+    );
+    let policy = &config.obfuscation;
+    if policy.reality_compact {
+        log::info!("REALITY compact: small X25519 outer ClientHello; mandatory INNER_PQ_V1 inside TLS before AUTH (X25519 + ML-KEM-768, no classical fallback)");
+    }
+    if !policy.reality_split.is_empty() && policy.reality_split != "none" {
+        log::info!(
+            "REALITY-TLS ClientHello split={} delay={}ms compact={}",
+            policy.reality_split,
+            policy.reality_split_delay_ms,
+            policy.reality_compact
+        );
+    }
+    crate::protocol::realtls::client::client_handshake_evasive(
+        stream,
+        ephemeral,
+        session_id,
+        config.effective_reality_sni(),
+        policy.reality_compact,
+        &policy.reality_split,
+        policy.reality_split_delay_ms,
+    )
+    .await
+    .map_err(anyhow::Error::from)
+}
+
 #[derive(Debug)]
 pub(crate) struct AuthOk {
     pub family_mode: crate::transport_core::NetworkFamilyMode,
@@ -351,6 +402,69 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
     })
 }
 
+/// Shared raw key exchange for primary AUTH and secondary JOIN/resume carriers.
+/// Compact REALITY MUST NOT enter the classic branch, even after peer failure.
+#[cfg(any(feature = "client", test))]
+pub(crate) struct RawClientKeys {
+    pub rx: PacketCodec,
+    pub tx: PacketCodec,
+    pub shared: zeroize::Zeroizing<[u8; 32]>,
+    pub transcript_hash: [u8; 32],
+    #[cfg(feature = "experimental-roaming")]
+    pub resume_secret: zeroize::Zeroizing<[u8; 32]>,
+}
+
+#[cfg(any(feature = "client", test))]
+pub(crate) async fn raw_client_keys<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+    client: &Keypair,
+) -> anyhow::Result<RawClientKeys> {
+    if config.obfuscation.mode == "reality-tls" && config.obfuscation.reality_compact {
+        let pinned = config
+            .auth
+            .server_public_key
+            .as_deref()
+            .and_then(crate::crypto::parse_pubkey_hex)
+            .ok_or_else(|| anyhow::anyhow!("INNER_PQ_V1 requires a pinned server key"))?;
+        let exchange = crate::protocol::inner_pq::client_exchange(stream, client, &pinned).await?;
+        let (s2c, c2s) = exchange.material.data_keys();
+        return Ok(RawClientKeys {
+            rx: PacketCodec::new_raw(s2c),
+            tx: PacketCodec::new_raw(c2s),
+            shared: exchange.ephemeral_shared,
+            transcript_hash: exchange.transcript_hash,
+            #[cfg(feature = "experimental-roaming")]
+            resume_secret: zeroize::Zeroizing::new(*exchange.material.resume_secret()),
+        });
+    }
+    stream.write_all_flush(client.public().as_bytes()).await?;
+    let mut public = [0u8; 32];
+    stream.read_exact(&mut public).await?;
+    let shared = client
+        .derive_shared_checked(&crate::crypto::PublicKey::from_bytes(&public))
+        .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
+    let transcript_hash = handshake_transcript_hash(&[client.public().as_bytes(), &public]);
+    let es = static_es(config, client)?;
+    let (s2c, c2s) = match es {
+        Some(es) => derive_keys_bound(&shared.0, &es),
+        None => derive_keys(&shared.0),
+    };
+    #[cfg(feature = "experimental-roaming")]
+    let material = match es {
+        Some(es) => derive_session_material_bound(&shared.0, &es),
+        None => derive_session_material(&shared.0),
+    };
+    Ok(RawClientKeys {
+        rx: PacketCodec::new_raw(s2c),
+        tx: PacketCodec::new_raw(c2s),
+        shared: zeroize::Zeroizing::new(shared.0),
+        transcript_hash,
+        #[cfg(feature = "experimental-roaming")]
+        resume_secret: zeroize::Zeroizing::new(*material.resume_secret()),
+    })
+}
+
 /// Run the primary authenticated TCP handshake without any platform state access.
 ///
 /// Device identity and server trust are explicit inputs: Linux can keep its persistent
@@ -373,35 +487,14 @@ where
     let client_kp = Keypair::generate();
 
     if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
-        stream
-            .write_all_flush(client_kp.public().as_bytes())
-            .await?;
-        let mut server_public = [0u8; 32];
-        stream
-            .read_exact(&mut server_public)
-            .await
-            .map_err(|error| anyhow::anyhow!("failed to read server key (raw inner): {error}"))?;
-        let server_pub = crate::crypto::PublicKey::from_bytes(&server_public);
-        let transcript_hash =
-            handshake_transcript_hash(&[client_kp.public().as_bytes(), &server_public]);
-        let shared = client_kp
-            .derive_shared_checked(&server_pub)
-            .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-        let static_shared = static_es(config, &client_kp)?;
-        let (server_to_client, client_to_server) = match static_shared {
-            Some(static_shared) => derive_keys_bound(&shared.0, &static_shared),
-            None => derive_keys(&shared.0),
-        };
-        #[cfg(feature = "experimental-roaming")]
-        let resume_secret = {
-            let material = match static_shared {
-                Some(static_shared) => derive_session_material_bound(&shared.0, &static_shared),
-                None => derive_session_material(&shared.0),
-            };
-            zeroize::Zeroizing::new(*material.resume_secret())
-        };
-        let mut client_rx = PacketCodec::new_raw(server_to_client);
-        let mut client_tx = PacketCodec::new_raw(client_to_server);
+        let RawClientKeys {
+            rx: mut client_rx,
+            tx: mut client_tx,
+            shared,
+            transcript_hash,
+            #[cfg(feature = "experimental-roaming")]
+            resume_secret,
+        } = raw_client_keys(stream, config, &client_kp).await?;
 
         let auth_proof_record = read_record(stream, Framing::Raw)
             .await
@@ -418,17 +511,20 @@ where
         let server_static = verify_server_identity(
             &auth_proof,
             &client_kp,
-            &shared.0,
+            &shared,
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
         verify_key(server_static).await?;
+        if config.obfuscation.mode == "reality-tls" && config.obfuscation.reality_compact {
+            log::info!("INNER_PQ_V1 confirmed: hybrid data/resume keys and pinned server identity verified before AUTH");
+        }
         log::info!("Server identity verified (raw inner)");
 
         let auth_plaintext = build_client_auth_plaintext(
             config,
             &client_kp,
-            &shared.0,
+            &shared,
             &transcript_hash,
             device_id,
             password,
@@ -721,6 +817,125 @@ pub(crate) fn static_es(
 #[cfg(test)]
 mod static_binding_tests {
     use super::*;
+
+    #[derive(Default)]
+    struct HelloCapture(Vec<Vec<u8>>);
+
+    impl AsyncRead for HelloCapture {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(())) // EOF after the first flight: never retry/downgrade.
+        }
+    }
+    impl AsyncWrite for HelloCapture {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            data: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.0.push(data.to_vec());
+            std::task::Poll::Ready(Ok(data.len()))
+        }
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn shared_reality_policy_preserves_token_pq_offer_and_explicit_split() {
+        let identity = crate::crypto::StaticKeypair::generate();
+        let mut config = crate::config::client::ClientConfig::default();
+        config.auth.server_public_key = Some(
+            identity
+                .public
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        );
+        config.obfuscation.reality_short_id = Some("0123456789abcdef".into());
+        config.obfuscation.sni = Some("decoy.example".into());
+        config.obfuscation.reality_split_delay_ms = 0;
+        for compact in [false, true] {
+            for split in ["", "none", "first", "record", "sni"] {
+                config.obfuscation.reality_compact = compact;
+                config.obfuscation.reality_split = split.into();
+                let mut stream = HelloCapture::default();
+                assert!(establish_reality_tls(&mut stream, &config).await.is_err());
+                let split_active = !matches!(split, "" | "none");
+                assert_eq!(stream.0.len(), if split_active { 2 } else { 1 });
+                if split == "first" {
+                    assert_eq!(stream.0[0].len(), 1);
+                }
+                if split == "record" {
+                    assert_eq!(stream.0[0].len(), 5);
+                }
+                let hello = stream.0.concat();
+                assert_eq!(
+                    hello.len(),
+                    5 + usize::from(u16::from_be_bytes([hello[3], hello[4]]))
+                );
+                assert_eq!(hello.len() < 1200, compact, "compact={compact}");
+                let (sid, key) = FakeTlsHandshake::parse_client_hello_full(&hello).unwrap();
+                let public = crate::crypto::PublicKey::from_bytes(&key.try_into().unwrap());
+                assert_eq!(
+                    crate::crypto::reality::open_session_id(&identity, &public, &sid, 120),
+                    crate::crypto::reality::parse_short_id("0123456789abcdef")
+                );
+                assert!(hello
+                    .windows(b"decoy.example".len())
+                    .any(|w| w == b"decoy.example"));
+                // Inspect the extension vector, not random bytes that might resemble a group.
+                let mut p = 44 + usize::from(hello[43]);
+                p += 2 + usize::from(u16::from_be_bytes([hello[p], hello[p + 1]]));
+                p += 1 + usize::from(hello[p]);
+                p += 2;
+                let mut hybrid = false;
+                while p < hello.len() {
+                    let kind = u16::from_be_bytes([hello[p], hello[p + 1]]);
+                    let len = usize::from(u16::from_be_bytes([hello[p + 2], hello[p + 3]]));
+                    p += 4;
+                    if kind == 0x33 {
+                        let mut k = p + 2;
+                        while k < p + len {
+                            let group = u16::from_be_bytes([hello[k], hello[k + 1]]);
+                            let size =
+                                usize::from(u16::from_be_bytes([hello[k + 2], hello[k + 3]]));
+                            if group == crate::crypto::mlkem::X25519MLKEM768 {
+                                hybrid = true;
+                                assert_eq!(size, 1216);
+                            }
+                            k += 4 + size;
+                        }
+                    }
+                    p += len;
+                }
+                assert_eq!(
+                    hybrid, !compact,
+                    "default must retain the PQ offer; no fallback on EOF"
+                );
+            }
+        }
+        config.obfuscation.reality_short_id = None;
+        let mut stream = HelloCapture::default();
+        assert!(establish_reality_tls(&mut stream, &config).await.is_err());
+        assert!(
+            stream.0.is_empty(),
+            "reject missing authentication before sending"
+        );
+    }
 
     #[test]
     fn static_binding_rejects_degenerate_pins_before_kdf() {

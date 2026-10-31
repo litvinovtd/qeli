@@ -89,6 +89,18 @@ class GuestOwnershipTest(unittest.TestCase):
                 kill.assert_not_called()
             self.assertTrue(receipt.exists())
 
+    def test_kill_escalation_revalidates_ownership(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);receipt=self.receipt(root)
+            observations=[('/private/qeli','100','S')]*61+[('/foreign/exe','100','S')]
+            with patch.object(guest,'identity',side_effect=observations), \
+                    patch.object(guest.os,'getpgid',return_value=12345,create=True), \
+                    patch.object(guest.os,'killpg',create=True) as kill,patch.object(guest.time,'sleep'):
+                with self.assertRaisesRegex(RuntimeError,'before SIGKILL'):
+                    guest.halt(root)
+                kill.assert_called_once_with(12345,guest.signal.SIGTERM)
+            self.assertTrue(receipt.exists())
+
     def test_process_disappears_during_signal(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)

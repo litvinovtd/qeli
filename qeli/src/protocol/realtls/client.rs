@@ -203,8 +203,8 @@ pub async fn client_handshake_compact<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 /// REALITY-TLS handshake with optional ClientHello write splitting. The bytes
-/// on the TCP stream remain a standards-compliant ClientHello; only the segment
-/// boundary and inter-segment timing change.
+/// on the TCP stream remain a standards-compliant ClientHello. Writes and their
+/// timing change; the network stack still chooses the actual segment boundaries.
 pub async fn client_handshake_evasive<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     ephemeral: Keypair,
@@ -242,7 +242,7 @@ async fn client_handshake_inner<S: AsyncRead + AsyncWrite + Unpin>(
         build_client_hello(ephemeral.public(), sni, &session_id)
     };
     let split_at = match split_mode {
-        "sni" => ch
+        "sni" if !sni.is_empty() => ch
             .windows(sni.len())
             .position(|w| w == sni.as_bytes())
             .map(|p| p + (sni.len() / 2).max(1)),
@@ -670,6 +670,12 @@ mod tests {
     /// self-consistent.
     #[tokio::test]
     async fn handshake_interop_with_rustls() {
+        for compact in [false, true] {
+            handshake_policy_interop_with_rustls(compact).await;
+        }
+    }
+
+    async fn handshake_policy_interop_with_rustls(compact: bool) {
         use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
         use std::sync::Arc;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -706,16 +712,23 @@ mod tests {
             buf
         });
 
-        let eph = Keypair::generate();
         let reality = StaticKeypair::generate();
-        let sid = reality::seal_session_id(
-            &reality.public,
-            &eph,
-            &reality::short_id_from_hex("0123456789abcdef"),
+        let mut config = crate::config::client::ClientConfig::default();
+        config.auth.server_public_key = Some(
+            reality
+                .public
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
         );
-        let mut tls = client_handshake(&mut client_io, eph, sid, "www.microsoft.com")
-            .await
-            .expect("realtls client completes a real TLS 1.3 handshake with rustls");
+        config.obfuscation.reality_short_id = Some("0123456789abcdef".into());
+        config.obfuscation.sni = Some("www.microsoft.com".into());
+        config.obfuscation.reality_compact = compact;
+        let mut tls =
+            crate::transport_core::session::establish_reality_tls(&mut client_io, &config)
+                .await
+                .expect("realtls client completes a real TLS 1.3 handshake with rustls");
 
         let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();

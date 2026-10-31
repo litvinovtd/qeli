@@ -18,7 +18,7 @@ size and returns `BUFFER_TOO_SMALL`; a short buffer is not partially written. Th
 excludes a trailing NUL (none is written). Existing event/stat layouts and JNI exports
 are unchanged. The updated iOS transport adapter requires a newly built ABI 1.17
 XCFramework. Existing distributed/prebuilt binaries are not upgraded by this source change.
-See [the mobile parity audit](../../../qeli-ios/AUDIT-PARITY-20261028.ru.md) for verification limits.
+See [the mobile parity audit](../reports/IOS-ANDROID-PARITY-2026-10-28.md) for verification limits.
 
 **Historical qualification, 16 October 2026: ABI 1.16.** Transport, `qeli_config_request`, Android `ConfigCore` JNI and portable policies use the shared Rust core. New adapters require ABI 1.16. Committed Windows/macOS/Android libraries were rebuilt with independent A/B, ABI/JNI, hashes and provenance; [current qualification packet](../../../release/certification/evidence/dependabot-integration-20261016.json). Physical platforms excluded from the agreed audit are not certified. The ABI history and dated stages below retain their earlier intermediate statuses.
 

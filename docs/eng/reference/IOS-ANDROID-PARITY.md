@@ -1,8 +1,10 @@
 # Android to iOS parity ledger
 
+[Русский](../../ru/reference/IOS-ANDROID-PARITY.md) · English
+
 ## Current audit, 28 October 2026
 
-[Detailed matrix, fixes and verification boundaries](AUDIT-PARITY-20261028.ru.md).
+[Detailed matrix, fixes and verification boundaries](../reports/IOS-ANDROID-PARITY-2026-10-28.md).
 The following list describes implementation, not an assertion of Apple runtime parity.
 
 - Added opt-in foreground auto-probe of profiles, bounded concurrency/intervals, and
@@ -138,13 +140,13 @@ The following list describes implementation, not an assertion of Apple runtime p
 
 ## Q30 source audit, 6 October 2026
 
-[Scoped MDM/provider callback fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-POLICY-SNAPSHOT.md)
+[Scoped MDM/provider callback fixes](../reports/audit-0.8.2/AUDIT-Q30-IOS-POLICY-SNAPSHOT.md)
 reject truncated numeric policies and invalidate stale provider replies across tunnel
 transitions. Six new XCTest cases are retained but NOT_RUN on Windows; six Python
 IPA-verifier fixture regressions PASS. These are not a simulator/device qualification.
 Q30 remains IN_PROGRESS; the user excluded Apple runtime for this audit.
 
-[Q30 Keychain source fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-KEYCHAIN.md) extend
+[Q30 Keychain source fixes](../reports/audit-0.8.2/AUDIT-Q30-IOS-KEYCHAIN.md) extend
 first-writer ownership from the master key to device ID/TOFU and explicitly validate
 stored key sizes. Seven Keychain XCTest are NOT_RUN; no cross-process/runtime claim.
 The provider/engine completion review remains open.
@@ -152,19 +154,19 @@ The provider/engine completion review remains open.
 Explicit malformed/stale provider profile requests now fail rather than falling back
 to the persisted profile (Q30-F294); four new selector XCTest NOT_RUN.
 
-[Q30 lifecycle source fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-LIFECYCLE.md) make monitor
+[Q30 lifecycle source fixes](../reports/audit-0.8.2/AUDIT-Q30-IOS-LIFECYCLE.md) make monitor
 Stop terminal, fence provider effects by current engine and serialize OS operations
 across engines with callback-owned leases and a shared15s settings budget.13 new
 helper XCTest NOT_RUN; real OS callback drain, memory, native joins and Apple build
 remain unqualified. Never treat cancellation as an OS operation's completion.
 
-[Q30 application preference fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-APP-PREFERENCES.md)
+[Q30 application preference fixes](../reports/audit-0.8.2/AUDIT-Q30-IOS-APP-PREFERENCES.md)
 remove five status/epoch bypasses and serialize full managed reconciliation. Profile
 settings are read at admission; connection generations and Task cancellation fence
 obsolete preference steps. Three gate XCTest NOT_RUN; Apple runtime excluded.
 Q30 remains IN_PROGRESS; provider-message/backup UI and final source review remain.
 
-[Q30 messages/backup fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-MESSAGES-BACKUP.md)
+[Q30 messages/backup fixes](../reports/audit-0.8.2/AUDIT-Q30-IOS-MESSAGES-BACKUP.md)
 bound the settings-message caller wait to20s, fence response ownership and admit
 one unfinished snapshot poll per status epoch. Backup passwords are captured per
 request; filenames derive from actual bytes.11 new XCTest NOT_RUN. Timeout does
@@ -175,7 +177,7 @@ alongside Protocol, and removes unreferenced X25519/auth helper code. Backup sto
 still uses CryptoKit directly; Rust/native transport crypto is unchanged. Actual
 Xcode compilation and binary-size effects remain NOT_RUN.
 
-[Q30 source/memory reconciliation](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-SOURCE-MEMORY.md)
+[Q30 source/memory reconciliation](../reports/audit-0.8.2/AUDIT-Q30-IOS-SOURCE-MEMORY.md)
 closes the source Review/dead-code criterion:92 Swift inputs,12 retained framework
 entry points. F303-F306 unify cancellable probe ownership, prune obsolete pings,
 bound log bytes (4KiB/message,1MiB encoded archive) and stream update data (1MiB).

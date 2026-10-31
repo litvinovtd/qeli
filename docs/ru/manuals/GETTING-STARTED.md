@@ -792,7 +792,7 @@ Full-tunnel и «маршрутизировать локальные сети» 
 > из исходников на macOS** (Xcode 16+, см. README) — готовой сборки в релизах нет, и на
 > живом устройстве он ещё не проверялся. Отличия, продиктованные платформой: маршрутизация
 > «по приложениям» доступна только через MDM, а вместо автоподключения при загрузке
-> используется VPN On Demand — подробности в [`qeli-ios/PARITY.md`](../../../qeli-ios/PARITY.md).
+> используется VPN On Demand — подробности в [`docs/ru/reference/IOS-ANDROID-PARITY.md`](../reference/IOS-ANDROID-PARITY.md).
 
 > **macOS 0.8.3:** выберите `Qeli-macos-arm64.tar.gz` для Apple Silicon или
 > `Qeli-macos-x86_64.tar.gz` для Intel. Каждый архив содержит самостоятельный

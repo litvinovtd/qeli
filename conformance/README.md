@@ -34,6 +34,7 @@ Real divergences these fixtures caught (or would have caught):
 | `replay-window.json` | the 2048-bit anti-replay window | **generated** |
 | `hkdf.json` | the four directional key-derivation schemes | **generated** |
 | `mlkem768-nist.json` | 25 keygen, 25 encapsulation, 10 decapsulation NIST ML-KEM-768 known answers | **independent NIST source** |
+| `inner-pq-v1.json` | compact REALITY inner headers and transcript-bound hybrid/static KDF | **independent Python stdlib HKDF oracle**; consumed by shared Rust core tests |
 | `chacha20poly1305-rfc8439.json` | RFC 8439 AEAD vector and independent empty-AAD wrapper expectation | **RFC + Python cryptography** |
 | `quic.json` | QUIC envelope + crafted packets the parser must survive | **generated** |
 | `udp-frag.json` | UDP handshake fragmentation, reassembly, datagram classification | **generated** |
@@ -197,3 +198,34 @@ Desktop route-reader fixtures also cover mixed line endings, the 65,536 UTF-16-u
 boundary, cancellation before newline, and Unicode comment batches constrained before
 serialization. The existing 14,113-route CIDR/OpenVPN equivalence, merging and cancellation
 checks still exercise the shared native route parser.
+
+## Issue #69: NDP policy and Windows desktop regressions
+
+`cargo test --lib --features transport-core-ffi ndp` covers assigned source selection,
+NA flags/checksums/DAD, bounded fair periodic announcements, lease generations,
+INI/API round trips, policy validation and the panel controls. The ignored
+`server::ndp_proxy::native_network_view_tests::native_ndp_bind_uses_calling_namespace_without_sysfs_remount`
+requires Linux capabilities and `ip`; it creates a disposable network namespace on
+a new thread and checks real source assignment/removal and multicast membership.
+Do not run arbitrary ignored network tests against a live host.
+
+`node scripts/test_ndp_panel.js` executes the production panel model without a server:
+default values, preservation, valid/invalid refresh intervals and field wiring.
+`QeliWin.dll selftest` includes pure work-area/tray tests, service-profile status
+compatibility and mocked PowerShell binding checks. No Wintun device is created or
+removed by these tests. `QeliConformance selftest` checks graph history preservation,
+fresh rate baselines after gaps, and resets for genuinely new sessions/counters.
+
+These checks do not qualify a permanent Windows adapter or replace real
+multi-monitor/taskbar UI and network integration tests.
+
+The experimental `windows_persistent_adapter` path adds fake-backend create/open/
+exit/reopen/remove, exclusive ownership, foreign device/GUID refusal, interrupted
+publication, cleanup/close failures and pending recovery tests to `QeliWin.dll selftest`.
+Its recovery PowerShell runs behind mandatory function mocks (including netsh);
+matching entries on another interface, old/manual entries and distinct DNS edits
+must remain unchanged. The public Win64 ABI structure sizes and protected-file
+command-line budget are checked. Shared C# and Android JVM configuration tests
+exercise the real editor DLL, including preservation and URI exclusion of this
+local installation policy. None of these tests invokes SwDevice/PnP. A real Windows
+10/11 install/connect/disconnect/exit/reboot/recover/remove matrix is still required.

@@ -4,6 +4,7 @@ pub mod ctrl;
 pub mod data_frag;
 pub mod h2_carrier;
 pub mod icmp;
+pub(crate) mod inner_pq;
 pub mod ip;
 #[cfg(any(target_os = "windows", test))]
 pub(crate) mod ndp;

@@ -51,7 +51,7 @@ internal static class AdapterSharing
             foreach ($binding in $all) {
                 if ($binding.ComponentID -in @('ms_tcpip','ms_tcpip6')) { $protocols[$binding.ComponentID]=[bool]$binding.Enabled }
             }
-            foreach ($component in @('ms_msclient','ms_server')) {
+            foreach ($component in @('ms_msclient','ms_server','ms_lldp','ms_lltdio','ms_rspndr')) {
                 $current=OwnedAdapter
                 if ($current.InterfaceDescription -cne $adapter.InterfaceDescription) { throw 'Owned Qeli adapter was replaced' }
                 $bindings=@(Bindings $current | Where-Object { $_.ComponentID -eq $component })
@@ -63,7 +63,7 @@ internal static class AdapterSharing
             }
             $after=Bindings (OwnedAdapter)
             foreach ($binding in $after) {
-                if ($binding.ComponentID -in @('ms_msclient','ms_server') -and $binding.Enabled) { throw 'Sharing binding remained enabled' }
+                if ($binding.ComponentID -in @('ms_msclient','ms_server','ms_lldp','ms_lltdio','ms_rspndr') -and $binding.Enabled) { throw 'Sharing/discovery binding remained enabled' }
                 if ($protocols.ContainsKey($binding.ComponentID) -and [bool]$binding.Enabled -ne $protocols[$binding.ComponentID]) { throw 'IP protocol binding changed unexpectedly' }
             }
             foreach ($component in $protocols.Keys) {

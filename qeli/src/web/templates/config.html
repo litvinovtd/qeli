@@ -808,6 +808,29 @@
                 class="inp font-mono text-xs h-8 flex-shrink-0" style="width:8rem" type="text"
                 x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_interface" @input="markDirty()" placeholder="auto / ens18">
             </div>
+            <div x-show="cfg.profiles[activeTab].routing.ipv6.ndp_proxy !== 'off'" class="space-y-3">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="field-label" for="ndp-source">NDP source IPv6</label>
+                  <input id="ndp-source" class="inp font-mono" type="text" placeholder="auto"
+                    x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_source" @input="markDirty()">
+                  <p class="field-desc">Auto prefers link-local. An explicit address must be assigned to the selected uplink; Qeli pauses NDP if it disappears.</p>
+                </div>
+                <div>
+                  <label class="field-label" for="ndp-refresh">NDP refresh interval (seconds)</label>
+                  <input id="ndp-refresh" class="inp" type="number" min="0" max="86400" step="1"
+                    :aria-invalid="!ndpRefreshValid(activeTab)" aria-describedby="ndp-refresh-help ndp-refresh-error"
+                    x-model.number="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_announce_interval_secs" @input="markDirty()">
+                  <p id="ndp-refresh-help" class="field-desc">0 disables periodic refresh. Otherwise 10–86400; only active client addresses are announced.</p>
+                  <p id="ndp-refresh-error" class="text-xs text-red-400" role="alert" x-show="!ndpRefreshValid(activeTab)">Enter 0 or a whole number from 10 to 86400.</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-4 text-sm">
+                <label><input type="checkbox" x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_router" @change="markDirty()"> Router flag</label>
+                <label><input type="checkbox" x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_override" @change="markDirty()"> Override flag</label>
+              </div>
+              <p class="field-desc">Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; DAD replies never set it.</p>
+            </div>
             <div class="field-toggle">
               <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.forward_private ? 'bg-blue-600' : 'bg-slate-700'">
@@ -1948,6 +1971,10 @@ function configPage() {
       this.dirty = true;
     },
 
+    ndpRefreshValid(pi) {
+      const value = this.cfg.profiles?.[pi]?.routing?.ipv6?.ndp_proxy_announce_interval_secs;
+      return Number.isInteger(value) && (value === 0 || (value >= 10 && value <= 86400));
+    },
     onIpv6RoutingModeChange(pi) {
       const p = this.cfg.profiles?.[pi];
       if (!p) return;
@@ -2054,7 +2081,7 @@ function configPage() {
       const skel = {
         bind: {}, tun: {}, pool: { ipv6: {} }, dns: {}, dhcp: {},
         roaming: { enabled: false, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 },
-        routing: { nat: {}, ipv6: { ndp_proxy: 'off', ndp_proxy_interface: '' } },
+        routing: { nat: {}, ipv6: { ndp_proxy: 'off', ndp_proxy_interface: '', ndp_proxy_source: '', ndp_proxy_router: false, ndp_proxy_override: false, ndp_proxy_announce_interval_secs: 0 } },
         performance: { tcp: {}, tun: {}, connection: {} },
         obfuscation: {
           tls: { reality_proxy: {} },

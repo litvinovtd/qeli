@@ -2,7 +2,7 @@
 
 The admin panel ships **self-hosted** CSS/JS/fonts — no runtime CDN — so it works
 on an air-gapped server reached over an SSH tunnel. The generated stylesheet and
-the vendored Alpine.js / woff2 fonts live under [`../src/web/assets/`](../src/web/assets/)
+the vendored Alpine.js / woff2 fonts live under [`../src/web/assets/`](../src/web/assets)
 and are embedded into the binary via `include_*!` (served from `/assets/*`).
 
 ## Regenerate the CSS

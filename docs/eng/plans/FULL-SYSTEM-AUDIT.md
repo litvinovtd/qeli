@@ -1890,7 +1890,7 @@ Q29 is complete within agreed scope after explicit user acceptance of the docume
 
 Exactly-once start/stop completion, generation/cancellation, Keychain/app groups and extension memory. Device: On Demand, sleep/wake, captive portals, NAT64/DNS, per-app/MDM and settings rollback. Simulator builds, signed IPA and physical evidence are distinct.
 
-**Existing harness/fixtures:** `qeli-ios/PARITY.md`, `scripts/test_verify_ios_ipa.py`.
+**Existing harness/fixtures:** `docs/eng/reference/IOS-ANDROID-PARITY.md`, `scripts/test_verify_ios_ipa.py`.
 
 - [x] Review and dead code.
 - [ ] Positive, boundary and negative scenarios. — USER_SKIPPED (Swift/Xcode/Apple runtime).

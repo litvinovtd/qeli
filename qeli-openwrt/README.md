@@ -1,5 +1,7 @@
 # qeli for OpenWrt (client)
 
+Installation guide: [Русский](../docs/ru/manuals/OPENWRT-INSTALL.md) · [English](../docs/eng/manuals/OPENWRT-INSTALL.md).
+
 > **0.8.3 router state fix (issue #205).** Update the binary and init script together.
 > Init resolves only the firmware `/var` alias and passes `STATE_DIRECTORY` (normally
 > `/tmp/lib/qeli`); the core safely opens/creates the same physical journal directory
@@ -552,7 +554,7 @@ that is general guidance, not a measured minimum for this pinned dist build.
 See the [actual Clang disk failure](../docs/eng/reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
 
 The exact GNU-host Clang TOML entries and the unchanged musl-target boundary
-are described in [the source-bootstrap configuration instructions](INSTALL.md#exact-gnu-host-clang-configuration-for-the-qualified-variant).
+are described in [the source-bootstrap configuration instructions](../docs/eng/manuals/OPENWRT-INSTALL.md#exact-gnu-host-clang-configuration-for-the-qualified-variant).
 
 The 15 October source-bootstrap campaign completed LLVM/Rust Host/Compile and Host/Install. This qualifies the compiler configuration above, not a completed Qeli SDK package. The following SDK consumer failed at `defconfig`: its external PATH incorrectly prepended `staging_dir/host/bin`, causing OpenWrt prerequisite checks to resolve their own canonical symlinks. Enter the top-level SDK with external host tools in PATH (for example, private `deps/usr/bin:/usr/bin:/bin`), clear inherited `ORIG_PATH`, and let OpenWrt add its generated tools itself. Do not use `FORCE=1` to bypass these checks. The old consumer cleanup also deleted the installed compiler; logs remain, binaries are not reusable. See the dated Q31 report and source/compiler failure evidence.
 

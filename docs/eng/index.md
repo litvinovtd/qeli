@@ -35,6 +35,9 @@ Practical installation, configuration and operations guides.
 | [OBFUSCATION.md](manuals/OBFUSCATION.md) | Recordizer setup, masking-layer compatibility and tuning profiles |
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Connection diagnostics and error reference |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
+| [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Windows console client: CMD, batch, PowerShell, service and exit codes |
+| [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | OpenWrt installation, UCI/LuCI, SDK and router qualification limits |
+| [IOS-MDM.md](manuals/IOS-MDM.md) | Managed iOS profiles, Per-App VPN, On Demand and Always On limits |
 
 ## Use cases (`scenarios/`)
 
@@ -66,6 +69,8 @@ Technical contracts and architecture that describe the current implementation.
 | [CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md) | Current client-key contract by platform and migration history |
 | [THREAT-MODEL.md](reference/THREAT-MODEL.md) | Threat model, trust boundaries and assurance status |
 | [TRANSPORT-CORE.md](reference/TRANSPORT-CORE.md) | Shared Rust transport core, source/ABI contract and release gates |
+| [REALITY-INNER-PQ.md](reference/REALITY-INNER-PQ.md) | Compact REALITY and INNER_PQ_V1: implementation and verification limits |
+| [IOS-ANDROID-PARITY.md](reference/IOS-ANDROID-PARITY.md) | Android/iOS feature parity and Apple runtime boundaries |
 | [KEENETIC-PORT.md](reference/KEENETIC-PORT.md) | Keenetic port architecture and dual-arch build rationale |
 
 ## Plans (`plans/`)
@@ -99,6 +104,9 @@ General analysis, the security model and published benchmarks. Detailed release-
 | Document | What it covers |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
+| [Three buffer-aware repeats, 31 October 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 windows; complete-matrix reference not accepted |
+| [Socket buffer pilot, 31 October 2026](reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md) | 40 windows; harness verification, not release admission |
+| [Android/iOS parity, 28 October 2026](reports/IOS-ANDROID-PARITY-2026-10-28.md) | Feature matrix, fixes, portable/native tests and Apple NOT_RUN |
 | [DPI-AUDIT.md](reports/DPI-AUDIT.md) | DPI detectability analysis and mitigations |
 | [BENCHMARK.md](reports/BENCHMARK.md) | Load-testing method and per-mode measurements |
 | [C → A → B chain, 30 October 2026](reports/CHAINED-SERVERS-2026-10-30.md) | Independent C/T, faults, real A/B reboots and qualification limits |
@@ -146,9 +154,9 @@ guidance. Start with the **[archive map](archive/README.md)**.
 
 | Client | Document |
 |---|---|
-| Windows | [qeli-win/README.md](../../qeli-win/README.md) |
+| Windows GUI / CLI | [GUI](../../qeli-win/README.md) · [CMD / PowerShell](manuals/WINDOWS-CLI.md) |
 | macOS | [qeli-mac/README.md](../../qeli-mac/README.md) |
-| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [qeli-ios/MDM/README.md](../../qeli-ios/MDM/README.md) — feature-complete but **never run on a device**, and nothing ships from it |
+| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [docs/eng/manuals/IOS-MDM.md](manuals/IOS-MDM.md) — feature-complete but **never run on a device**, and nothing ships from it |
 | Routers (OpenWrt) | [qeli-openwrt/README.md](../../qeli-openwrt/README.md) · Keenetic: [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) |
 | Android | [qeli-android/README.md](../../qeli-android/README.md) (in Russian) |
 | Linux CLI | [GETTING-STARTED §8.2](manuals/GETTING-STARTED.md) |

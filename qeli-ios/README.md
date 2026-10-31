@@ -1,5 +1,7 @@
 # Qeli for iOS
 
+Documentation: MDM [RU](../docs/ru/manuals/IOS-MDM.md) / [EN](../docs/eng/manuals/IOS-MDM.md); parity [RU](../docs/ru/reference/IOS-ANDROID-PARITY.md) / [EN](../docs/eng/reference/IOS-ANDROID-PARITY.md); audit [RU](../docs/ru/reports/IOS-ANDROID-PARITY-2026-10-28.md) / [EN](../docs/eng/reports/IOS-ANDROID-PARITY-2026-10-28.md).
+
 Native iPhone client for the qeli protocol. The project mirrors the Android client's
 three primary surfaces (Connection, Profiles, Log) and uses a Packet Tunnel Provider
 extension for the VPN data plane.
@@ -7,7 +9,7 @@ extension for the VPN data plane.
 ## Status: implementation under verification; Apple runtime unqualified
 
 The Android/iOS source audit and its implemented changes are recorded in
-[the parity ledger](PARITY.md) and [the detailed audit](AUDIT-PARITY-20261028.ru.md).
+[the parity ledger](../docs/eng/reference/IOS-ANDROID-PARITY.md) and [the detailed audit](../docs/eng/reports/IOS-ANDROID-PARITY-2026-10-28.md).
 Common Rust transport support does not prove that Apple's UI, Keychain, camera,
 NetworkExtension and background lifecycle behave identically to Android.
 
@@ -88,7 +90,7 @@ and an unsupported peer retain the previous full-reconnect fallback. Swift appli
 IP batches to/from `NEPacketTunnelFlow`; it does not implement a wire protocol.
 CI builds the real device/simulator XCFramework, compiles the generated Xcode project for
 the simulator and runs the iOS unit tests. A physical-iPhone smoke test and the complete
-interoperability matrix still have to be performed before release. See `PARITY.md` for that
+interoperability matrix still have to be performed before release. See [the parity ledger](../docs/eng/reference/IOS-ANDROID-PARITY.md) for that
 validation work and Apple platform boundaries.
 
 ## Requirements
@@ -233,7 +235,7 @@ Extension process, and must be re-measured on a physical device before release.
   matching the Android implementation.
 
 Managed Per-App VPN and Apple's IKEv2-only Always On behavior are documented in
-[`MDM/README.md`](MDM/README.md). The examples don't claim consumer or custom-provider
+[`MDM/README.md`](../docs/eng/manuals/IOS-MDM.md). The examples don't claim consumer or custom-provider
 capabilities that iOS doesn't expose.
 
 Configuration parsing, validation, defaults and portable policies use the same Rust library.

@@ -10,6 +10,16 @@ import XCTest
 /// ``VPNConfig/validate()`` is what refuses. Same split as the Kotlin, C# and Rust ports.
 final class ConfigHardeningTests: XCTestCase {
 
+    func testRealityCompactAndSplitSurviveProfileEditing() throws {
+        for compact in ["false", "true"] {
+            let policy = ["reality_compact": compact, "reality_split": "sni", "reality_split_delay": "237"]
+            var config = try VPNConfig.fromINI(ini(policy.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")))
+            config.password = "edited"
+            let restored = try VPNConfig.fromINI(config.toINI())
+            for (key, value) in policy { XCTAssertEqual(restored.carriedKeys[key], value) }
+        }
+    }
+
     func testBackupActiveIndexRejectsInvalidValuesWithoutSelectingFirstProfile() throws {
         let store = ProfileStore(suiteName: "qeli.import.index." + UUID().uuidString)
         let rows: [[String: Any]] = [

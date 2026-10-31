@@ -8,7 +8,7 @@ that host's network. To build the OpenWrt client:
         make package/qeli/compile V=s
   • or download a prebuilt per-arch binary from GitHub Releases
         (aarch64 / x86_64 / mipsel / armv7 -unknown-linux-musl).
-  See qeli-openwrt/INSTALL.md.
+  See docs/eng/manuals/OPENWRT-INSTALL.md.
 
 Cross-build the qeli CLIENT-only binary for the common OpenWrt arches, on the
 lab build host (.10) via cargo-zigbuild — same toolchain as build_keenetic.py.
@@ -110,7 +110,7 @@ def main():
             "        make package/qeli/compile V=s\n"
             "  * or download a prebuilt per-arch binary from GitHub Releases\n"
             "        (aarch64 / x86_64 / mipsel / armv7 -unknown-linux-musl).\n"
-            "See qeli-openwrt/INSTALL.md.\n"
+            "See docs/eng/manuals/OPENWRT-INSTALL.md.\n"
         )
     results = {}
     try:

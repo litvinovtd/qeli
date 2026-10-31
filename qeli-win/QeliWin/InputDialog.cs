@@ -31,6 +31,7 @@ public static class InputDialog
             win.MinWidth = 360; win.MinHeight = 260;
             EditorGeometry.Attach(win, geometryKey);
         }
+        else WindowWorkArea.Attach(win);
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });

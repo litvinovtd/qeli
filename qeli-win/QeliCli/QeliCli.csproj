@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>qeli-cli</AssemblyName><Version>0.8.4</Version>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier><PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="QeliCliTests" />
+    <ProjectReference Include="../QeliWindowsRuntime/QeliWindowsRuntime.csproj" />
+    <Compile Include="../QeliWin/EmbeddedLicenses.cs" Link="EmbeddedLicenses.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../QeliWin/wintun/LICENSE.txt">
+      <LogicalName>Qeli.Legal/drivers/Wintun-LICENSE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/windivert/LICENSE.txt">
+      <LogicalName>Qeli.Legal/drivers/WinDivert-LICENSE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/windivert/NOTICE.txt">
+      <LogicalName>Qeli.Legal/drivers/WinDivert-NOTICE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/../../qeli/third-party-notices/rust/**/*">
+      <LogicalName>Qeli.Legal/rust/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/../../qeli-shared/third-party-notices/dotnet/**/*">
+      <LogicalName>Qeli.Legal/dotnet/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../QeliWin/../LICENSE">
+      <LogicalName>Qeli.Legal/Qeli-MPL-2.0.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>

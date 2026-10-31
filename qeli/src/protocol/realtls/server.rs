@@ -744,14 +744,16 @@ mod tests {
         // X25519MLKEM768) — a full session is established in every combination.
         for suite in [Suite::Aes128Sha256, Suite::Aes256Sha384] {
             for prefer_pq in [false, true] {
-                run_interop(suite, prefer_pq).await;
+                for compact in [false, true] {
+                    run_interop(suite, prefer_pq, compact).await;
+                }
             }
         }
     }
 
-    async fn run_interop(suite: Suite, prefer_pq: bool) {
-        use crate::crypto::{reality, StaticKeypair};
-        use crate::protocol::realtls::client::{client_handshake, read_record};
+    async fn run_interop(suite: Suite, prefer_pq: bool, compact: bool) {
+        use crate::crypto::StaticKeypair;
+        use crate::protocol::realtls::client::read_record;
 
         let (mut client_io, mut server_io) = tokio::io::duplex(64 * 1024);
         let server_eph = Keypair::generate();
@@ -777,16 +779,23 @@ mod tests {
             ping
         });
 
-        let eph = Keypair::generate();
         let reality = StaticKeypair::generate();
-        let sid = reality::seal_session_id(
-            &reality.public,
-            &eph,
-            &reality::short_id_from_hex("0123456789abcdef"),
+        let mut config = crate::config::client::ClientConfig::default();
+        config.auth.server_public_key = Some(
+            reality
+                .public
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
         );
-        let mut tls = client_handshake(&mut client_io, eph, sid, "www.microsoft.com")
-            .await
-            .unwrap_or_else(|e| panic!("client handshake ({suite:?}): {e}"));
+        config.obfuscation.reality_short_id = Some("0123456789abcdef".into());
+        config.obfuscation.sni = Some("www.microsoft.com".into());
+        config.obfuscation.reality_compact = compact;
+        let mut tls =
+            crate::transport_core::session::establish_reality_tls(&mut client_io, &config)
+                .await
+                .unwrap_or_else(|e| panic!("client handshake ({suite:?}): {e}"));
 
         let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();

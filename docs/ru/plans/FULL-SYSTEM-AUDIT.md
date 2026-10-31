@@ -1901,7 +1901,7 @@ Q29 завершён в согласованном объёме после яв�
 
 Exactly-once start/stop completion, generation/cancel, Keychain/app groups, extension memory. Устройство: On Demand, sleep/wake, captive portal, NAT64/DNS, per-app/MDM и rollback settings. Simulator build, signed IPA и physical evidence — разные статусы.
 
-**Имеющаяся обвязка/fixtures:** `qeli-ios/PARITY.md`, `scripts/test_verify_ios_ipa.py`.
+**Имеющаяся обвязка/fixtures:** `docs/ru/reference/IOS-ANDROID-PARITY.md`, `scripts/test_verify_ios_ipa.py`.
 
 - [x] Review и мёртвый код.
 - [ ] Штатные, граничные и негативные сценарии. — USER_SKIPPED (Swift/Xcode/Apple runtime).

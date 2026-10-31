@@ -11,8 +11,11 @@ public sealed class TrafficHistory
     private DateTime? _session;
     private Rate? _lastRate;
     private Clock? _clock;
+    private bool _gap;
     public IReadOnlyCollection<Rate> Samples => _samples;
-    public void Clear() { _samples.Clear(); _session = null; _lastRate = null; _clock = null; }
+    public void Clear() { _samples.Clear(); _session = null; _lastRate = null; _clock = null; _gap = false; }
+    /// <summary>Lose the live baseline, not the measured history (#69).</summary>
+    public void Pause() { _gap = true; _lastRate = null; }
     public Rate? Add(long tick, long up, long down, DateTime? session, bool fresh)
         => Add(tick, up, down, session, fresh, Clock.LocalMonotonic);
 
@@ -24,12 +27,12 @@ public sealed class TrafficHistory
 
     private Rate? Add(long tick, long up, long down, DateTime? session, bool fresh, Clock clock)
     {
-        if (!fresh || session is null || tick < 0 || up < 0 || down < 0) { Clear(); return null; }
+        if (!fresh || session is null || tick < 0 || up < 0 || down < 0) { Pause(); return null; }
         // Upgrades/downgrades and service/local transitions must not mix clock origins,
         // even if their numeric timestamps happen to be close or identical.
         bool newSource = _clock != clock || _session != session || up < _up || down < _down
             || tick < _tick;
-        bool reset = newSource || tick - _tick > 5000;
+        bool reset = newSource || _gap || tick - _tick > 5000;
         // Re-reading a cached service snapshot must not append a false zero or move
         // the baseline. Same-millisecond counter growth belongs to the next interval.
         if (!reset && tick == _tick) return _lastRate;
@@ -38,6 +41,7 @@ public sealed class TrafficHistory
         _clock = clock;
         long deltaUp = reset ? 0 : up - _up, deltaDown = reset ? 0 : down - _down;
         _tick = tick; _up = up; _down = down;
+        _gap = false;
         // A suspended UI has no valid rate for the missing interval, but does not
         // lose the already measured graph. Only a new/reset source clears history.
         if (reset) { if (newSource) _samples.Clear(); _lastRate = null; return null; }
