@@ -14,6 +14,11 @@ internal static class PlatformStrings
     [ModuleInitializer]
     public static void Register() => Loc.AddOrReplace(new Dictionary<string, (string en, string ru)>
     {
+        ["MacUtunLabel"] = ("utun number", "Номер utun"),
+        ["MacUtunHint"] = ("Auto (default), or a number 0–65534, e.g. 42 → utun42. A busy number is an error, never an automatic replacement. This does not keep the interface after Quit or reboot.", "Авто (по умолчанию) или номер 0–65534: например, 42 → utun42. Занятый номер — ошибка, без автоматической подмены. Интерфейс не сохраняется после выхода или перезагрузки."),
+        ["MacUtunInvalid"] = ("Invalid utun number: use Auto or 0–65534 in the editor; in INI use dev_node = auto or dev_node = utun42.", "Неверный номер utun: в редакторе выберите Авто или 0–65534; в INI укажите dev_node = auto или dev_node = utun42."),
+        ["MacUtunBusy"] = ("utun{0} is already in use (errno {1}). Disconnect the VPN using it, choose a different utun number, or select Auto. Qeli will not take over this interface or silently change the number.", "utun{0} уже занят (errno {1}). Отключите использующий его VPN, выберите другой номер utun или Авто. Qeli не присваивает чужой интерфейс и не подменяет номер."),
+        ["MacUtunConnectFailed"] = ("Cannot create utun{0} (errno {1}). Check administrator privileges and macOS restrictions. No other interface was selected.", "Не удалось создать utun{0} (errno {1}). Проверьте права администратора и ограничения macOS. Другой интерфейс не выбирался."),
         ["TrayBalloon"] = ("Hidden in the menu bar. Click the icon to open.",
                            "Скрыто в строке меню. Нажмите значок — открыть."),
         ["AboutDesc"] = ("VPN client for macOS. qeli protocol: fake-TLS / obfs / REALITY-TLS, X25519 + ChaCha20-Poly1305, TUN via utun.",

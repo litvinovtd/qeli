@@ -12,6 +12,22 @@ public sealed partial class VpnTunnel : VpnTunnelBase
     private NetworkConfigurator? _net;
     private PerAppController? _perApp;
     private UtunDevice? _prewarmedUtun;
+    private UtunDevice? _replacementGuardUtun;
+    private int? _requestedUtunNumber;
+    private readonly Func<int?,UtunDevice> _createUtun;
+    private readonly Action<IReadOnlyList<string>> _updateTunnelInterfaces;
+    public VpnTunnel():this(number=>new UtunDevice(number),null) { }
+    internal VpnTunnel(Func<int?,UtunDevice> create,Action<IReadOnlyList<string>>? update)
+    { _createUtun=create;_updateTunnelInterfaces=update ?? (names=>KillSwitch.UpdateTunnelInterfaces(names,Log)); }
+
+    protected override VpnConfig AcquireRunResources(VpnConfig config)
+    {
+        _requestedUtunNumber=UtunSelection.Parse(config.DevNode);
+        // Reserve an explicitly requested slot before authentication or any DNS/route
+        // mutation. Kernel occupancy errors remain visible and never select another slot.
+        if(_requestedUtunNumber!=null) EnsurePrewarmedUtun();
+        return config;
+    }
 
     protected override bool NativeTunFdOwnership => true;
 
@@ -86,7 +102,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         _prewarmedUtun = null;
         if (utun == null)
         {
-            utun = new UtunDevice();
+            utun = _createUtun(_requestedUtunNumber);
             utun.Open();
         }
         string dev = utun.Name;
@@ -134,8 +150,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
 
         // The firewall was raised before authentication. Once this utun is the generation's
         // actual adapter, atomically drop any old/replacement alias from the PF allowlist.
-        if (EgressGuardEngaged)
-            KillSwitch.UpdateTunnelInterfaces(new[] { dev }, Log);
+        PublishUtunToFirewall(dev);
 
         // Per-app mode is deliberately NOT expressed as host routes or host DNS. A signed
         // NETransparentProxyProvider classifies flows by source-app signing identifier and
@@ -324,6 +339,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
             // not restored. Keep the configurator referenced in that case so a second Stop
             // in this process can retry instead of forgetting the recovery action.
             DisposeNetworkConfigurator();
+            if(!EgressGuardEngaged) DisposeReservedUtuns();
         }
         catch (Exception error)
         {
@@ -354,8 +370,8 @@ public sealed partial class VpnTunnel : VpnTunnelBase
             // has been released; only after success may the base close the old utun.
             if (EgressGuardEngaged && _tun is UtunDevice)
             {
-                var replacement = EnsurePrewarmedUtun();
-                KillSwitch.UpdateTunnelInterfaces(new[] { replacement.Name }, Log);
+                var replacement = _requestedUtunNumber!=null ? EnsureReplacementGuardUtun() : EnsurePrewarmedUtun();
+                _updateTunnelInterfaces(new[] { replacement.Name });
             }
             return false;
         }
@@ -436,6 +452,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         // interface on close and configd then holds SCPreferences for ~20 s (with DHCP
         // probes), blocking networksetup.
         DisposeNetworkConfigurator();
+        GuardFixedUtunBeforeClose();
     }
 
     // Firewall kill-switch (full-tunnel only) via pf. Create/reserve the next utun before
@@ -445,8 +462,12 @@ public sealed partial class VpnTunnel : VpnTunnelBase
     protected override void KillSwitchEngage(VpnConfig config)
     {
         var names = new List<string>();
-        if (_tun is UtunDevice current) names.Add(current.Name);
-        names.Add(EnsurePrewarmedUtun().Name);
+        if(_requestedUtunNumber!=null && _tun is UtunDevice)
+            names.Add(EnsureReplacementGuardUtun().Name);
+        else {
+            if (_tun is UtunDevice current) names.Add(current.Name);
+            names.Add(EnsurePrewarmedUtun().Name);
+        }
         try
         {
             KillSwitch.Engage(config.ServerAddress, names, Log);
@@ -459,8 +480,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         }
         catch
         {
-            _prewarmedUtun?.Dispose();
-            _prewarmedUtun = null;
+            DisposeReservedUtuns();
             throw;
         }
     }
@@ -468,7 +488,7 @@ public sealed partial class VpnTunnel : VpnTunnelBase
     private UtunDevice EnsurePrewarmedUtun()
     {
         if (_prewarmedUtun != null) return _prewarmedUtun;
-        var device = new UtunDevice();
+        var device = _createUtun(_requestedUtunNumber);
         try
         {
             device.Open();
@@ -480,6 +500,33 @@ public sealed partial class VpnTunnel : VpnTunnelBase
             device.Dispose();
             throw;
         }
+    }
+
+    // A fixed slot cannot be reserved twice. Before releasing it under PF, move
+    // the allowlist to a different, still-owned empty interface. Otherwise another
+    // VPN could claim the released name while PF still allows traffic through it.
+    private UtunDevice EnsureReplacementGuardUtun()
+    {
+        if(_replacementGuardUtun!=null) return _replacementGuardUtun;
+        var device=_createUtun(null); // Guard only, NEVER the selected data-plane interface.
+        try {device.Open();_replacementGuardUtun=device;return device;}
+        catch {device.Dispose();throw;}
+    }
+    private void GuardFixedUtunBeforeClose()
+    {
+        if(_requestedUtunNumber!=null && EgressGuardEngaged && _tun is UtunDevice)
+            _updateTunnelInterfaces(new[]{EnsureReplacementGuardUtun().Name});
+    }
+    private void PublishUtunToFirewall(string name)
+    {
+        if(!EgressGuardEngaged) return;
+        _updateTunnelInterfaces(new[]{name}); // Failure retains both owned interfaces.
+        _replacementGuardUtun?.Dispose();_replacementGuardUtun=null;
+    }
+    private void DisposeReservedUtuns()
+    {
+        _prewarmedUtun?.Dispose();_prewarmedUtun=null;
+        _replacementGuardUtun?.Dispose();_replacementGuardUtun=null;
     }
 
     protected override void CarrierAddressesChanging(
@@ -494,7 +541,6 @@ public sealed partial class VpnTunnel : VpnTunnelBase
         // Remove PF rules first. If that fails, retain the reserved interface and its name;
         // the base will keep ownership armed and retry instead of allowing alias recycling.
         KillSwitch.Disengage(Log);
-        _prewarmedUtun?.Dispose();
-        _prewarmedUtun = null;
+        DisposeReservedUtuns();
     }
 }

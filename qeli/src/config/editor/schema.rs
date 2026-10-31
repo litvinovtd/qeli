@@ -61,6 +61,7 @@ pub const FIELDS: &[Field] = &[
     field!("route_file", "lines", "", "RouteFilePaths", "routeFiles", "routeFiles"),
     field!("persist_tun", "bool", "false", "PersistTun", "-", "-"),
     field!("windows_disable_sharing", "bool", "false", "WindowsDisableSharing", "-", "-"),
+    field!("windows_persistent_adapter", "bool", "false", "WindowsPersistentAdapter", "-", "-"),
     field!("forward", "bool", "false", "Forward", "-", "-"),
     field!("local", "string", "", "LocalAddress", "-", "-"),
     field!("lport", "int", "0", "LocalPort", "-", "-"),

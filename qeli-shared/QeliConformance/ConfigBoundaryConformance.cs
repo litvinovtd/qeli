@@ -8,6 +8,11 @@ internal static class ConfigBoundaryConformance
 {
     internal static void Run(Action<string, bool> check)
     {
+        var permanent=VpnConfig.FromIni("[qeli]\nserver=vpn.example:443\nuser=test\npass=test\nwindows_persistent_adapter=true\n");
+        check("persistent adapter: desktop archive preserves local opt-in",
+            JsonSerializer.Deserialize<VpnConfig>(JsonSerializer.Serialize(permanent))!.WindowsPersistentAdapter);
+        check("persistent adapter: local device installation policy is not exported in URI",
+            !VpnConfig.FromQeliUri(permanent.ToQeliUri()).WindowsPersistentAdapter);
         foreach (bool pull in new[] { true, false })
         {
             var config = VpnConfig.FromIni("[qeli]\nserver=vpn.example:443\nuser=test\npass=test\npull_routes=" + pull.ToString().ToLowerInvariant() + "\n");

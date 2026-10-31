@@ -12,6 +12,11 @@ public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
     private bool _useWinDivert;
+    private IDisposable? _adapterModeLease;
+    private readonly Func<IDisposable> _acquireModeLease;
+    internal Func<VpnConfig,VpnConfig>? AdapterPolicyResolver {get;init;}
+    public VpnTunnel():this(WindowsAdapterModeGate.Shared) { }
+    internal VpnTunnel(Func<IDisposable> acquireModeLease) { _acquireModeLease=acquireModeLease; }
     private readonly Dictionary<ulong, RoamingObservation> _roamingObservations = new();
     private readonly Dictionary<ulong, RoamingCandidate> _roamingCandidates = new();
 
@@ -284,8 +289,71 @@ public sealed class VpnTunnel : VpnTunnelBase
     private static string PathIdentity(NativePathUpdate path) =>
         JsonSerializer.Serialize(path);
 
-    protected override void PrepareTransport(VpnConfig config) =>
-        _useWinDivert = config.UsesAppFilter;
+    protected override VpnConfig AcquireRunResources(VpnConfig config)
+    {
+        if(AdapterPolicyResolver==null) WindowsAdapterPolicy.ValidateConnection(config);
+        bool acquired=_adapterModeLease==null;
+        _adapterModeLease ??=_acquireModeLease();
+        try {
+            var effective=AdapterPolicyResolver?.Invoke(config) ?? config;
+            WindowsAdapterPolicy.ValidateConnection(effective);
+            return effective;
+        }
+        catch {
+            if(acquired) {_adapterModeLease.Dispose();_adapterModeLease=null;}
+            throw;
+        }
+    }
+    protected override void ReleaseRunResources()
+    {
+        if(IsRunning || EgressGuardEngaged || _tun!=null || _net!=null || _prewarm!=null
+            || _roamingCandidates.Count!=0 || _roamingObservations.Count!=0) return;
+        _adapterModeLease?.Dispose();_adapterModeLease=null;
+    }
+    protected override void PrepareTransport(VpnConfig config)
+    {
+        if(WindowsAdapterPolicy.Persistent(config) && config.UsesAppFilter)
+            throw new InvalidOperationException("windows_persistent_adapter requires Wintun, not per-app WinDivert");
+        _useWinDivert=config.UsesAppFilter;
+    }
+
+    private sealed class ModeTestLease(Action close):IDisposable {public void Dispose()=>close();}
+    internal static void RunModeLeaseSelfTest(Action<string,bool> check)
+    {
+        int held=0;bool failClose=false;
+        var tunnel=new VpnTunnel(()=>{held++;return new ModeTestLease(()=> {
+            if(failClose) throw new System.IO.IOException("mock mode lease close failed");held--;
+        });});
+        var config=WindowsAdapterPolicy.Snapshot(new VpnConfig(),"off");
+        tunnel.AcquireRunResources(config);
+        var worker=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        typeof(VpnTunnelBase).GetField("_runTask",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(tunnel,worker.Task);
+        void Complete() => typeof(VpnTunnelBase).GetMethod("NotifyRunCompleted",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.Invoke(tunnel,null);
+        Complete(); // A late completion must not release the newer run.
+        check("adapter mode: run lease spans reconnect gaps and late completion edges",held==1);
+        worker.SetResult();
+        tunnel._net=new NetworkConfigurator(_=>{},(_,_,_)=>true);
+        Complete();
+        check("adapter mode: terminal cleanup ownership retains mode lease",held==1);
+        tunnel._net=null;
+        failClose=true;Complete();
+        check("adapter mode: failed mode lease release is retryable",held==1 && tunnel._adapterModeLease!=null);
+        failClose=false;tunnel.Stop();
+        check("adapter mode: clean explicit Stop releases mode change gate",held==0 && tunnel._adapterModeLease==null);
+        string current="off";bool resolvedUnderLease=false;
+        var fresh=new VpnTunnel(()=>{held++;current="global";return new ModeTestLease(()=>held--);}) {
+            AdapterPolicyResolver=profile=>{resolvedUnderLease=held==1;return WindowsAdapterPolicy.Snapshot(profile,current);}
+        };
+        var effective=fresh.AcquireRunResources(new VpnConfig());
+        check("adapter mode: connection resolves current preference inside reader lease",resolvedUnderLease && effective.WindowsAdapterMode=="global");
+        fresh.Stop();
+        var rejected=new VpnTunnel(()=>{held++;return new ModeTestLease(()=>held--);}) {
+            AdapterPolicyResolver=_=>throw new System.IO.InvalidDataException("bad preference")
+        };
+        bool failed=false;try {rejected.AcquireRunResources(config);}catch(System.IO.InvalidDataException){failed=true;}
+        check("adapter mode: rejected policy closes newly acquired run lease",failed && held==0 && rejected._adapterModeLease==null);
+    }
 
     /// <summary>Surface network steps that failed during SetupTun so the shared base can
     /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
@@ -301,6 +369,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     // identity so we only reuse a warmed adapter for the SAME profile.
     private Task<WintunAdapter?>? _prewarm;
     private (string name, Guid guid) _prewarmId;
+    private bool _prewarmPersistent;
 
     /// <summary>Begin creating the Wintun adapter in parallel with the handshake. Its name/GUID
     /// come from the config (known before auth), so nothing here needs the session. No-op if a
@@ -313,10 +382,15 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (_prewarm != null) return;
         var id = AdapterIdentity(config);
         _prewarmId = id;
+        _prewarmPersistent=WindowsAdapterPolicy.Persistent(config);
         _prewarm = Task.Run(() =>
         {
             var w = new WintunAdapter();
-            try { w.Open(id.name, id.guid); return (WintunAdapter?)w; }
+            try {
+                if(WindowsAdapterPolicy.Persistent(config)) {w.OpenPersistent(id.name,id.guid);RecoverPersistentNetwork(w);}
+                else w.Open(id.name,id.guid);
+                return (WintunAdapter?)w;
+            }
             catch (Exception e)
             {
                 Log($"Wintun prewarm failed ({e.Message}); will retry or clean up in SetupTun");
@@ -372,6 +446,8 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         if (_useWinDivert)
         {
+            if(WindowsAdapterPolicy.Persistent(config))
+                throw new InvalidOperationException("windows_persistent_adapter requires Wintun; disable per-app filtering");
             _net = null;
             var ipv4 = assigned.FirstOrDefault(address =>
                 address.Family.Equals("ipv4", StringComparison.OrdinalIgnoreCase));
@@ -407,6 +483,21 @@ public sealed class VpnTunnel : VpnTunnelBase
             return;
         }
 
+        WintunAdapter? persistentAdapter=null;
+        if(WindowsAdapterPolicy.Persistent(config))
+        {
+            var identity=AdapterIdentity(config);
+            if(_prewarm!=null && _prewarmPersistent && _prewarmId==identity) {
+                persistentAdapter=_prewarm.GetAwaiter().GetResult();_prewarm=null;
+            }
+            if(persistentAdapter==null) {
+                persistentAdapter=new WintunAdapter();_tun=persistentAdapter;
+                persistentAdapter.OpenPersistent(identity.name,identity.guid);
+            }
+            _tun=persistentAdapter;
+            RecoverPersistentNetwork(persistentAdapter);
+            persistentAdapter.RequireReady();
+        }
         _net = new NetworkConfigurator(Log);
         // Resolve every possible A/AAAA carrier path before the /1 or /0 capture routes
         // exist. The Rust core can select any candidate on a later reconnect; pinning
@@ -443,8 +534,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         var (adapterName, adapterGuid) = AdapterIdentity(config);
         // Consume the adapter prewarmed in parallel with the handshake (PrewarmTun) if it
         // matches this profile; otherwise open synchronously (prewarm skipped or failed).
-        WintunAdapter? wintun = null;
-        if (_prewarm != null && _prewarmId == (adapterName, adapterGuid))
+        WintunAdapter? wintun = persistentAdapter;
+        if (wintun==null && _prewarm != null && !_prewarmPersistent && _prewarmId == (adapterName, adapterGuid))
         {
             try { wintun = _prewarm.GetAwaiter().GetResult(); } catch { }
             _prewarm = null;
@@ -472,6 +563,43 @@ public sealed class VpnTunnel : VpnTunnelBase
                 config.ExcludeRoutes)
             : Array.Empty<string>();
 
+        var connectedPrefixes = ConnectedTunnelPrefixes(session);
+        if(wintun.PersistentLease is { } persistentLease)
+        {
+            var addresses=assigned.Select(a=>new PersistentWintunNetwork.Address(a.Address,a.PrefixLength)).ToList();
+            var routes=new List<PersistentWintunNetwork.Route>();
+            void Add(string cidr,string next) => routes.Add(new(cidr,next,1));
+            foreach(var cidr in connectedPrefixes) Add(cidr,cidr.Contains(':')?"::":"0.0.0.0");
+            if(config.IsFullTunnel)
+            {
+                if(assigned.Any(a=>a.Family=="ipv4")) {
+                    foreach(var cidr in new[]{"0.0.0.0/1","128.0.0.0/1"}) Add(cidr,TunnelGatewayForRoute(session,cidr));
+                } else if(!session.AllowIpv4Leak) {
+                    addresses.Add(new("169.254.71.1",32));
+                    foreach(var cidr in new[]{"0.0.0.0/1","128.0.0.0/1"}) Add(cidr,"169.254.71.1");
+                }
+                if(assigned.Any(a=>a.Family=="ipv6") || !session.AllowIpv6Leak) {
+                    if(!assigned.Any(a=>a.Family=="ipv6")) addresses.Add(new("fd71:e1::1",64));
+                    foreach(var cidr in new[]{"::/1","8000::/1","2000::/4","3000::/4","fc00::/7"}) Add(cidr,"::");
+                }
+            }
+            else
+            {
+                if(!session.PlanIncludesClientRoutes)
+                    foreach(var cidr in config.IncludeRoutes) Add(cidr,TunnelGatewayForRoute(session,cidr));
+                foreach(var cidr in EffectiveRouteFileRoutes(session)) Add(cidr,TunnelGatewayForRoute(session,cidr));
+            }
+            foreach(var route in session.PlannedRoutes)
+                if(!connectedPrefixes.Contains(route.Cidr)) Add(route.Cidr,TunnelGatewayForRoute(session,route.Cidr,route.Gateway));
+            if(config.RouteLocalNetworks && !session.PlanIncludesClientRoutes)
+                foreach(var cidr in new[]{"10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"}) Add(cidr,TunnelGatewayForRoute(session,cidr));
+            foreach(var cidr in localCaptureRoutes) Add(cidr,TunnelGatewayForRoute(session,cidr));
+            PersistentWintunNetwork.Begin(persistentLease,addresses,routes,EffectiveDns(session),RunPersistentCommand);
+            _net.PersistentState=persistentLease.Record.Network;
+            _net.PersistentInterfaceIndex=tunIndex;
+            Log($"Persistent Wintun {persistentLease.Record.Key:D}: GUID {persistentLease.Record.InterfaceGuid:D}; session L3 recovery journal saved");
+        }
+
         if (assigned.Any(address => address.Family == "ipv6"))
         {
             TunnelIpv6Policy.Apply(wintun);
@@ -479,7 +607,6 @@ public sealed class VpnTunnel : VpnTunnelBase
         }
         foreach (var address in assigned)
             _net.SetAddress(alias, address.Address, address.PrefixLength);
-        var connectedPrefixes = ConnectedTunnelPrefixes(session);
         foreach (var cidr in connectedPrefixes)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -694,19 +821,20 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             "interface", family, "set", "interface", alias,
             $"forwarding={(enabled ? "enabled" : "disabled")}",
+            "store=active",
         }) psi.ArgumentList.Add(argument);
         _ = RunForwardingCommand(psi,
             $"set {family} forwarding {(enabled ? "enabled" : "disabled")} on '{alias}'");
     }
 
     private static string RunForwardingCommand(
-        System.Diagnostics.ProcessStartInfo startInfo, string operation)
+        System.Diagnostics.ProcessStartInfo startInfo, string operation, int timeoutMs=5_000)
     {
         using var process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException($"failed to start process to {operation}");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(5_000))
+        if (!process.WaitForExit(timeoutMs))
         {
             try { process.Kill(entireProcessTree: true); } catch { }
             throw new TimeoutException($"timed out while trying to {operation}");
@@ -718,6 +846,17 @@ public sealed class VpnTunnel : VpnTunnelBase
                 $"failed to {operation} (exit {process.ExitCode}): " +
                 (string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim()));
         return output;
+    }
+
+    internal static string RunPersistentCommand(System.Diagnostics.ProcessStartInfo start,string operation) =>
+        RunForwardingCommand(start,operation,30_000);
+
+    private static void RecoverPersistentNetwork(WintunAdapter adapter)
+    {
+        if(adapter.PersistentLease is { } lease) {
+            PersistentWintunNetwork.Recover(lease,RunPersistentCommand);
+            adapter.CompletePersistentRecovery();
+        }
     }
 
     private void RestoreIpForwarding()
@@ -813,8 +952,9 @@ public sealed class VpnTunnel : VpnTunnelBase
     // stable), so it is reused rather than recreated (also lets persist-tun keep it up
     // across reconnects). Keying on the address alone collided in both cases (issue #69).
     // The hash is for uniqueness only (not security).
-    private static (string name, Guid guid) AdapterIdentity(VpnConfig config)
+    internal static (string name, Guid guid) AdapterIdentity(VpnConfig config)
     {
+        if(WindowsAdapterPolicy.UsesGlobal(config)) return (WindowsAdapterPolicy.GlobalName,WindowsAdapterPolicy.GlobalKey);
         // Explicit dev_node wins over portable dev. Only a PRESENT dev selects a
         // name; an absent key retains the collision-resistant per-profile identity.
         string? requestedName = config.DevNode;
@@ -843,6 +983,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         var network = _net;
         network?.Dispose();
         if (ReferenceEquals(_net, network)) _net = null;
+        if(_tun is WintunAdapter adapter) RecoverPersistentNetwork(adapter);
     }
 
     protected override void CleanupPlatform()
@@ -914,7 +1055,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     private string EnsureTunAdapterExists(VpnConfig config)
     {
         if (_tun is WintunAdapter live && !string.IsNullOrWhiteSpace(live.AdapterName))
-            return live.AdapterName;
+            return live.InterfaceAlias;
         PrewarmTun(config);         // no-op when a warm is already in flight
         WintunAdapter? warmed = null;
         try { warmed = _prewarm?.GetAwaiter().GetResult(); } catch { /* reported just below */ }
@@ -923,18 +1064,20 @@ public sealed class VpnTunnel : VpnTunnelBase
                 "the Wintun adapter could not be created, so no firewall rule can name it " +
                 "(Windows rejects a rule for a missing interface). Check that the Wintun driver " +
                 "loads and that qeli is running elevated.");
+        warmed.RequireReady();
         // WintunAdapter.Open may have resolved a name/GUID collision by creating name-0,
         // name-1, ... . Firewall and WinDivert rules must use this actual alias, never the
         // precomputed profile identity that collided.
         warmed.RequireReady();
-        return warmed.AdapterName;
+        return warmed.InterfaceAlias;
     }
 
     private void DisposeUnusedPrewarm()
     {
         var prewarm = _prewarm;
         if (prewarm == null) return;
-        prewarm.GetAwaiter().GetResult()?.Dispose();
+        var adapter=prewarm.GetAwaiter().GetResult();
+        if(adapter!=null) {RecoverPersistentNetwork(adapter);adapter.Dispose();}
         if (ReferenceEquals(_prewarm, prewarm)) _prewarm = null;
     }
 

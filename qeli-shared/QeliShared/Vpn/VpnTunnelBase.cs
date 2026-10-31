@@ -38,7 +38,15 @@ public abstract class VpnTunnelBase
     }
     internal void NotifyConnectionDropped(string reason) =>
         NotifyObservers(ConnectionDropped, observer => observer(reason));
-    internal void NotifyRunCompleted() => NotifyObservers(RunCompleted, observer => observer());
+    internal void NotifyRunCompleted()
+    {
+        // A late completion of the old generation must not release a new run's resources.
+        lock(_lifecycleLock) {
+            try {ReleaseRunResources();}
+            catch(Exception error) {Log($"platform run resource release failed: {error.Message}");}
+        }
+        NotifyObservers(RunCompleted, observer => observer());
+    }
 
     private static void NotifyObservers<T>(T? observers, Action<T> notify) where T : Delegate
     {
@@ -184,6 +192,11 @@ public abstract class VpnTunnelBase
                 Status(VpnStatus.Error, e.Message);
                 return false;
             }
+            try {config=AcquireRunResources(config);}
+            catch(Exception error) {
+                Log($"platform run preparation failed: {error.Message}");
+                Status(VpnStatus.Error,error.Message);return false;
+            }
             _userRequestedDisconnect = false;
             Interlocked.Increment(ref _networkObservationRevision);
             Interlocked.Exchange(ref _networkObservationPending, 0);
@@ -267,6 +280,7 @@ public abstract class VpnTunnelBase
                     Status(VpnStatus.Error, egressRestored
                         ? $"kill-switch failed — {FirstSentence(e.Message)}"
                         : "kill-switch failed; egress remains fail-closed — retry Disconnect");
+                    ReleaseRunResources();
                     return false;
                 }
             }
@@ -384,6 +398,7 @@ public abstract class VpnTunnelBase
                 Status(VpnStatus.Error, message);
                 throw new InvalidOperationException(message);
             }
+            ReleaseRunResources();
             if (publishDisconnected) Status(VpnStatus.Disconnected);
         }
     }
@@ -1922,6 +1937,9 @@ public abstract class VpnTunnelBase
 
     /// <summary>Select profile-dependent platform transport ownership before the native
     /// handle is created. Default platforms have a fixed ownership mode.</summary>
+    // Per-run resources outlive reconnect attempts and are retained after incomplete cleanup.
+    protected virtual VpnConfig AcquireRunResources(VpnConfig config) => config;
+    protected virtual void ReleaseRunResources() { }
     protected virtual void PrepareTransport(VpnConfig config) { }
 
     /// <summary>Whether the platform packet device and its routing state must survive a
@@ -2083,6 +2101,8 @@ public abstract class VpnTunnelBase
         Add(canonical, "allow_ipv6_leak", session.AllowIpv6Leak.ToString());
         Add(canonical, "route_local", config.RouteLocalNetworks.ToString());
         Add(canonical, "windows_disable_sharing", (OperatingSystem.IsWindows() && config.WindowsDisableSharing).ToString());
+        Add(canonical, "windows_persistent_adapter", (OperatingSystem.IsWindows() && config.WindowsPersistentAdapter).ToString());
+        Add(canonical, "windows_adapter_mode", OperatingSystem.IsWindows() ? config.WindowsAdapterMode ?? "off" : "");
         Add(canonical, "interface_metric", config.InterfaceMetric
             .ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(canonical, "forward", config.Forward.ToString());

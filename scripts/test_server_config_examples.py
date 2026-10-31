@@ -50,7 +50,7 @@ class ServerConfigExampleTests(unittest.TestCase):
         for lang in ("ru", "eng"):
             text = (ROOT / f"docs/{lang}/manuals/CONFIG.md").read_text(encoding="utf-8")
             # Includes the explicit net_gateway-to-exclude migration example.
-            self.assertEqual(len(ini_examples(text)), 38, lang)
+            self.assertEqual(len(ini_examples(text)), 39, lang)  # Includes the macOS dev_node example.
             check_examples(text)
 
     def test_valid_secret_and_shell_punctuation_are_preserved(self):

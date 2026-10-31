@@ -1824,6 +1824,7 @@ failed roam.
 | `gateway` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | full tunnel; common CLI/GUI default `true`; `gateway=false` explicitly selects split tunnel |
 | `pull_routes` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | Accept server-pushed routes; false preserves local routes, gateway and protected tunnel DNS routes; carried in qeli:// |
 | `windows_disable_sharing` | `false` | — | ✓ | — | — | — | Disable ms_msclient/ms_server only on the owned Wintun, with GUID/LUID and readback checks; not used by WinDivert |
+| `windows_persistent_adapter` | `false` | — | ✓ | — | — | — | Profile opt-in for experimental permanent Wintun, honored only in app-wide Per profile mode. App default Off; global mode does not edit the flag. Explicit removal, session IP/DNS/route rollback; not `persist_tun`/WinDivert. Other clients preserve it inactive. Reboot qualification pending; see below |
 | `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | pull IPv4 RFC1918 into the tunnel; does not alter IPv6 policy |
 | `include` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list forced **into** the tunnel (Android — split-tunnel only) |
 | `exclude` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list carved **out** of the tunnel (Android: API 33+ uses `excludeRoute`; earlier versions subtract CIDRs) |
@@ -1847,7 +1848,7 @@ failed roam.
 | `persist_tun` | `false` | — | ✓ | ✓ | — | — | keep the TUN + routes across reconnects (fail-closed in the window) |
 | `local` | — | ✓ | ✓ | ✓ | — | — | bind the carrier socket's source address (matters when the server is on-link) |
 | `lport` | `0` | ✓ | ✓ | ✓ | — | — | fixed local source port on the primary carrier |
-| `dev_node` | — | — | ✓ | —\* | — | — | Wintun adapter name (**Windows**; mac parses but never applies) |
+| `dev_node` | — (mac: auto) | — | ✓ | ✓ | — | — | Windows: Wintun name; macOS: `auto` or `utunN` (`0..65534`), busy slot fails without substitution. Not a permanent device; see below |
 | `metric` | `0` | — | ✓ | —\* | — | — | interface metric (**Windows**; mac parses but never applies) |
 
 **Misc & platform-specific**
@@ -1926,8 +1927,9 @@ Qualified names identify schema fields; write the unqualified key under `[loggin
 **Footnotes.** `mtu_probe` applies only to UDP, independently of a manual or automatic inner MTU. `gateway` defaults to `true` on all clients; use `false` for split tunnel. On Android: `include` is honored only
 in split tunnel; `exclude` works before API 33 through CIDR subtraction and on API 33+
 through `excludeRoute`. QUIC masking uses `proto=udp`, `mode=fake-tls`, `quic=true`;
-`mode=udp-quic` remains a legacy import spelling. `dev_node`/`metric` are parsed and round-tripped by mac but **not applied**
-(Wintun/Windows-specific). `autostart` is read by the panel/supervisor; the `qeli client`
+`mode=udp-quic` remains a legacy import spelling. macOS applies `dev_node` as a
+`utunN` slot selection; `metric` is round-tripped but **not applied** (Wintun/Windows-specific).
+`autostart` is read by the panel/supervisor; the `qeli client`
 runtime ignores it.
 
 **Android kill-switch footnote.** `kill_switch = true` applies to full-tunnel only. On
@@ -4207,4 +4209,129 @@ rejects setup and invokes normal cleanup. Physical/foreign adapters are not
 selected. Service mode uses the same profile setting; WinDivert/per-app does
 not apply it. Other clients preserve it as inactive platform policy. False does
 not force previously disabled bindings on. This local policy is not exported in qeli:// links. `persist_tun` still covers reconnect;
-a permanent adapter surviving Disconnect is not implemented in this stage.
+device installation persistence is a separate opt-in described below.
+
+## Selecting a utun number on macOS
+
+Since 0.8.4, the Qeli.app profile editor has a **utun number** field: `auto`
+(default) or a number `0..65534`, e.g. `42`. `utun42` is also accepted in the form.
+INI uses the existing local `dev_node` field in client `[qeli]`:
+
+```ini
+[qeli]
+# Keep the remaining connection parameters unchanged.
+dev_node = utun42
+```
+
+For automatic selection, remove the line or set `dev_node = auto`. Absent/empty
+values mean auto; a bare number is not accepted in INI. `0..65534` is the client's
+supported range. Arbitrary names (`QeliWork`, `en0`), negative numbers and malformed
+forms fail rather than silently selecting auto. Previously macOS only preserved
+this field: imported Windows profiles naming a Wintun device now need `auto` or
+`utunN` instead. The macOS client still does not use `dev` to select the slot.
+
+Qeli.app, its CLI `connect` and the launchd service use the same profile selection;
+the daemon receives it through the saved profile snapshot. It is not server-pushed.
+Apply profile changes to the service normally. Switching a running profile must
+finish its previous session cleanup first. Do not assign one number to concurrent VPNs.
+
+The kernel atomically arbitrates occupancy: `utun42` maps to `sc_unit=43`, while
+`sc_unit=0` means auto. A busy slot produces **“utun42 is already in use”** and
+suggests disconnecting its owner, choosing another number or selecting auto.
+Qeli never opens, renames or removes somebody else's interface and never substitutes
+another data-plane slot. Explicit selection reserves the slot before authentication
+or DNS/route mutation.
+
+During a guarded reconnect, an additional temporary utun may serve **only as an
+empty PF guard interface**. PF stops allowing the fixed name before it is released,
+then switches to the newly owned selected interface. This is not data-plane fallback.
+A failed PF update retains guard ownership and refuses to report completed cleanup
+or replacement.
+
+This does **not** install a permanent device, enable a daemon/autoconnect or keep
+the interface after Quit/reboot. Disconnect still restores DNS/routes before
+closing utun. Independently, `persist_tun` retains the current interface across a
+compatible reconnect.
+
+## Permanent Wintun on Windows
+
+**Experimental, disabled by default.** Open the Windows application's settings,
+connection tab, and select **Permanent Wintun**:
+
+- **Off** (default): ordinary temporary devices, including when an old profile has
+  `windows_persistent_adapter = true` saved.
+- **Per profile**: only profiles with the editor checkbox or
+  `windows_persistent_adapter = true` in client `[qeli]` use a permanent device.
+  Other profiles use a temporary device. Identity follows the profile; the same
+  explicit `dev_node` can intentionally share a named profile device.
+- **One global adapter for Qeli**: Wintun profiles sequentially reuse `Qeli-Global`,
+  independent of server, profile and `dev_node`. Saved profile checkboxes remain
+  unchanged and take effect again after selecting Per profile. `Qeli-Global` is
+  reserved for global mode; do not set that name in `dev_node`.
+
+The app preference is `%APPDATA%\QeliWin\settings.json`, `PersistentAdapterMode`:
+`off`, `profiles` or `global`. This is not a new INI key or qeli:// parameter.
+GUI and CLI `connect` resolve it at connection startup. Settings application gives
+the service a protected profile snapshot containing the selected mode; the service
+does not read the interactive user's AppData. Other platforms do not activate it.
+
+Change mode only after Disconnect and completed cleanup of all GUI/service sessions.
+A machine-wide gate blocks changes even during reconnect gaps. Before publishing
+the preference, Qeli recovers pending DNS/IP/route journals of its owned permanent
+adapters and stages the disconnected service snapshot without autoconnecting.
+Failure refuses the change and retains the journal for retry. Previously installed
+devices are **not** uninstalled automatically; use the explicit CLI below.
+
+Device lifetime uses the public Windows Software Device API,
+not a hidden keeper process, private Wintun memory layout, or automatic VPN startup.
+It is designed to remain installed after Disconnect, app/service exit and reboot,
+retaining its interface GUID and user bindings. Actual Windows reboot qualification
+is still pending; mocked lifecycle tests do not prove hardware integration.
+
+Requires an elevated Windows x64 client and the bundled compatible Wintun driver.
+The device name property is coupled to bundled Wintun 0.14.1 and must be requalified
+when updating that dependency; it is not a cross-version Wintun API guarantee.
+This does not add ARM64 kernel-driver support. Per-app routing uses WinDivert:
+global mode skips such profiles, while Per profile rejects combining per-app
+filtering with an enabled permanent Wintun flag. `persist_tun` is independent: it retains the active plan
+across reconnects, whereas this option keeps only the installed device after Stop.
+
+The first connection attempt can install the device during prewarm, even if auth
+later fails. Later connections reuse the protected ownership receipt, PnP marker,
+device instance, exact interface GUID and an exclusive cross-process lease. A
+matching name alone is never adopted. If a previously installed device is missing
+or its identity changed, Qeli refuses rather than silently changing its GUID. The
+OS interface alias can differ from the Wintun internal name; firewall setup resolves
+the actual alias. Do not change the name/GUID while a connection is running.
+
+Before L3 setup, Qeli durably records the previous addresses/routes/DNS and the
+intended session entries under `%ProgramData%\QeliWin\persistent-adapters`, with
+SYSTEM/Administrators-only storage. Disconnect removes session entries and restores
+the prior static/DHCP DNS mode. Pre-existing addresses/routes and unrelated bindings
+are preserved; IP DHCP enablement, MTU/metric/IPv6 policy remain Qeli-managed. Do not concurrently edit
+the active plan's exact IP/route entries: Windows cannot distinguish an identical
+administrator-created replacement from the recorded entry. Distinct DNS edits are
+preserved. New session IPv6 routes and forwarding use active storage, not permanent
+boot configuration.
+
+After an unclean exit, the next open must recover the prior adapter plan before
+physical-path discovery or a new setup. No boot task or automatic connection is
+installed. Until a new VPN session exists, the installed adapter has no Qeli packet
+session. The journal covers this adapter's L3 state, not crash recovery of all
+physical-route/firewall state; existing kill-switch recovery remains separate.
+Never delete the receipt directory to bypass a recovery error.
+
+Administrative CLI (close active VPN sessions first):
+
+```powershell
+.\QeliWin.exe persistent-adapter list
+.\QeliWin.exe persistent-adapter recover KEY
+.\QeliWin.exe persistent-adapter remove KEY --yes
+```
+
+`KEY` is the first GUID from `list`, not the interface GUID in the second column.
+`recover` restores an existing device only; it never installs one. `remove` first
+recovers its L3 state, verifies ownership and uninstalls only that device, retaining
+the shared driver. Busy/failed cleanup retains the receipt for retry. Turning the
+setting off or deleting a GUI profile does **not** uninstall the device. Remove it
+explicitly before deleting the profile/app if it is no longer wanted.

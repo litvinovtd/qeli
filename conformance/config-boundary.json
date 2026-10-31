@@ -2,6 +2,16 @@
   "base": "[qeli]\nuser = audit\npass = audit\nroaming = off\nallow_unpinned_tofu = true\n",
   "cases": [
     {
+      "name": "persistent Windows adapter local policy",
+      "ini": "server = vpn.example:443\nwindows_persistent_adapter = true\n",
+      "valid": true
+    },
+    {
+      "name": "persistent Windows adapter rejects an ambiguous value",
+      "ini": "server = vpn.example:443\nwindows_persistent_adapter = auto\n",
+      "valid": false
+    },
+    {
       "name": "unsigned negative zero",
       "ini": "server = 127.0.0.1:443\nrecv_buffer_size = -0\n",
       "valid": false

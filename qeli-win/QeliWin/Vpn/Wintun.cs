@@ -21,6 +21,8 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IWintunTunDevic
     private readonly Func<string, Guid, IntPtr> _create;
     private readonly Func<IntPtr, ulong> _getLuid;
     private readonly Action<IntPtr> _close;
+    private PersistentWintunDevice.Lease? _persistent;
+    internal PersistentWintunDevice.Lease? PersistentLease => _persistent;
 
     public WintunAdapter() : this((name, guid) => WintunCreateAdapter(name, "Qeli", ref guid),
         adapter => { WintunGetAdapterLUID(adapter, out ulong luid); return luid; }, WintunCloseAdapter) { }
@@ -41,6 +43,7 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IWintunTunDevic
 
     public ulong Luid { get; private set; }
     public string AdapterName { get; private set; } = "";
+    internal string InterfaceAlias => _persistent?.Adapter.Alias is {Length:>0} alias ? alias : AdapterName;
     private Guid _createdGuid;
     internal void WithOwnedIdentity(Action<ulong, Guid> action)
     {
@@ -48,6 +51,7 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IWintunTunDevic
         {
             RequireReady();
             if (_adapter == IntPtr.Zero || _createdGuid == Guid.Empty) throw new InvalidOperationException("No created Wintun adapter is owned");
+            _persistent?.Verify();
             action(Luid, _createdGuid);
         }
     }
@@ -110,6 +114,30 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IWintunTunDevic
     /// <summary>Force-load the embedded wintun.dll without requiring an adapter.</summary>
     public static uint ProbeLoad() => WintunGetRunningDriverVersion();
 
+    internal void OpenPersistent(string name, Guid key, PersistentWintunDevice.IStore? store=null, PersistentWintunDevice.IPlatform? platform=null)
+    {
+        lock(_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed || _closing,this);
+            if(_adapter!=IntPtr.Zero) throw new InvalidOperationException("Wintun adapter is already open");
+            var lease=PersistentWintunDevice.Open(key,name,store,platform);
+            _persistent=lease;
+            _adapter=lease.Adapter.Value;Luid=lease.Adapter.Luid;
+            AdapterName=lease.Record.Name;_createdGuid=lease.Record.InterfaceGuid;
+            _initialized=lease.Record.Network==null;
+        }
+    }
+
+    internal void CompletePersistentRecovery()
+    {
+        lock(_gate)
+        {
+            if(_persistent==null || _adapter==IntPtr.Zero || _persistent.Record.Network!=null)
+                throw new InvalidOperationException("Persistent adapter recovery did not complete");
+            _initialized=true;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -118,7 +146,8 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IWintunTunDevic
             _closing = true;
             if (_adapter != IntPtr.Zero)
             {
-                _close(_adapter); // Retain exact handle on failure so Stop can retry.
+                if(_persistent!=null) { _persistent.Dispose(); _persistent=null; }
+                else _close(_adapter); // Retain exact handle on failure so Stop can retry.
                 _adapter = IntPtr.Zero;
             }
             Luid = 0;

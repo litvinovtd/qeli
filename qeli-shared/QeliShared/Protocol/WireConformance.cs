@@ -510,7 +510,7 @@ public static class WireConformance
                 string key = field.GetProperty("key").GetString()!;
                 if (key.StartsWith("logging.", StringComparison.Ordinal) != (section == "logging")) continue;
                 string value = key switch { "server" => "vpn.example.com:443", "pass" => "secret",
-                    "tun.tx_queue_len" => "500", "pull_routes" => "false", "windows_disable_sharing" => "true",
+                    "tun.tx_queue_len" => "500", "pull_routes" => "false", "windows_disable_sharing" => "true", "windows_persistent_adapter" => "true",
                     "logging.file" => "/tmp/coverage.log", "logging.time_format" => "rfc3339",
                     _ => field.GetProperty("default").GetString()! };
                 string localKey = section == "logging" ? key["logging.".Length..] : key;
@@ -522,9 +522,10 @@ public static class WireConformance
         var coverageRaw = Model.ConfigCore.Call(new { version = 1, op = "import", source = coverageModel.ToIni() }).GetProperty("raw");
         var coverageMissing = coverageFields.Select(f => f.GetProperty("key").GetString()!)
             .Where(key => !coverageRaw.TryGetProperty(key, out _)).ToArray();
-        check("schema: all 87 fields survive clone/edit; missing=" + string.Join(",", coverageMissing),
-            coverageFields.Length == 87 && coverageMissing.Length == 0);
+        check("schema: all 88 fields survive clone/edit; missing=" + string.Join(",", coverageMissing),
+            coverageFields.Length == 88 && coverageMissing.Length == 0);
         check("schema: non-default route policy and sharing survive clone", coverageRaw.GetProperty("pull_routes")[0].GetString() == "false" && coverageRaw.GetProperty("windows_disable_sharing")[0].GetString() == "true");
+        check("schema: persistent Windows adapter survives clone", coverageModel.WindowsPersistentAdapter && coverageRaw.GetProperty("windows_persistent_adapter")[0].GetString()=="true");
         check("schema: literal client TUN queue survives model clone", coverageRaw.GetProperty("tun.tx_queue_len")[0].GetString() == "500");
         check("schema: editing the model updates its name", coverageRaw.GetProperty("name")[0].GetString() == "edited");
         check("schema: logging.file survives model clone", coverageRaw.GetProperty("logging.file")[0].GetString() == "/tmp/coverage.log");

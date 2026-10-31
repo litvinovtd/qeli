@@ -10,8 +10,8 @@ namespace QeliWin.Vpn;
 /// <summary>
 /// Configures the Wintun adapter (IP/MTU/DNS/routes) and the system routing table.
 /// This is the Windows analogue of the Android VpnService.Builder calls. All changes
-/// are recorded as undo actions and reverted on Dispose so a disconnect leaves the
-/// machine exactly as it was — no leaked default route, no broken DNS.
+/// are recorded for teardown. Persistent devices additionally require their durable
+/// adapter plan's verified recovery before the device lease can be released.
 /// </summary>
 public sealed class NetworkConfigurator : IDisposable
 {
@@ -22,6 +22,14 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly HashSet<string> _dnsFamilies = new(StringComparer.Ordinal);
     private readonly List<OwnedRoute> _ownedRoutes = new();
     private string? _dnsAlias;
+    internal PersistentWintunNetwork.State? PersistentState {get;set;}
+    internal uint PersistentInterfaceIndex {get;set;}
+    private string ConfigurationTarget(string alias)
+    {
+        if(PersistentState==null) return alias;
+        if(PersistentInterfaceIndex==0) throw new InvalidOperationException("Persistent adapter has no verified interface index");
+        return PersistentInterfaceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     internal sealed class OwnedRoute
     {
@@ -507,6 +515,21 @@ public sealed class NetworkConfigurator : IDisposable
     {
         if (!IPAddress.TryParse(clientIp, out var address))
             throw new InvalidOperationException($"invalid tunnel address {clientIp}");
+        if(PersistentState is { } persistent)
+        {
+            if(PersistentWintunNetwork.WasAddressPresent(persistent,clientIp,prefix)) return;
+            string target=ConfigurationTarget(alias);
+            string family=address.AddressFamily==AddressFamily.InterNetworkV6?"ipv6":"ipv4";
+            string add=family=="ipv6"
+                ? $"interface ipv6 add address interface=\"{target}\" address={clientIp}/{prefix} store=active"
+                : $"interface ipv4 add address name=\"{target}\" address={clientIp} mask={PrefixToMask(prefix)} store=active";
+            Run("netsh",add);
+            string selector=family=="ipv6"?"interface":"name";
+            // The durable recovery plan verifies absence, including a preceding partial cleanup.
+            _undo.Add(()=>Run("netsh",$"interface {family} delete address {selector}=\"{target}\" address={clientIp} store=active",optional:true));
+            _log($"Set persistent {alias} address {clientIp}/{prefix}");
+            return;
+        }
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (prefix is < 1 or > 128)
@@ -525,6 +548,7 @@ public sealed class NetworkConfigurator : IDisposable
 
     public void SetMtu(string alias, int mtu, bool ipv4, bool ipv6)
     {
+        alias=ConfigurationTarget(alias);
         if (ipv4)
             Run("netsh", $"interface ipv4 set subinterface \"{alias}\" mtu={mtu} store=active");
         if (ipv6)
@@ -560,6 +584,7 @@ public sealed class NetworkConfigurator : IDisposable
     /// to netsh for whichever family the API call didn't take. Best-effort.</summary>
     public void SetMetric(ulong luid, string alias, int metric)
     {
+        alias=ConfigurationTarget(alias);
         foreach (ushort fam in new[] { AF_INET, AF_INET6 })
         {
             if (TrySetMetricApi(luid, fam, metric)) continue;
@@ -610,13 +635,14 @@ public sealed class NetworkConfigurator : IDisposable
     /// the two /1 halves.</summary>
     public void SetFullTunnelRoutesV6(string alias)
     {
+        alias=ConfigurationTarget(alias);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         foreach (var net in nets)
         {
-            Run("netsh", $"interface ipv6 add route {net} \"{alias}\" metric=1");
+            Run("netsh", $"interface ipv6 add route {net} \"{alias}\" metric=1 store=active");
             string captured = net;
             _undo.Add(() => Run("netsh",
-                $"interface ipv6 delete route {captured} \"{alias}\"", optional: true));
+                $"interface ipv6 delete route {captured} \"{alias}\" store=active", optional: true));
         }
         _log($"IPv6 default route now via tunnel ({string.Join(", ", nets)})");
     }
@@ -633,6 +659,12 @@ public sealed class NetworkConfigurator : IDisposable
     /// a live native path fails the plan closed. See RELEASE-FIXES E2.</summary>
     public void CaptureIPv6(string alias)
     {
+        if(PersistentState!=null)
+        {
+            SetAddress(alias,"fd71:e1::1",64);
+            SetFullTunnelRoutesV6(alias);
+            return;
+        }
         bool nativeIpv6Present = HasUsableNativeIpv6(alias);
         bool addrOk = Run("netsh", $"interface ipv6 add address \"{alias}\" fd71:e1::1/64", optional: true);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
@@ -807,6 +839,7 @@ public sealed class NetworkConfigurator : IDisposable
     private const int OffDstPrefixLen = 40;
     private const int OffNextHopFamily = 44;
     private const int OffMetric = 84;
+    private const int OffProtocol = 88;
     private const short AfInet = 2;
     private const short AfInet6 = 23;
 
@@ -905,6 +938,9 @@ public sealed class NetworkConfigurator : IDisposable
             WriteSockaddr(row, OffNextHopFamily,
                 nextHop ?? (v6 ? IPAddress.IPv6Any : IPAddress.Any));
             Marshal.WriteInt32(row, OffMetric, unchecked((int)metric));
+            // InitializeIpForwardEntry leaves Protocol unspecified/illegal. Tag our
+            // static entries explicitly, including durable persistent-adapter recovery.
+            Marshal.WriteInt32(row, OffProtocol, 3); // MIB_IPPROTO_NETMGMT
             var bytes = new byte[Row2Size];
             Marshal.Copy(row, bytes, 0, bytes.Length);
             return bytes;
@@ -1067,6 +1103,7 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetDns(string alias, IReadOnlyList<string> servers)
     {
         if (servers.Count == 0) return;
+        alias=ConfigurationTarget(alias);
         if (_dnsAlias != null && !string.Equals(_dnsAlias, alias, StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"DNS is already configured on adapter \"{_dnsAlias}\"; refusing to lose its cleanup state");
@@ -1082,8 +1119,10 @@ public sealed class NetworkConfigurator : IDisposable
                 $"interface {group.Key} set dnsservers name=\"{alias}\" static {values[0]} primary validate=no");
             // Record ownership immediately after the first successful mutation. If adding a
             // secondary resolver fails, Dispose must still restore this family to DHCP.
-            _dnsAlias = alias;
-            _dnsFamilies.Add(group.Key);
+            if(PersistentState==null) {
+                _dnsAlias = alias;
+                _dnsFamilies.Add(group.Key);
+            } // Persistent mode restores the captured DNS mode/list via its durable journal.
             for (int i = 1; i < values.Count; i++)
                 Run("netsh",
                     $"interface {group.Key} add dnsservers name=\"{alias}\" {values[i]} index={i + 1} validate=no");
@@ -1141,9 +1180,12 @@ public sealed class NetworkConfigurator : IDisposable
         // Routes are adapter-scoped or individually best-effort and disappear with Wintun.
         for (int i = _undo.Count - 1; i >= 0; i--)
         {
-            try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
+            try { _undo[i](); _undo.RemoveAt(i); }
+            catch (Exception e) {
+                _log($"undo error: {e.Message}");
+                _undo.RemoveAt(i);
+            }
         }
-        _undo.Clear();
         if (failedDnsFamilies.Count != 0 || failedRoutes.Count != 0)
             throw new InvalidOperationException(
                 "platform cleanup will be retried: " +
@@ -1268,6 +1310,8 @@ public sealed class NetworkConfigurator : IDisposable
 
     internal static void RunRouteLifecycleSelfTest(Action<string, bool> check)
     {
+        check("routes: new static API rows have an explicit NetMgmt protocol",
+            BitConverter.ToInt32(BuildRouteRow(IPAddress.Parse("192.0.2.0"),24,37,IPAddress.Parse("192.0.2.1")),OffProtocol)==3);
         IPAddress selectedSource = IPAddress.Parse("192.0.2.20");
         List<string> orderedSources = OrderPathLocalAddresses(new[]
         {

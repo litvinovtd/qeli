@@ -165,7 +165,7 @@ class ClientConfigKeyContractTests(unittest.TestCase):
             r'field!\(([^\n]+)\)', source("qeli/src/config/editor/schema.rs"))
             if row.startswith('"')]
         expected = {row[0]: row[2] for row in fields}
-        self.assertEqual(len(expected), 87)
+        self.assertEqual(len(expected), 88)
         for lang in ("ru", "eng"):
             self.assertEqual(documented_defaults(source(f"docs/{lang}/manuals/CONFIG.md")),
                              expected, lang)
@@ -176,8 +176,8 @@ class ClientConfigKeyContractTests(unittest.TestCase):
             examples = [m[1] for m in re.finditer(r"^```[^\n]*\n(.*?)^```\s*$", text,
                                                 re.MULTILINE | re.DOTALL)
                         if re.search(r"^\[qeli\]", m[1], re.MULTILINE)]
-            # The net_gateway migration adds a separate valid client INI block.
-            self.assertEqual(len(examples), 11, lang)
+            # Includes the net_gateway migration and macOS fixed-utun examples.
+            self.assertEqual(len(examples), 12, lang)
             for example in examples:
                 for line in example.splitlines():
                     if line.lstrip().startswith(("#", ";")):
@@ -220,7 +220,7 @@ class ClientConfigKeyContractTests(unittest.TestCase):
         # plus all generated/maintained mirrors must not make the equality checks vacuous.
         # Full IPv6 adds ipv6/leak controls/lan_subnet_ipv6 and the shared REALITY core adds
         # its three transport-owned settings; roaming adds one shared session-policy key.
-        self.assertEqual(len(expected), 84)
+        self.assertEqual(len(expected), 85)
 
     def test_literal_dotted_queue_key_is_carried_without_logging_aliases(self):
         self.assertIn("tun.tx_queue_len", rust_runtime_contract())

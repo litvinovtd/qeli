@@ -28,6 +28,7 @@ can apply it; separately exposed controls are identified in the notes.
 | `server` `proto` `user` `pass` `key` `bind_static` `mode` `sni` `obfs_key` `front` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `route_local` `include` `exclude` `dns` `ipv6` `allow_ipv6_leak` `allow_ipv4_leak` | A→A | A→A | A→A | A→A | A→A | IPv6 is negotiated inside authenticated capabilities/NetworkPlan v2. The `auto`, `required`, and `off` modes and symmetric leak controls are shared across all adapters. The shared `gateway` default is `true`; explicit `false` enables split tunnel. |
 | `pull_routes` | N→A | N→A | N→A | N→A | N→A | 0.8.3: default `true`; `false` ignores only server routes, preserving local routes, independent full tunnel and protected DNS. INI/URI/model parity. |
 | `windows_disable_sharing` | N→R | N→A | N→C | N→C | N→C | 0.8.3: default `false`; opt-in only for the created Windows Wintun. GUID/LUID/CIM ownership and binding readback; no effect on WinDivert or other platforms. |
+| `windows_persistent_adapter` | N→R | N→A | N→C | N→C | N→C | 0.8.4 experimental, profile default `false`, honored only in app-wide Per profile mode. App default Off; global mode uses Qeli-Global. Owned SwDevice, explicit uninstall, durable L3 rollback. Not WinDivert; reboot qualification pending. |
 | `roaming` | N→A | N→A | N→A | N→A | N→A | New shared 0.8 key: `off` forbids roam, `auto` uses safely negotiated TCP/UDP roam with reconnect fallback, and `required` refuses an incomplete contract. Explicit `local`/non-zero `lport` are incompatible with `required`. Linux `dev_attach=true` does not supply `ROAMING_PATH`: `auto` → reconnect; `required` is unavailable. |
 | `reality_compact` `reality_split` `reality_split_delay` | R→A | C→A | C→A | C→A | C→A | The shared Rust core now owns REALITY ClientHello sizing and split-write evasion for every app. Editors that do not expose controls preserve the exact values. |
 | `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` | R→A | A→A | A→A | A→A | A→A | The CLI now reads these keys and passes them to its built-in loop too. The core owns the failure counter, retry-limit decision, backoff/jitter and 1.5 s start-to-start floor. Adapters supply monotonic connected time and OS events; offline waiting does not reset the budget. `reconnect_retries=-1` means unlimited retries. |
@@ -42,7 +43,8 @@ can apply it; separately exposed controls are identified in the notes.
 | `device_type` | R→A | C→C | C→C | C→C | C→C | Linux can select `tun` or `tap`; other clients preserve the portable key and reject TAP at connect time because their system VPN devices are L3-only. |
 | `dev_attach` | A→A | C→C | C→C | C→C | C→C | Attaching an existing TUN remains CLI-only; every editor preserves the key. Requires NO_PI without VNET_HDR and guarded attachment; see [CONFIG](../manuals/CONFIG.md). |
 | `tun.tx_queue_len` | N→A | N→C | N→C | N→C | N→C | Development 0.8.2: Linux sets its owned TUN/TAP TX queue, default `1000` packets, explicit range `1..32767`, no auto mode. Local INI only, not push/link/QR; requires an updated client. Omit with `dev_attach=true`; an explicit value fails on Linux. Other OSes preserve without applying it. [Full contract](../manuals/CONFIG.md#client-tun-tx-queue). |
-| `dev_node` `metric` | R→R | A→A | C→C | D→C | D→C | Only Windows applies the Wintun fields; other GUIs preserve them. |
+| `dev_node` | R→R | A→A | A→A | D→C | D→C | Windows: Wintun name. macOS 0.8.4: auto or fixed `utunN` (`0..65534`), editor/INI and daemon snapshot selection; busy slot fails without substitution. Not a permanent device. |
+| `metric` | R→R | A→A | C→C | D→C | D→C | Only Windows applies the Wintun metric; other GUIs preserve it. |
 | `persist_tun` `route_file` | R→R | A→A | A→A | D→C | D→C | Desktop lifecycle/routes do not apply to phones, but no longer vanish after a mobile round trip. |
 | `kill_switch` | A→A | A→A | A→A | C→A | D→C | Android implements fail-closed behavior through verified system Always-on VPN + lockdown and refuses to connect without it. iOS preserves the key but uses the separate system VPN On Demand policy. |
 | `gateway_nat` `exit_node` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only dual-family policy survives every editor; GUIs never execute commands. CLI hooks receive `$1=ifname`, `$2=gateway`, versioned `QELI_*`, a stop reason and temporary full-NetworkPlan JSON. |
@@ -89,19 +91,19 @@ ABI 1.16 native libraries; local C#/JVM checks do not replace Apple/device or re
 A/B verification. See the [migration status](../plans/CLIENT-CONFIG-CORE.md).
 
 <!-- generated-model-coverage -->
-## Model coverage: all 87 fields
+## Model coverage: all 88 fields
 
 This block is generated from `editor/schema.rs`: M is a typed model property;
 S is preserved in the core source document and/or `carriedKeys`.
 This is not a form-control inventory: fields without a dedicated UI remain available through INI.
-All 84 `[qeli]` keys and 3 `[logging]` keys are recognized by the shared parser.
+All 85 `[qeli]` keys and 3 `[logging]` keys are recognized by the shared parser.
 
-Keys mapped to typed properties: C# 64, Kotlin 59, Swift 58; remaining fields are preserved as S.
+Keys mapped to typed properties: C# 65, Kotlin 59, Swift 58; remaining fields are preserved as S.
 
 | Schema keys | C# (Windows/macOS) | Kotlin | Swift |
 |---|:-:|:-:|:-:|
 | `server` `proto` `user` `pass` `key` `bind_static` `allow_unpinned_tofu` `mode` `obfs_key` `front` `sni` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `pull_routes` `ipv6` `roaming` `route_local` `allow_ipv4_leak` `allow_ipv6_leak` `include` `exclude` `dns` `dns_servers` `apps_mode` `apps` `route_file` `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` `timeout` `padding` `padding_min` `padding_max` `heartbeat` `heartbeat_interval` `heartbeat_size` `heartbeat_jitter` `shaping` `shaping_gap_mean` `shaping_gap_min` `shaping_gap_max` `shaping_budget` `shaping_min_size` `shaping_max_size` `shaping_stealth` `shaping_stealth_mbps` `logging.level` | M | M | M |
-| `name` `persist_tun` `windows_disable_sharing` `forward` `local` `lport` `metric` `dev_node` | M | S | S |
+| `name` `persist_tun` `windows_disable_sharing` `windows_persistent_adapter` `forward` `local` `lport` `metric` `dev_node` | M | S | S |
 | `kill_switch` | M | M | S |
 | `allow_lan` `logging.file` `logging.time_format` | S | M | M |
 | `dev` `device_type` `dev_attach` `tun.tx_queue_len` `autostart` `exit_node` `gateway_nat` `lan_subnet` `lan_subnet_ipv6` `post_up` `post_down` `password_file` `password_command` `keepalive` `tcp_nodelay` `recv_buffer_size` `send_buffer_size` `reality_compact` `reality_split` `reality_split_delay` | S | S | S |

@@ -3,6 +3,7 @@ using QeliWin.Model;
 using QeliWin.Service;
 using Qeli.Shared;
 using Qeli.Shared.Model;
+using QeliWin.Vpn;
 
 namespace QeliWin;
 
@@ -13,8 +14,13 @@ namespace QeliWin;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow(Window owner, IReadOnlyList<VpnConfig> profiles)
+    private readonly Func<bool> _canChangeAdapterMode;
+    private readonly Func<AppSettings,Action?>? _stageAdapterMode;
+    public SettingsWindow(Window owner, IReadOnlyList<VpnConfig> profiles,Func<bool>? canChangeAdapterMode=null,
+        Func<AppSettings,Action?>? stageAdapterMode=null)
     {
+        _canChangeAdapterMode=canChangeAdapterMode ?? (()=>true);
+        _stageAdapterMode=stageAdapterMode;
         InitializeComponent();
         Owner = owner;
         Icon = owner.Icon;
@@ -26,6 +32,8 @@ public partial class SettingsWindow : Window
         SelectByTag(ThemeBox, s.Theme);
         SelectByTag(LogTimeBox, s.LogTimeFormat);
         SelectByTag(LogLevelBox, s.LogLevel);
+        SelectByTag(AdapterModeBox,AppSettings.Load().PersistentAdapterMode);
+        AdapterModeBox.IsEnabled=_canChangeAdapterMode();
         ToastsBox.IsChecked = s.ToastsEnabled;
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
@@ -54,9 +62,10 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Returns true if the user saved changes.</summary>
-    public static bool Show(Window owner, IReadOnlyList<VpnConfig> profiles)
+    public static bool Show(Window owner, IReadOnlyList<VpnConfig> profiles,Func<bool>? canChangeAdapterMode=null,
+        Func<AppSettings,Action?>? stageAdapterMode=null)
     {
-        var w = new SettingsWindow(owner, profiles);
+        var w = new SettingsWindow(owner, profiles,canChangeAdapterMode,stageAdapterMode);
         return w.ShowDialog() == true;
     }
 
@@ -149,10 +158,18 @@ public partial class SettingsWindow : Window
         s.AutoConnect = AutoConnectBox.IsChecked == true;
         s.AutoConnectProfile = (AutoProfileBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
         s.StartMinimized = StartMinBox.IsChecked == true;
-        try { s.Save(); }
+        s.PersistentAdapterMode=(AdapterModeBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? WindowsAdapterPolicy.Off;
+        try {
+            if(Content is UIElement pendingControls) pendingControls.IsEnabled=false;
+            await Task.Run(()=>WindowsAdapterPolicy.SaveMode(previous.PersistentAdapterMode,s.PersistentAdapterMode,
+                ()=>Dispatcher.Invoke(s.Save),stage:()=>_stageAdapterMode?.Invoke(s),
+                readCurrent:()=>AppSettings.Load().PersistentAdapterMode,
+                requireIdle:()=> {if(!Dispatcher.Invoke(_canChangeAdapterMode)) throw new InvalidOperationException(Loc.T("PersistentAdapterStopFirst"));}));
+        }
         catch (Exception error)
         {
             _saving = false;
+            if(Content is UIElement retryControls) retryControls.IsEnabled=true;
             MessageBox.Show(this, error.Message, Loc.T("Settings"), MessageBoxButton.OK, MessageBoxImage.Error);
             return; // The live singleton and saved preferences are still the previous snapshot.
         }

@@ -105,6 +105,11 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
     public List<string> ExcludeRoutes { get; init; } = new();
     public bool PullRoutes { get; init; } = ConfigDefaults.PullRoutes;
     public bool WindowsDisableSharing { get; init; } = ConfigDefaults.WindowsDisableSharing;
+    public bool WindowsPersistentAdapter { get; init; } = ConfigDefaults.WindowsPersistentAdapter;
+    /// <summary>Application-resolved Windows policy carried only in a trusted service
+    /// snapshot/archive, not in INI or qeli://. Null legacy snapshots default to off.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WindowsAdapterMode { get; init; }
     public bool RouteLocalNetworks { get; init; } = ConfigDefaults.RouteLocalNetworks;
     // Extra split-tunnel routes loaded from CIDR/OpenVPN route files. Repeating route_file
     // is intentional: RouteFile keeps the first path for profile-store compatibility and
@@ -341,7 +346,8 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
         int? reconnectMaxRetries = null, bool? persistTun = null,
         bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null,
         string? ipv6Policy = null, string? roamingPolicy = null,
-        bool? allowIpv4Leak = null, bool? allowIpv6Leak = null, bool? pullRoutes = null, bool? windowsDisableSharing = null) => new()
+        bool? allowIpv4Leak = null, bool? allowIpv6Leak = null, bool? pullRoutes = null, bool? windowsDisableSharing = null,
+        bool? windowsPersistentAdapter = null, string? devNode = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -366,13 +372,15 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
         PersistTun = persistTun ?? PersistTun,
         PullRoutes = pullRoutes ?? PullRoutes,
         WindowsDisableSharing = windowsDisableSharing ?? WindowsDisableSharing,
+        WindowsPersistentAdapter = windowsPersistentAdapter ?? WindowsPersistentAdapter,
+        WindowsAdapterMode = WindowsAdapterMode,
         MtuProbe = mtuProbe ?? MtuProbe,
         KillSwitch = killSwitch ?? KillSwitch,
         // ── preserved from `this` (no form control) ──
         Id = Id, NativeSource = NativeSource,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
         RouteFile = RouteFile, AdditionalRouteFiles = AdditionalRouteFiles,
-        InterfaceMetric = InterfaceMetric, DevNode = DevNode,
+        InterfaceMetric = InterfaceMetric, DevNode = devNode ?? DevNode,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
         Ipv6Policy = ipv6Policy ?? Ipv6Policy,
@@ -427,6 +435,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
             .Where(kv => killSwitch == null || kv.Key != "kill_switch")
             .Where(kv => pullRoutes == null || kv.Key != "pull_routes")
             .Where(kv => windowsDisableSharing == null || kv.Key != "windows_disable_sharing")
+            .Where(kv => windowsPersistentAdapter == null || kv.Key != "windows_persistent_adapter")
             .ToDictionary(kv => kv.Key, kv => kv.Value),
             // Carried, MINUS whatever this form just rewrote.
             //
@@ -444,6 +453,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
             .Where(k => killSwitch == null || k != "kill_switch")
             .Where(k => pullRoutes == null || k != "pull_routes")
             .Where(k => windowsDisableSharing == null || k != "windows_disable_sharing")
+            .Where(k => windowsPersistentAdapter == null || k != "windows_persistent_adapter")
             .ToArray(),
             // The native source preserves duplicate declarations until the document is
             // explicitly repaired. Keep the UI diagnostics across unrelated form edits too.

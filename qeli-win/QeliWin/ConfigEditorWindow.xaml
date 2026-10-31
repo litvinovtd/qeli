@@ -258,6 +258,8 @@
 
                         <CheckBox x:Name="PullRoutesBox" Content="{l:Loc PullRoutes}" IsChecked="True" Margin="0,0,0,8"/>
                         <CheckBox x:Name="DisableSharingBox" Content="{l:Loc DisableSharing}" ToolTip="{l:Loc DisableSharingHint}" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="PersistentAdapterBox" Content="{l:Loc PersistentAdapter}" ToolTip="{l:Loc PersistentAdapterHint}" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="PersistentAdapterPolicyHint" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,0,0,10"/>
                         <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,0,0,12"/>
                         <CheckBox x:Name="KillSwitchBox" Content="{l:Loc KillSwitch}" Margin="0,0,0,18"/>
                         <StackPanel x:Name="FamilyLeakPanel" Margin="0,0,0,18">

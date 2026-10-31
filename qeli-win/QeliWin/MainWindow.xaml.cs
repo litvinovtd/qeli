@@ -22,7 +22,9 @@ namespace QeliWin;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<VpnConfig> _profiles = new();
-    private readonly VpnTunnel _tunnel = new();
+    private readonly VpnTunnel _tunnel = new() {
+        AdapterPolicyResolver=profile=>WindowsAdapterPolicy.Snapshot(profile,AppSettings.Load().PersistentAdapterMode)
+    };
     // The profile the tunnel is currently running (last passed to _tunnel.Start). Its
     // reconnect loop lives inside the tunnel, decoupled from the list — so deleting or
     // editing THIS profile must stop/restart the tunnel, or the old loop keeps hammering
@@ -221,7 +223,8 @@ public partial class MainWindow : Window
         bool previouslyEnabled = AppSettings.Current.ServiceEnabled;
         try
         {
-            if (SettingsWindow.Show(this, _profiles))
+            if (SettingsWindow.Show(this, _profiles, () => !_tunnel.IsRunning && _status==VpnStatus.Disconnected,
+                StageAdapterModeForService))
             {
                 _tunnel.LogLevel = AppSettings.Current.LogLevel;
                 await ApplyServiceSettings(connectRequested: !previouslyEnabled);
@@ -230,6 +233,22 @@ public partial class MainWindow : Window
             }
         }
         finally { _settingsOpen = false; }
+    }
+
+    // Mode publication is transactional with an already installed, disconnected service.
+    // Do not install/start/uninstall it here; ordinary Settings application owns that intent.
+    private Action? StageAdapterModeForService(AppSettings proposed)
+    {
+        if(!ServiceManager.IsInstalled()) return null;
+        if(ServiceState.DesiredConnected()) throw new InvalidOperationException(Loc.T("PersistentAdapterStopFirst"));
+        var before=ServiceState.LoadProfile();
+        if(before==null) return null; // No old plan/policy can be started; normal Apply publishes the first one.
+        var target=proposed.ServiceEnabled
+            ? Dispatcher.Invoke(()=>ResolveProfile(proposed.ServiceProfile) ?? _profiles.FirstOrDefault()) ?? before
+            : before;
+        var prepared=ServiceProfileTransition.Snapshot(target,proposed.LogLevel,proposed.PersistentAdapterMode);
+        ServiceProfileTransition.Current.Apply(prepared,connectRequested:false);
+        return ()=>ServiceProfileTransition.Current.Apply(before,connectRequested:false);
     }
 
     /// <summary>Resolve a saved profile reference (service / auto-connect) to a live profile.
@@ -352,7 +371,9 @@ public partial class MainWindow : Window
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-                snapshot = ServiceProfileTransition.Snapshot(p, s.LogLevel);
+                // Preserve the original profile flag until the machine reader lease is
+                // acquired below; another GUI may change application mode meanwhile.
+                snapshot = DesktopServiceProfileTransition.Snapshot(p, s.LogLevel);
                 // Serialize with Start and stop retained Error/reconnect attempts too.
                 if (!_serviceMode)
                 {
@@ -360,7 +381,11 @@ public partial class MainWindow : Window
                     _activeProfile = null;
                 }
             }
-            await Task.Run(() => ServiceProfileTransition.Current.Apply(snapshot, connectRequested));
+            await Task.Run(() => {
+                using var policyLease=WindowsAdapterModeGate.Shared();
+                var effective=snapshot==null?null:WindowsAdapterPolicy.Snapshot(snapshot,AppSettings.Load().PersistentAdapterMode);
+                ServiceProfileTransition.Current.Apply(effective, connectRequested);
+            });
         }
         catch (Exception ex)
         {

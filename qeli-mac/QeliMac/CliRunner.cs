@@ -25,6 +25,7 @@ public static class CliRunner
             "selftest" => SelfTest(),
             "control-selftest" => ControlSelfTest(),
             "network-selftest" => NetworkSelfTest(),
+            "utun-selftest" => UtunSelfTest(),
             "perapp-selftest" => PerAppSelfTest(),
             "forwarding-selftest" => ForwardingSelfTest(),
             "storage-selftest" => rest is ["--key-probe", var directory]
@@ -40,7 +41,7 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliMac [selftest | storage-selftest | control-selftest | network-selftest | perapp-selftest | forwarding-selftest | pf-selftest-rules <path> | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
+        Console.WriteLine("Usage: QeliMac [selftest | storage-selftest | control-selftest | network-selftest | utun-selftest | perapp-selftest | forwarding-selftest | pf-selftest-rules <path> | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
         return 2;
     }
 
@@ -84,6 +85,12 @@ public static class CliRunner
         return failed == 0 ? 0 : 1;
     }
 
+    private static int UtunSelfTest()
+    {
+        int count=0,failed=0;
+        VpnTunnel.RunUtunSelectionSelfTest((name,ok)=>{count++;if(!ok) failed++;Console.WriteLine($"  [{(ok?"PASS":"FAIL")}] {name}");});
+        Console.WriteLine($"MAC_UTUN_CHECKS={count}; FAILED={failed}");return failed==0?0:1;
+    }
     private static int NetworkSelfTest()
     {
         int count = 0, failed = 0;
@@ -95,6 +102,7 @@ public static class CliRunner
         MacRoamingSocket.RunSelfTest(Check);
         VpnTunnel.RunRoamingCapabilitySelfTest(Check);
         MacNetworkSelfTest.Run(Check);
+        VpnTunnel.RunUtunSelectionSelfTest(Check);
         Console.WriteLine($"MAC_NETWORK_CHECKS={count}; FAILED={failed}");
         return failed == 0 ? 0 : 1;
     }
@@ -125,6 +133,7 @@ public static class CliRunner
         }
 
         Console.WriteLine("qeli-mac platform self-test");
+        VpnTunnel.RunUtunSelectionSelfTest(Check);
         EncryptedEnvelope.RunSelfTests(Check);
         MacStorageSelfTest.Run(Check);
         ServiceControlSelfTest.Run(Check);

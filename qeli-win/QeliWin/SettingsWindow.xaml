@@ -80,6 +80,14 @@
                 <ScrollViewer Style="{StaticResource SlimScrollViewer}"
                               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="20">
+                        <TextBlock Text="{l:Loc PersistentAdapterModeLabel}" Style="{StaticResource Label}"/>
+                        <ComboBox x:Name="AdapterModeBox" Margin="0,0,0,10">
+                            <ComboBoxItem Content="{l:Loc PersistentAdapterModeOff}" Tag="off"/>
+                            <ComboBoxItem Content="{l:Loc PersistentAdapterModeProfiles}" Tag="profiles"/>
+                            <ComboBoxItem Content="{l:Loc PersistentAdapterModeGlobal}" Tag="global"/>
+                        </ComboBox>
+                        <TextBlock Text="{l:Loc PersistentAdapterModeHint}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource FgDim}" FontSize="12" Margin="0,0,0,20"/>
                         <TextBlock Text="{l:Loc ConnectionMonitoring}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
                         <TextBlock Text="{l:Loc ConnectionMonitoringDesc}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource FgDim}" FontSize="12" Margin="0,0,0,18"/>

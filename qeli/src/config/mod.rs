@@ -59,6 +59,7 @@ pub fn decode_server_form(value: serde_json::Value) -> Result<server::ServerConf
 pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "dev_node",
     "windows_disable_sharing",
+    "windows_persistent_adapter",
     "metric",
     "persist_tun",
     "route_file",
@@ -913,6 +914,7 @@ mod tests {
             // platform-specific interface handling
             "dev_node",
             "windows_disable_sharing",
+            "windows_persistent_adapter",
             "metric",
             "persist_tun",
             "route_file",

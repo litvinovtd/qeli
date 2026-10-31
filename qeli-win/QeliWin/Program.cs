@@ -22,7 +22,8 @@ public static class Program
         // A stale firewall journal is host state and must not be touched by a CI probe.
         if (args.Length > 0 &&
             (string.Equals(args[0], "selftest", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(args[0], "selftest-storage", StringComparison.OrdinalIgnoreCase)))
+             || string.Equals(args[0], "selftest-storage", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(args[0], "persistent-adapter", StringComparison.OrdinalIgnoreCase)))
         {
             App.AttachParentConsoleForCli();
             Console.WriteLine();

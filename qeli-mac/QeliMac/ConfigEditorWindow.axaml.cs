@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using QeliMac.Model;
 using Qeli.Shared;
 using Qeli.Shared.Model;
+using QeliMac.Vpn;
 
 namespace QeliMac;
 
@@ -17,7 +18,7 @@ public partial class ConfigEditorWindow : Window
 {
     private VpnConfig? _result;
     // The profile being edited (or the last manually-parsed config). Fields with no form
-    // control — OpenVPN local/lport/dev_node/metric/route_file/persist_tun, kill-switch,
+    // control — OpenVPN local/lport/metric/route_file/persist_tun, kill-switch,
     // AWG, reconnect, shaping, Id — are carried over from here on Save so the form rebuild
     // doesn't drop them (issue #69). Null for a brand-new profile.
     private VpnConfig? _base;
@@ -32,6 +33,8 @@ public partial class ConfigEditorWindow : Window
 
         SniBox.ItemsSource = new[] { "www.microsoft.com", "www.cloudflare.com", "www.apple.com", "www.google.com", "www.amazon.com" };
         MtuBox.ItemsSource = new[] { "0", "1500", "1400", "1280", "1200" };
+        UtunNumberBox.ItemsSource = new[] {"auto","42","100","200"};
+        UtunNumberBox.Text = existing?.DevNode ?? "auto";
         DnsBox.ItemsSource = new[] { "1.1.1.1, 8.8.8.8", "1.1.1.1, 1.0.0.1", "8.8.8.8, 8.8.4.4", "9.9.9.9, 149.112.112.112" };
         TimeoutBox.ItemsSource = new[] { "15", "30", "60", "120" };
 
@@ -230,6 +233,8 @@ public partial class ConfigEditorWindow : Window
         if (!long.TryParse((TimeoutBox.Text ?? "").Trim(), out long timeout) || timeout is < 1 or > 300)
         { await Warn(Loc.T("BadTimeout")); return; }
         if (!TryParseMtu(MtuBox.Text ?? "", out _)) { await Warn(Loc.T("BadMtu")); return; }
+        try {_=UtunSelection.FromEditor(UtunNumberBox.Text);}
+        catch(InvalidDataException error) {await Warn(error.Message);return;}
         if ((UserBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedLogin")); return; }
         if ((TagOf(AppsModeBox) is "include" or "exclude") && ParsedApps().Count == 0)
         { await Warn(Loc.T("NeedApps")); return; }
@@ -305,13 +310,16 @@ public partial class ConfigEditorWindow : Window
             ipv6Policy: TagOf(Ipv6PolicyBox) ?? "auto",
             roamingPolicy: TagOf(RoamingPolicyBox) ?? "auto",
             allowIpv4Leak: AllowIpv4LeakBox.IsChecked == true,
-            allowIpv6Leak: AllowIpv6LeakBox.IsChecked == true);
+            allowIpv6Leak: AllowIpv6LeakBox.IsChecked == true,
+            devNode: UtunSelection.FromEditor(UtunNumberBox.Text));
     }
 
     // ── manual text editing of the config (INI / qeli://) ─────────────────────────
     private async void OnManualEdit(object? sender, RoutedEventArgs e)
     {
-        var text = BuildFromForm().ToIni();
+        string text;
+        try {text = BuildFromForm().ToIni();}
+        catch(InvalidDataException error) {await Warn(error.Message);return;}
         var edited = await InputDialog.ShowAsync(this, Loc.T("ManualEdit"), Loc.T("ManualEditPrompt"), text, multiline: true);
         if (string.IsNullOrWhiteSpace(edited)) return;
 
@@ -348,6 +356,7 @@ public partial class ConfigEditorWindow : Window
         PassBox.Text = parsed.Password;
         KeyBox.Text = parsed.ServerPublicKeyHex ?? "";
         MtuBox.Text = parsed.Mtu.ToString();  // 0 = auto
+        UtunNumberBox.Text = parsed.DevNode ?? "auto";
         DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
         PullRoutesBox.IsChecked = parsed.PullRoutes;

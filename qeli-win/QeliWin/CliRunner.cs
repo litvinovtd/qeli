@@ -9,6 +9,7 @@ namespace QeliWin;
 /// Headless command-line modes for testing without the GUI:
 ///   QeliWin.exe selftest             — WinDivert/Wintun/routes/DNS platform checks
 ///   QeliWin.exe selftest-storage     — isolated storage migration/cache regressions
+///   QeliWin.exe persistent-adapter   — list/recover/remove owned installed adapters
 ///   QeliWin.exe windivert-smoke       — elevated production-filter smoke test
 ///   QeliWin.exe handshake &lt;link|ini|file&gt; — connect + full handshake only
 ///   QeliWin.exe connect   &lt;link|ini|file&gt; [seconds] — full tunnel (needs admin)
@@ -23,6 +24,7 @@ public static class CliRunner
         {
             "selftest" => SelfTest(),
             "selftest-storage" => StorageSelfTest(),
+            "persistent-adapter" => PersistentWintunCommands.Run(rest),
             "windivert-smoke" => WinDivertSmoke(),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
@@ -80,6 +82,8 @@ public static class CliRunner
         RunGroup("storage migration and native bundle", () => QeliWin.Service.StorageMigrationSelfTest.Run(Check));
         RunGroup("driver resource lifetime", () => DriverResourceSelfTest.Run(Check));
         RunGroup("owned adapter sharing policy", () => AdapterSharingSelfTest.Run(Check));
+        RunGroup("persistent Wintun lifecycle", () => PersistentWintunSelfTest.Run(Check));
+        RunGroup("adapter mode selection", () => WindowsAdapterPolicySelfTest.Run(Check));
         RunGroup("owned IPv6 point-to-point policy", () => TunnelIpv6PolicySelfTest.Run(Check));
         RunGroup("WinDivert unit", () => WinDivertSelfTest.RunUnit(Check));
         RunGroup("roaming socket", () => WindowsRoamingSocket.RunSelfTest(Check));
@@ -382,7 +386,9 @@ public static class CliRunner
         if (rest.Length < 1) return Usage();
         var cfg = LoadConfig(rest[0]);
         int seconds = rest.Length >= 2 && int.TryParse(rest[1], out int s) ? s : 30;
-        var tunnel = new VpnTunnel();
+        var tunnel = new VpnTunnel() {
+            AdapterPolicyResolver=profile=>WindowsAdapterPolicy.Snapshot(profile,Model.AppSettings.Load().PersistentAdapterMode)
+        };
         tunnel.LogLine += l => Console.WriteLine($"  {l}");
         tunnel.StatusChanged += (st, extra) => Console.WriteLine($"  [status] {st} {extra}");
         Console.WriteLine($"Connecting full tunnel -> {cfg.ServerAddress}:{cfg.Port} for {seconds}s (needs admin)");

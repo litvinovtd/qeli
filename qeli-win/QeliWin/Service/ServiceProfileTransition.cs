@@ -1,4 +1,5 @@
 using Qeli.Shared.Model;
+using QeliWin.Vpn;
 
 namespace QeliWin.Service;
 
@@ -17,5 +18,6 @@ internal sealed class ServiceProfileTransition(
         ServiceState.EncodeProfile, validateRegistration);
     internal void Apply(VpnConfig? profile, bool connectRequested) => Transition.Apply(profile, connectRequested);
     internal bool UsesProfile(string id) => Transition.UsesProfile(id);
-    internal static VpnConfig Snapshot(VpnConfig profile, string logLevel) => DesktopServiceProfileTransition.Snapshot(profile, logLevel);
+    internal static VpnConfig Snapshot(VpnConfig profile, string logLevel,string adapterMode=WindowsAdapterPolicy.Off) =>
+        WindowsAdapterPolicy.Snapshot(DesktopServiceProfileTransition.Snapshot(profile, logLevel),adapterMode);
 }

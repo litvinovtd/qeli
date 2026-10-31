@@ -42,6 +42,7 @@ public sealed partial class VpnConfig {
         ["route_file"] = RouteFile is null ? AdditionalRouteFiles.ToArray() : new[] { RouteFile }.Concat(AdditionalRouteFiles).ToArray(),
         ["persist_tun"] = PersistTun,
         ["windows_disable_sharing"] = WindowsDisableSharing,
+        ["windows_persistent_adapter"] = WindowsPersistentAdapter,
         ["forward"] = Forward,
         ["local"] = LocalAddress ?? "",
         ["lport"] = LocalPort,
@@ -118,6 +119,7 @@ public sealed partial class VpnConfig {
             AdditionalRouteFiles=v.GetProperty("route_file").EnumerateArray().Skip(1).Select(x=>x.GetString()!).ToList(),
             PersistTun = v.GetProperty("persist_tun").Deserialize<bool>()!,
             WindowsDisableSharing = v.GetProperty("windows_disable_sharing").Deserialize<bool>()!,
+            WindowsPersistentAdapter = v.GetProperty("windows_persistent_adapter").Deserialize<bool>()!,
             Forward = v.GetProperty("forward").Deserialize<bool>()!,
             LocalAddress = (v.GetProperty("local").GetString() is { Length: > 0 } LocalAddressValue ? LocalAddressValue : null),
             LocalPort = v.GetProperty("lport").Deserialize<int>()!,
@@ -186,6 +188,7 @@ internal static class ConfigDefaults {
     public const string AppsMode = "all";
     public const bool PersistTun = false;
     public const bool WindowsDisableSharing = false;
+    public const bool WindowsPersistentAdapter = false;
     public const bool Forward = false;
     public const string? LocalAddress = null;
     public const int LocalPort = 0;

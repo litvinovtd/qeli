@@ -255,6 +255,7 @@ class ConfigHardeningTest {
                         "tun.tx_queue_len" -> "500"
                         "pull_routes" -> "false"
                         "windows_disable_sharing" -> "true"
+                        "windows_persistent_adapter" -> "true"
                         "logging.file" -> "/tmp/coverage.log"
                         "logging.time_format" -> "rfc3339"
                         else -> field.getString("default")
@@ -266,11 +267,12 @@ class ConfigHardeningTest {
         }
         val saved = VpnConfig.fromIni(source).copy(password="edited").toIni()
         val raw = ConfigCore.call(org.json.JSONObject().put("version",1).put("op","import").put("source",saved)).getJSONObject("raw")
-        assertEquals(87, entries.size)
+        assertEquals(88, entries.size)
         for (field in entries) assertTrue(field.getString("key"), raw.has(field.getString("key")))
         assertEquals("edited", raw.getJSONArray("pass").getString(0))
         assertEquals("false", raw.getJSONArray("pull_routes").getString(0))
         assertEquals("true", raw.getJSONArray("windows_disable_sharing").getString(0))
+        assertEquals("true", raw.getJSONArray("windows_persistent_adapter").getString(0))
         assertEquals("500", raw.getJSONArray("tun.tx_queue_len").getString(0))
         assertEquals("/tmp/coverage.log", raw.getJSONArray("logging.file").getString(0))
         assertEquals("rfc3339", raw.getJSONArray("logging.time_format").getString(0))

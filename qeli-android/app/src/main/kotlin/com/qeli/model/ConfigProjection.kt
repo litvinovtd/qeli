@@ -76,7 +76,7 @@ internal object ConfigProjection {
         val diagnostics = r.getJSONArray("diagnostics")
         fun keys(code: String) = (0 until diagnostics.length()).map(diagnostics::getJSONObject).filter { it.getString("code")==code }.map { it.getString("key") }
         val raw = r.getJSONObject("raw")
-        val carried = setOf("name","persist_tun","windows_disable_sharing","forward","local","lport","metric","dev_node","dev","device_type","dev_attach","tun.tx_queue_len","autostart","exit_node","gateway_nat","lan_subnet","lan_subnet_ipv6","post_up","post_down","password_file","password_command","keepalive","tcp_nodelay","recv_buffer_size","send_buffer_size","reality_compact","reality_split","reality_split_delay")
+        val carried = setOf("name","persist_tun","windows_disable_sharing","windows_persistent_adapter","forward","local","lport","metric","dev_node","dev","device_type","dev_attach","tun.tx_queue_len","autostart","exit_node","gateway_nat","lan_subnet","lan_subnet_ipv6","post_up","post_down","password_file","password_command","keepalive","tcp_nodelay","recv_buffer_size","send_buffer_size","reality_compact","reality_split","reality_split_delay")
         return VpnConfig(serverAddress=v.getString("\$host"),port=v.getInt("\$port"),nativeSource=r.getString("source"),
             protocol=v.getString("proto"),
             username=v.getString("user"),

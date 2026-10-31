@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using QeliWin.Model;
 using Qeli.Shared;
 using Qeli.Shared.Model;
+using QeliWin.Vpn;
 
 namespace QeliWin;
 
@@ -79,6 +80,7 @@ public partial class ConfigEditorWindow : Window
             LocalBox.IsChecked = existing.RouteLocalNetworks;
             PullRoutesBox.IsChecked = existing.PullRoutes;
             DisableSharingBox.IsChecked = existing.WindowsDisableSharing;
+            PersistentAdapterBox.IsChecked = existing.WindowsPersistentAdapter;
             TimeoutBox.Text = existing.ConnectionTimeoutSecs.ToString();
             ReconnectBox.IsChecked = existing.ReconnectEnabled;
             PersistTunBox.IsChecked = existing.PersistTun;
@@ -147,6 +149,12 @@ public partial class ConfigEditorWindow : Window
         AppsPickBtn.Opacity = enabled ? 1.0 : 0.45;
         AppsCountText.Text = enabled ? Loc.F("AppsPicked", _apps.Count) : "";
         if (DisableSharingBox != null) DisableSharingBox.IsEnabled = !enabled;
+        if(PersistentAdapterBox!=null) {
+            string policy=AppSettings.Current.PersistentAdapterMode;
+            PersistentAdapterBox.IsEnabled=policy==WindowsAdapterPolicy.Profiles;
+            PersistentAdapterPolicyHint.Visibility=policy==WindowsAdapterPolicy.Profiles?Visibility.Collapsed:Visibility.Visible;
+            PersistentAdapterPolicyHint.Text=Loc.T(policy==WindowsAdapterPolicy.Global?"PersistentAdapterProfileGlobal":"PersistentAdapterProfileOff");
+        }
     }
 
     private void OnPickApps(object sender, RoutedEventArgs e)
@@ -223,6 +231,9 @@ public partial class ConfigEditorWindow : Window
         if (UserBox.Text.Trim().Length == 0) { Warn(Loc.T("NeedLogin")); return; }
         if ((TagOf(AppsModeBox) is "include" or "exclude") && _apps.Count == 0)
         { Warn(Loc.T("NeedApps")); return; }
+        if(AppSettings.Current.PersistentAdapterMode==WindowsAdapterPolicy.Profiles
+            && PersistentAdapterBox.IsChecked==true && (TagOf(AppsModeBox) is "include" or "exclude"))
+        { Warn(Loc.T("PersistentAdapterIncompatible"));return; }
         if (TagOf(RoamingPolicyBox) == "required" && _base is { } baseConfig
             && (!string.IsNullOrWhiteSpace(baseConfig.LocalAddress) || baseConfig.LocalPort != 0))
         {
@@ -276,6 +287,7 @@ public partial class ConfigEditorWindow : Window
             routeLocalNetworks: LocalBox.IsChecked == true,
             pullRoutes: PullRoutesBox.IsChecked == true,
             windowsDisableSharing: DisableSharingBox.IsChecked == true,
+            windowsPersistentAdapter: PersistentAdapterBox.IsChecked == true,
             mtu: mtu,
             dnsServers: dns,
             paddingEnabled: padEnabled,
@@ -348,6 +360,7 @@ public partial class ConfigEditorWindow : Window
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
         PullRoutesBox.IsChecked = parsed.PullRoutes;
         DisableSharingBox.IsChecked = parsed.WindowsDisableSharing;
+        PersistentAdapterBox.IsChecked = parsed.WindowsPersistentAdapter;
         TimeoutBox.Text = parsed.ConnectionTimeoutSecs.ToString();
         ReconnectBox.IsChecked = parsed.ReconnectEnabled;
         PersistTunBox.IsChecked = parsed.PersistTun;

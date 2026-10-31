@@ -50,9 +50,10 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
     private readonly object _gate = new();
     private readonly Func<(int fd, string name)> _create;
     private readonly Action<int> _close;
-    public UtunDevice() : this(CreateNative, fd => { _ = close(fd); }) { }
-    internal UtunDevice(Func<(int fd, string name)> create, Action<int> closeDescriptor)
-    { _create = create; _close = closeDescriptor; }
+    private readonly int? _number;
+    public UtunDevice(int? number=null) : this(()=>CreateNative(number), fd => { _ = close(fd); },number) { }
+    internal UtunDevice(Func<(int fd, string name)> create, Action<int> closeDescriptor,int? number=null)
+    { _=UtunSelection.ControlUnit(number);_create = create; _close = closeDescriptor;_number=number; }
     private int _fd = -1;
 
     // Set before close() so descriptor access fails closed during reconnect teardown.
@@ -78,6 +79,8 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
             try
             {
                 if (created.fd < 0 || !ValidName(created.name)) throw new IOException("utun: invalid kernel descriptor/interface name");
+                if(_number is {} n && created.name!="utun"+n)
+                    throw new IOException($"utun: requested utun{n}, but kernel returned {created.name}; refusing a different interface");
                 Name = created.name; _fd = created.fd;
             }
             catch { if (created.fd >= 0) _close(created.fd); throw; }
@@ -93,8 +96,9 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
     [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
     private static extern int fcntl_x64(int fd, int command, int flags);
 
-    private static (int fd, string name) CreateNative()
+    private static (int fd, string name) CreateNative(int? number)
     {
+        uint unit=UtunSelection.ControlUnit(number); // Validate before allocating any native resource.
         int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
         if (fd < 0) throw new IOException($"utun: socket(PF_SYSTEM) failed (errno {Marshal.GetLastWin32Error()}) — are you root?");
 
@@ -119,15 +123,16 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
                 throw new IOException($"utun: CTLIOCGINFO failed (errno {Marshal.GetLastWin32Error()})");
             uint ctlId = BitConverter.ToUInt32(info, 0);
 
-            // connect() to sc_unit=0 → kernel auto-assigns the next free utunN.
+            // sc_unit=0 is auto; an explicit utunN requires N+1. The kernel arbitrates
+            // occupancy atomically. Never inspect/adopt/delete a foreign interface.
             var sc = new byte[32];
             sc[0] = 32;                 // sc_len
             sc[1] = AF_SYSTEM;          // sc_family
             sc[2] = AF_SYS_CONTROL & 0xFF; sc[3] = (AF_SYS_CONTROL >> 8) & 0xFF; // ss_sysaddr (host order)
             BitConverter.GetBytes(ctlId).CopyTo(sc, 4);  // sc_id
-            BitConverter.GetBytes(0u).CopyTo(sc, 8);     // sc_unit = 0 (auto)
+            BitConverter.GetBytes(unit).CopyTo(sc, 8);
             if (connect(fd, sc, sc.Length) < 0)
-                throw new IOException($"utun: connect failed (errno {Marshal.GetLastWin32Error()})");
+                throw UtunSelection.ConnectError(number,Marshal.GetLastPInvokeError());
 
             // Read back the interface name the kernel chose.
             var ifname = new byte[32];
