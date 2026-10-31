@@ -303,9 +303,24 @@ cargo +1.97.0 build --locked --release --features jemalloc   # binary → qeli/t
 # RSS plateaus around ~180 MB under handshake churn (glibc keeps freed arenas)
 # instead of ~40–60 MB with jemalloc. A client build does not need it.
 
-# (optional) build your own .deb from the fresh binary (the Makefile enables jemalloc):
-RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb  # → qeli/debian/qeli_<version>_amd64.deb
+# For releases / another host, install Zig 0.13.0 and cargo-zigbuild 0.23.0:
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian binary-portable  # glibc 2.28 + jemalloc
+# → qeli/target/x86_64-unknown-linux-gnu/release/qeli
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb-portable    # portable .deb
+# ARCH defaults to dpkg's host architecture; explicit ARM64 (including cross):
+rustup target add --toolchain 1.97.0 aarch64-unknown-linux-gnu
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb-portable ARCH=arm64
+# → target/aarch64-unknown-linux-gnu/release/qeli and debian/qeli_<version>_arm64.deb
+# Cross admission needs binutils-aarch64-linux-gnu or OBJDUMP=/path/to/llvm-objdump.
 ```
+
+The native `cargo build` above is for your own machine, not distribution. Before
+copying a Linux amd64/arm64 binary, run
+`python3 scripts/linux_release.py --binary PATH --arch arm64` (or `amd64`)
+from the repo root. Admission reads ELF version requirements and the dedicated
+jemalloc tag; newer glibc or missing metadata blocks packaging and release
+checksums. `make ... deb` also uses the portable recipe. See
+[CONTRIBUTING.md](../../../CONTRIBUTING.md#portable-linux-server-release-builds).
 
 Without the package you can run the binary directly (see step 4), but then you create the
 systemd unit, the user and the directories yourself — **or let the installer do it for

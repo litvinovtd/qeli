@@ -55,6 +55,17 @@ printf 'qeli:x:234:\\n' >> /etc/group
 ''')
         source = Path(cls.workspace.name) / 'src/qeli'
         shutil.copytree(DEBIAN, source / 'debian')
+        # Explicit private-fixture seam: this suite packages an inert shell CLI,
+        # not a deployable ELF. Production stage/check-abi has no bypass option.
+        # Actual ELF acceptance/rejection is covered by test_linux_release and CI.
+        makefile = source / 'debian/Makefile'
+        text = makefile.read_text()
+        begin, end = text.index('check-abi:\n'), text.index('# -Zxz')
+        assert 'linux_release.py --binary' in text[begin:end]
+        text = text[:begin] + 'check-abi:\n\t@test -x "$(BINARY)"\n\n' + text[end:]
+        packaged_gate = '\tpython3 ../../scripts/linux_release.py --deb "$(DEB_DIR).deb" --arch $(ARCH)\n'
+        assert text.count(packaged_gate) == 1
+        makefile.write_text(text.replace(packaged_gate, ''))
         shutil.copytree(CONFIG, source / 'config')
         # Exercise the real packaging gate and ship its actual legal bundle.
         # deb-prebuilt invokes scripts/native_licenses.py from the source root.
@@ -76,6 +87,7 @@ fi
 ''')
         binary.chmod(0o755)
         cls.packages = {}
+        cls.arch = subprocess.check_output(['dpkg', '--print-architecture'], text=True).strip()
         control = (source / 'debian/control').read_text()
         for version in ['0.8.2', '0.8.1']:
             (source / 'debian/control').write_text(re.sub(r'^Version: .*$', 'Version: ' + version, control, flags=re.M))
@@ -83,7 +95,7 @@ fi
                                capture_output=True, text=True, timeout=30)
             assert p.returncode == 0, p.stdout + p.stderr
             package = cls.base / 'fixtures' / f'production-{version}.deb'
-            shutil.copy2(source / 'debian' / f'qeli_{version}_amd64.deb', package)
+            shutil.copy2(source / 'debian' / f'qeli_{version}_{cls.arch}.deb', package)
             cls.packages[version] = package.name
         # Admit the production dependency expression with explicit inert packages,
         # without --force-depends. These qualify maintainer scripts, not dependencies.

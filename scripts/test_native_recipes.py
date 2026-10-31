@@ -34,10 +34,8 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn(f'compile_error!("{error}")', main)
 
         self.assertNotIn("CARGO_FEATURES", makefile)
-        self.assertIn(
-            "cargo build --locked --release --features jemalloc --bin $(PACKAGE_NAME)",
-            makefile,
-        )
+        self.assertIn("deb: deb-portable", makefile)
+        self.assertNotIn("cargo build --locked --release", makefile)
         self.assertIn(
             "cargo zigbuild --locked --release --features jemalloc --bin $(PACKAGE_NAME)",
             makefile,

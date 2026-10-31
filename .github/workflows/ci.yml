@@ -259,7 +259,15 @@ jobs:
   #   • ubuntu:22.04 — a real `apt-get install`, which also exercises the dependency
   #     list and the postinst, then runs the installed binary.
   deb-package:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     # Repo root: the Makefile lives in qeli/debian and the containers mount the tree.
     defaults:
       run:
@@ -280,12 +288,14 @@ jobs:
       # deb-portable itself runs check-abi (glibc floor + the AES-NI baseline check),
       # so a binary that outgrew either one fails right here.
       - name: Build the portable .deb (the exact release recipe)
-        run: make -C qeli/debian deb-portable
+        run: make -C qeli/debian deb-portable ARCH=${{ matrix.arch }}
       - name: Locate the package
         id: pkg
         run: |
           set -euo pipefail
-          deb=$(ls qeli/debian/qeli_*_amd64.deb | head -n1)
+          mapfile -t packages < <(find qeli/debian -maxdepth 1 -name 'qeli_*_${{ matrix.arch }}.deb' -type f)
+          test "${#packages[@]}" -eq 1
+          deb="${packages[0]}"
           echo "deb=$deb" >> "$GITHUB_OUTPUT"
           ls -la "$deb"
       - name: Installer with the actual packaged CLI
@@ -295,6 +305,8 @@ jobs:
           payload=$(mktemp -d)
           trap 'rm -rf -- "$payload"' EXIT
           dpkg-deb -x "${{ steps.pkg.outputs.deb }}" "$payload"
+          python3 scripts/linux_release.py --deb "${{ steps.pkg.outputs.deb }}" --arch ${{ matrix.arch }}
+          python3 scripts/linux_release.py --binary "$payload/usr/bin/qeli" --arch ${{ matrix.arch }}
           test -x "$payload/usr/bin/qeli"
           sudo env QELI_AUDIT_BINARY="$payload/usr/bin/qeli" unshare --mount --net --pid --fork python3 -B scripts/test_installer_real_cli.py
       - name: Runs on the declared glibc floor (debian:10 = glibc 2.28)
@@ -365,12 +377,13 @@ jobs:
           mkdir -p "$out"
           cp "${{ steps.pkg.outputs.deb }}" "$out/"
           dpkg-deb -x "${{ steps.pkg.outputs.deb }}" "$extracted"
-          cp "$extracted/usr/bin/qeli" "$out/qeli-linux-amd64"
+          cp "$extracted/usr/bin/qeli" "$out/qeli-linux-${{ matrix.arch }}"
+          python3 scripts/linux_release.py --assets "$out"
       - name: Retain tested Linux candidate packages
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qeli-candidate-linux-${{ github.sha }}
+          name: qeli-candidate-linux-${{ matrix.arch }}-${{ github.sha }}
           path: ${{ runner.temp }}/qeli-candidate-linux/
           if-no-files-found: error
           retention-days: 7

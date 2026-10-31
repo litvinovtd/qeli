@@ -20,7 +20,7 @@ SUITES = {
         "test_android_trusted_lockdown", "test_audit_script_imports",
         "test_dns_test_server", "test_keenetic_verify",
         "test_roaming_android_sleep_wake_gate", "test_roaming_control_stats",
-        "test_router_artifact", "test_router_build", "test_router_toolchain",
+        "test_router_artifact", "test_router_build", "test_router_toolchain", "test_linux_release", "test_linux_release_fetch", "test_linux_release_cpu",
         "test_tap_ipv6_control_probe", "test_verify_ios_ipa",
     ),
     "linux": (

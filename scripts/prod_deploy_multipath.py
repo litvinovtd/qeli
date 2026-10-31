@@ -2,6 +2,9 @@
 """Sync multipath sources to /opt/qeli-src on .10 and build the release binary.
 (Step 1 of the prod multipath deploy — build only; deploy is a separate step.)"""
 import os, sys, posixpath
+raise SystemExit("RETIRED: partial-source native builds cannot become portable releases. "
+                 "Use make -C qeli/debian binary-portable or deb-portable and "
+                 "scripts/linux_release.py before copying any candidate.")
 from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko

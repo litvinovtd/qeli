@@ -29,7 +29,15 @@ jobs:
     # would replace that package and its sealed checksums after publication.
     # Explicit manual runs and stable releases retain the CI build/attest path.
     if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -65,18 +73,18 @@ jobs:
         run: |
           set -euo pipefail
           make -C qeli/debian clean
-          make -C qeli/debian deb-portable
+          make -C qeli/debian deb-portable ARCH=${{ matrix.arch }}
 
       - name: Locate and inspect the package
         id: pkg
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t packages < <(find qeli/debian -maxdepth 1 -type f -name 'qeli_*_amd64.deb' -print)
+          mapfile -t packages < <(find qeli/debian -maxdepth 1 -type f -name 'qeli_*_${{ matrix.arch }}.deb' -print)
           test "${#packages[@]}" -eq 1
           deb="${packages[0]}"
           name="$(basename "$deb")"
-          test "$name" = "qeli_${{ steps.meta.outputs.version }}_amd64.deb"
+          test "$name" = "qeli_${{ steps.meta.outputs.version }}_${{ matrix.arch }}.deb"
           dpkg-deb --info "$deb"
           echo "source=$deb" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
@@ -88,16 +96,59 @@ jobs:
           extracted="$(mktemp -d)"
           trap 'rm -rf "$extracted"' EXIT
           dpkg-deb -x "${{ steps.pkg.outputs.source }}" "$extracted"
+          python3 scripts/linux_release.py --deb "${{ steps.pkg.outputs.source }}" --arch ${{ matrix.arch }}
+          python3 scripts/linux_release.py --binary "$extracted/usr/bin/qeli" --arch ${{ matrix.arch }}
           "$extracted/usr/bin/qeli" version
           python3 scripts/native_licenses.py --bundle "$extracted/usr/share/doc/qeli/licenses/rust"
           for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
             test -f "$extracted/etc/qeli/$name.conf.example"
           done
 
-      - name: Merge the CI-built package into the release asset set
+      - name: Prepare only this architecture's locally built assets
         id: assets
-        env:
-          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "${{ steps.pkg.outputs.source }}" "dist/${{ steps.pkg.outputs.name }}"
+          extracted="$(mktemp -d)"
+          trap 'rm -rf -- "$extracted"' EXIT
+          dpkg-deb -x "${{ steps.pkg.outputs.source }}" "$extracted"
+          cp "$extracted/usr/bin/qeli" "dist/qeli-linux-${{ matrix.arch }}"
+          python3 scripts/linux_release.py --assets dist
+          python3 scripts/gen_checksums.py dist
+          echo "subject=dist/${{ steps.pkg.outputs.name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the CI-built Linux package
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: ${{ steps.assets.outputs.subject }}
+
+      - name: Preserve this architecture's admitted build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-linux-built-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  # Only one publisher writes the combined checksum manifest, after BOTH builds.
+  # Parallel per-architecture release uploads would race and lose checksum entries.
+  publish-linux:
+    needs: linux-package
+    if: needs.linux-package.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+      - name: Re-admit exact tag before publishing
+        id: meta
+        run: python3 scripts/release_tag.py --tag "$TAG" --require-ci --wait-ci 1800 --require-certification --github-output "$GITHUB_OUTPUT"
+      - name: Merge both builds and generate one checksum manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -106,8 +157,17 @@ jobs:
             count="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
             test "$count" -eq 0
           fi
-          find dist -maxdepth 1 -type f -name 'qeli_*_amd64.deb' -delete
-          cp "${{ steps.pkg.outputs.source }}" "dist/${{ steps.pkg.outputs.name }}"
+          for arch in amd64 arm64; do
+            candidate="$RUNNER_TEMP/qeli-linux-built-$arch"
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "qeli-linux-built-$arch" --dir "$candidate"
+            package="qeli_${{ steps.meta.outputs.version }}_$arch.deb"
+            python3 scripts/linux_release.py --deb "$candidate/$package" --arch "$arch"
+            python3 scripts/linux_release.py --binary "$candidate/qeli-linux-$arch" --arch "$arch"
+            python3 scripts/linux_release.py --assets "$candidate"
+            find dist -maxdepth 1 -type f -name "qeli_*_$arch.deb" -delete
+            cp "$candidate/$package" "$candidate/qeli-linux-$arch" dist/
+          done
+          python3 scripts/linux_release.py --assets dist
           python3 scripts/gen_checksums.py dist
           (
             cd dist
@@ -117,20 +177,10 @@ jobs:
             fi
             sha256sum -c SHA256SUMS
           )
-          echo "subject=dist/${{ steps.pkg.outputs.name }}" >> "$GITHUB_OUTPUT"
-
-      - name: Attest the CI-built Linux package
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
-        with:
-          subject-path: ${{ steps.assets.outputs.subject }}
-
-      - name: Preserve the package and checksum as workflow artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qeli-linux-${{ steps.meta.outputs.version }}
-          path: |
-            ${{ steps.assets.outputs.subject }}
-            dist/SHA256SUMS
+          path: dist/
           if-no-files-found: error
 
       - name: Publish only the bytes just built and checked
@@ -140,7 +190,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$TAG" \
-            "${{ steps.assets.outputs.subject }}" dist/SHA256SUMS \
+            dist/qeli_*_amd64.deb dist/qeli_*_arm64.deb \
+            dist/qeli-linux-amd64 dist/qeli-linux-arm64 dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
 
       # Downloaded platform assets participate in SHA256SUMS only. Their build

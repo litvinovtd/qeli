@@ -21,6 +21,8 @@ import re
 import sys
 import tempfile
 
+from linux_release import verify_assets
+
 OUT_NAME = "SHA256SUMS"
 ASSET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*", re.ASCII)
 
@@ -54,6 +56,8 @@ def generate(directory: Path) -> int:
             entries.append((entry.name, Path(entry.path)))
     if not entries:
         raise ValueError(f"no files to checksum in {directory}")
+    # Never bless an incompatible/repackaged Linux server with a fresh release manifest.
+    verify_assets(directory)
     payload = "".join(f"{sha256(path)}  {name}\n" for name, path in sorted(entries)).encode("ascii")
     temporary: Path | None = None
     try:

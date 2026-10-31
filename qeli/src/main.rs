@@ -33,6 +33,14 @@ mod embedded_licenses;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+// Read by scripts/linux_release.py even after stripping, without executing the binary.
+// Retained from main below; text in a dependency notice is not allocator evidence.
+#[cfg(all(feature = "jemalloc", not(debug_assertions)))]
+#[used]
+#[link_section = ".qeli.alloc"]
+static RELEASE_ALLOCATOR: [u8; b"qeli-allocator-v1:jemalloc\0".len()] =
+    *b"qeli-allocator-v1:jemalloc\0";
+
 #[derive(Parser)]
 #[command(name = "qeli", about = "Obfuscated VPN with custom protocol", version)]
 struct Cli {
@@ -342,6 +350,8 @@ fn peek_logging(path: &PathBuf) -> (String, Option<String>, String, String) {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(all(feature = "jemalloc", not(debug_assertions)))]
+    std::hint::black_box(&RELEASE_ALLOCATOR);
     let cli = Cli::parse();
     let mut builder = if matches!(&cli.command, Commands::Client { .. }) {
         tokio::runtime::Builder::new_current_thread()

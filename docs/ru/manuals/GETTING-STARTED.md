@@ -307,9 +307,25 @@ cargo +1.97.0 build --locked --release --features jemalloc   # бинарь → 
 # упирается в ~180 МБ под churn'ом хендшейков (glibc держит освобождённые арены)
 # вместо ~40–60 МБ с jemalloc. Клиенту это не нужно.
 
-# (опц.) собрать свой .deb из свежего бинаря (Makefile уже включает jemalloc):
-RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb  # → qeli/debian/qeli_<версия>_amd64.deb
+# Для релиза / передачи на другой сервер нужны Zig 0.13.0 и cargo-zigbuild 0.23.0:
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian binary-portable  # glibc 2.28 + jemalloc
+# → qeli/target/x86_64-unknown-linux-gnu/release/qeli
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb-portable    # переносимый .deb
+# ARCH по умолчанию берётся из dpkg; явная ARM64-сборка (в том числе cross):
+rustup target add --toolchain 1.97.0 aarch64-unknown-linux-gnu
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb-portable ARCH=arm64
+# → target/aarch64-unknown-linux-gnu/release/qeli и debian/qeli_<версия>_arm64.deb
+# Для cross-проверки нужен binutils-aarch64-linux-gnu или OBJDUMP=/путь/llvm-objdump.
 ```
+
+Обычный `cargo build` выше предназначен для своей машины, а не для распространения.
+Перед копированием Linux amd64/arm64 бинарника проверяйте
+`python3 scripts/linux_release.py --binary ПУТЬ --arch arm64` (или `amd64`)
+из корня репозитория. Gate читает
+требования ELF и специальную метку jemalloc; glibc новее 2.28 или отсутствие метки
+блокируют упаковку и генерацию релизных контрольных сумм. `make ... deb` также
+использует переносимую сборку. Подробности —
+[CONTRIBUTING.md](../../../CONTRIBUTING.md#portable-linux-server-release-builds).
 
 Без пакета можно запускать бинарь напрямую (см. шаг 4), но тогда systemd-юнит,
 пользователя и каталоги создаёте вручную — **или поручите это установщику**: он из свежесобранного

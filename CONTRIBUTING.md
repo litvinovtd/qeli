@@ -4,6 +4,74 @@
 
 Thank you for your interest in qeli. Contributions are accepted through pull requests.
 
+## Portable Linux server release builds
+
+The standalone Linux amd64/arm64 server and its `.deb` must use glibc **2.28** and
+**jemalloc**. From the repository root, with Rust 1.97.0, Zig 0.13.0 and
+`cargo-zigbuild` 0.23.0 on PATH:
+
+```sh
+make -C qeli/debian binary-portable   # qeli/target/x86_64-unknown-linux-gnu/release/qeli
+make -C qeli/debian deb-portable      # also package it; `make ... deb` is an alias
+make -C qeli/debian binary-portable ARCH=arm64  # aarch64-unknown-linux-gnu.2.28
+make -C qeli/debian deb-portable ARCH=arm64     # qeli_<version>_arm64.deb
+python3 scripts/linux_release.py --binary qeli/target/x86_64-unknown-linux-gnu/release/qeli
+python3 scripts/linux_release.py --deb qeli/debian/qeli_0.8.4_amd64.deb
+python3 scripts/linux_release.py --binary qeli/target/aarch64-unknown-linux-gnu/release/qeli --arch arm64
+python3 scripts/linux_release.py --deb qeli/debian/qeli_0.8.4_arm64.deb --arch arm64
+python3 scripts/linux_release.py --assets release/dist/v0.8.4
+```
+
+Substitute the current version in paths. Keep `ZIG_BINARY` consistent with a custom
+`CARGO_TARGET_DIR`. Native `cargo build --release --features jemalloc` is a local
+development build, **not a distributable release**: it can require the build host's
+glibc. `make deb-prebuilt` / `stage` also run admission; the ABI limit cannot be
+raised through a Make variable. The gate reads ELF version requirements and the
+dedicated allocator section emitted by the binary build, without executing it.
+Malformed inputs, missing metadata, newer glibc and a different binary inside the
+`.deb` refuse release. The allocator tag is a regression check, not a signature.
+
+`ARCH` defaults to `dpkg --print-architecture`; only `amd64` and `arm64` are admitted.
+For cross builds add `rustup target add --toolchain 1.97.0 aarch64-unknown-linux-gnu`
+(or `x86_64-unknown-linux-gnu` in the opposite direction). Cross disassembly needs
+`binutils-aarch64-linux-gnu` / `binutils-x86-64-linux-gnu`, or pass an installed
+LLVM tool as `OBJDUMP=/absolute/path/to/llvm-objdump`. Both targets keep glibc fixed
+at 2.28. On ARM64, the CPU-baseline heuristic looks for ARM AES instructions and
+HWCAP/getauxval detection, not x86 CPUID. Like the x86 heuristic, it is not proof
+of every CPU path. File names, `.deb` control architecture and ELF machine must
+agree. Release asset names are `qeli-linux-amd64`, `qeli-linux-arm64` and
+`qeli_<version>_<arch>.deb`; binary/package hashes are compared **per architecture**.
+`python3 scripts/fetch_binary.py --arch arm64` admits ARM64 lab downloads before
+replacing files. CI builds and executes each architecture on its native runner;
+the release publisher waits for both and creates one combined checksum manifest.
+
+Starting with 0.8.4, **every release, including Beta/prereleases, includes both
+architectures**. Build both from the same source commit, without cleaning between
+architectures when collecting the two local outputs:
+
+```sh
+make -C qeli/debian deb-portable ARCH=amd64
+make -C qeli/debian deb-portable ARCH=arm64
+```
+
+Collect `qeli/target/x86_64-unknown-linux-gnu/release/qeli` as `qeli-linux-amd64`
+and `qeli/target/aarch64-unknown-linux-gnu/release/qeli` as `qeli-linux-arm64`,
+together with both `qeli/debian/qeli_<version>_<arch>.deb` files. Admit the combined
+asset directory before generating `SHA256SUMS`. For Beta, collect both native CI
+artifacts `qeli-candidate-linux-<arch>-<commit>` from the same qualified candidate;
+the stable release publisher is intentionally skipped for prereleases and must
+not rebuild/replace already qualified Beta assets after publication.
+
+`gen_checksums.py`, the lab artifact fetcher and Linux CI/publication repeat this
+check before admitting output. CI also runs the packaged CLI/config templates on
+glibc 2.28. Do not bypass admission for an old candidate without the allocator tag:
+rebuild it. Packaging lifecycle tests use an explicitly patched *private copy* of
+the gate for their inert shell-script CLI; shipping targets have no bypass switch.
+
+This policy applies to portable Linux server executables. Musl router clients and
+Windows/Apple/Android libraries have separate build recipes; Docker's internal
+binary uses the image's bundled libc, not the host's libc.
+
 ## How to prepare and open a pull request
 
 ### 1. Start from `dev`
