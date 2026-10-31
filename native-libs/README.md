@@ -18,7 +18,26 @@
 
 ## Содержимое
 
-Повторная пересборка 31 октября 2026 для `dev` 0.8.4 после сжатия CLI-лицензий:
+Пересборка 31 октября — 1 ноября 2026 для CI после изменений UDP-буферов и
+default Recordizer: Windows x64, macOS universal2 и обе Android ABI собраны
+на **VM302 (`qeli-build`)** из чистого commit `39ee7747`, source digest
+`785b238b566e5f709602ab193aa996c9515751e77a1dc74230aa83ac3a5d75ed`.
+Все четыре независимые A/B-пары совпали побайтово; проверены ABI 1.17 exports,
+Android JNI, обе macOS-архитектуры, install name, UUID и ad-hoc подписи, а также
+canonical/consumed копии. Использованы закреплённые функции штатного рецепта с
+SSH и путями инструментов на VM302, без обращения к прежним `.10/.11`.
+Raw сборок и первых отказов: `/opt/qeli-native-ci-39ee7747-20261031-r02` и
+`/opt/qeli-native-ci-3a623548-20261031-r01` на VM302. Первый отказ минимальной
+Windows FFI-сборки (`socket_diagnostics` unused при `-D warnings`) сохранён;
+метод ограничен Linux CLI/server и тестами, запрет предупреждений не ослаблен.
+[Desktop evidence](reproducibility/desktop.json) и
+[Android evidence](reproducibility/android.json) относятся к этому срезу.
+Это воспроизводимость сборки и проверка ABI, не новая runtime-квалификация
+Windows/macOS/Android и не замер скорости. Mac cross-build через Zig завершился
+с предупреждением об отсутствии Xcode SDK на Linux. Linux server assets и
+`release/dist` этой операцией не заменялись; релиз не публиковался.
+
+Предыдущая пересборка 31 октября 2026 для `dev` 0.8.4 после сжатия CLI-лицензий:
 Windows x64, macOS universal2 и обе Android ABI собраны из одного чистого
 source cut `32312291`, source digest
 `8e5226ae18230e9058c662be4a5d5311f382861a2491491ad857c29855a9aac0`.
