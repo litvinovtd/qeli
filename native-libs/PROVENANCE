@@ -7,10 +7,10 @@ the GUI clients silently carried an older realtls/FFI core than the repository d
 Nothing in review or CI could have caught that. This file records what the current
 binaries were actually built from, so the question has an answer.
 
-source-digest : 785b238b566e5f709602ab193aa996c9515751e77a1dc74230aa83ac3a5d75ed
-base-commit   : 39ee7747a0913def39382c784da06716fe806a2c
+source-digest : 601030fadd2b5f96a2b963d63c818cf52820ae60f7a0481d43d73f13fe7d7742
+base-commit   : ab9bb34f639e8798752b16c66d13b8168a805bca
 dirty-sources : 0 file(s) modified vs base-commit at build time
-built-on      : VM302 (qeli-build); independent Windows/macOS and Android A/B jobs; execution timestamps are retained in build journals
+built-on      : lab .10/.11; independent Windows/macOS and Android A/B jobs; execution timestamps are retained in build journals
 toolchain     : pinned inventories in native-libs/reproducibility/{desktop,android}.json
 panic         : CARGO_PROFILE_RELEASE_PANIC=unwind  (REQUIRED — the catch_unwind guards in
                 protocol/realtls/{ffi,jni}.rs are inert under panic=abort)
@@ -41,5 +41,7 @@ to the source in this tree and must be rebuilt before release.
 
 
 
-recorded-at   : 2026-10-31T21:16:43.641460+00:00 (provenance refresh, not compilation time)
-source-epoch  : desktop=1793479739, android=1793479739 (reproducibility input, not build time)
+
+
+recorded-at   : 2026-10-31T22:22:59.310890+00:00 (provenance refresh, not compilation time)
+source-epoch  : desktop=1793482438, android=1793482438 (reproducibility input, not build time)

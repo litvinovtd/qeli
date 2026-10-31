@@ -189,6 +189,11 @@ licenses, exact native core bytes and actual INI parser compatibility. An explic
 the DLL as a release artifact. Public distribution requires the normal
 provenance/release checks.
 
+After assembling the complete 0.8.4 distribution and generating `SHA256SUMS`, run
+`python scripts/release_assets.py --directory release/dist/v0.8.4 --version 0.8.4`.
+This requires both Linux ELF/DEB pairs, both CLI ZIPs and the other release files;
+an incomplete set or an extra stale file is not admitted as a complete distribution.
+
 Unit/fault-injection and shell smoke tests do not replace real Windows VPN
 testing: elevated full-tunnel, dual-stack/DNS, reboot/service lifecycle,
 reconnect, kill switch, network loss and forced termination require a separate

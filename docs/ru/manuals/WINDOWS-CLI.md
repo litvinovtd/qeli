@@ -184,6 +184,11 @@ python -B -m unittest discover -s scripts -p test_windows_cli.py -v
 можно явно передать `-NativeCorePath`; это не делает DLL квалифицированным релизным
 артефактом. Публичная поставка требует обычных проверок provenance/релиза.
 
+После сборки всего комплекта 0.8.4 и генерации `SHA256SUMS` выполните
+`python scripts/release_assets.py --directory release/dist/v0.8.4 --version 0.8.4`.
+Проверка требует оба Linux ELF/DEB, оба CLI ZIP и остальные файлы релиза;
+неполный комплект или лишний старый файл не считается готовой поставкой.
+
 Unit/fault-injection и shell smoke не заменяют проверки реального Windows VPN:
 elevated full-tunnel, dual-stack/DNS, reboot/service lifecycle, reconnect, kill switch,
 потеря сети и forced kill требуют отдельного изолированного Windows-стенда.

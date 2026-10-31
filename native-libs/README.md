@@ -18,7 +18,22 @@
 
 ## Содержимое
 
-Пересборка 31 октября — 1 ноября 2026 для CI после изменений UDP-буферов и
+Релизная пересборка 1 ноября 2026 для 0.8.4: Windows x64, macOS universal2 и
+Android arm64-v8a/x86_64 собраны штатными скриптами из чистого производственного
+source cut `ab9bb34f`, source digest
+`601030fadd2b5f96a2b963d63c818cf52820ae60f7a0481d43d73f13fe7d7742`.
+Все четыре независимые A/B-пары совпали побайтово. Проверены полный C ABI 1.17,
+Android JNI, обе macOS-архитектуры, install name/UUID/ad-hoc CodeDirectory,
+canonical/consumed копии и 14 SHA-256. Обновлены [provenance](PROVENANCE) и
+[desktop](reproducibility/desktop.json)/[Android](reproducibility/android.json)
+evidence. Ядра включают текущие compact REALITY/INNER_PQ_V1 и настройки клиентов.
+Дополнительный интеграционный roundtrip-fixture хранится в `qeli/tests`, а не в
+производственном `qeli/src`; его добавление не меняет этот native source digest.
+Это квалификация сборки и экспортов, не физические Windows/macOS/Android/iOS
+испытания и не заявление о публикации релиза. Runtime-приёмка итогового Linux ELF
+записывается отдельно в [сертификации 0.8.4](../release/certification/0.8.4.json).
+
+Предыдущая пересборка 31 октября — 1 ноября 2026 для CI после изменений UDP-буферов и
 default Recordizer: Windows x64, macOS universal2 и обе Android ABI собраны
 на **VM302 (`qeli-build`)** из чистого commit `39ee7747`, source digest
 `785b238b566e5f709602ab193aa996c9515751e77a1dc74230aa83ac3a5d75ed`.

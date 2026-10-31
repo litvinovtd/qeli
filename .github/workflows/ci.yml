@@ -123,6 +123,7 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_stability_gate.py'
           python3 -B -m unittest discover -s scripts -p 'test_release_layout.py'
           python3 -B -m unittest discover -s scripts -p 'test_package_windows_cli.py'
+          python3 -B -m unittest discover -s scripts -p 'test_release_assets.py'
           python3 -B -m unittest discover -s scripts -p 'test_benchmark*.py'
           python3 -B -m unittest discover -s scripts -p 'test_roaming_soak_parameters.py'
           python3 -B -m unittest discover -s scripts -p 'test_roaming_netns_isolation.py'
@@ -714,6 +715,9 @@ jobs:
       - name: Publish and verify Windows console packages
         working-directory: qeli-win
         shell: pwsh
+        env:
+          # Release console packages, like the GUI, embed the qualified A/B core.
+          QeliNativeCorePath: ${{ github.workspace }}/qeli-win/QeliWin/native/qeli.dll
         run: ./build-cli.ps1 -OutputDirectory dist/cli -NativeCorePath "$env:QeliNativeCorePath"
       - name: Self-test QeliWin platform adapters
         working-directory: qeli-win
@@ -730,6 +734,11 @@ jobs:
         working-directory: qeli-shared
         run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll packetbench --ci
 
+      - name: Stage candidate metadata inspector
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        working-directory: qeli-win
+        shell: pwsh
+        run: Copy-Item -LiteralPath "$env:RUNNER_TEMP/qeli-license-reader" -Destination dist/license-reader -Recurse
       - name: Retain tested Windows candidate distributions
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -739,6 +748,7 @@ jobs:
             qeli-win/dist/net-required/
             qeli-win/dist/standalone/
             qeli-win/dist/cli/
+            qeli-win/dist/license-reader/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
