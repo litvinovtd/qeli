@@ -164,6 +164,12 @@ pub(crate) struct UdpBufferSnapshot {
 }
 
 impl UdpBufferCounters {
+    // The socket list is consumed by Linux CLI status/control and by socket tests,
+    // not by the portable FFI diagnostics ABI.
+    #[cfg(any(
+        test,
+        all(target_os = "linux", any(feature = "client", feature = "server"))
+    ))]
     pub(crate) fn socket_diagnostics(&self) -> Vec<UdpSocketBufferSnapshot> {
         self.sockets
             .lock()
