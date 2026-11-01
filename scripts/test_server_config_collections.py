@@ -115,11 +115,13 @@ def reference_defaults(text):
 class ServerCollectionDocumentationTests(unittest.TestCase):
     def test_complete_reader_key_inventory_has_reference_defaults(self):
         keys = {root + "." + key for root, values in reader_keys().items() for key in values}
-        self.assertEqual(len(keys), 182, "review coverage when reader keys change")
+        self.assertEqual(len(keys), 183, "review coverage when reader keys change")
+        self.assertIn("user.created_at", keys)
         defaults = remaining_defaults()
         # The sole consumed obsolete setting warns and has no operational default.
         self.assertEqual(set(scalar.inventory) | set(defaults) | {"profile.tun.netmask"}, keys)
-        self.assertEqual(len(defaults), 43)
+        self.assertEqual(len(defaults), 44)
+        self.assertEqual(defaults["user.created_at"], "")
         self.assertEqual(defaults["profile.obf.recordizer.batch.mode"], "opportunistic")
         for lang in ("ru", "eng"):
             documented = reference_defaults((ROOT / f"docs/{lang}/manuals/CONFIG.md").read_text(encoding="utf-8"))

@@ -1,5 +1,7 @@
 # 0.8.4: required/timed versus required/opportunistic — 1 November 2026
 
+> These historical measurements cover only the earlier candidate SHA `2a527ccd…`. They are not a benchmark of the subsequently rebuilt 0.8.4 package set.
+
 **Timed: 96/96 load windows completed, VM300/301 restored.** Comparison status: `RESTARTED_SEQUENTIAL_N1_INFORMATIONAL`. Geometric mean of timed/opportunistic TCP speed ratios across 48 matched cells: **+2.55%**. Sequential n=1 comparison of one SHA, not randomized A/B/A or a statistical significance estimate.
 
 
@@ -14,7 +16,7 @@ After boot, client eth1 fq was restored exactly from before.json instead of rese
 
 ## Controlled change
 
-- Same final portable Linux amd64 0.8.4 in `release/dist/v0.8.4`, 15,361,504 bytes. Original dist and both VM copies verified before/after:
+- Same measured earlier candidate portable Linux amd64 0.8.4 in `release/dist/v0.8.4`, 15,361,504 bytes. Original dist and both VM copies verified before/after:
 
   `2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f`.
 - Recordizer policy stays **required**; **only** `obf.recordizer.batch.mode` changes opportunistic→timed. All sections/keys of 26 actually measured connection configs compared: after private-path normalization, client configs match exactly and each server config has one delta. Retained old config SHA values checked.
@@ -116,7 +118,7 @@ Timed has the higher four-direction mean for **11/12** profiles. Largest delta: 
 - Maximum timed sampled steal: **0.29%**, an environmental observation, not proof of a sole cause.
 - Both runs are n=1: no CV, confidence intervals or alternating A/B/A. Old windows/failures retained, no best-repeat selection. Drift >5% or UDP loss >1% requires reviewing affected conclusions.
 - This test **does not measure IRTT p50/p95/p99, VoIP/game jitter or idle delay**. Loaded TCP_INFO RTT cannot replace those tests. A timed speed gain alone does not eliminate batching waits or prescribe one mode for everyone.
-- All 16 restoration groups passed per VM; original rmem/wmem max/default restored to 212992, no test processes/TUN/lock remain. Final binary SHA unchanged; old data retained. Release not published.
+- All 16 restoration groups passed per VM; original rmem/wmem max/default restored to 212992, no test processes/TUN/lock remain. Measured binary SHA unchanged during the experiment; old data retained. Release not published.
 
 ## Evidence
 

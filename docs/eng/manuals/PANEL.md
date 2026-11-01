@@ -1,7 +1,7 @@
 # qeli web panel — installation & usage
 
 > **Documentation status:** current development tree **0.8.4**; planned full-IPv6 release **0.8.4**;
-> package version covered by this guide **0.8.3**.
+> package version covered by this guide **0.8.4**.
 > `qeli --version` reports the version of the binary actually installed.
 > See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.
 > Links to this version's files work after its publication.
@@ -690,6 +690,25 @@ the explicit worker restart.
     `↓` download (the metered one, drawn against the cap) and `↑` upload — and the bar
     tracks download vs the cap.
 - Actions: Enable/Disable (kicks sessions), Delete.
+
+#### Sorting and account creation time
+
+Click a user-column heading to select its sort order; click again to reverse it.
+The same options are available in the sort selector. Selected users are retained,
+and pagination returns to the first page. The Created column uses the browser's
+local time zone, with UTC in the tooltip. The server stores `created_at` once
+when creating an account through the panel or `add-client`. Older or manual
+entries without a timestamp show Unknown time and sort after known dates in
+either direction. Editing an account or rotating its password does not assign
+a new creation date.
+
+#### Pausing automatic polling
+
+Three consecutive failed cycles of any single periodic poll pause all background
+polls on the current page. The last displayed data is retained and a pause message
+appears. Click Resume auto refresh in that message to retry. Returning to the tab
+does not automatically resume polling. Manual actions remain available; hidden
+tabs do not issue background requests.
 
 ### Usage & quotas
 The **Data usage** column of the users table (`GET /api/usage`) shows the lifetime

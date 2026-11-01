@@ -67,6 +67,10 @@ macOS, OpenWrt и Keenetic.
   полного Linux reconnect для цепочки A → B, расширенные инструкции сценариев,
   dual-stack, Windows CLI, OpenWrt и iOS MDM. Сохранение usage/fsync вынесено
   из обычного Tokio-пути без отключения долговечности статистики.
+- **Панель пользователей:** сортировка по заголовкам столбцов и дата создания
+  аккаунта. У старых записей без даты отображается «Время неизвестно»; редактирование
+  не подменяет дату создания. После трёх неудачных циклов опроса автообновление
+  текущей страницы приостанавливается с сохранением данных и явной кнопкой возобновления.
 - **Keenetic/Entware:** клиентский режим совместимости с ядрами без
   `CONFIG_NET_NS`, с сохранением журнала и блокировок восстановления. DNS остаётся
   у прошивки; чужие глобальные sysctl не меняются, строгие Linux-проверки сохранены.
@@ -96,14 +100,20 @@ Windows GUI по-прежнему поставляется отдельными 
 сборка не заменяют физические Windows install/exit/reboot, macOS/iOS и роутерные
 испытания; не выполненные аппаратные проверки не считаются успешными.
 
-### Статус черновика
+### Проверка поставки
 
-Это описание изменений исходников `dev`, не новая сертификация готовых файлов.
-Последние исправления ядра, desktop-клиентов, iOS и Android Ping добавлены после
-ранее квалифицированного комплекта: перед публикацией нужны актуальные затронутые
-пакеты и сертификация точного кандидата. Старые PASS автоматически не переносятся.
-Датированные результаты ниже относятся только к указанному SHA Linux-бинарника,
-а не ко всем приложениям или любому более позднему коммиту. Релиз пока не опубликован.
+Комплект 0.8.4 обновлён после исправлений аудита и доработок панели. Проверены
+переносимые Linux amd64/arm64 с glibc 2.28 и jemalloc, пакеты Windows GUI/CLI,
+macOS и подписанный Android APK. Для Linux выполнены 20 обязательных строк
+[runtime-сертификации](https://github.com/litvinovtd/qeli/blob/v0.8.4/release/certification/0.8.4.json),
+включая IPv4/IPv6, DNS, MTU, legacy peer и 100 переключений пути для TCP и UDP.
+Недоступные аппаратные проверки сохранены отдельными статусами и не считаются PASS.
+Файлы сверены по `SHA256SUMS`; версия, JNI/native provenance и лицензии проверены.
+Статус публикации и доступность загрузок указаны на странице GitHub Releases.
+
+Скоростные измерения ниже относятся к раннему кандидату с SHA `2a527ccd…`.
+Они не измеряют производительность пересобранного комплекта и не заменяют
+сертификацию его работоспособности. Исходные результаты и ограничения сохранены.
 
 Подробнее: [изменения](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/WINDOWS-CLI.md),
@@ -112,7 +122,7 @@ Windows GUI по-прежнему поставляется отдельными 
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reference/REALITY-INNER-PQ.md),
 [сценарии](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/scenarios/README.md).
 
-### Проверка скорости итогового 0.8.4 — 1 ноября 2026
+### Скорость раннего кандидата 0.8.4 — 1 ноября 2026
 
 Два лабораторных узла по **2 vCPU / 2 ГиБ**, i5-8500, Linux 6.12.111, iperf3 3.18; Recordizer **required / opportunistic**, MTU 1400, TUN-очереди 1000. Проверенный portable amd64, SHA256 `2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f`. Один проход: TCP P4 и UDP600, 10+2 с, IPv4/IPv6 up/down; 96 нагрузочных окон. Временная RX-политика теста — 4 МиБ для Qeli/iperf, не проверка auto до 16 МиБ после установки.
 
@@ -213,6 +223,10 @@ traffic camouflage across networks are not promised.
   for chained servers, expanded scenarios, dual-stack, CLI, OpenWrt and iOS MDM
   manuals. Usage persistence/fsync moves off the normal Tokio path without
   disabling durability.
+- **User panel:** sortable column headings and account creation timestamps.
+  Legacy entries without a timestamp show Unknown time; editing preserves the
+  original creation date. Three failed polling cycles pause page auto refresh,
+  retaining displayed data and providing an explicit resume control.
 - **Keenetic/Entware:** compatibility with kernels lacking `CONFIG_NET_NS`,
   retaining recovery journals and locks. Firmware keeps DNS ownership; unrelated
   global sysctls are not changed, and strict Linux checks remain in place.
@@ -240,14 +254,20 @@ Verify downloads using `SHA256SUMS`. Automated tests and reproducible builds do
 not substitute for physical Windows install/exit/reboot, Apple-platform or router
 qualification; unavailable hardware checks are not reported as passed.
 
-### Draft status
+### Distribution qualification
 
-This describes `dev` source changes, not renewed qualification of existing files.
-The latest core, desktop, iOS and Android Ping fixes postdate the previously qualified
-package set. Affected packages and exact-candidate certification must be refreshed
-before publication; earlier PASS results are not automatically transferred. Dated results
-below cover only the named Linux binary SHA, not every app or later commit.
-The release remains unpublished.
+The 0.8.4 package set was updated after the audit fixes and panel changes. Portable
+Linux amd64/arm64 with glibc 2.28 and jemalloc, Windows GUI/CLI packages, macOS
+and the signed Android APK were checked. Linux passed all 20 mandatory
+[runtime certification rows](https://github.com/litvinovtd/qeli/blob/v0.8.4/release/certification/0.8.4.json),
+including IPv4/IPv6, DNS, MTU, legacy peers and 100 path flips each for TCP and UDP.
+Unavailable physical checks retain separate statuses and are not counted as PASS.
+Files match `SHA256SUMS`; versions, JNI/native provenance and legal resources were checked.
+Publication status and download availability are shown on the GitHub Releases page.
+
+The throughput measurements below describe an earlier candidate with SHA `2a527ccd…`.
+They do not measure the rebuilt package set or replace its runtime qualification.
+Original results and limitations are retained.
 
 Details: [changelog](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/WINDOWS-CLI.md),
@@ -256,7 +276,7 @@ Details: [changelog](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reference/REALITY-INNER-PQ.md),
 [scenarios](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/scenarios/README.md).
 
-### Final 0.8.4 speed check — 1 November 2026
+### Earlier 0.8.4 candidate speed check — 1 November 2026
 
 Two lab nodes, **2 vCPU / 2 GiB** each, i5-8500, Linux 6.12.111, iperf3 3.18; Recordizer **required / opportunistic**, MTU 1400, TUN queues 1000. Tested portable amd64, SHA256 `2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f`. One pass: TCP P4 and UDP600, 10+2 s, IPv4/IPv6 up/down; 96 load windows. Temporary lab RX policy: 4 MiB for Qeli/iperf, not packaged auto-16-MiB qualification.
 

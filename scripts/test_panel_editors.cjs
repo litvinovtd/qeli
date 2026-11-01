@@ -100,6 +100,29 @@ async function main() {
     failing.stop();added.stop();assert.equal(timers.size,0);assert.equal(context.qeliPolling.polls.size,0);
     assert(html.includes('@qeli-polling-change.window'));assert(html.includes('@click="resumePolling()"'));
   });
+  await check('polling pause and resume notify the page exactly once per transition', async () => {
+    const events=[];
+    const {context,html}=component('layout.html','app',{
+      window:{dispatchEvent(event){events.push(event);}},
+      CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},
+    });
+    context.qeliPausePolling();context.qeliPausePolling();
+    assert.equal(events.length,1);assert.equal(events[0].type,'qeli-polling-change');assert.equal(events[0].detail.paused,true);
+    context.qeliResumePolling();context.qeliResumePolling();
+    assert.equal(events.length,2);assert.equal(events[1].type,'qeli-polling-change');assert.equal(events[1].detail.paused,false);
+    assert(html.includes('@qeli-polling-change.window="pollPaused = $event.detail.paused"'));
+  });
+  await check('a successful periodic read resets the consecutive failure threshold', async () => {
+    const timers=new Map();let next=0,ok=false;
+    const {context}=component('layout.html','app',{
+      setTimeout(fn,delay){timers.set(++next,{fn,delay});return next;},clearTimeout(id){timers.delete(id);},
+    });
+    const poll=context.qeliPoll(async()=>ok,1000);
+    async function cycle(value){ok=value;const [id,t]=[...timers.entries()][0];timers.delete(id);await t.fn();}
+    for(const value of [false,false,true,false,false]){await cycle(value);assert(!context.qeliPolling.paused);}
+    await cycle(false);assert(context.qeliPolling.paused);assert.equal(timers.size,0);
+    poll.stop();assert.equal(context.qeliPolling.polls.size,0);
+  });
   await check('hidden tabs and deliberate stops do not count failures; rejected reads do', async () => {
     const timers=new Map();let next=0,calls=0;
     const {context}=component('layout.html','app',{
