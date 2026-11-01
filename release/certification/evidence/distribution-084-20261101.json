@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.4",
+  "build_commit": "c131b175d559e1e67c5c4a67f9f8e3d3ae2dd9ba",
+  "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+  "native_source_digest": "aae2ac0d9e50bae45d6550eee327cb74fcc18b43f053eb3d7e19461560c6588b",
+  "ci_url": "https://github.com/litvinovtd/qeli/actions/runs/41254119550",
+  "ci_conclusion": "success",
+  "artifacts": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.4.apk": {
+      "sha256": "3fca29ddd4ded36167e7c40f5c576130868774280938fcbe58bbb6740c578103",
+      "bytes": 12567014
+    },
+    "qeli-cli-windows-x64-net-required.zip": {
+      "sha256": "ada4c76737cd0bff1f9ee400661cbfd27bd77a26f7285f34280d27cb83ec2e5e",
+      "bytes": 5191712
+    },
+    "qeli-cli-windows-x64-standalone.zip": {
+      "sha256": "ef1ff0e17a95989810da862917244560d34bbeeaa52b12845bf0d4a4c0dd3c2c",
+      "bytes": 40865731
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "3b8991a383d3b2fab07f2442b11d1c0fca06f836932075c9dbaaf6dbe1adda3c",
+      "bytes": 5540320
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "f637de923a5c2985bcca69ded745a1c8de81cb654533b4f6cd53ab2fa187d470",
+      "bytes": 7661128
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "3b8991a383d3b2fab07f2442b11d1c0fca06f836932075c9dbaaf6dbe1adda3c",
+      "bytes": 5540320
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "e123ab7c8285b60aa0e9311904139e80f313cb5367712d7d24f064419d0bd730",
+      "bytes": 5700828
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "f637de923a5c2985bcca69ded745a1c8de81cb654533b4f6cd53ab2fa187d470",
+      "bytes": 7661128
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "4d8733f0c2551169f14bc81af6f8ab6f75c22cd7b0341e3527550326d7373e58",
+      "bytes": 6329016
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "3ac25745394df5cddaabc46a22cfa309c02ce99d43c371a5b6b1d5acf9c33d43",
+      "bytes": 43585
+    },
+    "qeli-linux-amd64": {
+      "sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "bytes": 15361504
+    },
+    "qeli-linux-arm64": {
+      "sha256": "85fcc4f272bbaf7ecb2258b65764966e2b97f6d86c20620f22b85a44e0ab0370",
+      "bytes": 13325976
+    },
+    "Qeli-macos-arm64.tar.gz": {
+      "sha256": "b32cfa91a7aa3486a41c34c1d96736abb5cb5b2f8ec0df932e2d5e138eaf0dc5",
+      "bytes": 52420970
+    },
+    "Qeli-macos-x86_64.tar.gz": {
+      "sha256": "33e7939bf0cc69ae75e9a5260e0e93d02ba04ad61e9fb982ea66aee322e15173",
+      "bytes": 54658615
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "6c78abfa70592318b3f57a90abbfc2dab2fc7abb58101aadf8bdbc721f6d62df",
+      "bytes": 38065
+    },
+    "qeli_0.8.4_amd64.deb": {
+      "sha256": "7ef1442b89e2d49a5c721f58f3f5de45378b10b9058622bc29058a5889a6e748",
+      "bytes": 5095360
+    },
+    "qeli_0.8.4_arm64.deb": {
+      "sha256": "28084b0701981c741d5c90fa9fe20f51afa842a2ed4828104912c2c3b0aa7e05",
+      "bytes": 4593468
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "9bf5fa0c2b5e0188d331d2fef482382f5a44ae15b596ea0f4a29822a5ba7295b",
+      "bytes": 20977757
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "548bee37171c77c04d532e1cf35e662b89ec972d09269c1e6e2d8b02477d1d7e",
+      "bytes": 74600554
+    },
+    "SHA256SUMS": {
+      "sha256": "108f2793bb316bd2a2d0a384bcf410ad1737125034d16468ea88a8ce87c83fcb",
+      "bytes": 1828
+    }
+  },
+  "checks": [
+    "Both Linux architectures: glibc2.28/jemalloc/ELF gates; exact DEB payload equals standalone ELF; version and control Architecture verified",
+    "Both Windows GUI EXEs and both complete CLI archives embed the exact A/B core and exact original legal resources",
+    "Release APK: source-bound receipt, original signing certificate, v2 signature/alignment and both exact A/B JNI cores",
+    "Both macOS packages: version, app RID, declared minimum OS, and A/B universal native code/data sections verified; ad-hoc signatures verified in CI",
+    "Four static router ELFs, target architecture and CI target-instruction-set license tests; Keenetic aliases byte-identical"
+  ],
+  "runtime": {
+    "required_passed": 20,
+    "raw_matrix_passed": 19,
+    "physical_not_available": 21,
+    "host_network_service_sysctls_preserved": true,
+    "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+    "mtu_real_wire_observations": [
+      {
+        "status": "PASS",
+        "packets": 46,
+        "fragmented": 0,
+        "over_1280": 0,
+        "uplink": 26,
+        "downlink": 20,
+        "max_ip_length": 1280
+      },
+      {
+        "status": "PASS",
+        "packets": 61,
+        "fragmented": 0,
+        "over_1280": 0,
+        "uplink": 35,
+        "downlink": 26,
+        "max_ip_length": 1280
+      }
+    ],
+    "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
+  },
+  "openwrt_sdk": {
+    "source_commit": "792f4f6cd959d48d14c919531ea91c071b701518",
+    "qeli_tree": "a4be6327c9bb90d65f410d77e900f2dd66b18ad7",
+    "archive_sha256": "02dc1e6753bc3334ddf73a8ddd1ad2b9edfae5da8d94c807b10f1c9eda0b980e",
+    "sdk": "24.10.4",
+    "actual_downloads": 2
+  },
+  "release_published": false
+}

@@ -1,127 +1,207 @@
 {
   "schema_version": 1,
   "release_version": "0.8.4",
-  "source_digest": null,
+  "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
   "cases": [
     {
       "id": "linux.outer4.inner4.tcp.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer4.inner6.tcp.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner4.tcp.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner6.tcp.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer4.inner4.udp-fake-tls.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer4.inner6.udp-fake-tls.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner4.udp-fake-tls.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner6.udp-fake-tls.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer4.inner4.udp-quic.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer4.inner6.udp-quic.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner4.udp-quic.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.outer6.inner6.udp-quic.full",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.dual.tcp.split",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.dual.udp.split",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.dns.ipv4-ipv6",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.mtu.1280-pmtu-ptb",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.leak.ipv4-ipv6",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.tap.ndp-ra",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.legacy-peer",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "linux.roaming-flap-soak",
       "kind": "automated",
-      "status": "pending",
-      "note": "Awaiting fresh runtime checks of the exact 0.8.4 candidate ELF."
+      "status": "passed",
+      "source_digest": "1f5a7fd76de66b206fc372257320700082722c005a930a82ea021ccd83b09d60",
+      "artifact_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+      "executed_at": "2026-10-31T23:57:01.388058+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-084-20261101.json"
     },
     {
       "id": "android.wifi-to-cellular",
