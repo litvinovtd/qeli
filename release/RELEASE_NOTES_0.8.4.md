@@ -1,10 +1,16 @@
-# Qeli 0.8.4
+# Qeli 0.8.4 — Windows CLI, Linux ARM64 и улучшения транспорта
 
 ## Русский
 
-Обновление после 0.8.3: консольный клиент Windows, сервер Linux ARM64,
-настройки сетевых адаптеров и изменения UDP/Recordizer. Сохранены отдельные
-поставки Android, Windows GUI, macOS, OpenWrt и Keenetic.
+Qeli 0.8.4 расширяет выпуск 0.8.3: добавляет полноценный консольный клиент
+Windows и серверные сборки Linux ARM64, улучшает сетевые адаптеры, мобильную
+диагностику, UDP и Recordizer. Сохранены отдельные поставки Android, Windows GUI,
+macOS, OpenWrt и Keenetic.
+
+Главные направления — автоматизация Windows без GUI, переносимая поставка Linux
+для двух архитектур, batching без искусственного ожидания новых пакетов и
+гибридный обмен ключами для opt-in compact REALITY. Это не обещание одинакового
+ускорения или одинаковой маскировки во всех сетях.
 
 ### Основные изменения
 
@@ -23,18 +29,35 @@
   OpenGL/Metal. Цель — уменьшить память аппаратного рендерера; расход 170 МБ
   не является измеренным результатом или гарантией. Фактические RAM/CPU
   требуют проверки на Mac; транспорт и launchd-служба не меняются.
+  Журнал обновляется пакетно, без undo/redo-копий; скрытое окно приостанавливает
+  UI-обновления, но не VPN и сбор логов.
 - **UDP и Recordizer:** фактическая диагностика RX/TX-буферов; `prefer` и
   `opportunistic` по умолчанию. Linux-пакет настраивает минимальные системные
   UDP-лимиты для auto-режима. Явные off/required/timed остаются доступны.
   `opportunistic` не ждёт новые пакеты ради batching; это не обещание одинаковой
   маскировки трафика или прироста скорости в любой сети.
+  Уточнение PMTU до байта учитывает внешний путь отдельно от внутреннего TUN MTU;
+  повторная проверка уже известного размера требует меньше служебных echo.
+- **Мобильные клиенты:** Android/iOS сохраняют лог неуспешного подключения,
+  включая SERVER KEY MISMATCH, после повторного открытия приложения. Обычный Stop
+  сохраняет настройку автоматической очистки; отчёт последней ошибки — отдельный
+  opt-in. В Android исправлен Ping активного VPN: ICMP RTT через туннель вместо
+  проверки порта на внутреннем шлюзе; запрет ICMP означает «RTT недоступен»,
+  а не ложный отказ VPN. В iOS добавлены диагностика и выключенная по умолчанию
+  автопроверка, исправления DNS/roaming/split tunnel и QR через AVFoundation.
 - **REALITY/obfs:** единый обработчик compact/split ClientHello в клиентах,
   отделение WebSocket Host от TLS SNI. Для opt-in compact реализован обязательный
-  внутренний гибридный обмен `INNER_PQ_V1` до передачи credentials, с привязкой
-  transcript и pinned-идентичности, без автоматического downgrade.
+  внутренний гибридный обмен `INNER_PQ_V1` (X25519 + ML-KEM-768) до передачи
+  credentials, с привязкой transcript и pinned-идентичности, без автоматического
+  downgrade. TCP/UDP pins разделены: разные ключи на одном числовом порту больше
+  не конфликтуют, проверка явного ключа и защита старых TOFU-записей сохранены.
 - **Сервер и сценарии:** настройки NDP, повтор идемпотентного `post_up` после
   полного Linux reconnect для цепочки A → B, расширенные инструкции сценариев,
-  dual-stack, Windows CLI, OpenWrt и iOS MDM.
+  dual-stack, Windows CLI, OpenWrt и iOS MDM. Сохранение usage/fsync вынесено
+  из обычного Tokio-пути без отключения долговечности статистики.
+- **Keenetic/Entware:** клиентский режим совместимости с ядрами без
+  `CONFIG_NET_NS`, с сохранением журнала и блокировок восстановления. DNS остаётся
+  у прошивки; чужие глобальные sysctl не меняются, строгие Linux-проверки сохранены.
 - **Размер Rust CLI:** оригинальные лицензии хранятся в детерминированном
   LZ4-комплекте; `licenses --file` / `--export` возвращают исходные тексты
   с проверкой SHA-256. В сетевом тракте декодер не вызывается.
@@ -58,6 +81,14 @@ Windows GUI по-прежнему поставляется отдельными 
 сборка не заменяют физические Windows install/exit/reboot, macOS/iOS и роутерные
 испытания; не выполненные аппаратные проверки не считаются успешными.
 
+### Статус черновика
+
+Это описание изменений исходников `dev`, не новая сертификация готовых файлов.
+Изменения macOS GUI и Android Ping добавлены после ранее квалифицированного
+комплекта: перед публикацией для них нужны актуальные пакеты и проверки.
+Датированные результаты ниже относятся только к указанному SHA Linux-бинарника,
+а не ко всем приложениям или любому более позднему коммиту. Релиз пока не опубликован.
+
 Подробнее: [изменения](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/WINDOWS-CLI.md),
 [macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/MACOS-GUI.md),
@@ -67,9 +98,14 @@ Windows GUI по-прежнему поставляется отдельными 
 
 ## English
 
-An update after 0.8.3: a Windows console client, Linux ARM64 server packages,
-adapter controls and UDP/Recordizer changes. Android, Windows GUI, macOS,
-OpenWrt and Keenetic distributions remain available separately.
+Qeli 0.8.4 builds on 0.8.3 with a full Windows console client, Linux ARM64 server
+packages, adapter controls, mobile diagnostics and UDP/Recordizer improvements.
+Android, Windows GUI, macOS, OpenWrt and Keenetic remain separate distributions.
+
+The main themes are Windows automation without a GUI, portable Linux packages
+for two architectures, batching without waiting for new packets, and a hybrid
+key exchange for opt-in compact REALITY. Universal speed gains or identical
+traffic camouflage across networks are not promised.
 
 ### Highlights
 
@@ -87,17 +123,35 @@ OpenWrt and Keenetic distributions remain available separately.
   OpenGL/Metal. This aims to reduce hardware-renderer memory; 170 MB is neither
   a measured result nor a guarantee. Actual RAM/CPU require testing on a Mac;
   the transport and launchd service are unchanged.
+  Logs are updated in batches without undo/redo copies; a hidden window pauses
+  UI updates, not the VPN or log collection.
 - **UDP/Recordizer:** actual RX/TX buffer diagnostics, default `prefer` and
   `opportunistic`, Linux package UDP limits supporting auto mode. Explicit
   off/required/timed settings remain available. Opportunistic batching does not
   wait for new packets; equal traffic camouflage or universal speed gains are
   not promised.
+  Byte-precise PMTU discovery separates the outer path from the inner TUN MTU;
+  rechecking a known size uses fewer maintenance echoes.
+- **Mobile clients:** Android/iOS retain failed-connection logs, including
+  SERVER KEY MISMATCH, across reopening the app. Normal Stop retains the
+  auto-clear preference; last-error reports require separate opt-in. Android
+  active-VPN Ping uses tunnel ICMP RTT, not a port check at the internal gateway;
+  blocked ICMP means RTT is unavailable, not a false VPN failure. iOS adds
+  diagnostics and default-off auto-probing, DNS/roaming/split-tunnel fixes,
+  and AVFoundation QR scanning.
 - **REALITY/obfs:** shared compact/split ClientHello handling, separate WebSocket
   Host and TLS SNI. Opt-in compact requires the transcript- and identity-bound
-  `INNER_PQ_V1` hybrid exchange before credentials, without automatic downgrade.
+  `INNER_PQ_V1` hybrid exchange (X25519 + ML-KEM-768) before credentials, without
+  automatic downgrade. TCP/UDP pins are distinct: different keys on the same
+  numeric port no longer conflict; explicit-key and legacy TOFU checks remain.
 - **Server/docs:** NDP controls, idempotent `post_up` after a full Linux reconnect
   for chained servers, expanded scenarios, dual-stack, CLI, OpenWrt and iOS MDM
-  manuals. Rust CLI legal resources use deterministic LZ4 storage with exact,
+  manuals. Usage persistence/fsync moves off the normal Tokio path without
+  disabling durability.
+- **Keenetic/Entware:** compatibility with kernels lacking `CONFIG_NET_NS`,
+  retaining recovery journals and locks. Firmware keeps DNS ownership; unrelated
+  global sysctls are not changed, and strict Linux checks remain in place.
+- **Rust CLI size:** legal resources use deterministic LZ4 storage with exact,
   SHA-256-verified original-text export, outside the networking path.
 
 ### Installation and compatibility
@@ -117,6 +171,14 @@ and an independent cryptographic audit are not claimed.
 Verify downloads using `SHA256SUMS`. Automated tests and reproducible builds do
 not substitute for physical Windows install/exit/reboot, Apple-platform or router
 qualification; unavailable hardware checks are not reported as passed.
+
+### Draft status
+
+This describes `dev` source changes, not renewed qualification of existing files.
+The macOS GUI and Android Ping changes postdate the previously qualified package
+set and require current packages and checks before publication. Dated results
+below cover only the named Linux binary SHA, not every app or later commit.
+The release remains unpublished.
 
 Details: [changelog](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/WINDOWS-CLI.md),
