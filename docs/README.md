@@ -75,13 +75,17 @@ laboratory reports are maintained in both mirrored locale trees.
 
 ## Размещение документов клиентов · Client documentation placement
 
-Полные инструкции клиентов размещаются в `docs/ru/manuals/` и `docs/eng/manuals/`,
-технические матрицы — в `reference/`, датированные аудиты — в `reports/`.
-Рядом с исходниками остаются README с кратким описанием компонента и ссылками.
-Full client guides belong in the mirrored `manuals/` trees, technical matrices in
-`reference/`, and dated audits in `reports/`. Source directories retain short
-component README entry points linking to both languages, without guide copies.
+Основные пользовательские инструкции размещаются в `docs/ru/manuals/` и
+`docs/eng/manuals/`, технические матрицы — в `reference/`, датированные аудиты —
+в `reports/`. Сведения об интерфейсе macOS и административных шаблонах iOS MDM
+хранятся в README соответствующих компонентов, без отдельных копий в `manuals/`.
+Рядом с исходниками остаются README с описанием компонента и ссылками.
+Main user guides belong in the mirrored `manuals/` trees, technical matrices in
+`reference/`, and dated audits in `reports/`. macOS GUI details and iOS MDM template
+instructions live in their component README files, without separate `manuals/`
+copies. Source directories retain component descriptions and documentation links.
 
 Windows CLI: [RU](ru/manuals/WINDOWS-CLI.md) · [EN](eng/manuals/WINDOWS-CLI.md).
 OpenWrt: [RU](ru/manuals/OPENWRT-INSTALL.md) · [EN](eng/manuals/OPENWRT-INSTALL.md).
-iOS MDM: [RU](ru/manuals/IOS-MDM.md) · [EN](eng/manuals/IOS-MDM.md).
+macOS GUI: [RU](../qeli-mac/README.md#gui-memory) · [EN](../qeli-mac/README.md#gui-memory-en).
+iOS MDM: [RU](../qeli-ios/MDM/README.md#ru) · [EN](../qeli-ios/MDM/README.md#en).

@@ -97,7 +97,7 @@
   из widget process без foregrounding приложения, как Android widget/Quick Settings.
   При недоступном туннеле запрос ставится в очередь до следующего запуска приложения.
 - Reader managed app configuration и корректно описанные Per-App VPN / IKEv2
-  Always On [MDM-шаблоны](../manuals/IOS-MDM.md).
+  Always On [MDM-шаблоны](../../../qeli-ios/MDM/README.md#ru).
 
 ## Оставшиеся этапы проверки
 

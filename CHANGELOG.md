@@ -76,8 +76,8 @@ Qeli 0.8.4 — консольный клиент Windows, сервер Linux ARM
 - macOS: GUI переведён на программную отрисовку Avalonia/Skia (`Software`),
   без выбора OpenGL/Metal. Цель — уменьшить память аппаратного рендерера;
   фактические RAM/CPU требуют замера на Mac. Транспорт и launchd-служба не меняются.
-  Описание и границы проверки: [RU](docs/ru/manuals/MACOS-GUI.md) ·
-  [EN](docs/eng/manuals/MACOS-GUI.md).
+  Описание и границы проверки: [RU](qeli-mac/README.md#gui-memory) ·
+  [EN](qeli-mac/README.md#gui-memory-en).
 
 ### Android и iOS: диагностика и стабильность
 

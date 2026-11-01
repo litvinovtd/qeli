@@ -36,9 +36,7 @@ Practical installation, configuration and operations guides.
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Connection diagnostics and error reference |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
 | [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Windows console client: CMD, batch, PowerShell, service and exit codes |
-| [MACOS-GUI.md](manuals/MACOS-GUI.md) | macOS rendering, GUI memory, logs and verification procedure |
 | [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | OpenWrt installation, UCI/LuCI, SDK and router qualification limits |
-| [IOS-MDM.md](manuals/IOS-MDM.md) | Managed iOS profiles, Per-App VPN, On Demand and Always On limits |
 
 ## Use cases (`scenarios/`)
 
@@ -105,6 +103,7 @@ General analysis, the security model and published benchmarks. Detailed release-
 | Document | What it covers |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
+| [0.8.4: all 12 profiles, 1 November 2026](reports/RELEASE-084-SPEED12-2026-11-01.md) | Final amd64, required/opportunistic: TCP P4 and UDP600 IPv4/IPv6 up/down, n=1; raw, loss, retransmits and VM restoration |
 | [Three buffer-aware repeats, 31 October 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 windows; complete-matrix reference not accepted |
 | [Socket buffer pilot, 31 October 2026](reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md) | 40 windows; harness verification, not release admission |
 | [Android/iOS parity, 28 October 2026](reports/IOS-ANDROID-PARITY-2026-10-28.md) | Feature matrix, fixes, portable/native tests and Apple NOT_RUN |
@@ -157,7 +156,7 @@ guidance. Start with the **[archive map](archive/README.md)**.
 |---|---|
 | Windows GUI / CLI | [GUI](../../qeli-win/README.md) · [CMD / PowerShell](manuals/WINDOWS-CLI.md) |
 | macOS | [qeli-mac/README.md](../../qeli-mac/README.md) |
-| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · MDM: [docs/eng/manuals/IOS-MDM.md](manuals/IOS-MDM.md) — feature-complete but **never run on a device**, and nothing ships from it |
+| iOS ⚠️ | [qeli-ios/README.md](../../qeli-ios/README.md) · [MDM templates](../../qeli-ios/MDM/README.md#en) — feature-complete but **never run on a device**, and nothing ships from it |
 | Routers (OpenWrt) | [qeli-openwrt/README.md](../../qeli-openwrt/README.md) · Keenetic: [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) |
 | Android | [qeli-android/README.md](../../qeli-android/README.md) (in Russian) |
 | Linux CLI | [GETTING-STARTED §8.2](manuals/GETTING-STARTED.md) |

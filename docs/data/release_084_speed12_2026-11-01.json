@@ -1,0 +1,4093 @@
+{
+  "schema": 1,
+  "version": "0.8.4",
+  "binary_sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+  "binary_bytes": 15361504,
+  "method": "quick12-required-opportunistic-v2-single-pass",
+  "qualification": "QUICK_MATRIX_COMPLETE_N1_NOT_MATCHED_AB",
+  "generated_utc": "2026-11-01T09:53:19.930619+00:00",
+  "published": false,
+  "workload": {
+    "profiles": 12,
+    "load_windows": 96,
+    "baseline_windows": 12,
+    "protocols": [
+      "TCP P4",
+      "UDP600"
+    ],
+    "seconds": 10,
+    "omit": 2,
+    "udp_payload": 1200,
+    "repetitions": 1,
+    "outer_family": 4,
+    "inner_families": [
+      4,
+      6
+    ],
+    "recordizer": "required",
+    "batch_mode": "opportunistic",
+    "mtu": 1400,
+    "tun_tx_queue_len": 1000
+  },
+  "environment": {
+    "server": {
+      "hostname": "lab1",
+      "cpus": 2,
+      "memtotal_kib": 2020904,
+      "kernel": "6.12.111+deb13-amd64",
+      "qdiscs": "qdisc noqueue 0: dev lo root refcnt 2 \nqdisc fq_codel 0: dev eth0 root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 \nqdisc fq_codel 0: dev eth1 root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64",
+      "iperf": "iperf 3.18 (cJSON 1.7.15)",
+      "cpu_model": "Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz"
+    },
+    "client": {
+      "hostname": "lab2",
+      "cpus": 2,
+      "memtotal_kib": 2020904,
+      "kernel": "6.12.111+deb13-amd64",
+      "qdiscs": "qdisc noqueue 0: dev lo root refcnt 2 \nqdisc fq_codel 0: dev eth0 root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 \nqdisc fq 8001: dev eth1 root refcnt 2 limit 10000p flow_limit 100p buckets 1024 orphan_mask 1023 bands 3 priomap 1 2 2 2 1 2 0 0 1 1 1 1 1 1 1 1 weights 589824 196608 65536 quantum 3028b initial_quantum 15140b low_rate_threshold 550Kbit refill_delay 40ms timer_slack 10us horizon 10s horizon_drop",
+      "iperf": "iperf 3.18 (cJSON 1.7.15)",
+      "cpu_model": "Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz"
+    }
+  },
+  "metric_units": {
+    "mbps": "receiver Mbps",
+    "cpu_one_core_percent": "100% = one vCPU",
+    "rss_peak_kib": "sampled process-group peak KiB",
+    "inner_rtt_ms": "sampled sender TCP_INFO, not per-packet latency",
+    "tun_tx_drops": "observer interval includes warmup/tail; not FULL_RING trace",
+    "udp_errors": "VM-wide SNMP delta, not socket attribution"
+  },
+  "buffer_policy": {
+    "apply": true,
+    "qeli_receive_bytes": 4194304,
+    "iperf_receive_rb_bytes": 4194304,
+    "version": "linux-udp-buffers-v1"
+  },
+  "baseline_summary": {
+    "4/upload": {
+      "initial_mbps": 30329.57701474102,
+      "resumed_before_mbps": 29919.322930485298,
+      "after_mbps": 29722.383978485883,
+      "combined_drift_percent": -2.0019831993041692,
+      "continuation_drift_percent": -0.6582333178360433,
+      "n": 1,
+      "cv_percent": null
+    },
+    "4/download": {
+      "initial_mbps": 29865.276842777483,
+      "resumed_before_mbps": 29769.126890084288,
+      "after_mbps": 30673.009565320088,
+      "combined_drift_percent": 2.70458809672125,
+      "continuation_drift_percent": 3.0363089874055893,
+      "n": 1,
+      "cv_percent": null
+    },
+    "6/upload": {
+      "initial_mbps": 30075.766335197583,
+      "resumed_before_mbps": 29477.30998245184,
+      "after_mbps": 29684.78904171837,
+      "combined_drift_percent": -1.299974501469825,
+      "continuation_drift_percent": 0.7038602212686484,
+      "n": 1,
+      "cv_percent": null
+    },
+    "6/download": {
+      "initial_mbps": 29724.2984448,
+      "resumed_before_mbps": 29724.72679261804,
+      "after_mbps": 29488.054272,
+      "combined_drift_percent": -0.7947846884888476,
+      "continuation_drift_percent": -0.7962142840512665,
+      "n": 1,
+      "cv_percent": null
+    }
+  },
+  "udp_failed_groups": [],
+  "sources": [
+    {
+      "name": "r01",
+      "raw": "/opt/qeli-release-short-084-required-quick12-20261101-r01",
+      "status": "failed",
+      "error": "opportunistic batching not confirmed",
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      },
+      "final_binary_sha256": {
+        "server": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "client": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f"
+      },
+      "started_utc": "2026-11-01T09:12:11.468204+00:00",
+      "finished_utc": "2026-11-01T09:22:25.960238+00:00",
+      "controller_sha256": "062de8ce915afd72ee2c9823987a1bcd6c86a588115d8fa372d0c218b8d900d7",
+      "helper_sha256": "540d9a1133b3f8e1f98eac429452398e094415efa15a476a1c48be155baa497e"
+    },
+    {
+      "name": "r02",
+      "raw": "/opt/qeli-release-short-084-required-quick12-20261101-r02",
+      "status": "complete",
+      "error": null,
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      },
+      "final_binary_sha256": {
+        "server": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "client": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f"
+      },
+      "started_utc": "2026-11-01T09:24:02.523966+00:00",
+      "finished_utc": "2026-11-01T09:53:02.779933+00:00",
+      "controller_sha256": "dfb60446d001ddbd12a4d19b60016e26a4f49b4d09d8f6cf8ecfbcc6b6d3e617",
+      "helper_sha256": "540d9a1133b3f8e1f98eac429452398e094415efa15a476a1c48be155baa497e"
+    }
+  ],
+  "final_checks": {
+    "server": {
+      "r01": {
+        "lock": false,
+        "processes": [],
+        "tuns": [],
+        "sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "cpus": 2,
+        "sysctls": "net.core.rmem_max = 212992\nnet.core.rmem_default = 212992\nnet.core.wmem_max = 212992\nnet.core.wmem_default = 212992"
+      },
+      "r02": {
+        "lock": false,
+        "processes": [],
+        "tuns": [],
+        "sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "cpus": 2,
+        "sysctls": "net.core.rmem_max = 212992\nnet.core.rmem_default = 212992\nnet.core.wmem_max = 212992\nnet.core.wmem_default = 212992"
+      }
+    },
+    "client": {
+      "r01": {
+        "lock": false,
+        "processes": [],
+        "tuns": [],
+        "sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "cpus": 2,
+        "sysctls": "net.core.rmem_max = 212992\nnet.core.rmem_default = 212992\nnet.core.wmem_max = 212992\nnet.core.wmem_default = 212992"
+      },
+      "r02": {
+        "lock": false,
+        "processes": [],
+        "tuns": [],
+        "sha256": "2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f",
+        "cpus": 2,
+        "sysctls": "net.core.rmem_max = 212992\nnet.core.rmem_default = 212992\nnet.core.wmem_max = 212992\nnet.core.wmem_default = 212992"
+      }
+    }
+  },
+  "reporter_sha256": "787c1b92a69d2319941887aa03e86e0e86a382a0c4cbc8d8219564d1c7c5dce6",
+  "canonical_report_sha256": "d3078faf025d4b019ca895f3f00ec24cb0917e0c4bee8775d52281329128eecd",
+  "rows": [
+    {
+      "mode": "tcp-plain-raw",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1751.4590748241296,
+        "retransmits": 909,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.88252837887956,
+            "vm_steal_percent": 0.2103491796381994,
+            "rss_peak_kib": 79320,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1536,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.09432295029805,
+            "vm_steal_percent": 0.4275331338178709,
+            "rss_peak_kib": 40156,
+            "inner_rtt_ms": {
+              "median": 7.1915,
+              "p95": 9.372
+            },
+            "inner_cwnd_median_mss": 240.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.987580932672,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.016519368804487986,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.064889209006665,
+            "vm_steal_percent": 0.08329862557267805,
+            "rss_peak_kib": 75432,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.8992209311954,
+            "vm_steal_percent": 0.09000900090009001,
+            "rss_peak_kib": 40140,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-plain-raw",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 2000.9523746674674,
+        "retransmits": 1355,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2205,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 122.89042297242595,
+            "vm_steal_percent": 0.2946127946127946,
+            "rss_peak_kib": 74272,
+            "inner_rtt_ms": {
+              "median": 5.2105,
+              "p95": 9.092
+            },
+            "inner_cwnd_median_mss": 245.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.8356020468182,
+            "vm_steal_percent": 0.12578616352201258,
+            "rss_peak_kib": 68256,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99712,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0030886951284239228,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 58.39176697689944,
+            "vm_steal_percent": 0.1348314606741573,
+            "rss_peak_kib": 74240,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.145669465431546,
+            "vm_steal_percent": 0.1301518438177874,
+            "rss_peak_kib": 68872,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-plain-raw",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1714.232949200776,
+        "retransmits": 920,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.36306948993732,
+            "vm_steal_percent": 0.08492569002123142,
+            "rss_peak_kib": 81100,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1198,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.03310702470321,
+            "vm_steal_percent": 0.2134927412467976,
+            "rss_peak_kib": 68848,
+            "inner_rtt_ms": {
+              "median": 7.412,
+              "p95": 10.385
+            },
+            "inner_cwnd_median_mss": 236.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9972999559893,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.015708619394931272,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.81138933323609,
+            "vm_steal_percent": 0.08499787505312367,
+            "rss_peak_kib": 80888,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.727054130742935,
+            "vm_steal_percent": 0.0877577885037297,
+            "rss_peak_kib": 68816,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-plain-raw",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 2000.054662421865,
+        "retransmits": 1784,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 3062,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 123.39472642666162,
+            "vm_steal_percent": 0.21061499578770007,
+            "rss_peak_kib": 80264,
+            "inner_rtt_ms": {
+              "median": 6.1795,
+              "p95": 8.235
+            },
+            "inner_cwnd_median_mss": 242.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.44561565371072,
+            "vm_steal_percent": 0.0835421888053467,
+            "rss_peak_kib": 71104,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.992859993574,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0039412084808012685,
+        "raw_run": "r01",
+        "label": "s00-perf-tcp-plain-raw-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 58.47560789424316,
+            "vm_steal_percent": 0.18058690744920994,
+            "rss_peak_kib": 80472,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.55982758416676,
+            "vm_steal_percent": 0.12825994014536127,
+            "rss_peak_kib": 71180,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1764.3146139641676,
+        "retransmits": 656,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.140289874669,
+            "vm_steal_percent": 0.1244296972210701,
+            "rss_peak_kib": 64508,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1638,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 122.32790037374389,
+            "vm_steal_percent": 0.3466204506065858,
+            "rss_peak_kib": 40308,
+            "inner_rtt_ms": {
+              "median": 7.702999999999999,
+              "p95": 9.807
+            },
+            "inner_cwnd_median_mss": 229.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.7496145513427,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.249631943506747,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.14621441870081,
+            "vm_steal_percent": 0.21496130696474636,
+            "rss_peak_kib": 63496,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.31463281431726,
+            "vm_steal_percent": 0.30527692978630616,
+            "rss_peak_kib": 40240,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1979.5013768997244,
+        "retransmits": 1539,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2404,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.34543786642642,
+            "vm_steal_percent": 0.20876826722338204,
+            "rss_peak_kib": 64852,
+            "inner_rtt_ms": {
+              "median": 5.752,
+              "p95": 8.933
+            },
+            "inner_cwnd_median_mss": 231.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.7914283815255,
+            "vm_steal_percent": 0.08428150021070376,
+            "rss_peak_kib": 70080,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.997239990616,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00338535964175969,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 58.229562917968444,
+            "vm_steal_percent": 0.13368983957219252,
+            "rss_peak_kib": 68916,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.063498732550556,
+            "vm_steal_percent": 0.13003901170351106,
+            "rss_peak_kib": 70912,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1713.0446434111616,
+        "retransmits": 982,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.2624055462574,
+            "vm_steal_percent": 0.12626262626262627,
+            "rss_peak_kib": 84852,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1687,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 122.26445600863798,
+            "vm_steal_percent": 0.21303792074989347,
+            "rss_peak_kib": 70896,
+            "inner_rtt_ms": {
+              "median": 8.021,
+              "p95": 9.856
+            },
+            "inner_cwnd_median_mss": 224.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9878807489698,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00441724417048737,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.06323487974166,
+            "vm_steal_percent": 0.0858000858000858,
+            "rss_peak_kib": 90020,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.48175774682041,
+            "vm_steal_percent": 0.13458950201884254,
+            "rss_peak_kib": 70868,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1981.420596946275,
+        "retransmits": 1866,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2657,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.47910798552618,
+            "vm_steal_percent": 0.2503128911138924,
+            "rss_peak_kib": 89804,
+            "inner_rtt_ms": {
+              "median": 5.163,
+              "p95": 8.255
+            },
+            "inner_cwnd_median_mss": 239.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.75967205284385,
+            "vm_steal_percent": 0.1251564455569462,
+            "rss_peak_kib": 71180,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.993340031302,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00777003824369368,
+        "raw_run": "r02",
+        "label": "s00-perf-tcp-faketls-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 58.89401669532425,
+            "vm_steal_percent": 0.228310502283105,
+            "rss_peak_kib": 89616,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.394037695050955,
+            "vm_steal_percent": 0.1294777729823047,
+            "rss_peak_kib": 71384,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-padding",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1740.7992529050223,
+        "retransmits": 941,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.24645864456025,
+            "vm_steal_percent": 0.12531328320802004,
+            "rss_peak_kib": 101112,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1323,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.92333398150204,
+            "vm_steal_percent": 0.17167381974248927,
+            "rss_peak_kib": 40204,
+            "inner_rtt_ms": {
+              "median": 7.3535,
+              "p95": 9.629
+            },
+            "inner_cwnd_median_mss": 244.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9875196405657,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.004365503408096872,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.39557867031727,
+            "vm_steal_percent": 0.1301518438177874,
+            "rss_peak_kib": 97244,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.147271853921524,
+            "vm_steal_percent": 0.17582417582417584,
+            "rss_peak_kib": 40692,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-padding",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1966.4024384097538,
+        "retransmits": 1538,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2463,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.8645378068534,
+            "vm_steal_percent": 0.25305778152678193,
+            "rss_peak_kib": 96240,
+            "inner_rtt_ms": {
+              "median": 5.668,
+              "p95": 8.76
+            },
+            "inner_cwnd_median_mss": 240.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 133.44967645403483,
+            "vm_steal_percent": 0.2518891687657431,
+            "rss_peak_kib": 76816,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9921400023579,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00382641021081035,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 59.226757608969926,
+            "vm_steal_percent": 0.1863932898415657,
+            "rss_peak_kib": 96216,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.13951849261998,
+            "vm_steal_percent": 0.1289213579716373,
+            "rss_peak_kib": 75280,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-padding",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1699.938008807814,
+        "retransmits": 1093,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.11997398177635,
+            "vm_steal_percent": 0.16799664006719867,
+            "rss_peak_kib": 99868,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1721,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.61055374631736,
+            "vm_steal_percent": 0.25510204081632654,
+            "rss_peak_kib": 75488,
+            "inner_rtt_ms": {
+              "median": 7.8255,
+              "p95": 9.983
+            },
+            "inner_cwnd_median_mss": 231.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9912396793721,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.013851478014693143,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.977198436036396,
+            "vm_steal_percent": 0.1283147989734816,
+            "rss_peak_kib": 98320,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.06507048144515,
+            "vm_steal_percent": 0.1310615989515072,
+            "rss_peak_kib": 77732,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-padding",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1974.99724099393,
+        "retransmits": 1419,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2350,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 124.39987696632994,
+            "vm_steal_percent": 0.2528445006321112,
+            "rss_peak_kib": 96740,
+            "inner_rtt_ms": {
+              "median": 6.1175,
+              "p95": 10.208
+            },
+            "inner_cwnd_median_mss": 233.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.89637872224614,
+            "vm_steal_percent": 0.1261564339781329,
+            "rss_peak_kib": 77532,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99489998623,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.003503066774368419,
+        "raw_run": "r02",
+        "label": "s01-perf-tcp-padding-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 59.23042272138572,
+            "vm_steal_percent": 0.1789709172259508,
+            "rss_peak_kib": 107256,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.14316529752083,
+            "vm_steal_percent": 0.13026487190620928,
+            "rss_peak_kib": 77448,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-frag",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1794.420224285696,
+        "retransmits": 998,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 133.82817311266427,
+            "vm_steal_percent": 0.08316008316008316,
+            "rss_peak_kib": 112804,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1683,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.85848574899751,
+            "vm_steal_percent": 0.21222410865874364,
+            "rss_peak_kib": 38692,
+            "inner_rtt_ms": {
+              "median": 7.4545,
+              "p95": 9.233
+            },
+            "inner_cwnd_median_mss": 231.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9918997335013,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00882578232291691,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.64517490607414,
+            "vm_steal_percent": 0.1294777729823047,
+            "rss_peak_kib": 109132,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 55.23328815143945,
+            "vm_steal_percent": 0.13020833333333334,
+            "rss_peak_kib": 40220,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-frag",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1982.4435346862504,
+        "retransmits": 1591,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2774,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.57381684969637,
+            "vm_steal_percent": 0.2523128679562658,
+            "rss_peak_kib": 107444,
+            "inner_rtt_ms": {
+              "median": 5.569,
+              "p95": 9.492
+            },
+            "inner_cwnd_median_mss": 234.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.137465225703,
+            "vm_steal_percent": 0.1264222503160556,
+            "rss_peak_kib": 66256,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9975999904,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.004758809502391305,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 59.392105630558234,
+            "vm_steal_percent": 0.224517287831163,
+            "rss_peak_kib": 107384,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.98002837037525,
+            "vm_steal_percent": 0.1721170395869191,
+            "rss_peak_kib": 66812,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-frag",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1741.0429875547875,
+        "retransmits": 829,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 133.2996717109218,
+            "vm_steal_percent": 0.1261564339781329,
+            "rss_peak_kib": 112092,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1346,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.49806653168318,
+            "vm_steal_percent": 0.20911752404851527,
+            "rss_peak_kib": 67128,
+            "inner_rtt_ms": {
+              "median": 7.6295,
+              "p95": 10.291
+            },
+            "inner_cwnd_median_mss": 239.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.813466667013,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00407908475464428,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.644349927845674,
+            "vm_steal_percent": 0.0859106529209622,
+            "rss_peak_kib": 112008,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.39734894411799,
+            "vm_steal_percent": 0.13303769401330376,
+            "rss_peak_kib": 66880,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-frag",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1939.066831967812,
+        "retransmits": 1517,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 4222,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.40323766716668,
+            "vm_steal_percent": 0.20894274968658588,
+            "rss_peak_kib": 112012,
+            "inner_rtt_ms": {
+              "median": 5.3025,
+              "p95": 9.322
+            },
+            "inner_cwnd_median_mss": 234.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.79248230016037,
+            "vm_steal_percent": 0.08357709987463435,
+            "rss_peak_kib": 69160,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99489999439,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00233691914271693,
+        "raw_run": "r02",
+        "label": "s02-perf-tcp-frag-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 59.062122220461035,
+            "vm_steal_percent": 0.182648401826484,
+            "rss_peak_kib": 113452,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.97863215920101,
+            "vm_steal_percent": 0.1282051282051282,
+            "rss_peak_kib": 68976,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1244.1804172662576,
+        "retransmits": 883,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 145.5092998625258,
+            "vm_steal_percent": 0.08371703641691085,
+            "rss_peak_kib": 112640,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1648,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 111.36743154275592,
+            "vm_steal_percent": 0.29411764705882354,
+            "rss_peak_kib": 40168,
+            "inner_rtt_ms": {
+              "median": 9.1015,
+              "p95": 10.912
+            },
+            "inner_cwnd_median_mss": 256.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9860196770545,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00883517432208456,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 73.55646416837456,
+            "vm_steal_percent": 0.1303780964797914,
+            "rss_peak_kib": 108544,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 67.30447242402417,
+            "vm_steal_percent": 0.1314060446780552,
+            "rss_peak_kib": 40340,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1409.7098035294107,
+        "retransmits": 779,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1691,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 99.09668205457999,
+            "vm_steal_percent": 0.25252525252525254,
+            "rss_peak_kib": 108128,
+            "inner_rtt_ms": {
+              "median": 6.279999999999999,
+              "p95": 11.642
+            },
+            "inner_cwnd_median_mss": 247.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 128.51400038764058,
+            "vm_steal_percent": 0.16820857863751051,
+            "rss_peak_kib": 70264,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99603998812,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00570343199813069,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.14491657548294,
+            "vm_steal_percent": 0.13368983957219252,
+            "rss_peak_kib": 108092,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 72.96243368585323,
+            "vm_steal_percent": 0.16999575010624735,
+            "rss_peak_kib": 70152,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1293.0463149898176,
+        "retransmits": 664,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 149.70955934576833,
+            "vm_steal_percent": 0.12505210504376824,
+            "rss_peak_kib": 110040,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 2780,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 115.84735378545123,
+            "vm_steal_percent": 0.33783783783783783,
+            "rss_peak_kib": 70740,
+            "inner_rtt_ms": {
+              "median": 10.017,
+              "p95": 12.437
+            },
+            "inner_cwnd_median_mss": 241.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9640654872001,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.03970408367281308,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 75.47061997317812,
+            "vm_steal_percent": 0.1303780964797914,
+            "rss_peak_kib": 111776,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 68.47365340381913,
+            "vm_steal_percent": 0.1784121320249777,
+            "rss_peak_kib": 71628,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1420.8186329357773,
+        "retransmits": 995,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1646,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 100.19571076599466,
+            "vm_steal_percent": 0.20610057708161583,
+            "rss_peak_kib": 112852,
+            "inner_rtt_ms": {
+              "median": 6.648,
+              "p95": 12.62
+            },
+            "inner_cwnd_median_mss": 233.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.56506165380597,
+            "vm_steal_percent": 0.08378718056137412,
+            "rss_peak_kib": 71392,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99712,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00575019365453351,
+        "raw_run": "r02",
+        "label": "s03-perf-tcp-obfs-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.96848651095114,
+            "vm_steal_percent": 0.13863216266173753,
+            "rss_peak_kib": 113664,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 74.30010263100517,
+            "vm_steal_percent": 0.08543357539513029,
+            "rss_peak_kib": 71352,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1735.056753183286,
+        "retransmits": 828,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.87801631189492,
+            "vm_steal_percent": 0.08385744234800839,
+            "rss_peak_kib": 110472,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1996,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.1887250819773,
+            "vm_steal_percent": 0.20567667626491157,
+            "rss_peak_kib": 39840,
+            "inner_rtt_ms": {
+              "median": 6.9905,
+              "p95": 8.254
+            },
+            "inner_cwnd_median_mss": 243.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9880008735363,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.006901628276555378,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 54.391154527345314,
+            "vm_steal_percent": 0.08684324793747286,
+            "rss_peak_kib": 104984,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.3997746759186,
+            "vm_steal_percent": 0.17513134851138354,
+            "rss_peak_kib": 40516,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1957.3479899322874,
+        "retransmits": 1316,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2610,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.4215795306825,
+            "vm_steal_percent": 0.25220680958385877,
+            "rss_peak_kib": 103744,
+            "inner_rtt_ms": {
+              "median": 4.672,
+              "p95": 8.204
+            },
+            "inner_cwnd_median_mss": 240.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.07981790064136,
+            "vm_steal_percent": 0.1678556441460344,
+            "rss_peak_kib": 93452,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99891999676,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0050863586978524755,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 59.06556895491587,
+            "vm_steal_percent": 0.1762114537444934,
+            "rss_peak_kib": 103980,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 52.56409326323932,
+            "vm_steal_percent": 0.13410818059901655,
+            "rss_peak_kib": 91572,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1727.7657960613685,
+        "retransmits": 854,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.66818117277458,
+            "vm_steal_percent": 0.0848536274925753,
+            "rss_peak_kib": 110164,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1050,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 120.60476984642355,
+            "vm_steal_percent": 0.16420361247947454,
+            "rss_peak_kib": 92152,
+            "inner_rtt_ms": {
+              "median": 7.6325,
+              "p95": 9.205
+            },
+            "inner_cwnd_median_mss": 232.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9814011419699,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.019003735382821376,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 55.14352372933483,
+            "vm_steal_percent": 0.17490161783996502,
+            "rss_peak_kib": 109140,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.06070750039346,
+            "vm_steal_percent": 0.2686968204209583,
+            "rss_peak_kib": 94096,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1980.384598138079,
+        "retransmits": 1760,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2775,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 122.97268615849836,
+            "vm_steal_percent": 0.2524190155658393,
+            "rss_peak_kib": 109304,
+            "inner_rtt_ms": {
+              "median": 5.810499999999999,
+              "p95": 11.022
+            },
+            "inner_cwnd_median_mss": 250.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 133.8560236801013,
+            "vm_steal_percent": 0.1258917331095258,
+            "rss_peak_kib": 94068,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.0015600040559,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0036139149662253738,
+        "raw_run": "r02",
+        "label": "s04-perf-tcp-reality-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 58.5635356861013,
+            "vm_steal_percent": 0.13245033112582782,
+            "rss_peak_kib": 109508,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 53.311137676546316,
+            "vm_steal_percent": 0.07923930269413629,
+            "rss_peak_kib": 94068,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1609.4806268243908,
+        "retransmits": 1258,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 138.46280973063574,
+            "vm_steal_percent": 0.12599748005039899,
+            "rss_peak_kib": 119164,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1858,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 131.10284949228281,
+            "vm_steal_percent": 0.33599328013439733,
+            "rss_peak_kib": 42308,
+            "inner_rtt_ms": {
+              "median": 10.9535,
+              "p95": 13.802
+            },
+            "inner_cwnd_median_mss": 241.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9910003509864,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.022376022315255928,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 89.79070135180713,
+            "vm_steal_percent": 0.2697841726618705,
+            "rss_peak_kib": 116396,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 90.12950631625343,
+            "vm_steal_percent": 0.22686025408348456,
+            "rss_peak_kib": 43008,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1645.214427828458,
+        "retransmits": 1398,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2510,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 140.04516922359338,
+            "vm_steal_percent": 0.17028522775649213,
+            "rss_peak_kib": 121524,
+            "inner_rtt_ms": {
+              "median": 7.5665,
+              "p95": 10.772
+            },
+            "inner_cwnd_median_mss": 277.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 137.1270950644608,
+            "vm_steal_percent": 0.08357709987463435,
+            "rss_peak_kib": 79952,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.998439999064,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.004085436385933236,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 92.70680786730263,
+            "vm_steal_percent": 0.22016732716864817,
+            "rss_peak_kib": 119840,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 83.7920208295876,
+            "vm_steal_percent": 0.30461270670147955,
+            "rss_peak_kib": 79432,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1588.3004917949927,
+        "retransmits": 1093,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 139.74115872585176,
+            "vm_steal_percent": 0.12474012474012475,
+            "rss_peak_kib": 122372,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1928,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.49655297334837,
+            "vm_steal_percent": 0.3329171868497711,
+            "rss_peak_kib": 79924,
+            "inner_rtt_ms": {
+              "median": 11.594999999999999,
+              "p95": 14.003
+            },
+            "inner_cwnd_median_mss": 233.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.7592570194212,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.2456810091407502,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 90.62958163094955,
+            "vm_steal_percent": 0.26501766784452296,
+            "rss_peak_kib": 121216,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 90.29904619859381,
+            "vm_steal_percent": 0.272108843537415,
+            "rss_peak_kib": 80716,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1585.0674252991175,
+        "retransmits": 1356,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1945,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 136.64655716681068,
+            "vm_steal_percent": 0.2524190155658393,
+            "rss_peak_kib": 121924,
+            "inner_rtt_ms": {
+              "median": 8.969000000000001,
+              "p95": 12.775
+            },
+            "inner_cwnd_median_mss": 288.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 135.58534092500162,
+            "vm_steal_percent": 0.20876826722338204,
+            "rss_peak_kib": 82156,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9946600048061,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00940005333242075,
+        "raw_run": "r02",
+        "label": "s05-perf-tcp-reality-tls-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.12423018778054,
+            "vm_steal_percent": 0.21710811984368214,
+            "rss_peak_kib": 121076,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 84.71017983399815,
+            "vm_steal_percent": 0.2639683238011439,
+            "rss_peak_kib": 81372,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1009.004466116584,
+        "retransmits": 916,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 144.03923043018102,
+            "vm_steal_percent": 0.08347245409015025,
+            "rss_peak_kib": 151652,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 417,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1483,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 95.37044167856395,
+            "vm_steal_percent": 0.2534854245880862,
+            "rss_peak_kib": 40776,
+            "inner_rtt_ms": {
+              "median": 13.8445,
+              "p95": 18.958
+            },
+            "inner_cwnd_median_mss": 317.0,
+            "udp4_sndbuf_errors": 22,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.7573393452719,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.21755733795266127,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.37339279069735,
+            "vm_steal_percent": 0.08944543828264759,
+            "rss_peak_kib": 147244,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.3894167101033,
+            "vm_steal_percent": 0.20040080160320642,
+            "rss_peak_kib": 42536,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 1,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1194.747255450549,
+        "retransmits": 691,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1186,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 141.5944451436275,
+            "vm_steal_percent": 0.3176043557168784,
+            "rss_peak_kib": 151828,
+            "inner_rtt_ms": {
+              "median": 15.8575,
+              "p95": 25.601
+            },
+            "inner_cwnd_median_mss": 286.0,
+            "udp4_sndbuf_errors": 54,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.46829513449492,
+            "vm_steal_percent": 0.20177562550443906,
+            "rss_peak_kib": 42536,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.00329999703,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.005759818025431575,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.7179791828504,
+            "vm_steal_percent": 0.2143163309044149,
+            "rss_peak_kib": 151996,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 2,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 84.21376262146761,
+            "vm_steal_percent": 0.21853146853146854,
+            "rss_peak_kib": 43392,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1083.0668278184924,
+        "retransmits": 795,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 149.80804935169067,
+            "vm_steal_percent": 0.0835421888053467,
+            "rss_peak_kib": 158612,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1661,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 99.70206811441831,
+            "vm_steal_percent": 0.337126000842815,
+            "rss_peak_kib": 43472,
+            "inner_rtt_ms": {
+              "median": 12.927,
+              "p95": 18.813
+            },
+            "inner_cwnd_median_mss": 288.5,
+            "udp4_sndbuf_errors": 14,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9887208256356,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.008356936846318086,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 87.21740111542917,
+            "vm_steal_percent": 0.08396305625524769,
+            "rss_peak_kib": 161344,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.64413281918596,
+            "vm_steal_percent": 0.1929570670525808,
+            "rss_peak_kib": 43464,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1250.3083940385052,
+        "retransmits": 1374,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 3285,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 143.55175896854507,
+            "vm_steal_percent": 0.26064291920069504,
+            "rss_peak_kib": 162940,
+            "inner_rtt_ms": {
+              "median": 12.775500000000001,
+              "p95": 19.118
+            },
+            "inner_cwnd_median_mss": 291.0,
+            "udp4_sndbuf_errors": 88,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 125.85294749765953,
+            "vm_steal_percent": 0.28913672036348614,
+            "rss_peak_kib": 43436,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 70,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.996520009048,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.019850728321763572,
+        "raw_run": "r02",
+        "label": "s06-perf-udp-faketls-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.29677806184777,
+            "vm_steal_percent": 0.30198446937014667,
+            "rss_peak_kib": 163328,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 4,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 84.96182998452909,
+            "vm_steal_percent": 0.2575107296137339,
+            "rss_peak_kib": 43472,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-padding",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1049.020404331801,
+        "retransmits": 961,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 145.51555956259654,
+            "vm_steal_percent": 0.0836470096194061,
+            "rss_peak_kib": 129400,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 247,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1280,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 97.68666141775797,
+            "vm_steal_percent": 0.2933780385582565,
+            "rss_peak_kib": 40876,
+            "inner_rtt_ms": {
+              "median": 12.932,
+              "p95": 17.137
+            },
+            "inner_cwnd_median_mss": 295.0,
+            "udp4_sndbuf_errors": 34,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.7515233414423,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.2618002146039223,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 85.53677560934513,
+            "vm_steal_percent": 0.09119927040583675,
+            "rss_peak_kib": 143412,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.89488442129982,
+            "vm_steal_percent": 0.19047619047619047,
+            "rss_peak_kib": 42864,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 2,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-padding",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1216.2397753046516,
+        "retransmits": 1067,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1831,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 142.2139186997438,
+            "vm_steal_percent": 0.22016732716864817,
+            "rss_peak_kib": 147224,
+            "inner_rtt_ms": {
+              "median": 12.324,
+              "p95": 16.2
+            },
+            "inner_cwnd_median_mss": 324.5,
+            "udp4_sndbuf_errors": 73,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 124.55737708657354,
+            "vm_steal_percent": 0.16440608302507193,
+            "rss_peak_kib": 43364,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.002520006552,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.003529658051970333,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 92.9622009416212,
+            "vm_steal_percent": 0.08760402978537013,
+            "rss_peak_kib": 147820,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 4,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 82.71451435672432,
+            "vm_steal_percent": 0.17937219730941703,
+            "rss_peak_kib": 43428,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-padding",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1108.9589842065072,
+        "retransmits": 542,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 150.6925828443286,
+            "vm_steal_percent": 0.041684035014589414,
+            "rss_peak_kib": 170408,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 45,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1893,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 102.11296789054731,
+            "vm_steal_percent": 0.4187604690117253,
+            "rss_peak_kib": 43508,
+            "inner_rtt_ms": {
+              "median": 15.3285,
+              "p95": 23.01
+            },
+            "inner_cwnd_median_mss": 302.0,
+            "udp4_sndbuf_errors": 54,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.98145980162,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.023045767008942113,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.38185000134429,
+            "vm_steal_percent": 0.12864493996569468,
+            "rss_peak_kib": 172264,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 67.056043903985,
+            "vm_steal_percent": 0.18630647414997673,
+            "rss_peak_kib": 43500,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-padding",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1154.802869255207,
+        "retransmits": 1109,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1563,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 140.84127879008028,
+            "vm_steal_percent": 0.22532672374943669,
+            "rss_peak_kib": 175300,
+            "inner_rtt_ms": {
+              "median": 13.749,
+              "p95": 17.383
+            },
+            "inner_cwnd_median_mss": 309.5,
+            "udp4_sndbuf_errors": 34,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.24262240188193,
+            "vm_steal_percent": 0.24559967253376996,
+            "rss_peak_kib": 43452,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.000420000294,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.014059697952748371,
+        "raw_run": "r02",
+        "label": "s07-perf-udp-padding-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.63204911911342,
+            "vm_steal_percent": 0.18115942028985507,
+            "rss_peak_kib": 175856,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 4,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.20065191544472,
+            "vm_steal_percent": 0.1725625539257981,
+            "rss_peak_kib": 43508,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1135.5177555581472,
+        "retransmits": 1028,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 149.3486505283006,
+            "vm_steal_percent": 0.08375209380234507,
+            "rss_peak_kib": 140456,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 673,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1912,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 101.79075968739154,
+            "vm_steal_percent": 0.29142381348875934,
+            "rss_peak_kib": 40052,
+            "inner_rtt_ms": {
+              "median": 10.8955,
+              "p95": 14.995
+            },
+            "inner_cwnd_median_mss": 279.5,
+            "udp4_sndbuf_errors": 28,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9902201281163,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.01683171361511279,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 84.62424013464788,
+            "vm_steal_percent": 0.12695725772323319,
+            "rss_peak_kib": 138968,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.1365285592628,
+            "vm_steal_percent": 0.26785714285714285,
+            "rss_peak_kib": 40420,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 6,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1185.6238161385656,
+        "retransmits": 1074,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1908,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 140.92445551324886,
+            "vm_steal_percent": 0.31446540880503143,
+            "rss_peak_kib": 149156,
+            "inner_rtt_ms": {
+              "median": 24.127499999999998,
+              "p95": 29.176
+            },
+            "inner_cwnd_median_mss": 369.0,
+            "udp4_sndbuf_errors": 95,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.42337876186575,
+            "vm_steal_percent": 0.25041736227045075,
+            "rss_peak_kib": 41248,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 61,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.010980113095,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00820412524222927,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.38430883246261,
+            "vm_steal_percent": 0.18700327255726976,
+            "rss_peak_kib": 149196,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 6,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 83.8856247982183,
+            "vm_steal_percent": 0.17057569296375266,
+            "rss_peak_kib": 41520,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1083.9609974403486,
+        "retransmits": 1456,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 148.65758195324665,
+            "vm_steal_percent": 0.08371703641691085,
+            "rss_peak_kib": 159320,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 2268,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 100.44782673750356,
+            "vm_steal_percent": 0.2927645336679214,
+            "rss_peak_kib": 41520,
+            "inner_rtt_ms": {
+              "median": 14.1445,
+              "p95": 19.739
+            },
+            "inner_cwnd_median_mss": 315.0,
+            "udp4_sndbuf_errors": 38,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9905206047854,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.015645523878097135,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.0524392311887,
+            "vm_steal_percent": 0.08984725965858041,
+            "rss_peak_kib": 160684,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 67.06038206845861,
+            "vm_steal_percent": 0.2336448598130841,
+            "rss_peak_kib": 41520,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1167.5858732423799,
+        "retransmits": 1405,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1405,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 140.07967724547044,
+            "vm_steal_percent": 0.26929982046678635,
+            "rss_peak_kib": 163232,
+            "inner_rtt_ms": {
+              "median": 13.559000000000001,
+              "p95": 28.455
+            },
+            "inner_cwnd_median_mss": 356.5,
+            "udp4_sndbuf_errors": 74,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 121.09503946125794,
+            "vm_steal_percent": 0.20876826722338204,
+            "rss_peak_kib": 41504,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.00581999127,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.013796278379358507,
+        "raw_run": "r02",
+        "label": "s08-perf-udp-quic-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 92.88614683321313,
+            "vm_steal_percent": 0.1823985408116735,
+            "rss_peak_kib": 163452,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.21275914137993,
+            "vm_steal_percent": 0.17667844522968199,
+            "rss_peak_kib": 41436,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs-awg",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1286.776404691503,
+        "retransmits": 945,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 147.55349727803315,
+            "vm_steal_percent": 0.08274720728175423,
+            "rss_peak_kib": 101388,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 2310,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 112.99187406648679,
+            "vm_steal_percent": 0.3849443969204448,
+            "rss_peak_kib": 39904,
+            "inner_rtt_ms": {
+              "median": 8.377500000000001,
+              "p95": 11.428
+            },
+            "inner_cwnd_median_mss": 249.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.992620421374,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.016197112006367274,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 73.30689074978339,
+            "vm_steal_percent": 0.08676789587852494,
+            "rss_peak_kib": 104804,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 64.72709080094667,
+            "vm_steal_percent": 0.13169446883230904,
+            "rss_peak_kib": 40304,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs-awg",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1487.0882525676213,
+        "retransmits": 1077,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 2361,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 102.43469092749903,
+            "vm_steal_percent": 0.2514668901927913,
+            "rss_peak_kib": 109928,
+            "inner_rtt_ms": {
+              "median": 7.144,
+              "p95": 11.239
+            },
+            "inner_cwnd_median_mss": 246.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 132.9349906676909,
+            "vm_steal_percent": 0.12636899747262004,
+            "rss_peak_kib": 66440,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9960999941501,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0060342400306963384,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 64.8954749952457,
+            "vm_steal_percent": 0.13210039630118892,
+            "rss_peak_kib": 109824,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 72.12454471244943,
+            "vm_steal_percent": 0.0878348704435661,
+            "rss_peak_kib": 67332,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs-awg",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1307.1397230247344,
+        "retransmits": 884,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 150.50531230748317,
+            "vm_steal_percent": 0.041425020712510356,
+            "rss_peak_kib": 114216,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 883,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 115.22954386501273,
+            "vm_steal_percent": 0.2542372881355932,
+            "rss_peak_kib": 67160,
+            "inner_rtt_ms": {
+              "median": 9.535499999999999,
+              "p95": 12.072
+            },
+            "inner_cwnd_median_mss": 240.0,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.990220096821,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00669760389064286,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 75.46873513943336,
+            "vm_steal_percent": 0.1303780964797914,
+            "rss_peak_kib": 113720,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 65.63618468101681,
+            "vm_steal_percent": 0.16827934371055953,
+            "rss_peak_kib": 67268,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-obfs-awg",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1423.3366353990095,
+        "retransmits": 724,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1356,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 99.42557462154284,
+            "vm_steal_percent": 0.25125628140703515,
+            "rss_peak_kib": 113840,
+            "inner_rtt_ms": {
+              "median": 6.386,
+              "p95": 10.015
+            },
+            "inner_cwnd_median_mss": 238.5,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 130.22056035308498,
+            "vm_steal_percent": 0.12610340479192939,
+            "rss_peak_kib": 67248,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9962200056699,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.005244545936365246,
+        "raw_run": "r02",
+        "label": "s09-perf-tcp-obfs-awg-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 65.30637731520702,
+            "vm_steal_percent": 0.18357044515832951,
+            "rss_peak_kib": 114176,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 72.79770840978111,
+            "vm_steal_percent": 0.17368649587494572,
+            "rss_peak_kib": 67396,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls-awg",
+      "family": 4,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1072.8938807265506,
+        "retransmits": 1073,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w00",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 144.37354641101317,
+            "vm_steal_percent": 0.12701100762066045,
+            "rss_peak_kib": 142416,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1497,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 97.94202221604849,
+            "vm_steal_percent": 0.41254125412541254,
+            "rss_peak_kib": 42192,
+            "inner_rtt_ms": {
+              "median": 12.689,
+              "p95": 18.212
+            },
+            "inner_cwnd_median_mss": 291.5,
+            "udp4_sndbuf_errors": 28,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.9884807556624,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.0106821392574543,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w01",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 85.54744060715915,
+            "vm_steal_percent": 0.1310615989515072,
+            "rss_peak_kib": 142416,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 65.30573104432392,
+            "vm_steal_percent": 0.18198362147406733,
+            "rss_peak_kib": 42156,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 6,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls-awg",
+      "family": 4,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1234.1733349133324,
+        "retransmits": 1133,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w02",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1487,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 141.8580069087685,
+            "vm_steal_percent": 0.26702269692923897,
+            "rss_peak_kib": 155292,
+            "inner_rtt_ms": {
+              "median": 11.765,
+              "p95": 17.652
+            },
+            "inner_cwnd_median_mss": 313.5,
+            "udp4_sndbuf_errors": 72,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 123.83654688723034,
+            "vm_steal_percent": 0.255863539445629,
+            "rss_peak_kib": 43300,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.99951999808,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.011202101451348392,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w03",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 93.20872291320367,
+            "vm_steal_percent": 0.17667844522968199,
+            "rss_peak_kib": 155240,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 2,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 85.11594282065333,
+            "vm_steal_percent": 0.176056338028169,
+            "rss_peak_kib": 43296,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls-awg",
+      "family": 6,
+      "direction": "upload",
+      "TCP": {
+        "mbps": 1070.0062813975012,
+        "retransmits": 988,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w04",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 147.3806964070859,
+            "vm_steal_percent": 0.04182350480970305,
+            "rss_peak_kib": 159240,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 1495,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 98.25412105744117,
+            "vm_steal_percent": 0.33153750518027353,
+            "rss_peak_kib": 43540,
+            "inner_rtt_ms": {
+              "median": 13.923,
+              "p95": 18.938
+            },
+            "inner_cwnd_median_mss": 315.5,
+            "udp4_sndbuf_errors": 13,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 599.987100318622,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.00791042369270079,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w05",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 86.9618905385354,
+            "vm_steal_percent": 0.0878348704435661,
+            "rss_peak_kib": 160600,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 66.13677356148128,
+            "vm_steal_percent": 0.180099054479964,
+            "rss_peak_kib": 43524,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 3,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls-awg",
+      "family": 6,
+      "direction": "download",
+      "TCP": {
+        "mbps": 1184.36398639923,
+        "retransmits": 1710,
+        "loss_percent": null,
+        "jitter_ms": null,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w06",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 1725,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 140.77112397643936,
+            "vm_steal_percent": 0.21949078138718173,
+            "rss_peak_kib": 162164,
+            "inner_rtt_ms": {
+              "median": 13.6065,
+              "p95": 17.534
+            },
+            "inner_cwnd_median_mss": 310.0,
+            "udp4_sndbuf_errors": 64,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 123.23277685598966,
+            "vm_steal_percent": 0.21331058020477817,
+            "rss_peak_kib": 43548,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 708,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      },
+      "UDP": {
+        "mbps": 600.002040003672,
+        "retransmits": null,
+        "loss_percent": 0,
+        "jitter_ms": 0.004164295167732397,
+        "raw_run": "r02",
+        "label": "s10-perf-udp-faketls-awg-required-w07",
+        "resources": {
+          "server": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 92.29320198024487,
+            "vm_steal_percent": 0.18458698661744347,
+            "rss_peak_kib": 162744,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          },
+          "client": {
+            "tun_tx_drops": 0,
+            "qdisc_drops": 0,
+            "cpu_one_core_percent": 84.79726716887443,
+            "vm_steal_percent": 0.1756697408871322,
+            "rss_peak_kib": 43460,
+            "inner_rtt_ms": null,
+            "inner_cwnd_median_mss": null,
+            "udp4_sndbuf_errors": 0,
+            "udp4_rcvbuf_errors": 0,
+            "udp6_sndbuf_errors": 0,
+            "udp6_rcvbuf_errors": 0
+          }
+        }
+      }
+    }
+  ]
+}

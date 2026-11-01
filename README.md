@@ -105,7 +105,7 @@ Something went wrong? → **[Troubleshooting (EN)](docs/eng/manuals/TROUBLESHOOT
 | `qeli/` | Rust daemon: server, client CLI, protocol core, web panel |
 | `qeli-win/`, `qeli-mac/` | Desktop clients (C#/.NET, shared core in `qeli-shared/`) — [Windows GUI](qeli-win/README.md) · [Windows CLI](docs/eng/manuals/WINDOWS-CLI.md) · [macOS](qeli-mac/README.md) |
 | `qeli-android/` | Android client (Kotlin) — [README](qeli-android/README.md) |
-| `qeli-ios/` | iOS client (Swift), feature-complete but untested on a device — [README](qeli-ios/README.md) · [MDM](docs/eng/manuals/IOS-MDM.md) |
+| `qeli-ios/` | iOS client (Swift), feature-complete but untested on a device — [README](qeli-ios/README.md) · [MDM](qeli-ios/MDM/README.md#en) |
 | `qeli-openwrt/` | Router build (Keenetic / OpenWrt) — [README](qeli-openwrt/README.md) |
 | `docs/` | Documentation — start at [docs/ru/index.md](docs/ru/index.md) / [docs/eng/index.md](docs/eng/index.md) |
 | `release/` | Packaging: [Docker](release/docker/README.md), deb, release artefacts |

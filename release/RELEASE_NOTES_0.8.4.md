@@ -91,10 +91,33 @@ Windows GUI по-прежнему поставляется отдельными 
 
 Подробнее: [изменения](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/WINDOWS-CLI.md),
-[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/MACOS-GUI.md),
+[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/qeli-mac/README.md#gui-memory),
 [UDP-буферы](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/UDP-BUFFERS.md),
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reference/REALITY-INNER-PQ.md),
 [сценарии](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/scenarios/README.md).
+
+### Проверка скорости итогового 0.8.4 — 1 ноября 2026
+
+Два лабораторных узла по **2 vCPU / 2 ГиБ**, i5-8500, Linux 6.12.111, iperf3 3.18; Recordizer **required / opportunistic**, MTU 1400, TUN-очереди 1000. Проверенный portable amd64, SHA256 `2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f`. Один проход: TCP P4 и UDP600, 10+2 с, IPv4/IPv6 up/down; 96 нагрузочных окон. Временная RX-политика теста — 4 МиБ для Qeli/iperf, не проверка auto до 16 МиБ после установки.
+
+В ячейке: **TCP / UDP (UDP loss %)**, Мбит/с, n=1. Это не парный A/B и не доказательство отсутствия регрессии.
+
+| Profile | IPv4 upload | IPv4 download | IPv6 upload | IPv6 download |
+|---|---:|---:|---:|---:|
+| tcp-plain-raw | 1751.5 / 600.0 (0.000%) | 2001.0 / 600.0 (0.000%) | 1714.2 / 600.0 (0.000%) | 2000.1 / 600.0 (0.000%) |
+| tcp-faketls | 1764.3 / 599.7 (0.000%) | 1979.5 / 600.0 (0.000%) | 1713.0 / 600.0 (0.000%) | 1981.4 / 600.0 (0.000%) |
+| tcp-padding | 1740.8 / 600.0 (0.000%) | 1966.4 / 600.0 (0.000%) | 1699.9 / 600.0 (0.000%) | 1975.0 / 600.0 (0.000%) |
+| tcp-frag | 1794.4 / 600.0 (0.000%) | 1982.4 / 600.0 (0.000%) | 1741.0 / 599.8 (0.000%) | 1939.1 / 600.0 (0.000%) |
+| tcp-obfs | 1244.2 / 600.0 (0.000%) | 1409.7 / 600.0 (0.000%) | 1293.0 / 600.0 (0.000%) | 1420.8 / 600.0 (0.000%) |
+| tcp-reality | 1735.1 / 600.0 (0.000%) | 1957.3 / 600.0 (0.000%) | 1727.8 / 600.0 (0.000%) | 1980.4 / 600.0 (0.000%) |
+| tcp-reality-tls | 1609.5 / 600.0 (0.000%) | 1645.2 / 600.0 (0.000%) | 1588.3 / 599.8 (0.000%) | 1585.1 / 600.0 (0.000%) |
+| udp-faketls | 1009.0 / 599.8 (0.000%) | 1194.7 / 600.0 (0.000%) | 1083.1 / 600.0 (0.000%) | 1250.3 / 600.0 (0.000%) |
+| udp-padding | 1049.0 / 599.8 (0.000%) | 1216.2 / 600.0 (0.000%) | 1109.0 / 600.0 (0.000%) | 1154.8 / 600.0 (0.000%) |
+| udp-quic | 1135.5 / 600.0 (0.000%) | 1185.6 / 600.0 (0.000%) | 1084.0 / 600.0 (0.000%) | 1167.6 / 600.0 (0.000%) |
+| tcp-obfs-awg | 1286.8 / 600.0 (0.000%) | 1487.1 / 600.0 (0.000%) | 1307.1 / 600.0 (0.000%) | 1423.3 / 600.0 (0.000%) |
+| udp-faketls-awg | 1072.9 / 600.0 (0.000%) | 1234.2 / 600.0 (0.000%) | 1070.0 / 600.0 (0.000%) | 1184.4 / 600.0 (0.000%) |
+
+UDP600 loss >1%: **0/48** окон; максимальный модуль baseline drift **3.04%**. Retransmits и TUN drops не скрыты: [полная таблица и ограничения](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reports/RELEASE-084-SPEED12-2026-11-01.md). Сохранён первичный отказ наблюдателя; после исправления ожидания маркера продолжены только оставшиеся профили. Обе ВМ восстановлены, raw сохранены отдельно. UDP TUN TX drops: **0**. При неограниченной TCP P4 нагрузке: **542–1866 retransmits/окно**, суммарно **93495 TUN TX drops** за наблюдение с прогревом; это не беспотерьный TCP и не сопоставимые интервалы счётчиков.
 
 ## English
 
@@ -182,7 +205,30 @@ The release remains unpublished.
 
 Details: [changelog](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/WINDOWS-CLI.md),
-[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/MACOS-GUI.md),
+[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/qeli-mac/README.md#gui-memory-en),
 [UDP buffers](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/UDP-BUFFERS.md),
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reference/REALITY-INNER-PQ.md),
 [scenarios](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/scenarios/README.md).
+
+### Final 0.8.4 speed check — 1 November 2026
+
+Two lab nodes, **2 vCPU / 2 GiB** each, i5-8500, Linux 6.12.111, iperf3 3.18; Recordizer **required / opportunistic**, MTU 1400, TUN queues 1000. Tested portable amd64, SHA256 `2a527ccda84f5d6bb4306e2741ec0432223ae9bfcac623f747be77593dea855f`. One pass: TCP P4 and UDP600, 10+2 s, IPv4/IPv6 up/down; 96 load windows. Temporary lab RX policy: 4 MiB for Qeli/iperf, not packaged auto-16-MiB qualification.
+
+Each cell: **TCP / UDP (UDP loss %)**, Mbps, n=1. Not a matched A/B or proof of no regression.
+
+| Profile | IPv4 upload | IPv4 download | IPv6 upload | IPv6 download |
+|---|---:|---:|---:|---:|
+| tcp-plain-raw | 1751.5 / 600.0 (0.000%) | 2001.0 / 600.0 (0.000%) | 1714.2 / 600.0 (0.000%) | 2000.1 / 600.0 (0.000%) |
+| tcp-faketls | 1764.3 / 599.7 (0.000%) | 1979.5 / 600.0 (0.000%) | 1713.0 / 600.0 (0.000%) | 1981.4 / 600.0 (0.000%) |
+| tcp-padding | 1740.8 / 600.0 (0.000%) | 1966.4 / 600.0 (0.000%) | 1699.9 / 600.0 (0.000%) | 1975.0 / 600.0 (0.000%) |
+| tcp-frag | 1794.4 / 600.0 (0.000%) | 1982.4 / 600.0 (0.000%) | 1741.0 / 599.8 (0.000%) | 1939.1 / 600.0 (0.000%) |
+| tcp-obfs | 1244.2 / 600.0 (0.000%) | 1409.7 / 600.0 (0.000%) | 1293.0 / 600.0 (0.000%) | 1420.8 / 600.0 (0.000%) |
+| tcp-reality | 1735.1 / 600.0 (0.000%) | 1957.3 / 600.0 (0.000%) | 1727.8 / 600.0 (0.000%) | 1980.4 / 600.0 (0.000%) |
+| tcp-reality-tls | 1609.5 / 600.0 (0.000%) | 1645.2 / 600.0 (0.000%) | 1588.3 / 599.8 (0.000%) | 1585.1 / 600.0 (0.000%) |
+| udp-faketls | 1009.0 / 599.8 (0.000%) | 1194.7 / 600.0 (0.000%) | 1083.1 / 600.0 (0.000%) | 1250.3 / 600.0 (0.000%) |
+| udp-padding | 1049.0 / 599.8 (0.000%) | 1216.2 / 600.0 (0.000%) | 1109.0 / 600.0 (0.000%) | 1154.8 / 600.0 (0.000%) |
+| udp-quic | 1135.5 / 600.0 (0.000%) | 1185.6 / 600.0 (0.000%) | 1084.0 / 600.0 (0.000%) | 1167.6 / 600.0 (0.000%) |
+| tcp-obfs-awg | 1286.8 / 600.0 (0.000%) | 1487.1 / 600.0 (0.000%) | 1307.1 / 600.0 (0.000%) | 1423.3 / 600.0 (0.000%) |
+| udp-faketls-awg | 1072.9 / 600.0 (0.000%) | 1234.2 / 600.0 (0.000%) | 1070.0 / 600.0 (0.000%) | 1184.4 / 600.0 (0.000%) |
+
+UDP600 loss >1%: **0/48** windows; maximum absolute baseline drift **3.04%**. Retransmits and TUN drops are retained in the [full table and limits](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reports/RELEASE-084-SPEED12-2026-11-01.md). The initial observer failure was retained; only remaining profiles ran after fixing marker waiting. Both VMs restored, separate raw retained. UDP TUN TX drops: **0**. Uncapped TCP P4: **542–1866 retransmits/window**, **93495 total TUN TX drops** over observation including warm-up; TCP is not lossless and counter intervals differ.

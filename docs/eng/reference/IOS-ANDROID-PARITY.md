@@ -97,8 +97,8 @@ The following list describes implementation, not an assertion of Apple runtime p
   tunnel from the widget process, so it connects without foregrounding the app (matching
   the Android widget / Quick Settings tile); if the extension cannot reach the tunnel the
   request is queued and applied at the next app launch.
-- Managed app configuration reader and truthful Per-App VPN / IKEv2 Always On MDM
-  templates.
+- Managed app configuration reader and truthful Per-App VPN / IKEv2 Always On
+  [MDM templates](../../../qeli-ios/MDM/README.md#en).
 
 ## Remaining verification milestones
 

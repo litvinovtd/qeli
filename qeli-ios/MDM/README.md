@@ -1,11 +1,245 @@
 # Qeli MDM templates · Шаблоны MDM Qeli
 
-Administrative example profiles and managed app configuration. Replace sample identifiers
-and credentials before use; consumer Packet Tunnel VPN is not Apple IKEv2 Always On.
-Административные примеры: замените идентификаторы и учётные данные перед применением.
-Consumer Packet Tunnel VPN не является Apple IKEv2 Always On.
+[Русский](#ru) · [English](#en)
 
-Full deployment guide / Полное руководство:
+<a id="ru"></a>
 
-- [Русский](../../docs/ru/manuals/IOS-MDM.md)
-- [English](../../docs/eng/manuals/IOS-MDM.md)
+## Русский
+
+Файлы в [`qeli-ios/MDM`](./) — шаблоны администратора,
+а не функции обычного consumer-приложения. Перед развёртыванием проверьте и
+подпишите изменённые профили средствами MDM. Замените все примерные bundle ID,
+UUID, серверы, идентификаторы профилей и учётные данные.
+
+### Qeli Per-App VPN
+
+[`Qeli-PerApp-VPN.mobileconfig`](./Qeli-PerApp-VPN.mobileconfig)
+использует payload Apple `com.apple.vpn.managed.applayer` и Packet Tunnel Provider
+Qeli. Идентификаторы должны соответствовать
+[`Config/Signing.xcconfig`](../Config/Signing.xcconfig):
+
+- `VPNSubType` — bundle ID содержащего приложения Qeli (`QELI_APP_BUNDLE_ID`).
+- `VPN.ProviderBundleIdentifier` — `QELI_TUNNEL_BUNDLE_ID`.
+- `VPNUUID` — постоянный UUID, назначаемый MDM каждому управляемому приложению.
+- `VendorConfig.profileID` — UUID профиля, уже существующего в шифрованном
+  App Group store Qeli. Пример не доставляет учётные данные или текст профиля.
+
+На iOS целевое приложение также должно быть управляемым. Свяжите его с VPN,
+задав тот же `VPNUUID` в атрибутах приложения. Фрагмент MDM `InstallApplication`:
+
+```xml
+<key>Attributes</key>
+<dict>
+    <key>VPNUUID</key>
+    <string>1653840A-E082-4CC2-877A-A8D188C183B6</string>
+</dict>
+```
+
+Declarative Device Management использует эквивалентное свойство
+`Attributes.VPNUUID` в декларации управляемого приложения. Обычная установка
+App Store не позволяет назначить произвольные приложения этому VPN; Qeli
+не пытается перечислять установленные приложения.
+
+Документация Apple:
+
+- https://developer.apple.com/documentation/devicemanagement/applayervpn
+- https://developer.apple.com/documentation/devicemanagement/installapplicationcommand/command-data.dictionary/attributes-data.dictionary
+
+### Always On VPN
+
+[`Apple-IKEv2-AlwaysOn.mobileconfig`](./Apple-IKEv2-AlwaysOn.mobileconfig)
+описывает настоящий механизм Apple Always On. Он требует supervised-устройства,
+управляемого через MDM, и сервера IKEv2. Этот шаблон **не** делает собственный
+Packet Tunnel Provider Qeli Always On и несовместим с wire-протоколом Qeli.
+На обычных устройствах используйте настройку VPN On Demand в Qeli.
+
+Placeholder общего секрета делает пример самодостаточным, но для организации
+предпочтительна аутентификация сертификатом с отдельно доставленным identity
+payload. Не развёртывайте placeholder secret и имена хостов `.invalid`.
+
+Документация Apple:
+
+- https://support.apple.com/guide/deployment/depae3d361d0/web
+- https://developer.apple.com/documentation/devicemanagement/vpn
+- https://developer.apple.com/documentation/devicemanagement/vpn/alwayson-data.dictionary
+
+### Управляемая конфигурация приложения
+
+[`Qeli-Managed-App-Configuration.plist`](./Qeli-Managed-App-Configuration.plist)
+— словарь legacy managed app configuration, а не configuration profile.
+`ManagedConfigurationReader` Qeli читает его из
+`UserDefaults.standard["com.apple.configuration.managed"]` и принимает:
+
+- `configurationVersion` — точную представимую целочисленную версию схемы;
+  Boolean, дробные значения и переполнение отклоняются.
+- `activeProfileID` — строку UUID существующего шифрованного профиля.
+- `onDemandEnabled` — Boolean policy value.
+- `widgetControlsEnabled` — Boolean policy value.
+
+Принимаются настоящие Boolean и legacy точные числовые 0/1. Дробные,
+нефинитные и неверно типизированные policy values игнорируются без усечения.
+Число 1.0 остаётся точным целочисленным значением.
+
+Reader не имеет побочных эффектов. При запуске и каждом переходе приложения
+в активное состояние `AppModel` отдаёт приоритет managed values: выбирает профиль
+для следующего подключения, применяет managed On Demand и переносит политику
+widget controls в App Group, чтобы расширение могло отказать запрещённому действию.
+Некорректный `activeProfileID` или UUID без соответствующего локального профиля
+приводит к безопасному отказу: Qeli блокирует ручной запуск и виджет, останавливает
+прежний туннель, удаляет On Demand rules и отключает устаревшую provider configuration.
+Текст профиля, пароли и private keys не принимаются. В новых managed deployments
+Apple ManagedApp framework может заменить legacy доставку через `UserDefaults`.
+
+#### Порядок первоначальной настройки
+
+Политика содержит ссылку на UUID, а не сам профиль. Он должен существовать
+на устройстве **до** получения политики; порядок шагов существенен:
+
+1. Установите Qeli как **управляемое** приложение. Legacy managed app configuration
+   получают приложения, установленные MDM; sideloaded/App Store copies ключ не видят.
+2. Доставьте профиль и сохраните его UUID. Qeli намеренно не принимает текст,
+   пароль или ключ через MDM: используйте `qeli://`, QR либо INI import, выполненный
+   пользователем или подготовленный вместе с Per-App VPN payload.
+3. Затем доставьте словарь с `activeProfileID`, равным этому UUID.
+
+Доставка шага 3 первой — типичная ошибка. Несуществующий UUID считается нарушением
+политики, а не её отсутствием: блокируются ручной запуск и виджет, работающий
+туннель останавливается, On Demand rules удаляются, старая provider configuration
+отключается. Управляемое устройство не должно незаметно переключаться на профиль,
+выбранный пользователем, но неверный порядок развёртывания выглядит как отказ приложения.
+
+#### Откат
+
+Удалите managed configuration или только `activeProfileID`: управление вернётся
+пользователю, приложение выберет локальный профиль, а заданное политикой значение
+On Demand уступит собственной настройке приложения. Удаление политики **не**
+удаляет профили, credentials или provider configuration, а прекращает их навязывание.
+
+При окончательной передаче устройства сначала удалите политику и проверьте
+подключение локального профиля, затем снимайте управление или удаляйте приложение.
+Обратный порядок оставляет последнее принудительное состояние без механизма снятия.
+
+Документация Apple:
+
+- https://developer.apple.com/documentation/devicemanagement/configuring-managed-apps-and-extensions
+
+<a id="en"></a>
+
+## English
+
+Files in [`qeli-ios/MDM`](./) are administrator templates, not consumer-app features. Validate and
+sign edited profiles in the MDM product before deployment. Every example bundle ID,
+UUID, server, profile ID and credential must be replaced.
+
+### Qeli per-app VPN
+
+[`Qeli-PerApp-VPN.mobileconfig`](./Qeli-PerApp-VPN.mobileconfig) uses Apple's `com.apple.vpn.managed.applayer`
+payload and the Qeli packet tunnel provider. Keep these identifiers aligned with
+[`Config/Signing.xcconfig`](../Config/Signing.xcconfig):
+
+- `VPNSubType`: the containing Qeli app bundle ID (`QELI_APP_BUNDLE_ID`).
+- `VPN.ProviderBundleIdentifier`: `QELI_TUNNEL_BUNDLE_ID`.
+- `VPNUUID`: the stable UUID the MDM service also assigns to each managed app.
+- `VendorConfig.profileID`: a profile UUID already present in Qeli's encrypted
+  App Group store. The example does not provision credentials or profile text.
+
+On iOS, the target app must itself be managed. Associate it with the VPN by setting
+the same `VPNUUID` in the managed app's attributes. For an MDM `InstallApplication`
+command, the relevant fragment is:
+
+```xml
+<key>Attributes</key>
+<dict>
+    <key>VPNUUID</key>
+    <string>1653840A-E082-4CC2-877A-A8D188C183B6</string>
+</dict>
+```
+
+Declarative Device Management uses the equivalent `Attributes.VPNUUID` property on
+the managed app declaration. A normal App Store install can't assign arbitrary apps
+to this VPN and Qeli doesn't attempt to enumerate installed apps.
+
+Apple references:
+
+- https://developer.apple.com/documentation/devicemanagement/applayervpn
+- https://developer.apple.com/documentation/devicemanagement/installapplicationcommand/command-data.dictionary/attributes-data.dictionary
+
+### Always On VPN
+
+[`Apple-IKEv2-AlwaysOn.mobileconfig`](./Apple-IKEv2-AlwaysOn.mobileconfig) documents Apple's actual Always On facility. It
+requires a supervised, MDM-managed device and an IKEv2 server. It does **not** make
+the Qeli custom Packet Tunnel Provider Always On and is not compatible with the Qeli
+wire protocol. For consumer devices use Qeli's VPN On Demand setting instead.
+
+The shared-secret placeholder keeps the example self-contained, but certificate
+authentication with a separately deployed identity payload is preferable in a real
+organization. Never deploy the placeholder secret or `.invalid` host names.
+
+Apple references:
+
+- https://support.apple.com/guide/deployment/depae3d361d0/web
+- https://developer.apple.com/documentation/devicemanagement/vpn
+- https://developer.apple.com/documentation/devicemanagement/vpn/alwayson-data.dictionary
+
+### Managed app configuration
+
+[`Qeli-Managed-App-Configuration.plist`](./Qeli-Managed-App-Configuration.plist) is the dictionary to send as legacy managed
+app configuration, not a configuration profile. Qeli's standalone
+`ManagedConfigurationReader` reads it from
+`UserDefaults.standard["com.apple.configuration.managed"]` and accepts:
+
+- `configurationVersion` — exact, representable integer schema version (Boolean,
+  fractions and overflow are rejected).
+- `activeProfileID` — UUID string referring to an existing encrypted profile.
+- `onDemandEnabled` — Boolean policy value.
+- `widgetControlsEnabled` — Boolean policy value.
+
+Actual Boolean policies and legacy exact numeric 0/1 are accepted; fractional,
+nonfinite and wrong-type policy values are ignored rather than truncated. A numeric
+1.0 remains an exact integer value.
+
+The reader itself is side-effect free. `AppModel` gives these managed values
+precedence at launch and whenever the app becomes active: it selects the managed
+profile for the next connection, enforces the managed On Demand value, and mirrors
+the widget-control policy into the App Group so the widget extension can reject
+disabled actions. An `activeProfileID` key that is malformed or does not match an
+encrypted local profile fails closed: Qeli blocks manual/widget starts, stops the
+old tunnel, removes On Demand rules and disables the stale provider configuration.
+It never accepts profile text, passwords, or private keys. On newer managed
+deployments, Apple's ManagedApp framework can replace this legacy `UserDefaults`
+delivery path.
+
+#### Bootstrap order (this one bites)
+
+The policy references a profile by UUID; it never carries the profile itself. So the
+profile has to exist on the device **before** the configuration arrives, and the order is
+not interchangeable:
+
+1. Install Qeli as a **managed** app. Legacy managed app configuration is only delivered
+   to apps the MDM installed — sideloaded or App Store copies never see the key.
+2. Get the profile onto the device and note its UUID. Qeli accepts no profile text,
+   password or key over MDM by design, so this step is a `qeli://` link, a QR scan or an
+   INI import — done by the user or seeded alongside a Per-App VPN payload.
+3. Only then push the configuration dictionary with `activeProfileID` set to that UUID.
+
+Pushing step 3 first is the common mistake, and it does not fail quietly: an
+`activeProfileID` that matches nothing is treated as a policy violation, not as "no
+policy". Qeli fails closed — manual and widget starts are blocked, a running tunnel is
+stopped, On Demand rules are removed and the stale provider configuration is disabled.
+That is deliberate (a managed device must not silently fall back to a user-chosen
+profile), but it means a mis-ordered rollout looks like a broken app.
+
+#### Rollback
+
+Remove the managed configuration — or just the `activeProfileID` key — and control returns
+to the user: the app goes back to the locally selected profile, and an On Demand value
+that came from policy reverts to the app's own setting. Removing the policy does **not**
+delete profiles, credentials or the provider configuration; it only stops enforcing them.
+
+To hand a device back permanently, remove the policy first and confirm the app connects on
+a local profile, then unmanage or remove the app. Doing it the other way round leaves the
+last enforced state in place with nothing left to lift it.
+
+Apple reference:
+
+- https://developer.apple.com/documentation/devicemanagement/configuring-managed-apps-and-extensions

@@ -1,6 +1,6 @@
 # Qeli for iOS
 
-Documentation: MDM [RU](../docs/ru/manuals/IOS-MDM.md) / [EN](../docs/eng/manuals/IOS-MDM.md); parity [RU](../docs/ru/reference/IOS-ANDROID-PARITY.md) / [EN](../docs/eng/reference/IOS-ANDROID-PARITY.md); audit [RU](../docs/ru/reports/IOS-ANDROID-PARITY-2026-10-28.md) / [EN](../docs/eng/reports/IOS-ANDROID-PARITY-2026-10-28.md).
+Documentation: MDM [RU](MDM/README.md#ru) / [EN](MDM/README.md#en); parity [RU](../docs/ru/reference/IOS-ANDROID-PARITY.md) / [EN](../docs/eng/reference/IOS-ANDROID-PARITY.md); audit [RU](../docs/ru/reports/IOS-ANDROID-PARITY-2026-10-28.md) / [EN](../docs/eng/reports/IOS-ANDROID-PARITY-2026-10-28.md).
 
 Native iPhone client for the qeli protocol. The project mirrors the Android client's
 three primary surfaces (Connection, Profiles, Log) and uses a Packet Tunnel Provider
@@ -235,7 +235,7 @@ Extension process, and must be re-measured on a physical device before release.
   matching the Android implementation.
 
 Managed Per-App VPN and Apple's IKEv2-only Always On behavior are documented in
-[`MDM/README.md`](../docs/eng/manuals/IOS-MDM.md). The examples don't claim consumer or custom-provider
+[`MDM/README.md`](MDM/README.md#en). The examples don't claim consumer or custom-provider
 capabilities that iOS doesn't expose.
 
 Configuration parsing, validation, defaults and portable policies use the same Rust library.

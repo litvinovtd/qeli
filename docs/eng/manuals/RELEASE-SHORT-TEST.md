@@ -1,5 +1,10 @@
 # Short laboratory test before a release
 
+Separate [final 0.8.4 short run across all 12 profiles](../reports/RELEASE-084-SPEED12-2026-11-01.md):
+required/opportunistic, TCP P4 and UDP600 IPv4/IPv6 up/down, n=1. This is a bounded
+speed smoke, not the complete version-2 plan below or a matched A/B. The report
+retains the initial observer failure, remaining-profile continuation and VM restoration.
+
 The test checks transports and repeatable performance on two dedicated Linux guests.
 It replaces broad VPN comparisons in routine speed testing, not CI, platform/security
 qualification or mandatory long release-soak gates. Competitors and precise UDP ceilings
