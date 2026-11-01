@@ -790,7 +790,7 @@ only / Unix / none). If you plan to compare the app log against the server's, se
 > platform-imposed differences: per-app routing is MDM-only, and VPN On Demand stands in
 > for boot auto-connect — see [`docs/eng/reference/IOS-ANDROID-PARITY.md`](../reference/IOS-ANDROID-PARITY.md).
 
-> **macOS 0.8.3:** choose `Qeli-macos-arm64.tar.gz` for Apple Silicon or
+> **macOS 0.8.4:** choose `Qeli-macos-arm64.tar.gz` for Apple Silicon or
 > `Qeli-macos-x86_64.tar.gz` for Intel. Each archive contains a self-contained
 > `Qeli.app`; do not combine their contents. macOS 15 or newer is required.
 >
@@ -804,7 +804,7 @@ only / Unix / none). If you plan to compare the app log against the server's, se
 
 ### 8.2. Linux CLI client
 
-Updated development 0.8.2 clients set their owned Linux TUN queue to `1000`
+The 0.8.4 clients set their owned Linux TUN queue to `1000`
 packets without extra configuration. To select a value, add `tun.tx_queue_len = 1000`
 (or `500` for the previous lab size) to `[qeli]` in the client file itself.
 Stop/start that client after editing; a server reload does not apply it.

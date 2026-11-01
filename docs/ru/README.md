@@ -1,6 +1,6 @@
 # Qeli — обфусцированный VPN 
 
-> Документация **0.8.2 Beta**. Статус публикации и доступные загрузки — в [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [Описание 0.8.2](../../release/RELEASE_NOTES_0.8.2.md) · [Статус аудита и границы проверок](plans/FULL-SYSTEM-AUDIT.md).
+> Документация кандидата **0.8.4 Beta**. Статус публикации и доступные загрузки — в [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [Описание 0.8.4](../../release/RELEASE_NOTES_0.8.4.md) · [Статус аудита и границы проверок](plans/FULL-SYSTEM-AUDIT.md).
 
 **Qeli** (Quick Easy Link IP) — self-host VPN с собственным L4-протоколом и
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/

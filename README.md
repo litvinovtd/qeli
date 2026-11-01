@@ -113,9 +113,9 @@ Something went wrong? → **[Troubleshooting (EN)](docs/eng/manuals/TROUBLESHOOT
 
 ## Status
 
-Release materials for **qeli 0.8.2 Beta**, following a 37-area internal audit focused on
+Release preparation for **qeli 0.8.4 Beta**, building on a 37-area internal audit focused on
 consistent configuration, controlled network recovery and reliable client operation.
-See the [bilingual release notes](release/RELEASE_NOTES_0.8.2.md) for the audit scope,
+See the [bilingual release notes](release/RELEASE_NOTES_0.8.4.md) for the audit scope,
 upgrade steps, packaging and accepted limitations. Publication status and available
 downloads are shown in [GitHub Releases](https://github.com/litvinovtd/qeli/releases).
 

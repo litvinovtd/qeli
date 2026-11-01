@@ -13,8 +13,8 @@ Run `qeli --version` first:
 
 - **0.8.3:** post_up runs once per process. A route installed by the hook will not restore
   itself after full reconnect; the automatic recovery recipe below does not apply to this version.
-- **Planned 0.8.4:** post_up will repeat after successful TUN recreation. This has passed
-  candidate testing, but the release is not published yet. The instructions below target this version.
+- **0.8.4:** post_up repeats after successful TUN recreation. This has passed
+  candidate testing. The instructions below target this version; check GitHub Releases for publication status.
 
 ## Contents
 

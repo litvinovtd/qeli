@@ -34,6 +34,36 @@ class GuideReleaseTests(unittest.TestCase):
                 text += f'https://github.com/litvinovtd/qeli/releases/download/v{package}/qeli_{package}_amd64.deb\n'
                 path.write_text(text, encoding='utf8')
 
+    def overview_files(self, value):
+        sources = {
+            'README.md': f'Release preparation for **qeli {value} Beta**\n(release/RELEASE_NOTES_{value}.md)',
+            'docs/ru/README.md': f'Документация кандидата **{value} Beta**\n(../../release/RELEASE_NOTES_{value}.md)',
+            'docs/eng/README.md': f'**{value} Beta** candidate documentation\n(../../release/RELEASE_NOTES_{value}.md)',
+        }
+        for name, text in sources.items():
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding='utf8')
+        return version.OVERVIEW_TARGETS
+
+    def test_active_overview_status_and_release_notes_cannot_remain_stale(self):
+        targets = self.overview_files('0.8.2')
+        self.assertEqual(len(targets), 6)
+        version.apply(targets, '0.8.4', False)
+        self.assertEqual(len(version.problems), 6)
+
+    def test_overview_status_and_release_notes_are_stamped_together(self):
+        targets = self.overview_files('0.8.2')
+        with contextlib.redirect_stdout(io.StringIO()):
+            version.apply(targets, '0.8.4', True)
+        version.apply(targets, '0.8.4', False)
+        self.assertEqual(version.problems, [])
+
+    def test_overviews_can_name_a_planned_release_above_the_development_version(self):
+        targets = self.overview_files('0.8.0')
+        version.apply(targets, '0.8.0', False)
+        self.assertEqual(version.problems, [])
+        self.assertFalse(any(target in version.DEV_TARGETS for target in targets))
+
     def test_prepared_target_passes_before_and_after_tag(self):
         self.guides()
         for public in ('0.8.1', '0.8.2'):

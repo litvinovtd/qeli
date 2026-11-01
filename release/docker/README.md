@@ -42,13 +42,13 @@ version with a published, non-prerelease GitHub Release; it does not follow beta
 An explicit maintainer recovery can separately promote a verified beta image to
 `:latest`, as requested for 0.8.2 in [issue #200](https://github.com/litvinovtd/qeli/issues/200).
 This does not change the GitHub Release's beta status or the automatic workflow's
-stable-only policy. For 0.8.3 Beta, pin `:0.8.3` only after its multi-arch Docker
+stable-only policy. For 0.8.4 Beta, pin `:0.8.4` only after its multi-arch Docker
 workflow succeeds. A draft or published GitHub Release alone does not confirm that
 the image is available; it does not automatically move `:latest` to a Beta.
 
 ```sh
 docker pull ghcr.io/litvinovtd/qeli:latest     # automatic stable channel; explicit recovery promotions may include a beta
-docker pull ghcr.io/litvinovtd/qeli:0.8.3      # beta, only after its Docker workflow succeeds
+docker pull ghcr.io/litvinovtd/qeli:0.8.4      # beta, only after its Docker workflow succeeds
 ```
 
 Use that image name anywhere `qeli:latest` appears below. Build locally only to
@@ -68,7 +68,7 @@ modify the source or if the registry is unreachable.
 > out, so the image's `qeli --version` equals the `qeli/Cargo.toml` of your
 > checkout. **A stale checkout builds an old version.** Development is on `dev`.
 > Fetch the repository and select the exact reviewed commit or published release tag
-> before building (for example `git fetch origin --tags`, then `git checkout v0.8.3`
+> before building (for example `git fetch origin --tags`, then `git checkout v0.8.4`
 > once that tag is published). The nearest tag is not necessarily the newest release.
 
 Multi-arch (one tag, three arches):

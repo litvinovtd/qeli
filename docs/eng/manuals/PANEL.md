@@ -28,9 +28,11 @@ every browser/version has been tested. See the
 > how to bring it up and how to use it.
 
 
-Failed background reads double the polling interval up to 60 seconds; a successful
-read restores the normal interval. Hidden tabs do not poll; manual refresh remains
-immediate. API reads have a 15-second timeout.
+Failed background reads double the interval up to 60 seconds; a successful read
+resets the consecutive failure count and delay. Three consecutive failures of one
+poll pause every background poll on the page until Resume auto refresh is clicked.
+Returning to the tab does not resume this pause. Hidden tabs do not poll; manual
+refresh remains available. API reads have a 15-second timeout.
 
 Share/QR profile selectors label disabled profiles. The first enabled profile is
 preferred; a disabled one remains selectable for preparing configuration, but it
@@ -240,7 +242,8 @@ sits at the bottom of the sidebar (and in the corner of the login page).
 
 ### Host & tunnel metrics on the Dashboard
 The two cards at the top of the page refresh **every 2 s** (polling pauses while the
-browser tab is hidden and catches up when it comes back). The numbers come from the
+browser tab is hidden and resumes on return unless the shared error pause is active).
+The numbers come from the
 supervisor's sampler, which reads cheap `/proc` counters and the worker's aggregate byte
 totals **once a second** and keeps a 300-point ring buffer (= 5 minutes). The endpoints
 are `/api/system` (latest snapshot) and `/api/metrics` (the history the chart draws) —

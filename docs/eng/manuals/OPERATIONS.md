@@ -214,7 +214,7 @@ docker compose -f release/docker/docker-compose.yml up -d
 
 To roll back, put the previous image tag back in `docker-compose.yml` and `up -d` again.
 
-For 0.8.3 Beta, select `ghcr.io/litvinovtd/qeli:0.8.3` only after the Docker image
+For 0.8.4 Beta, select `ghcr.io/litvinovtd/qeli:0.8.4` only after the Docker image
 has been published successfully. Publishing the GitHub Release files does not mean
 the multi-arch image build has finished. Automatic `latest` promotion is reserved
 for a published stable release, not a Beta; updating a client does not require a
@@ -237,11 +237,13 @@ Details and caveats — [release/docker/README.md](../../../release/docker/READM
 
 ### 3.3. Version compatibility across an upgrade
 
-There is **no version negotiation** between client and server — no minimum supported
-version, no refusal by version number. Compatibility is decided purely by the parameters
-in [§1](#1-what-must-match-between-client-and-server). Practical consequence: upgrade the
-**server first**, clients as you can; what breaks you is never the version number but a
-changed default (as happened with `bind_static` in 0.7.1, and with `handrolled` later).
+There is no single application-version admission gate, but wire formats and capabilities
+are negotiated and checked. Matching the parameters in [§1](#1-what-must-match-between-client-and-server)
+is not sufficient: `recordizer.policy=required` needs a client with `PACKET_MUX_V1`,
+and compact REALITY in 0.8.4 requires `INNER_PQ_V1` before AUTH with no classical fallback.
+Upgrade the **server first**, then client cores. Both new mandatory capabilities and
+changed defaults can break compatibility (for example `bind_static` in 0.7.1 or the
+earlier `handrolled` transition).
 
 For the 0.8.0 Reality/H2 transition this order is mandatory: the new server accepts both the
 legacy Reality carrier and H2, but the new client is H2-only and does not downgrade. An
@@ -252,6 +254,26 @@ Before upgrading, read your version's section in [CHANGELOG.md](../../../CHANGEL
 changed default is always called out there explicitly.
 
 ---
+
+### 3.4. Preparing website documentation for release
+
+For maintainers: `site/` contains private source files intentionally excluded from Git.
+From the checkout root prepare the active RU/EN pages and check the result:
+
+```sh
+python scripts/prepare_site_docs_release.py --version 0.8.4 --write --build
+python scripts/prepare_site_docs_release.py --version 0.8.4
+node scripts/test_site_docs.js
+```
+
+Without `--write` this only checks. The tool updates active documentation version
+labels, links and examples, while preserving `publishedVersion`, changelog entries,
+benchmark data and report/archive files. Mark inline history with a separate
+`history`, `changelog`, `benchmark`, `perf` or `compare` ID/class; these blocks and
+`release083.*` translations are not rewritten. Prepared pages explicitly say candidate:
+this **does not publish** the site, GitHub Release or Docker image. Updating the latest
+published status is a separate release action after checking actual file and image
+availability. `latest` is not promoted to a Beta.
 
 ## 4. What to back up
 

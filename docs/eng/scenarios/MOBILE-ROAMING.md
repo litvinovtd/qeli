@@ -9,7 +9,7 @@ Successful roaming retains the session; when that is unavailable, reconnect crea
 
 Update both ends to compatible versions and test the profile on a stable network
 first. For UDP, verify that the operator permits the selected UDP port.
-Published 0.8.3 includes Android recovery fixes, but does not claim to resolve the
+Version 0.8.4 retains Android recovery fixes, but does not claim to resolve the
 previously documented Android API34 `ENONET`. The iOS client is unpublished and
 has not been qualified on a real device; source availability does not change that.
 
@@ -43,7 +43,7 @@ full reconnect. `required` does not improve older peers: incompatible peers are
 rejected. Do not pin `local`/`lport` when migration between interfaces is required.
 
 `mtu=0` selects the inner MTU automatically. For UDP, `mtu_probe=true` checks the
-outer path budget. In 0.8.3, setting a manual inner MTU does not itself disable
+outer path budget. In 0.8.4, setting a manual inner MTU does not itself disable
 that check. Large socket buffers are not a substitute for measuring loss and RTT.
 
 ## Android system settings

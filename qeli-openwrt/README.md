@@ -8,8 +8,11 @@ Installation guide: [Русский](../docs/ru/manuals/OPENWRT-INSTALL.md) · [
 > without following child symlinks or changing unsafe permissions. Identity and TOFU
 > pins remain persistent in `/etc/qeli`. For manual launch and recovery, see
 > [state storage](../docs/eng/manuals/OPERATIONS.md#client-physical-route-recovery).
-> The firmware kernel must support `SO_NETNS_COOKIE` for managed route recovery,
-> including `dns=off`; a successful cross-build or license export does not prove this.
+> With network namespaces enabled, managed route recovery requires `SO_NETNS_COOKIE`,
+> including with `dns=off`. The 0.8.4 client has a separate boot-scoped mode only when
+> the kernel is proven to lack `CONFIG_NET_NS`: `dns=off`, firmware-managed DNS/sysctls.
+> Hidden namespaces/access errors do not authorize this mode. A successful cross-build
+> does not prove firmware support; see [compatibility requirements](../docs/eng/manuals/KEENETIC-DEPLOY.md#kernels-without-network-namespaces-084).
 
 > **0.8.2 audit scope.** Physical router tests were excluded from the agreed audit.
 > Source/SDK and isolated lifecycle checks do not certify the package on your hardware;

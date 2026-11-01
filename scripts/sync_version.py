@@ -72,6 +72,17 @@ DEV_TARGETS: list[tuple[str, str, str]] = [
     ("docs/eng/README.md", r"Rust 2021, version (\S+) \(beta\)", "overview README (eng)"),
 ]
 
+# Overview release status follows the planned release, not an older development
+# version retained for a skipped release, and never claims that tag is public.
+OVERVIEW_TARGETS: list[tuple[str, str, str]] = [
+    ("README.md", r"Release preparation for \*\*qeli ([0-9]+\.[0-9]+\.[0-9]+) Beta\*\*", "release overview status (root)"),
+    ("README.md", r"release/RELEASE_NOTES_([0-9]+\.[0-9]+\.[0-9]+)\.md", "release overview notes (root)"),
+    ("docs/ru/README.md", r"Документация кандидата \*\*([0-9]+\.[0-9]+\.[0-9]+) Beta\*\*", "release overview status (ru)"),
+    ("docs/ru/README.md", r"release/RELEASE_NOTES_([0-9]+\.[0-9]+\.[0-9]+)\.md", "release overview notes (ru)"),
+    ("docs/eng/README.md", r"\*\*([0-9]+\.[0-9]+\.[0-9]+) Beta\*\* candidate documentation", "release overview status (eng)"),
+    ("docs/eng/README.md", r"release/RELEASE_NOTES_([0-9]+\.[0-9]+\.[0-9]+)\.md", "release overview notes (eng)"),
+]
+
 # The Win32 side-by-side manifest carries the SAME development version, but the
 # assemblyIdentity schema demands FOUR fields (X.Y.Z.B) — it cannot hold the 3-part
 # string every other file uses, which is why it was never added to DEV_TARGETS above.
@@ -326,6 +337,7 @@ def main() -> int:
         print("writing:")
 
     apply(DEV_TARGETS, dev, args.write)
+    apply(OVERVIEW_TARGETS, planned, args.write)
     # Same version, four-field form (the fourth field is the manifest build number and
     # is not used by anything here, so it stays 0). See WIN_MANIFEST_TARGETS.
     apply(WIN_MANIFEST_TARGETS, f"{dev}.0", args.write)

@@ -1939,7 +1939,7 @@ Windows captures/classifies with the bundled WinDivert driver. macOS uses a sign
 extension containing both `NETransparentProxyProvider` and `NEDNSProxyProvider`; an ad-hoc or
 cross-built macOS archive therefore rejects an app-filtered profile until a Developer-ID build
 with the required Network Extension entitlements is installed and approved. The underlying
-APIs exist on macOS 13+, but the 0.8.3 .NET 10 application requires macOS 15 or newer.
+APIs exist on macOS 13+, but the 0.8.4 .NET 10 application requires macOS 15 or newer.
 Public distribution also requires Apple notarization and stapling; `qeli-mac/build_app.sh`
 performs it when `QELI_MAC_NOTARY_PROFILE` is supplied.
 
@@ -2009,7 +2009,7 @@ else, only takes effect on UDP; an explicit `mtu` does not disable probing.
 
 ### Linux client TUN queue size (`tun.tx_queue_len`)
 
-In development 0.8.2 builds that support this key, set it **locally in the client
+In 0.8.4, set it **locally in the client
 INI's `[qeli]` section**, for example in `/etc/qeli/client.conf`:
 
 ```ini
@@ -2230,7 +2230,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 On Linux, the nonempty `QELI_TUNIP_FILE` environment variable selects the committed
 NetworkPlan state file. Atomic rename publishes it: the first line is the tunnel
 address for legacy scripts, followed by `ipv4=<CIDR>` and `ipv6=<CIDR>` for present
-families, `mtu=<number>` and `generation=<number>` (development0.8.2).
+families, `mtu=<number>` and `generation=<number>` (0.8.4).
 Generation comes from the authenticated core plan and distinguishes repeated
 application of identical addresses within one adapter; resetting the adapter may
 restart the counter. This is a runtime file, not an INI parameter or a new
@@ -2286,13 +2286,19 @@ Managed DNS requires `TUNGETIFF`/`TUNGETDEVNETNS` and readable namespace/boot me
 old name-only markers and orphaned persistent-link state may require explicit recovery.
 See [DNS ownership and upgrade recovery §6.50](TROUBLESHOOTING.md).
 
-Managed Linux routes also require these TUN ioctls and usable `/proc/thread-self/ns/net`,
-including with `dns=off`. Setup requires the actual name to match `dev`; name templates or
+With network namespaces enabled, managed Linux routes require these TUN ioctls
+and usable `/proc/thread-self/ns/net`, including with `dns=off`. Setup requires the actual name to match `dev`; name templates or
 truncation are not silently accepted. Cleanup checks the original fd, name, index and held
 namespace before each command. External rename/delete refuses TUN route cleanup and retains
 reservations; physical bypass cleanup remains independent when namespace is proven.
 `dev_attach=true` still leaves routing to its external owner.
 See [route ownership recovery §6.51](TROUBLESHOOTING.md).
+
+Since 0.8.4 there is one exception: when the kernel is proven to lack `CONFIG_NET_NS`,
+the client uses `single-network` and `boot_id` instead of namespace/cookie evidence.
+The live TUN still requires its original fd and `TUNGETIFF`. This needs `dns=off`,
+firmware-managed DNS/sysctls and trusted state storage. Hidden procfs, EPERM/ENOSYS
+or seccomp do not authorize this mode. [Compatibility requirements](KEENETIC-DEPLOY.md#kernels-without-network-namespaces-084).
 
 Original TUN/namespace checks also apply before setup/roaming route commands and managed
 MAC/address/up. Identity loss prevents continuing the same generation even when physical
@@ -3360,7 +3366,7 @@ Managed DNS on Linux also requires `SO_NETNS_COOKIE` and a trusted state directo
 
 Legacy global `dns-backup.json`/`dns-holders` are not restored automatically: startup preserves them and requires administrator recovery even with `dns = off`/`system`. Stop the old client cleanly before upgrading. [Procedure §6.20](TROUBLESHOOTING.md#620-linux-legacy-resolver-recovery-failed-backup-kept).
 
-The managed Linux client persists physical bypass/exclude and blackhole routes in `$STATE_DIRECTORY/client-routes.state` (default `/var/lib/qeli/client-routes.state`). Therefore `SO_NETNS_COOKIE` and trusted writable state storage are required even with `dns = off`/`system`; clients sharing a network must see the same journal and lock. Do not switch physical roots while recovery is pending. No new INI key is added. [Recovery and limits](OPERATIONS.md#client-physical-route-recovery).
+The managed Linux client persists physical bypass/exclude and blackhole routes in `$STATE_DIRECTORY/client-routes.state` (default `/var/lib/qeli/client-routes.state`). With network namespaces enabled, `SO_NETNS_COOKIE` and trusted writable state storage are required even with `dns = off`/`system`; the `single-network` exception with `dns=off` is described above; clients sharing a network must see the same journal and lock. Do not switch physical roots while recovery is pending. No new INI key is added. [Recovery and limits](OPERATIONS.md#client-physical-route-recovery).
 
 These are internal bounds, with no new INI key. User-hook deadlines are unchanged. 15 seconds
 does not define total shutdown time. Current route/firewall sequence coverage and remaining

@@ -1,12 +1,12 @@
 # qeli-mac
 
 Нативный macOS-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + Avalonia
-как platform/UI слой и общее Rust transport-ядро ABI 1.16 (compatibility floor 1.16). Rust владеет
+как platform/UI слой и общее Rust transport-ядро ABI 1.17 (compatibility floor 1.16). Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
 utun payload; C# управляет lifecycle/reconnect, созданием интерфейса,
 маршрутами/DNS/pf, trust и UI.
 
-Готовый комплект 0.8.3 требует **macOS 15 или новее**, Intel x86_64 либо Apple Silicon.
+Комплект 0.8.4 требует **macOS 15 или новее**, Intel x86_64 либо Apple Silicon.
 Минимум соответствует [поддерживаемым ОС .NET 10](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md).
 Он задаётся в `Info.plist`; упаковщик также проверяет deployment target каждого Mach-O.
 Это требование совместимости, а не заявление о выполненном физическом тесте на каждой ОС.
@@ -14,7 +14,7 @@ utun payload; C# управляет lifecycle/reconnect, созданием ин
 Режим **`reality-tls`** использует браузероподобный TLS 1.3 и настоящий HTTP/2 carrier:
 один streaming POST с ALPN `h2` и случайным batching, без прежнего внутреннего fake-TLS
 handshake/framing. Внешний TLS и внутренний qeli AEAD сохраняются. Transport выполняет общее
-Rust-ядро через whole-client FFI. macOS получит эту логику только после пересборки,
+Rust-ядро через whole-client FFI. При обновлении macOS-клиент получает эту логику после пересборки,
 упаковки и установки приложения с обновлённой `libqeli.dylib`; сервер не обновляет клиент.
 
 <a id="gui-memory"></a>
@@ -207,7 +207,7 @@ qeli-mac/
 └── ../qeli-shared/    production lifecycle/model + отдельный QeliConformance runner
 ```
 
-В комплекте 0.8.3 используются отдельные приложения: `Qeli-macos-arm64.tar.gz`
+В комплекте 0.8.4 используются отдельные приложения: `Qeli-macos-arm64.tar.gz`
 для Apple Silicon и `Qeli-macos-x86_64.tar.gz` для Intel. Выберите архив для своего
 процессора; установка .NET не требуется. Само Rust-ядро `libqeli.dylib` остаётся
 universal2, но ReadyToRun DLL и dependency graph .NET зависят от архитектуры.
@@ -216,7 +216,7 @@ universal2, но ReadyToRun DLL и dependency graph .NET зависят от а�
 Экспериментальный `python scripts/build_mac_universal.py` (из корня checkout)
 отклоняет разные или отсутствующие в паре `.dll`, `.deps.json` и
 `.runtimeconfig.json` до замены прежнего bundle. Обычные RID-specific payloads
-0.8.3 такую проверку не проходят: распространяйте два отдельных архива.
+0.8.4 такую проверку не проходят: распространяйте два отдельных архива.
 Для совместимых managed payloads сборщик также проверяет arm64+x86_64 в каждом
 Mach-O; отсутствующий Intel-партнёр, ошибка lipo или неполный результат останавливают
 упаковку. Canonical libqeli.dylib должна уже содержать обе архитектуры.
@@ -286,7 +286,7 @@ Developer ID Application, provisioning profiles для host и system extension 
 созданного `xcrun notarytool store-credentials`: скрипт отправит временный ZIP в Apple,
 дождётся результата и выполнит `stapler staple/validate` до упаковки `.tar.gz`.
 Ad-hoc сборка намеренно не содержит helper и отклоняет per-app-профиль fail-closed.
-Для готового комплекта 0.8.3 минимум macOS 15 действует и для per-app, и для
+Для комплекта 0.8.4 минимум macOS 15 действует и для per-app, и для
 `apps_mode = all`; per-app дополнительно требует корректно подписанного system extension.
 
 На Mac полученный архив:

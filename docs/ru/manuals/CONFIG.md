@@ -1903,7 +1903,7 @@ Windows перехватывает и классифицирует пакеты 
 подписанное system extension с `NETransparentProxyProvider` и `NEDNSProxyProvider`; поэтому
 ad-hoc или кросс-собранный архив macOS отклоняет per-app-профиль, пока не установлена и не
 одобрена Developer-ID сборка с требуемыми Network Extension entitlement. Сами API есть
-в macOS 13+, но приложение 0.8.3 на .NET 10 требует macOS 15 или новее.
+в macOS 13+, но приложение 0.8.4 на .NET 10 требует macOS 15 или новее.
 Для публичной поставки также нужны Apple notarization и stapling; `qeli-mac/build_app.sh`
 выполняет их при заданном `QELI_MAC_NOTARY_PROFILE`.
 
@@ -1974,7 +1974,7 @@ owner-проверок `isAlwaysOn()` и `isLockdownEnabled()` и только �
 
 ### Размер клиентской TUN-очереди на Linux (`tun.tx_queue_len`)
 
-В сборках development 0.8.2 с поддержкой этого ключа размер задаётся **локально
+В 0.8.4 размер задаётся **локально
 в клиентском INI, в секции `[qeli]`**, например в `/etc/qeli/client.conf`:
 
 ```ini
@@ -2194,7 +2194,7 @@ route = 192.168.50.0/24 gateway=10.9.0.1 metric=50
 На Linux непустая переменная окружения `QELI_TUNIP_FILE` задаёт файл состояния
 применённого NetworkPlan. Файл публикуется через atomic rename: первая строка —
 туннельный адрес для старых скриптов, затем доступны `ipv4=<CIDR>`, `ipv6=<CIDR>`
-для присутствующих семей, `mtu=<число>` и `generation=<число>` (development0.8.2).
+для присутствующих семей, `mtu=<число>` и `generation=<число>` (0.8.4).
 Поколение взято из аутентифицированного плана ядра и различает повторное применение
 тех же адресов в пределах одного адаптера; после сброса адаптера счётчик может
 начаться заново. Это runtime-файл, а не INI-параметр или новый формат конфигурации.
@@ -2249,13 +2249,19 @@ DNS нужны `TUNGETIFF`/`TUNGETDEVNETNS` и доступные namespace/boot
 по имени и осиротевшее состояние постоянного link могут потребовать явного восстановления.
 См. [владение DNS и переход после обновления §6.50](TROUBLESHOOTING.md).
 
-Управляемые Linux-маршруты также требуют этих TUN ioctl и доступного
-`/proc/thread-self/ns/net`, включая `dns=off`. При setup фактическое имя должно совпадать
+При включённых network namespaces управляемые Linux-маршруты требуют этих TUN ioctl
+и доступного `/proc/thread-self/ns/net`, включая `dns=off`. При setup фактическое имя должно совпадать
 с `dev`; шаблон/усечение имени не принимается молча. Cleanup проверяет исходный fd,
 имя, index и удерживаемый namespace перед каждой командой. После внешнего rename/delete
 очистка TUN-маршрутов отказывает и сохраняет reservation; физические bypass очищаются
 независимо при доказанном namespace. `dev_attach=true` по-прежнему оставляет маршруты
 внешнему владельцу. См. [восстановление маршрутного владения §6.51](TROUBLESHOOTING.md).
+
+Исключение с 0.8.4: если ядро доказанно собрано без `CONFIG_NET_NS`, клиент
+использует `single-network` и `boot_id` вместо namespace/cookie; живой TUN по-прежнему
+проверяется через исходный fd и `TUNGETIFF`. Нужны `dns=off`, настройка DNS и sysctl
+прошивкой и доверенный state-каталог. Скрытый procfs, EPERM/ENOSYS или seccomp
+такой режим не разрешают. [Условия совместимости](KEENETIC-DEPLOY.md#ядро-без-network-namespaces-084).
 
 Проверки исходного TUN/namespace действуют также перед маршрутными командами setup и
 roaming и перед managed MAC/address/up. Потеря identity запрещает продолжать то же
@@ -3340,7 +3346,7 @@ Managed DNS на Linux также требует `SO_NETNS_COOKIE` и довер
 
 Старые глобальные `dns-backup.json`/`dns-holders` не восстанавливаются автоматически: startup сохраняет их и требует ручного разбора даже при `dns = off`/`system`. Перед обновлением штатно остановите старый клиент. [Процедура §6.20](TROUBLESHOOTING.md#620-linux-восстановление-старого-dns-не-удалось-снимок-сохранён).
 
-Managed Linux-клиент сохраняет физические bypass/exclude и blackhole в `$STATE_DIRECTORY/client-routes.state` (по умолчанию `/var/lib/qeli/client-routes.state`). Поэтому `SO_NETNS_COOKIE` и доверенный writable state каталог обязательны также при `dns = off`/`system`; клиенты одной сети должны видеть общий журнал и lock. При незавершённом восстановлении нельзя переключать физический каталог. Нового INI-параметра нет. [Recovery и ограничения](OPERATIONS.md#восстановление-физических-маршрутов-клиента).
+Managed Linux-клиент сохраняет физические bypass/exclude и blackhole в `$STATE_DIRECTORY/client-routes.state` (по умолчанию `/var/lib/qeli/client-routes.state`). При включённых network namespaces `SO_NETNS_COOKIE` и доверенный writable state каталог обязательны также при `dns = off`/`system`; исключение `single-network` с `dns=off` описано выше; клиенты одной сети должны видеть общий журнал и lock. При незавершённом восстановлении нельзя переключать физический каталог. Нового INI-параметра нет. [Recovery и ограничения](OPERATIONS.md#восстановление-физических-маршрутов-клиента).
 
 Gateway/exit-node setup, refresh и cleanup получают по 15 секунд на очередь router mutex, discovery, WAN и firewall-команды. Cleanup делит срок между обеими семьями; неполные записи сохраняются для новой попытки. Внутри NetworkPlan/cleanup действует также остаток общего командного бюджета; внутренний I/O не прерывается. [Подробности](../reports/audit-0.8.2/AUDIT-Q25-GATEWAY-BUDGET.md).
 

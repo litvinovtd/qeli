@@ -7,7 +7,7 @@ verification and recovery after reboot.
 
 | Use case | Goal | Version and qualification |
 | --- | --- | --- |
-| [Full tunnel through a VPS](FULL-TUNNEL.md) | Device Internet egress through the VPS, NAT and tunnel DNS | 0.8.3 settings; verify IPv6 and blocking without VPN separately |
+| [Full tunnel through a VPS](FULL-TUNNEL.md) | Device Internet egress through the VPS, NAT and tunnel DNS | 0.8.4 settings; verify IPv6 and blocking without VPN separately |
 | [IPv4 and IPv6 through one VPN](DUAL-STACK.md) | Full dual stack through a VPS, NAT44/NAT66 or a routed IPv6 prefix | Address plan, DNS, required/auto, both-family and failure checks |
 | [Home LAN access only](HOME-LAN.md) | Reach a NAS, cameras and LAN without replacing the Internet gateway | Routed access without NAT requires a return route |
 | [Multiple server profiles](MULTI-PROFILE.md) | Separate TCP/UDP listeners, ports, TUNs and pools | Complete profile template and independent identity keys |
@@ -28,8 +28,9 @@ deployments rather than duplicating the reference.
 ## Before configuration
 
 These guides cover the tasks in the [website catalog](https://qeli.ru/docs/scenarios/)
-as individual procedures. The published example baseline is **0.8.3 Beta**;
-**0.8.4 is development**, not the default downloadable package. The chain guide
+as individual procedures for the **0.8.4 Beta** candidate. Check GitHub Releases
+for publication status and available packages; 0.8.4 download links work after
+publication. The chain guide
 separately identifies the `post_up` change requiring 0.8.4. A guide is not a claim
 of a fresh runtime qualification on every OS and topology.
 

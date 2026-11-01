@@ -51,7 +51,7 @@ qeli-win/
 
 VPN требует прав администратора (создание Wintun-адаптера, изменение маршрутов/DNS).
 
-Для поставки 0.8.3 используются **два single-file EXE** — выберите один.
+Для поставки 0.8.4 используются **два single-file EXE** — выберите один.
 Оригинальные лицензии Cargo/.NET, MPL/AGPL и Wintun/WinDivert notices встроены
 в каждый EXE. Просмотр: **О программе → Лицензии**; там же можно сохранить
 комплект текстов в ZIP. Отдельные `Legal/` и license ZIP для запуска не нужны.
@@ -189,7 +189,9 @@ fragmentation, traffic-normalization и anti-fingerprinting настраиваю
 Включается галочкой «Запускать как службу Windows» + выбор профиля. Требуются права
 администратора (приложение уже запускается с ними).
 
-### Подготовка старого хранилища при переходе на 0.8.3
+<a id="подготовка-старого-хранилища-при-переходе-на-083"></a>
+
+### Подготовка старого хранилища при переходе на 0.8.4
 
 Обычный ручной запуск GUI обнаруживает старые служебные файлы в корне
 `ProgramData\QeliWin` или недоверенные права и предлагает подготовку с подтверждением.
@@ -309,18 +311,22 @@ Managed crypto/codec/config KAT и benchmark вынесены из production EX
 `dotnet run --project ../qeli-shared/QeliConformance -c Release -- selftest` и
 `... -- packetbench --ci`.
 
-## Состояние сборки и release gate 0.8.2
+## Состояние сборки и release gate 0.8.4
 
 Windows-клиент требует ABI 1.16 и использует типизированные path results для
 fail-closed roaming. Текущая `qeli.dll` пересобрана двумя независимыми проходами
 из исходника с digest, записанным в `native-libs/reproducibility/desktop.json`; canonical и EmbeddedResource-копии совпадают,
 `native-libs/provenance.py --check` проходит. После изменения Rust-исходника
-нужна новая A/B-пересборка. Перед публикацией 0.8.2 обязательно:
+нужна новая A/B-пересборка. Перед публикацией 0.8.4 проверяйте:
 
 - пересобрать core только если изменилось Rust-дерево, но всегда заново собрать оба EXE;
 - пройти `native-libs/provenance.py --check`, hash/ABI/package/signing gates;
 - прогнать elevated Wintun full-tunnel, IPv4/IPv6/dual-stack, DNS, kill-switch, reconnect;
 - записать результат и SHA-256 проверенного EXE в release certification manifest.
+
+В согласованном объёме текущего аудита Windows VM недоступна: физические сетевые
+проверки сохраняют статус `not_available`, а не PASS. Managed selftests и проверка
+упаковки не подтверждают работу драйвера и маршрутизации на таком стенде.
 
 Публичный ключ сервера не копируют из этого README. Для каждого сервера получите актуальный
 pin командой `qeli show-identity` по доверенному каналу; отключение pinning допустимо только

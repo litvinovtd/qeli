@@ -2,12 +2,19 @@
 
 [Русский](../../ru/manuals/OPENWRT-INSTALL.md) · English
 
+This guide targets **0.8.4** packages. Dated SDK checks and older-version results
+below remain historical evidence, not a hardware qualification of 0.8.4.
+
 > **0.8.3 / issue #205:** install the updated binary **and** init script. The service
 > passes the real `/var` target plus `/lib/qeli` as `STATE_DIRECTORY`; on standard
 > OpenWrt this is `/tmp/lib/qeli`, not a new location. No unsafe directory is chmodded
 > or adopted by init. Direct launches need the same environment; see
 > [state storage and recovery](OPERATIONS.md#client-physical-route-recovery).
-> Managed routing requires kernel `SO_NETNS_COOKIE` support even with `dns=off`.
+> With network namespaces enabled, managed routing requires `SO_NETNS_COOKIE`,
+> including with `dns=off`. Since 0.8.4 a client may use a separate mode when the kernel
+> is proven to lack `CONFIG_NET_NS`: boot-scoped routes, `dns=off`, firmware-managed
+> DNS/sysctls. Hidden namespaces or access errors do not permit this fallback.
+> [Compatibility requirements](KEENETIC-DEPLOY.md#kernels-without-network-namespaces-084).
 
 > **0.8.2 audit scope.** Physical router tests were excluded from the agreed audit.
 > SDK and isolated lifecycle evidence does not replace testing on your firmware.

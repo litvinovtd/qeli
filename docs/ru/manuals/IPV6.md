@@ -180,7 +180,7 @@ forwarding включённым. NDP `required` по-прежнему откло
 
 #### Переход на ручное управление
 
-1. Проверьте `qeli --version`: нужна сборка 0.8.2 с поддержкой `manual`.
+1. Проверьте `qeli --version`: используйте 0.8.4; режим `manual` поддерживается с 0.8.2.
 2. Подготовьте постоянные настройки IPv6 forwarding, обратной маршрутизации, firewall,
    ICMPv6 и DNS в используемом менеджере хоста. При RA/SLAAC сохраните приём RA на uplink.
 3. В INI профиля замените `routing.ipv6.mode` на `manual`. Если upstream выполняет NDP
@@ -711,7 +711,7 @@ Windows и macOS показывают `ipv6 = auto|required|off` и оба ис�
 |---|---|---|
 | Quick Start `auto` создал IPv4 | нет публичного GUA/default route либо `ip6tables` | `ip -6 addr`, `ip -6 route`, `command -v ip6tables` |
 | явный dual/IPv6 отклонён | Quick Start не может обещать Internet IPv6 | текст preflight; исправить WAN/firewall или настроить `route/manual/off` вручную |
-| `manual` не распознаётся | установлен бинарник без поддержки нового режима | `qeli --version`; используйте сборку 0.8.2 с поддержкой `manual` |
+| `manual` не распознаётся | установлен бинарник без поддержки нового режима | `qeli --version`; используйте 0.8.4 (`manual` поддерживается с 0.8.2) |
 | NDP в `manual` отвечает, но трафик не проходит | ручная маршрутизация или firewall не готовы | forwarding/RA, обратный маршрут, FORWARD и ICMPv6; `required` проверяет запуск responder |
 | В `manual` DNS доступен на нестандартном порту, но клиент не получает ответ | клиент обращается к порту 53 | INPUT UDP/TCP и собственное перенаправление 53 на `dns.port` либо `dns.port = 53` |
 | `ipv6=required` не подключается | профиль IPv4-only, старый сервер, MTU <1280 или неполный adapter | версия обеих сторон, лог capabilities, MTU |

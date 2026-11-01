@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | Windows | Полный путь к `.exe` | Штатный клиент и его драйверы, необходимые права |
 | Android | Имя установленного пакета | Разрешение VpnService и корректный список приложений |
-| macOS | Code-signing identifier, обычно bundle ID | Подписанные System/Network Extensions с entitlements; ad-hoc архив 0.8.3 этого не предоставляет |
+| macOS | Code-signing identifier, обычно bundle ID | Подписанные System/Network Extensions с entitlements; ad-hoc архив 0.8.4 этого не предоставляет |
 | iOS | Bundle ID | Обычный профиль не применяет произвольный per-app; нужны MDM и NEAppRule, клиент не опубликован |
 | Linux CLI | — | Не выполняет классификацию процессов по этим полям |
 

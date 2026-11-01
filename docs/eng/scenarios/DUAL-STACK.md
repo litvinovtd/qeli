@@ -6,7 +6,7 @@ The main example uses IPv4 NAT and IPv6 NAT66 on the VPS.
 
 [Catalog and preparation](README.md) · [Русский](../../ru/scenarios/DUAL-STACK.md)
 
-These settings apply to published 0.8.3 and current dev 0.8.4. First establish an
+These settings apply to 0.8.4. First establish an
 ordinary working connection following [FULL-TUNNEL](FULL-TUNNEL.md). The changes
 below affect an existing profile's networking, not installation, transport/auth or keys.
 

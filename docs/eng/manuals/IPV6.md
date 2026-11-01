@@ -179,7 +179,7 @@ namespace; a sibling `route`/`nat66` may change them for its own operation, whil
 
 #### Switching to administrator-managed IPv6
 
-1. Check `qeli --version`: use a 0.8.2 build that supports `manual`.
+1. Check `qeli --version`: use 0.8.4; `manual` has been supported since 0.8.2.
 2. Prepare persistent IPv6 forwarding, return routes, firewall, ICMPv6 and DNS policy in
    the host's configuration manager. Preserve uplink RA reception when using RA/SLAAC.
 3. Change the profile's INI `routing.ipv6.mode` to `manual`. If the upstream uses NDP for
@@ -704,7 +704,7 @@ exceptions, not general connectivity switches.
 |---|---|---|
 | Quick Start `auto` created IPv4 | no public GUA/default route or no `ip6tables` | `ip -6 addr`, `ip -6 route`, `command -v ip6tables` |
 | explicit dual/IPv6 was refused | Quick Start cannot promise Internet IPv6 | preflight message; repair WAN/firewall or configure `route/manual/off` manually |
-| `manual` is not recognized | installed binary does not support the new mode | `qeli --version`; use a 0.8.2 build that supports `manual` |
+| `manual` is not recognized | installed binary does not support the new mode | `qeli --version`; use 0.8.4 (`manual` has been supported since 0.8.2) |
 | NDP responds in `manual`, but traffic fails | manual routing or firewall is incomplete | forwarding/RA, return routes, FORWARD and ICMPv6; `required` checks responder startup |
 | DNS works on a custom port in `manual`, but clients get no answer | clients query port 53 | UDP/TCP INPUT and administrator-provided 53-to-`dns.port` redirection, or `dns.port = 53` |
 | `ipv6=required` cannot connect | IPv4-only profile, legacy server, MTU <1280, or incomplete adapter | versions, capability log, MTU |

@@ -70,7 +70,7 @@ different from the internal platform contract `QELI_PLATFORM_TUN_FD`.
 
 ## Address and routes after AUTH
 
-Start the interface owner before Qeli. In 0.8.3 and current dev, the file is published
+Start the interface owner before Qeli. In 0.8.4, the file is published
 after successful application steps for the authenticated NetworkPlan. It contains
 **multiple lines**, not one IPv4 address. Example dual-stack plan:
 

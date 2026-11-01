@@ -4,8 +4,8 @@
 
 The Windows x64 console client uses the root launcher `qeli-cli.cmd` for CMD, `.bat`/`.cmd` files,
 Windows PowerShell 5.1 and PowerShell 7. It shares the Windows runtime, Rust core,
-Wintun/WinDivert and INI parser with the GUI. This is development for 0.8.4;
-the presence of source code does not mean a finished release has been published.
+Wintun/WinDivert and INI parser with the GUI. This guide covers 0.8.4;
+check GitHub Releases for publication status and available packages.
 
 ## Running and configuration
 

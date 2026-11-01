@@ -12,7 +12,7 @@ networking. This is a separate policy axis: `apps_mode`/`apps` select applicatio
 | --- | --- | --- |
 | Windows | Complete `.exe` path | Normal client/drivers and required privileges |
 | Android | Installed package name | VpnService permission and a valid application list |
-| macOS | Code-signing identifier, usually bundle ID | Signed System/Network Extensions with entitlements; the ad-hoc 0.8.3 archive does not provide them |
+| macOS | Code-signing identifier, usually bundle ID | Signed System/Network Extensions with entitlements; the ad-hoc 0.8.4 archive does not provide them |
 | iOS | Bundle ID | Arbitrary per-app needs MDM and NEAppRule; a normal profile does not apply it, and the client is unpublished |
 | Linux CLI | — | Does not classify processes using these fields |
 

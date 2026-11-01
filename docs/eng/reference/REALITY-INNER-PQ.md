@@ -1,6 +1,6 @@
 # Compact REALITY: INNER_PQ_V1
 
-Status: implemented in development 0.8.4; not an independently audited protocol.
+Status: implemented in 0.8.4; not an independently audited protocol.
 Discussion: [#69](https://github.com/litvinovtd/qeli/issues/69), thanks to
 [@Singijeon](https://github.com/Singijeon).
 
