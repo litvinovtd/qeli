@@ -36,6 +36,7 @@
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Диагностика подключения и справочник ошибок |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Пошаговый деплой клиента на Keenetic |
 | [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Консольный Windows-клиент: CMD, batch, PowerShell, служба и коды ошибок |
+| [MACOS-GUI.md](manuals/MACOS-GUI.md) | Отрисовка macOS, память GUI, журнал и методика проверки |
 | [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | Установка OpenWrt, UCI/LuCI, SDK и границы проверки роутеров |
 | [IOS-MDM.md](manuals/IOS-MDM.md) | Управляемые профили iOS, Per-App VPN, On Demand и ограничения Always On |
 

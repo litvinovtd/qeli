@@ -221,6 +221,12 @@ public static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // CPU rasterization avoids creating an Avalonia GPU rendering context.
+            // Do not add Metal/OpenGL fallbacks: software is the macOS GUI policy.
+            .With(new AvaloniaNativePlatformOptions
+            {
+                RenderingMode = new[] { AvaloniaNativeRenderingMode.Software }
+            })
             .WithInterFont()
             .LogToTrace();
 

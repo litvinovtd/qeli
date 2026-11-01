@@ -36,6 +36,7 @@ Practical installation, configuration and operations guides.
 | [TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md) | Connection diagnostics and error reference |
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
 | [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Windows console client: CMD, batch, PowerShell, service and exit codes |
+| [MACOS-GUI.md](manuals/MACOS-GUI.md) | macOS rendering, GUI memory, logs and verification procedure |
 | [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | OpenWrt installation, UCI/LuCI, SDK and router qualification limits |
 | [IOS-MDM.md](manuals/IOS-MDM.md) | Managed iOS profiles, Per-App VPN, On Demand and Always On limits |
 

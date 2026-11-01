@@ -19,6 +19,10 @@
   global; выбор auto/фиксированного `utunN` в macOS. Уточнены восстановление
   сетевого состояния, блокировки и диагностика ошибок; добавлены исправления
   трея, размещения окон, истории трафика и discovery bindings своего Wintun.
+- **macOS GUI:** программная отрисовка Avalonia/Skia (`Software`) без выбора
+  OpenGL/Metal. Цель — уменьшить память аппаратного рендерера; расход 170 МБ
+  не является измеренным результатом или гарантией. Фактические RAM/CPU
+  требуют проверки на Mac; транспорт и launchd-служба не меняются.
 - **UDP и Recordizer:** фактическая диагностика RX/TX-буферов; `prefer` и
   `opportunistic` по умолчанию. Linux-пакет настраивает минимальные системные
   UDP-лимиты для auto-режима. Явные off/required/timed остаются доступны.
@@ -56,6 +60,7 @@ Windows GUI по-прежнему поставляется отдельными 
 
 Подробнее: [изменения](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/WINDOWS-CLI.md),
+[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/MACOS-GUI.md),
 [UDP-буферы](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/manuals/UDP-BUFFERS.md),
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reference/REALITY-INNER-PQ.md),
 [сценарии](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/scenarios/README.md).
@@ -78,6 +83,10 @@ OpenWrt and Keenetic distributions remain available separately.
   auto or fixed `utunN` on macOS; recovery/ownership safeguards and improvements
   to tray information, window positioning, traffic history and Wintun discovery
   bindings.
+- **macOS GUI:** Avalonia/Skia software rendering (`Software`) without selecting
+  OpenGL/Metal. This aims to reduce hardware-renderer memory; 170 MB is neither
+  a measured result nor a guarantee. Actual RAM/CPU require testing on a Mac;
+  the transport and launchd service are unchanged.
 - **UDP/Recordizer:** actual RX/TX buffer diagnostics, default `prefer` and
   `opportunistic`, Linux package UDP limits supporting auto mode. Explicit
   off/required/timed settings remain available. Opportunistic batching does not
@@ -111,6 +120,7 @@ qualification; unavailable hardware checks are not reported as passed.
 
 Details: [changelog](https://github.com/litvinovtd/qeli/blob/v0.8.4/CHANGELOG.md),
 [Windows CLI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/WINDOWS-CLI.md),
+[macOS GUI](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/MACOS-GUI.md),
 [UDP buffers](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/manuals/UDP-BUFFERS.md),
 [compact REALITY](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reference/REALITY-INNER-PQ.md),
 [scenarios](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/scenarios/README.md).

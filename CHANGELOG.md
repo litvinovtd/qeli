@@ -6,6 +6,12 @@
 
 ## [0.8.4] — не выпущен
 
+- macOS: GUI переведён на программную отрисовку Avalonia/Skia (`Software`),
+  без выбора OpenGL/Metal. Цель — уменьшить память аппаратного рендерера;
+  фактические RAM/CPU требуют замера на Mac. Транспорт и launchd-служба не меняются.
+  Описание и границы проверки: [RU](docs/ru/manuals/MACOS-GUI.md) ·
+  [EN](docs/eng/manuals/MACOS-GUI.md).
+
 - Windows: добавлен отдельный `qeli-cli.exe` для CMD, batch и PowerShell5.1/7:
   foreground VPN, управление службой, проверка INI, status/wait/logs, JSON-ответы
   и коды завершения. GUI/CLI/служба используют общий Windows runtime; один
