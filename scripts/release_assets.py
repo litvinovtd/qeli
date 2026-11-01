@@ -3,11 +3,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
-import zipfile
 
 from gen_checksums import sha256
 from linux_release import verify_assets
-from package_windows_cli import REQUIRED
+from package_windows_cli import verify_cli_archive
 
 
 def expected_assets(version: str) -> set[str]:
@@ -28,20 +27,6 @@ def expected_assets(version: str) -> set[str]:
     for variant in ('net-required','standalone'):
         names.add('qeli-cli-windows-x64-'+variant+'.zip')
     return names
-
-
-def verify_cli_archive(path: Path, standalone: bool) -> None:
-    with zipfile.ZipFile(path) as archive:
-        names=archive.namelist()
-        if len(names)!=len(set(names)) or archive.testzip() is not None:
-            raise ValueError('Corrupt or duplicate CLI archive members')
-        if not set(REQUIRED) | {'README.txt'} <= set(names):
-            raise ValueError('CLI archive is missing required runtime/entry files')
-        if any(name.startswith(('/', '\\')) or '\\' in name or ':' in name or
-               any(part in ('', '.', '..') for part in name.split('/')) for name in names):
-            raise ValueError('Unsafe CLI archive path')
-        if standalone and not {'coreclr.dll','hostfxr.dll'} <= set(names):
-            raise ValueError('Standalone console runtime missing')
 
 
 def verify(directory: Path, version: str) -> None:

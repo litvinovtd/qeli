@@ -82,6 +82,9 @@ Windows GUI по-прежнему поставляется отдельными 
 **распакуйте весь архив**, а не один EXE. CLI net-required требует .NET 10 Runtime,
 но не WPF/Desktop Runtime; standalone включает runtime. Устанавливать службу
 нужно из защищённого каталога, а `run`/управление службой требуют администратора.
+В корне CLI-пакета находятся `qeli-cli.cmd` и README с командами; EXE и зависимости
+размещены в `bin/`, полные инструкции — в `docs/`, шаблон INI — в `examples/`.
+Прямой запуск без обёртки: `bin\qeli-cli.exe`; распаковывайте и переносите всю папку.
 
 Для compact REALITY сначала обновите сервер, затем клиенты с новым native core.
 Новый compact-клиент не подключается к серверу без `INNER_PQ_V1` и не переключается
@@ -210,6 +213,9 @@ packages are `qeli-cli-windows-x64-net-required.zip` and
 net-required needs .NET 10 Runtime, not WindowsDesktop; standalone includes it.
 Use a protected directory for service installation; foreground VPN and service
 control require Administrator.
+The package root contains `qeli-cli.cmd` and a command README; the EXE and
+dependencies are in `bin/`, manuals in `docs/`, and an INI template in `examples/`.
+For direct execution use `bin\qeli-cli.exe`; always extract and move the whole folder.
 
 Upgrade the server before compact REALITY clients. A new compact client refuses
 a server without `INNER_PQ_V1`; noncompact REALITY retains the legacy path.

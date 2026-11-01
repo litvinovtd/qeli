@@ -1,12 +1,24 @@
 from pathlib import Path
+import json
 import tempfile
 import unittest
 import zipfile
 
-from release_assets import REQUIRED, expected_assets, verify, verify_cli_archive
+from release_assets import expected_assets, verify, verify_cli_archive
+from package_windows_cli import ARCHIVE_REQUIRED
 
 
 class ReleaseAssetTests(unittest.TestCase):
+    def cli(self, path, standalone=False, extra=()):
+        with zipfile.ZipFile(path,'w') as archive:
+            for name in (*ARCHIVE_REQUIRED, *extra):
+                if name == 'bin/qeli-cli.runtimeconfig.json':
+                    key = 'includedFrameworks' if standalone else 'framework'
+                    value = {'name':'Microsoft.NETCore.App','version':'10.0.12'}
+                    archive.writestr(name,json.dumps({'runtimeOptions':{key:[value] if standalone else value}}))
+                else:
+                    archive.writestr(name,b'fixture')
+
     def test_084_requires_both_linux_architectures_and_console_variants(self):
         names=expected_assets('0.8.4')
         self.assertEqual(len(names),21)
@@ -28,16 +40,15 @@ class ReleaseAssetTests(unittest.TestCase):
     def test_cli_members_and_runtime_required(self):
         with tempfile.TemporaryDirectory() as root:
             archive=Path(root)/'console.zip'
-            with zipfile.ZipFile(archive,'w') as out:
-                for name in (*REQUIRED,'README.txt'):out.writestr(name,b'fixture')
+            self.cli(archive)
             verify_cli_archive(archive,False)
+            self.cli(archive,True)
             with self.assertRaisesRegex(ValueError,'runtime missing'):verify_cli_archive(archive,True)
 
     def test_cli_traversal_refused(self):
         with tempfile.TemporaryDirectory() as root:
             archive=Path(root)/'console.zip'
-            with zipfile.ZipFile(archive,'w') as out:
-                for name in (*REQUIRED,'README.txt','../evil.dll'):out.writestr(name,b'fixture')
+            self.cli(archive,extra=('../evil.dll',))
             with self.assertRaisesRegex(ValueError,'Unsafe'):verify_cli_archive(archive,False)
 
 

@@ -1,0 +1,10 @@
+# Copy to a private location (for example C:\VPN\office.ini), then edit.
+# Documentation only: never commit real credentials.
+# Prefer the complete server-generated INI and verify the server public key.
+[qeli]
+server = 192.0.2.1:443
+proto = tcp
+mode = fake-tls
+user = REPLACE_WITH_YOUR_USER
+pass = REPLACE_WITH_YOUR_PASSWORD
+# key = REPLACE_WITH_VERIFIED_SERVER_PUBLIC_KEY

@@ -1,0 +1,137 @@
+# Qeli Windows CLI @VERSION@ (@VARIANT@, x64)
+
+## Русский
+
+Распакуйте **весь архив**. Не копируйте один EXE и не переименовывайте внутренние
+файлы. В корне — запускатель и README; зависимости собраны в `bin/`.
+**Вариант:** @RUNTIME_RU@
+
+```text
+qeli-cli.cmd                  запуск из CMD и PowerShell
+README.md                     команды и примеры
+bin/                          настоящий EXE и все зависимости
+  qeli-cli.exe
+  qeli-cli.dll
+  qeli-cli.runtimeconfig.json
+  ...                         managed DLL и .NET runtime
+docs/
+  WINDOWS-CLI.ru.md            полное руководство RU
+  WINDOWS-CLI.en.md            полное руководство EN
+examples/
+  client.ini.example          шаблон без реальных credentials
+```
+
+Используйте полный INI от администратора сервера и проверенный ключ `key`.
+Пароли храните в приватном файле, не в аргументах процесса. Шаблон нужно
+скопировать и изменить: его адрес и credentials фиктивны.
+
+### Первый запуск (CMD)
+
+```cmd
+qeli-cli.cmd --help
+qeli-cli.cmd version --json
+qeli-cli.cmd config validate --config "C:\VPN\office.ini" --json
+qeli-cli.cmd probe --config "C:\VPN\office.ini" --json
+qeli-cli.cmd run --config "C:\VPN\office.ini" --timeout 60
+```
+
+`run` требует терминал администратора и работает до Ctrl+C/Ctrl+Break.
+`--timeout` ограничивает подключение, не весь сеанс; `--duration 300` ограничит
+работу после подключения пятью минутами. `probe` проверяет handshake, не маршруты.
+
+### PowerShell
+
+```powershell
+& .\qeli-cli.cmd version --json
+& .\qeli-cli.cmd config validate --config 'C:\VPN\office.ini' --json
+if ($LASTEXITCODE -ne 0) { throw 'Invalid VPN profile' }
+& .\qeli-cli.cmd run --config 'C:\VPN\office.ini' --timeout 60
+```
+
+Можно вызвать `& .\bin\qeli-cli.exe ...` напрямую, без CMD-обёртки. Запускатель
+не меняет текущий каталог: относительный `--config` считается от каталога
+терминала, не от `bin/`. Для планировщика используйте абсолютные пути.
+Внутри другого batch-файла используйте `call qeli-cli.cmd ...` либо прямой EXE.
+
+### Windows-служба (терминал администратора)
+
+```cmd
+qeli-cli.cmd service install
+qeli-cli.cmd connect --config "C:\VPN\office.ini" --timeout 60 --json
+qeli-cli.cmd status --json
+qeli-cli.cmd wait --state connected --timeout 60 --json
+qeli-cli.cmd logs --follow
+qeli-cli.cmd disconnect --timeout 30 --json
+qeli-cli.cmd service stop
+qeli-cli.cmd service uninstall
+```
+
+Используется общая служба `QeliWinSvc`; установка сама не подключает VPN.
+Таймаут `connect` может оставить intent активным — явно выполните `disconnect`.
+Foreground `run` останавливается в своём терминале, не через `disconnect`.
+**До установки службы** перенесите всю папку в защищённое постоянное место,
+например `C:\Program Files\QeliCli`. SCM регистрирует `bin\qeli-cli.exe`, не CMD.
+Не перемещайте установленную службу: сначала удалите регистрацию, затем
+установите её заново. Изменяемые профили и логи храните вне каталога установки.
+
+### Диагностика, stdin и лицензии
+
+```cmd
+qeli-cli.cmd config validate --config - --json < "C:\VPN\office.ini"
+qeli-cli.cmd logs --follow --json-lines
+qeli-cli.cmd licenses
+qeli-cli.cmd licenses --export "C:\VPN\new-license-directory"
+```
+
+Экспорт требует нового каталога; оригинальные лицензии встроены в бинарники.
+`--json` выдаёт один JSON-результат; для потока используйте `--json-lines`.
+Help, version, licenses, config validation и probe не требуют администратора;
+`run` и команды службы требуют. Диалог UAC не открывается автоматически.
+
+| Код | Значение |
+|---|---|
+| 0 | Успех |
+| 2 / 3 / 4 | Аргументы / конфигурация / доступ |
+| 5 / 6 | Занято / таймаут |
+| 7 / 8 / 9 | Аутентификация / ключ сервера / транспорт |
+| 10 / 11 / 12 | Очистка сети / служба / отмена |
+
+Все команды и ограничения: [полное руководство](docs/WINDOWS-CLI.ru.md).
+
+## English
+
+Extract the **ENTIRE archive**, not just the EXE. **@RUNTIME_EN@**
+Use `qeli-cli.cmd` in CMD or `& .\qeli-cli.cmd` in PowerShell. The real EXE and
+all managed/native dependencies are in `bin/`; `bin\qeli-cli.exe` can be invoked
+directly, without the CMD wrapper. The launcher keeps the current directory and
+exit status. From another batch script use `call qeli-cli.cmd ...` or the EXE.
+
+```cmd
+qeli-cli.cmd version --json
+qeli-cli.cmd config validate --config "C:\VPN\office.ini" --json
+qeli-cli.cmd run --config "C:\VPN\office.ini" --timeout 60
+```
+
+Use a complete server-generated UTF-8 INI and a verified server `key`. Never put
+credentials on the command line. `examples/client.ini.example` is not a working
+profile. Quote paths with spaces; use absolute config paths for scheduled tasks.
+`--config -` accepts redirected stdin. `licenses --export NEW_DIRECTORY` exports
+original embedded legal texts. `--json-lines` is used for log streams.
+
+`run` and service commands require an administrator terminal; no UAC prompt is
+opened. Ctrl+C stops foreground VPN. `--timeout` bounds initial connection;
+`--duration` bounds connected runtime. A handshake probe does not prove routing.
+For `QeliWinSvc`, use `service install`, `connect --config FILE`, `status --json`,
+`wait --state connected`, `logs --follow`, `disconnect`, and `service uninstall`.
+Installation does not initiate VPN. A `connect` timeout may leave its intent active:
+explicitly disconnect. Foreground VPN is stopped in its own terminal.
+
+Copy the whole package to a protected permanent directory such as
+`C:\Program Files\QeliCli` **before** installing the service. SCM registers
+`bin\qeli-cli.exe`, not the CMD file. Uninstall/reinstall the registration before
+moving the directory; keep writable profiles/logs outside the installation.
+
+Exit codes: 0 success; 2 usage; 3 config; 4 access; 5 busy; 6 timeout;
+7 authentication; 8 key mismatch; 9 transport; 10 network cleanup; 11 service;
+12 cancelled. Help, version, licenses, config validation and probe need no elevation.
+See the [full English manual](docs/WINDOWS-CLI.en.md) for the complete contract.

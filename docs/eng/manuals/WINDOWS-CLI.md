@@ -2,12 +2,26 @@
 
 [Русский](../../ru/manuals/WINDOWS-CLI.md) · English
 
-`qeli-cli.exe` is a Windows x64 console client for CMD, `.bat`/`.cmd` files,
+The Windows x64 console client uses the root launcher `qeli-cli.cmd` for CMD, `.bat`/`.cmd` files,
 Windows PowerShell 5.1 and PowerShell 7. It shares the Windows runtime, Rust core,
 Wintun/WinDivert and INI parser with the GUI. This is development for 0.8.4;
 the presence of source code does not mean a finished release has been published.
 
 ## Running and configuration
+
+New ZIP packages use `qeli-cli.cmd` as the root launcher; the real EXE and
+dependencies are in `bin/`. Run the examples below from the extracted package
+root. Alternatively call `bin\qeli-cli.exe` directly; in PowerShell use
+`& .\bin\qeli-cli.exe ...`. The launcher does not change the working directory;
+relative config paths are relative to the caller's current directory.
+
+```text
+qeli-cli.cmd
+README.md
+bin/       qeli-cli.exe, managed DLL and runtime
+docs/      WINDOWS-CLI.ru.md, WINDOWS-CLI.en.md
+examples/  client.ini.example
+```
 
 The `net-required` package needs .NET 10 Runtime; `standalone` includes the runtime.
 Release files: `qeli-cli-windows-x64-net-required.zip` and
@@ -17,11 +31,15 @@ the chosen variant, rather than just the EXE. Install the Windows service from
 a protected directory, such as `C:\Program Files\QeliCli`: permissions on its
 files and parent directories are checked.
 
+SCM registers the real `bin\qeli-cli.exe`, not the CMD file. Move the whole
+package before service installation; uninstall/reinstall its registration before
+moving an installed service. Keep writable profiles and logs outside the install folder.
+
 ```cmd
-qeli-cli.exe --help
-qeli-cli.exe version --json
-qeli-cli.exe config validate --config "C:\VPN\office.ini"
-qeli-cli.exe run --config "C:\VPN\office.ini"
+qeli-cli.cmd --help
+qeli-cli.cmd version --json
+qeli-cli.cmd config validate --config "C:\VPN\office.ini"
+qeli-cli.cmd run --config "C:\VPN\office.ini"
 ```
 
 `run` stays in the current process until Ctrl+C/Ctrl+Break. There is no implicit
@@ -40,7 +58,7 @@ Trust/device identity can differ between the user process and the SYSTEM service
 their stores are not copied automatically.
 
 ```cmd
-qeli-cli.exe config validate --config - --json < "C:\VPN\office.ini"
+qeli-cli.cmd config validate --config - --json < "C:\VPN\office.ini"
 ```
 
 For a text pipeline into stdin in PowerShell 5.1, first set
@@ -83,12 +101,12 @@ and incomplete cleanup.
 ## Windows service and automation
 
 ```cmd
-qeli-cli.exe service install
-qeli-cli.exe connect --config "C:\VPN\office.ini" --timeout 60
-qeli-cli.exe status --json
-qeli-cli.exe wait --state connected --timeout 60
-qeli-cli.exe logs --follow
-qeli-cli.exe disconnect --timeout 30
+qeli-cli.cmd service install
+qeli-cli.cmd connect --config "C:\VPN\office.ini" --timeout 60
+qeli-cli.cmd status --json
+qeli-cli.cmd wait --state connected --timeout 60
+qeli-cli.cmd logs --follow
+qeli-cli.cmd disconnect --timeout 30
 ```
 
 The existing `QeliWinSvc` uses SCM and protected DPAPI storage. Installing a new
@@ -120,20 +138,20 @@ CMD/batch:
 
 ```bat
 @echo off
-qeli-cli.exe connect --config "C:\VPN\office.ini" --timeout 60 --json
+call qeli-cli.cmd connect --config "C:\VPN\office.ini" --timeout 60 --json
 if errorlevel 1 exit /b %errorlevel%
-qeli-cli.exe status --json
+call qeli-cli.cmd status --json
 rem Perform the required work through the VPN.
-qeli-cli.exe disconnect --timeout 30 --json
+call qeli-cli.cmd disconnect --timeout 30 --json
 exit /b %errorlevel%
 ```
 
 PowerShell:
 
 ```powershell
-& .\qeli-cli.exe connect --config 'C:\VPN\office.ini' --timeout 60 --json
+& .\qeli-cli.cmd connect --config 'C:\VPN\office.ini' --timeout 60 --json
 if ($LASTEXITCODE -ne 0) { throw 'VPN connection failed' }
-$status = & .\qeli-cli.exe status --json | ConvertFrom-Json
+$status = & .\qeli-cli.cmd status --json | ConvertFrom-Json
 $status.data.state
 ```
 

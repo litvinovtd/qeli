@@ -34,10 +34,18 @@ try {
         [IO.File]::WriteAllText($fixture, "[qeli]`nserver = 192.0.2.1:443`nuser = fixture`npass = fixture`n", [Text.UTF8Encoding]::new($false))
         & (Join-Path $output 'qeli-cli.exe') config validate --config $fixture --json
         if ($LASTEXITCODE -ne 0) { throw "CLI/native parser compatibility failed: $variant" }
-        Remove-Item -LiteralPath $fixture
         $archive = Join-Path $staging "qeli-cli-windows-x64-$variant.zip"
         & python -B scripts/package_windows_cli.py --source $output --output $archive --variant $variant --version $version --epoch $epoch
         if ($LASTEXITCODE -ne 0) { throw "CLI archive verification failed: $variant" }
+        $unpacked = Join-Path $staging "packaged-smoke-$variant"
+        Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+        & (Join-Path $unpacked 'qeli-cli.cmd') version --json
+        if ($LASTEXITCODE -ne 0) { throw "Packaged CLI launcher failed: $variant" }
+        & (Join-Path $unpacked 'qeli-cli.cmd') config validate --config $fixture --json
+        if ($LASTEXITCODE -ne 0) { throw "Packaged CLI/native parser failed: $variant" }
+        & python -B scripts/check_windows_embedded_licenses.py --repo $repo --directory (Join-Path $unpacked 'bin') --entry-assembly qeli-cli.dll --native-core $NativeCorePath --reader $reader
+        if ($LASTEXITCODE -ne 0) { throw "Packaged CLI original resources changed: $variant" }
+        Remove-Item -LiteralPath $fixture
     }
     [IO.Directory]::Move($staging, $destination)
     Write-Output "Built CLI packages: $destination"

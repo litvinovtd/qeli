@@ -2,12 +2,27 @@
 
 Русский · [English](../../eng/manuals/WINDOWS-CLI.md)
 
-Консольный клиент `qeli-cli.exe` для Windows x64. Поддерживаются CMD, `.bat`/`.cmd`,
+Консольный клиент для Windows x64 с корневым запускателем `qeli-cli.cmd`.
+Поддерживаются CMD, `.bat`/`.cmd`,
 Windows PowerShell 5.1 и PowerShell 7. Использует тот же Windows runtime, Rust-ядро,
 Wintun/WinDivert и INI-парсер, что GUI. Разработка относится к 0.8.4;
 наличие исходников не означает публикацию готового релиза.
 
 ## Запуск и конфигурация
+
+В новых ZIP корневой запускатель — `qeli-cli.cmd`; сам EXE и зависимости находятся
+в `bin/`. Все примеры ниже выполняются из корня распакованного пакета. Можно
+использовать `bin\qeli-cli.exe` напрямую вместо CMD-обёртки; в PowerShell —
+`& .\bin\qeli-cli.exe ...`. Текущий каталог не меняется, относительные пути
+конфигурации остаются относительно каталога вызывающего процесса.
+
+```text
+qeli-cli.cmd
+README.md
+bin/       qeli-cli.exe, managed DLL и runtime
+docs/      WINDOWS-CLI.ru.md, WINDOWS-CLI.en.md
+examples/  client.ini.example
+```
 
 Пакет `net-required` требует .NET 10 Runtime; `standalone` содержит runtime.
 Файлы релиза: `qeli-cli-windows-x64-net-required.zip` и
@@ -16,11 +31,15 @@ WPF/Desktop Runtime для CLI не нужен. Копируйте **всю па
 а не только EXE. Windows-службу устанавливайте из защищённого каталога,
 например `C:\Program Files\QeliCli`: права его файлов и родителей проверяются.
 
+SCM регистрирует настоящий `bin\qeli-cli.exe`, не CMD-файл. Переместите весь
+пакет до установки; для переноса установленной службы сначала удалите её
+регистрацию, затем установите снова. Профили и логи храните вне защищённой папки.
+
 ```cmd
-qeli-cli.exe --help
-qeli-cli.exe version --json
-qeli-cli.exe config validate --config "C:\VPN\office.ini"
-qeli-cli.exe run --config "C:\VPN\office.ini"
+qeli-cli.cmd --help
+qeli-cli.cmd version --json
+qeli-cli.cmd config validate --config "C:\VPN\office.ini"
+qeli-cli.cmd run --config "C:\VPN\office.ini"
 ```
 
 `run` работает в текущем процессе до Ctrl+C/Ctrl+Break. Не имеет неявного лимита
@@ -38,7 +57,7 @@ cleanup нельзя гарантировать, журналы восстано
 процесса и службы SYSTEM могут различаться; они не копируются автоматически.
 
 ```cmd
-qeli-cli.exe config validate --config - --json < "C:\VPN\office.ini"
+qeli-cli.cmd config validate --config - --json < "C:\VPN\office.ini"
 ```
 
 В PowerShell 5.1 для текстового pipeline в stdin сначала задайте
@@ -80,12 +99,12 @@ GUI-предпочтения не меняют CLI-профиль. `windows_pers
 ## Windows-служба и автоматизация
 
 ```cmd
-qeli-cli.exe service install
-qeli-cli.exe connect --config "C:\VPN\office.ini" --timeout 60
-qeli-cli.exe status --json
-qeli-cli.exe wait --state connected --timeout 60
-qeli-cli.exe logs --follow
-qeli-cli.exe disconnect --timeout 30
+qeli-cli.cmd service install
+qeli-cli.cmd connect --config "C:\VPN\office.ini" --timeout 60
+qeli-cli.cmd status --json
+qeli-cli.cmd wait --state connected --timeout 60
+qeli-cli.cmd logs --follow
+qeli-cli.cmd disconnect --timeout 30
 ```
 
 Используется существующая служба `QeliWinSvc`: SCM и защищённое DPAPI-хранилище.
@@ -116,20 +135,20 @@ CMD/batch:
 
 ```bat
 @echo off
-qeli-cli.exe connect --config "C:\VPN\office.ini" --timeout 60 --json
+call qeli-cli.cmd connect --config "C:\VPN\office.ini" --timeout 60 --json
 if errorlevel 1 exit /b %errorlevel%
-qeli-cli.exe status --json
+call qeli-cli.cmd status --json
 rem Выполните нужную работу через VPN.
-qeli-cli.exe disconnect --timeout 30 --json
+call qeli-cli.cmd disconnect --timeout 30 --json
 exit /b %errorlevel%
 ```
 
 PowerShell:
 
 ```powershell
-& .\qeli-cli.exe connect --config 'C:\VPN\office.ini' --timeout 60 --json
+& .\qeli-cli.cmd connect --config 'C:\VPN\office.ini' --timeout 60 --json
 if ($LASTEXITCODE -ne 0) { throw 'VPN connection failed' }
-$status = & .\qeli-cli.exe status --json | ConvertFrom-Json
+$status = & .\qeli-cli.cmd status --json | ConvertFrom-Json
 $status.data.state
 ```
 
