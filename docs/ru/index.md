@@ -103,7 +103,7 @@
 | Документ | О чём |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Актуальная модель безопасности и статус аудита |
-| [0.8.4: скорость всех 12 профилей, 1 ноября 2026](reports/RELEASE-084-SPEED12-2026-11-01.md) | Итоговый amd64, required/opportunistic: TCP P4 и UDP600 IPv4/IPv6 up/down, n=1; raw, потери, retransmits и восстановление ВМ |
+| [0.8.4: скорость всех 12 профилей, 1 ноября 2026](reports/RELEASE-084-SPEED12-2026-11-01.md) | Ранний кандидат amd64 SHA2a527ccd, required/opportunistic: TCP P4 и UDP600 IPv4/IPv6 up/down, n=1; raw, потери, retransmits и восстановление ВМ |
 | [0.8.4: timed против opportunistic, 1 ноября 2026](reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md) | Тот же SHA, required, 12 профилей; скорость, потери, retransmits/TUN drops и ограничения продолжения после остановки ВМ |
 | [Три повтора с буферами, 31 октября 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 окон; эталон всей матрицы не принят |
 | [Пилот socket buffers, 31 октября 2026](reports/RELEASE-SHORT-BUFFERS-PILOT-2026-10-31.md) | 40 окон; проверка обвязки, не допуск релиза |
