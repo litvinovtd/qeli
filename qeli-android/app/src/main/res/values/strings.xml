@@ -93,6 +93,9 @@
     <string name="reach_checking">checking…</string>
     <string name="reach_unreachable">unreachable</string>
     <string name="reach_ok">reachable · %1$d ms</string>
+    <string name="reach_tunnel_ok">tunnel · %1$d ms</string>
+    <string name="reach_connected_short">connected</string>
+    <string name="reach_connected_rtt_unavailable">connected · RTT unavailable</string>
     <string name="latency_ms">%1$d ms</string>
     <string name="invalid_config_row">⚠ invalid config</string>
 

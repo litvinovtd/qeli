@@ -105,6 +105,9 @@
     <string name="reach_checking">проверка…</string>
     <string name="reach_unreachable">недоступен</string>
     <string name="reach_ok">доступен · %1$d мс</string>
+    <string name="reach_tunnel_ok">туннель · %1$d мс</string>
+    <string name="reach_connected_short">подключён</string>
+    <string name="reach_connected_rtt_unavailable">подключён · RTT недоступен</string>
     <string name="latency_ms">%1$d мс</string>
     <string name="invalid_config_row">⚠ конфиг с ошибкой</string>
 

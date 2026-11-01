@@ -127,6 +127,8 @@ class MainActivity : AppCompatActivity() {
     private var observedProfileVersion: ProfileStore.SecureStore.Version? = null
     private var profileRevision = 0L
     private val reach = HashMap<Int, Long>()   // profile index -> ping ms (-1 = down, -2 = checking)
+    private val pingRequests = PingRequests()
+    private var lastPingSession: PingSession? = null
 
     /** Encrypted-at-rest profile store: profiles carry the server password and
      *  obfs_key, so they must not sit in plaintext SharedPreferences. The master
@@ -1728,7 +1730,9 @@ ipv6 = auto
             applyReach(row.rowReachDot, null, p, reach[i])
             // Compact latency next to the dot: "42 ms" reachable · "…" checking · "" unknown/down.
             row.rowReachMs.text = reach[i].let { ms ->
-                when { ms == null -> ""; ms == -2L -> "…"; ms < 0 -> ""; else -> getString(R.string.latency_ms, ms) }
+                when { ms == null -> ""; ms == PingPolicy.CHECKING -> "…"
+                    ms == PingPolicy.CONNECTED_WITHOUT_RTT -> getString(R.string.reach_connected_short)
+                    ms < 0 -> ""; else -> getString(R.string.latency_ms, ms) }
             }
             // Switching the active profile is refused while a tunnel is up — it would tear
             // down a live connection on a single tap. Dim the other rows so it reads as
@@ -1760,6 +1764,7 @@ ipv6 = auto
         val color = when {
             ms == null -> R.color.text_hint
             ms == -2L -> R.color.status_connecting
+            PingPolicy.reachable(ms) -> R.color.status_connected
             ms < 0 -> R.color.status_error
             else -> R.color.status_connected
         }
@@ -1767,7 +1772,9 @@ ipv6 = auto
         label?.text = when {
             ms == null -> getString(R.string.reach_tap_ping)
             ms == -2L -> getString(R.string.reach_checking)
+            ms == PingPolicy.CONNECTED_WITHOUT_RTT -> getString(R.string.reach_connected_rtt_unavailable)
             ms < 0 -> getString(R.string.reach_unreachable)
+            isConnected && p === current() -> getString(R.string.reach_tunnel_ok, ms)
             else -> getString(R.string.reach_ok, ms)
         }
     }
@@ -2118,37 +2125,55 @@ ipv6 = auto
     }
 
     private fun pingActive(manual: Boolean = false) {
-        if (isDisconnecting) return
+        if (isDisconnecting || isConnecting || isTrustedPaused) return
         if (!manual) {
             val enabled = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
                 .getBoolean(PREF_AUTO_PROBE, ProfileAutoProbePolicy.DEFAULT_ENABLED)
             if (!enabled || isConnected || isConnecting || isTrustedPaused) return
         }
         val p = current() ?: return
-        val idx = activeIndex
+        startProfilePing(activeIndex, p, manual)
+        renderActiveProfile()
+    }
+
+    private fun pingSession() = PingSession(VpnServiceImpl.liveStatus, VpnServiceImpl.liveConnectedAt,
+        VpnServiceImpl.liveGateway, VpnServiceImpl.liveIp)
+
+    /** One path for the active card and profile list. Only the existing VPN gets an
+     * in-tunnel ICMP echo; disconnected/other profiles keep protocol-aware server probes. */
+    private fun startProfilePing(index: Int, profile: Profile, manual: Boolean) {
         val epoch = reachEpoch
-        reach[idx] = -2L; renderActiveProfile()
-        val cfg = try { VpnConfig.parse(p.text) } catch (_: Exception) { null }
-        if (cfg == null) { reach[idx] = -1L; renderActiveProfile(); return }
+        val session = pingSession()
+        val connected = isConnected && index == activeIndex && session.status == VpnServiceImpl.STATUS_CONNECTED
+        val ticket = pingRequests.begin(index)
+        val cfg = try { VpnConfig.parse(profile.text) } catch (_: Exception) { null }
+        if (cfg == null) {
+            reach[index] = if (connected) PingPolicy.CONNECTED_WITHOUT_RTT else PingPolicy.UNREACHABLE
+            return
+        }
+        val target = PingPolicy.target(connected, cfg.isUdp, cfg.serverAddress, cfg.port, session.gateway)
+        reach[index] = PingPolicy.CHECKING
         launchReachabilityProbe(manual) {
-            // While connected, probe the in-tunnel gateway for a clean tunnel RTT
-            // (probing the public IP loops back through the server and ~doubles it).
-            val ms = if (isConnected && clientGateway.isNotEmpty()) {
-                if (cfg.isUdp) udpPing(cfg, clientGateway)
-                else tcpPing(clientGateway, cfg.port)
-            } else {
-                probe(p)
+            val measured = withReachabilityProbeSlot {
+                when (target.kind) {
+                    PingPolicy.Kind.TUNNEL_ICMP -> getSystemService(ConnectivityManager::class.java)?.let {
+                        TunnelPing.measure(it, session.localIp, target.host)
+                    } ?: -1L
+                    PingPolicy.Kind.SERVER_TCP -> tcpPing(target.host, cfg.port)
+                    PingPolicy.Kind.SERVER_UDP -> udpPing(cfg, target.host)
+                }
             }
-            if (epoch == reachEpoch && !isDisconnecting
-                && profiles.getOrNull(idx) === p) {
-                reach[idx] = ms
-                if (activeIndex == idx) renderActiveProfile()
+            if (epoch == reachEpoch && !isDisconnecting && session == pingSession()
+                && pingRequests.current(index, ticket) && profiles.getOrNull(index) === profile) {
+                reach[index] = PingPolicy.result(target, measured)
+                if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+                if (activeIndex == index) renderActiveProfile()
             }
         }
     }
 
     private fun pingAll(manual: Boolean = false) {
-        if (isDisconnecting) return
+        if (isDisconnecting || isConnecting || isTrustedPaused) return
         val sweepPrefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
         val sweepAt = System.currentTimeMillis()
         if (!manual) {
@@ -2161,30 +2186,11 @@ ipv6 = auto
         }
         lastAutoProbeAtMs = sweepAt
         sweepPrefs.edit().putLong(PREF_LAST_AUTO_PROBE_MS, sweepAt).apply()
-        val epoch = reachEpoch
         profiles.toList().forEachIndexed { i, p ->
-            val ep = endpointOf(p)
-            when {
-                ep == null -> reach[i] = -1L
-                // The profile we're connected through is known-reachable; probing it
-                // (especially UDP) through the live full-tunnel is unreliable, so show
-                // it green directly instead of risking a false red.
-                isConnected && i == activeIndex -> reach[i] = 0L
-                else -> {
-                    reach[i] = -2L
-                    launchReachabilityProbe(manual) {
-                        val ms = withReachabilityProbeSlot { probe(p) }
-                        if (epoch == reachEpoch && !isDisconnecting
-                            && profiles.getOrNull(i) === p) {
-                            reach[i] = ms
-                            if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
-                            if (activeIndex == i) renderActiveProfile()
-                        }
-                    }
-                }
-            }
+            startProfilePing(i, p, manual)
         }
         renderProfileList()
+        renderActiveProfile()
     }
 
     private suspend fun tcpPing(host: String, port: Int): Long = withContext(Dispatchers.IO) {
@@ -2192,9 +2198,9 @@ ipv6 = auto
             val socket = Socket()
             continuation.invokeOnCancellation { runCatching { socket.close() } }
             val result = try {
-                val startedAt = System.currentTimeMillis()
+                val startedAt = android.os.SystemClock.elapsedRealtime()
                 socket.connect(InetSocketAddress(host, port), 3000)
-                System.currentTimeMillis() - startedAt
+                android.os.SystemClock.elapsedRealtime() - startedAt
             } catch (_: Exception) {
                 -1L
             } finally {
@@ -2202,13 +2208,6 @@ ipv6 = auto
             }
             if (continuation.isActive) continuation.resume(result)
         }
-    }
-
-    /** Protocol-aware reachability: TCP connect for TCP profiles, a real first-packet
-     *  handshake probe for UDP (a TCP connect can't reach a UDP-only port). */
-    private suspend fun probe(p: Profile): Long {
-        val cfg = try { VpnConfig.parse(p.text) } catch (_: Exception) { return -1L }
-        return if (cfg.isUdp) udpPing(cfg, cfg.serverAddress) else tcpPing(cfg.serverAddress, cfg.port)
     }
 
     /** Native UDP first-flight diagnostic. Rust uses the same hybrid PQ ClientHello,
@@ -2457,6 +2456,13 @@ ipv6 = auto
     }
 
     private fun updateUi(status: String?, error: String?) {
+        val session = pingSession()
+        val pingSessionChanged = lastPingSession != session
+        if (pingSessionChanged) {
+            lastPingSession = session
+            reachEpoch++
+            reach.clear()
+        }
         val wasLocked = isConnected || isConnecting || isDisconnecting || isTrustedPaused
         when (status) {
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
@@ -2469,7 +2475,8 @@ ipv6 = auto
         // Profile switching is locked while the tunnel is up, and the rows render that as
         // dimming — so the list has to be redrawn whenever we cross that boundary, or the
         // lock stays visible after a disconnect (and invisible after a connect).
-        if (wasLocked != (isConnected || isConnecting || isDisconnecting || isTrustedPaused)) renderProfileList()
+        if (pingSessionChanged || wasLocked != (isConnected || isConnecting || isDisconnecting || isTrustedPaused)) renderProfileList()
+        if (pingSessionChanged) renderActiveProfile()
         if (wasLocked && !isConnected && !isConnecting && !isDisconnecting && !isTrustedPaused) {
             pingAll(manual = false)
         }

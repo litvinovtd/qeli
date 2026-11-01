@@ -691,8 +691,18 @@ qeli add-client <user> --password '<pw>' --link --host <public-ip>:<port> \
 The grey dot on a profile card is a **server reachability probe** (Unknown/grey = not
 probed yet), **not** the tunnel status. The tunnel status is a separate indicator
 (Disconnected/Connecting/Connected/Error). Tap "Ping" to check it manually; automatic polling is opt-in and disabled by default.
-Green for the connected active profile is set directly (probing through the live full-tunnel
-is unreliable).
+
+**Android 0.8.4, [#161](https://github.com/litvinovtd/qeli/issues/161).** Before connecting,
+TCP checks the public TCP port; UDP checks the first reply to the native UDP probe.
+Neither performs AUTH or proves the key/password is correct. For the connected active
+profile, both the card and profile list measure ICMP echo to the gateway through the
+existing VPN network, regardless of TCP/UDP transport. They do not contact the profile's
+public listener port on the gateway's private address. The socket is bound to the VPN
+and checked against the authenticated local address; there is no physical-network fallback.
+If the OS/per-app policy denies the socket or the server filters ICMP, the result is
+**“connected · RTT unavailable”**, not “unreachable” or a fabricated `0 ms`. A timeout
+does not disconnect the VPN. Results from a previous session are discarded. No additional
+permissions, server listener or protocol upgrade is needed.
 
 ### 6.6 `protect() failed …` (Android) = a conflict with an always-on VPN
 
