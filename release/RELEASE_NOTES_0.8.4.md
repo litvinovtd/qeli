@@ -135,6 +135,20 @@ Windows GUI по-прежнему поставляется отдельными 
 
 UDP600 loss >1%: **0/48** окон; максимальный модуль baseline drift **3.04%**. Retransmits и TUN drops не скрыты: [полная таблица и ограничения](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reports/RELEASE-084-SPEED12-2026-11-01.md). Сохранён первичный отказ наблюдателя; после исправления ожидания маркера продолжены только оставшиеся профили. Обе ВМ восстановлены, raw сохранены отдельно. UDP TUN TX drops: **0**. При неограниченной TCP P4 нагрузке: **542–1866 retransmits/окно**, суммарно **93495 TUN TX drops** за наблюдение с прогревом; это не беспотерьный TCP и не сопоставимые интервалы счётчиков.
 
+### Дополнительное сравнение timed/opportunistic
+
+На том же SHA бинарника и тех же двух лабораторных узлах выполнена required/timed матрица всех
+12 профилей: TCP P4 и UDP600 IPv4/IPv6 up/down. После нормализации путей конфиги
+отличаются только `obf.recordizer.batch.mode`. Средняя TCP-скорость четырёх направлений
+у timed выше на 1,85–6,83% для 11 профилей, но **Reality-TLS/H2 ниже на 23,69%**.
+UDP600 в обоих режимах: **0% loss, 0 TUN drops**. Суммарные TCP retransmits
+54 073→50 233, TUN TX drops 93 495→83 958 (opportunistic→timed); меньше счётчиков
+не означает выше надёжность при разном объёме трафика. Это последовательное n=1,
+с прерыванием инфраструктуры/новыми boot IDs и продолжением 81 недостающего окна,
+не строгий A/B/A и не измерение задержек. ВМ восстановлены; первичные повреждённые
+raw сохранены и не использованы как успешные результаты.
+[Полное сравнение, все направления и ограничения](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md).
+
 ## English
 
 Qeli 0.8.4 builds on 0.8.3 with a full Windows console client, Linux ARM64 server
@@ -264,3 +278,17 @@ Each cell: **TCP / UDP (UDP loss %)**, Mbps, n=1. Not a matched A/B or proof of 
 | udp-faketls-awg | 1072.9 / 600.0 (0.000%) | 1234.2 / 600.0 (0.000%) | 1070.0 / 600.0 (0.000%) | 1184.4 / 600.0 (0.000%) |
 
 UDP600 loss >1%: **0/48** windows; maximum absolute baseline drift **3.04%**. Retransmits and TUN drops are retained in the [full table and limits](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reports/RELEASE-084-SPEED12-2026-11-01.md). The initial observer failure was retained; only remaining profiles ran after fixing marker waiting. Both VMs restored, separate raw retained. UDP TUN TX drops: **0**. Uncapped TCP P4: **542–1866 retransmits/window**, **93495 total TUN TX drops** over observation including warm-up; TCP is not lossless and counter intervals differ.
+
+### Additional timed/opportunistic comparison
+
+The same binary SHA on the same two lab nodes completed a required/timed matrix of all 12 profiles:
+TCP P4 and UDP600 IPv4/IPv6 up/down. After path normalization only
+`obf.recordizer.batch.mode` differs. Timed's four-direction mean TCP speed is
+1.85–6.83% higher for 11 profiles, but **Reality-TLS/H2 is 23.69% lower**.
+UDP600 in both modes: **0% loss, 0 TUN drops**. Total TCP retransmits
+54,073→50,233 and TUN TX drops 93,495→83,958 (opportunistic→timed); lower counters
+do not establish improved reliability at a different traffic volume. Sequential n=1,
+with an infrastructure interruption/new boot IDs and continuation of 81 missing cells,
+not strict A/B/A or latency qualification. VMs restored; initial corrupt raw retained,
+not reported as successful results.
+[Full comparison, directions and limitations](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md).

@@ -144,6 +144,14 @@ results, limitations, overhead and restoration are retained in the report.
 
 ## What the measurements established
 
+[Final 0.8.4 timed/opportunistic comparison, 1 November](../reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md):
+one SHA, required, 12 profiles, TCP P4/UDP600 IPv4/IPv6 up/down. Timed has a higher
+four-direction mean for 11 profiles by 1.85–6.83%, but Reality-TLS/H2 is 23.69% lower.
+UDP600 has 0% loss and 0 TUN drops in both modes; TCP retransmits/drops remain.
+This is n=1 with an infrastructure interruption and continuation after VM startup;
+full raw, config delta, counters and limitations are retained. Not a universal
+low-latency cost or a new IRTT/VoIP/game-latency measurement.
+
 The [single-pass required/off comparison of one 0.8.2 build](../reports/benchmarks/recordizer_required_off_2026-10-20.md)
 recorded higher mean TCP P4 throughput with required across all 12 profiles. The
 difference was about 6% for Reality-TLS and larger for the other profiles. In ordinary

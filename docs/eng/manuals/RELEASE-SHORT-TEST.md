@@ -5,6 +5,11 @@ required/opportunistic, TCP P4 and UDP600 IPv4/IPv6 up/down, n=1. This is a boun
 speed smoke, not the complete version-2 plan below or a matched A/B. The report
 retains the initial observer failure, remaining-profile continuation and VM restoration.
 
+The same SHA also has a [12-profile timed/opportunistic comparison](../reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md).
+Only batch.mode changed; all directions and counters are retained. Sequential n=1
+with documented VM stop/start and raw recovery, not strict A/B/A, a latency test,
+or a replacement for the complete plan below.
+
 The test checks transports and repeatable performance on two dedicated Linux guests.
 It replaces broad VPN comparisons in routine speed testing, not CI, platform/security
 qualification or mandatory long release-soak gates. Competitors and precise UDP ceilings
