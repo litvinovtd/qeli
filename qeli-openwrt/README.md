@@ -668,24 +668,25 @@ physical router test. The public Git URL remains unchanged; no release is publis
 
 ### Current 0.8.4 source cut — 1 November 2026
 
-The recipe pins `1a3bf11cbe109bda7f959089787cc8e03bd8401d`. Its complete `qeli/` tree includes the candidate audit
-fixes and the webpki-roots 1.0.11 lock/legal update, and must match the release
-crate tree exactly. Stock SDK 24.10.4 `download`/`prepare` verified all 3780
-prepared tracked files and modes. Two empty download caches and distinct private
-Git URLs produced identical `qeli-0.8.4.tar.zst` bytes: SHA-256
-`b379becde87a706223f3f250ac1b8aa85067beffb881ac82b294edf75182eaf7` (29187561 bytes).
+The recipe pins `26152816684602ee6217897cdf9f6eebb0bd123a`. The complete `qeli/` tree includes the candidate audit
+fixes, webpki-roots 1.0.11 lock/legal update and the final user-panel changes,
+and must match the release crate tree exactly. Stock SDK 24.10.4 `download`/`prepare`
+verified all 3787 prepared tracked files and modes. Two empty download caches
+and distinct private Git URLs produced identical `qeli-0.8.4.tar.zst` bytes:
+SHA-256 `4641e374e67b779d0b0179e4c0e3aeb20daac2ba955f70052c35cbc028c847a5` (29215574 bytes).
 
 The production HTTPS Git URL is unchanged; the pinned commit must be reachable
 there before using the feed. This qualifies source export/prepare and the actual
 mirror archive, not a compiler bootstrap, fresh full SDK/IPK build or physical
-router run. Current release CI and the strict archive/source gate remain separate
-requirements. Unused non-router files in the Git snapshot are not router build inputs.
+router run. Release CI and the strict archive/source gate remain separate requirements.
+Unused non-router files in the Git snapshot are not router build inputs.
 
-Рецепт 0.8.4 закреплён на `1a3bf11cbe109bda7f959089787cc8e03bd8401d`. Полное дерево `qeli/` включает исправления
-аудита кандидата и обновление lock/лицензий webpki-roots 1.0.11; оно должно точно
-совпадать с Rust-деревом выпуска. Штатный SDK 24.10.4 проверил содержимое и режимы
-всех 3780 подготовленных отслеживаемых файлов. Два экспорта в пустые кэши с
-разными приватными Git URL дали одинаковый архив и указанный SHA-256.
+Рецепт 0.8.4 закреплён на `26152816684602ee6217897cdf9f6eebb0bd123a`. Полное дерево `qeli/` включает исправления
+аудита кандидата, обновление lock/лицензий webpki-roots 1.0.11 и завершённые
+доработки панели пользователей; оно должно точно совпадать с Rust-деревом выпуска.
+Штатный SDK 24.10.4 проверил содержимое и режимы всех 3787 подготовленных
+отслеживаемых файлов. Два экспорта в пустые кэши с разными приватными Git URL
+дали одинаковый архив и указанный SHA-256.
 
 Публичный HTTPS Git URL не меняется; перед использованием feed закреплённый
 коммит должен быть доступен в нём. Это проверка экспорта/подготовки исходников,
