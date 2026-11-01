@@ -38,6 +38,10 @@ pub struct UserEntry {
     // Scalar / scalar-array fields first, then sub-tables (bandwidth, metadata,
     // routes) — required so the struct serializes to valid TOML.
     pub username: String,
+    /// Account creation time, Unix seconds (UTC). Missing on legacy/manual entries;
+    /// never inferred from a file mtime or from the first panel view/edit.
+    #[serde(default)]
+    pub created_at: Option<u64>,
     /// Never sent over the JSON API (`/api/users`, `/api/config`) — same treatment as
     /// `password_enc`. The users file is written by the hand-rolled INI codec, not serde,
     /// so skipping serialization does NOT drop the hash from disk.
@@ -558,6 +562,14 @@ fn default_enabled() -> bool {
 }
 
 impl UserEntry {
+    /// Capture once at account creation, not on load, edit or password rotation.
+    pub fn creation_time_now() -> Option<u64> {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|elapsed| elapsed.as_secs())
+    }
+
     /// Whether this user may connect to the given profile (interface).
     /// An empty `profiles` list means "all profiles" (unrestricted).
     pub fn allowed_on_profile(&self, profile: &str) -> bool {
@@ -599,6 +611,43 @@ impl UserEntry {
 #[cfg(test)]
 mod load_tests {
     use super::*;
+
+    #[test]
+    fn creation_dates_survive_ini_json_and_unrelated_edits() {
+        let source = "[user:legacy]\nenabled=true\n[user:new]\ncreated_at=1793531495\n";
+        let mut db = UsersDb::parse_strict(source, "creation.conf").unwrap();
+        assert_eq!(db.users[0].created_at, None);
+        assert_eq!(db.users[1].created_at, Some(1_793_531_495));
+        db.users[0].enabled = false;
+        db.users[1].password_hash = "replacement".into();
+        let saved = db.to_ini_string();
+        let restored = UsersDb::parse_strict(&saved, "creation.conf").unwrap();
+        assert_eq!(restored.users[0].created_at, None);
+        assert_eq!(restored.users[1].created_at, Some(1_793_531_495));
+        assert_eq!(saved.matches("created_at =").count(), 1);
+        let json = serde_json::to_value(&restored).unwrap();
+        assert!(json["users"][0]["created_at"].is_null());
+        assert_eq!(json["users"][1]["created_at"], 1_793_531_495u64);
+    }
+
+    #[test]
+    fn malformed_creation_date_is_not_silently_discarded() {
+        for value in ["tomorrow", "-1", "1.5", "18446744073709551616"] {
+            let text = format!("[user:alice]\ncreated_at={value}\n");
+            let error = UsersDb::parse_strict(&text, "creation.conf").unwrap_err();
+            assert!(users_error_message(&error).contains("created_at"));
+        }
+    }
+
+    #[test]
+    fn new_creation_time_is_current_and_old_json_stays_unknown() {
+        let before = UserEntry::creation_time_now().unwrap();
+        let created = UserEntry::creation_time_now().unwrap();
+        let after = UserEntry::creation_time_now().unwrap();
+        assert!((before..=after).contains(&created));
+        let legacy: UserEntry = serde_json::from_str(r#"{"username":"legacy"}"#).unwrap();
+        assert_eq!(legacy.created_at, None);
+    }
 
     #[test]
     fn users_error_message_preserves_nested_parser_cause() {

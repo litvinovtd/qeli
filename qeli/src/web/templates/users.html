@@ -40,11 +40,24 @@
     <select class="inp inp-compact inp-fit"
             x-model="sortMode" @change="[page = 1, refreshUserView()]">
       <option value="online_desc">Online first</option>
+      <option value="online_asc">Offline first</option>
       <option value="username_asc">Username A–Z</option>
       <option value="username_desc">Username Z–A</option>
       <option value="usage_desc">Most data used</option>
+      <option value="usage_asc">Least data used</option>
+      <option value="address_asc">Address ascending</option>
+      <option value="address_desc">Address descending</option>
+      <option value="bandwidth_desc">Highest bandwidth</option>
+      <option value="bandwidth_asc">Lowest bandwidth</option>
       <option value="lastseen_desc">Recently seen</option>
       <option value="group_asc">Group A–Z</option>
+      <option value="group_desc">Group Z–A</option>
+      <option value="profiles_asc">Profiles A–Z</option>
+      <option value="profiles_desc">Profiles Z–A</option>
+      <option value="sessions_desc">Most sessions</option>
+      <option value="sessions_asc">Fewest sessions</option>
+      <option value="created_desc">Newest users</option>
+      <option value="created_asc">Oldest users</option>
     </select>
     <select class="inp inp-compact inp-fit"
             x-model.number="pageSize" @change="page = 1">
@@ -75,14 +88,15 @@
       <thead>
         <tr>
           <th class="tbl-th" style="width:2rem"><input type="checkbox" :checked="allSel" @change="toggleAll()"></th>
-          <th class="tbl-th">Username</th>
-          <th class="tbl-th">Status</th>
-          <th class="tbl-th">Tunnel addresses</th>
-          <th class="tbl-th">Bandwidth</th>
-          <th class="tbl-th">Data usage</th>
-          <th class="tbl-th">Group</th>
-          <th class="tbl-th">Profiles</th>
-          <th class="tbl-th">Max Sessions</th>
+          <th class="tbl-th" :aria-sort="sortState('username')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('username')"><span>Username</span><span aria-hidden="true" x-text="sortMark('username')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('online')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('online')"><span>Status</span><span aria-hidden="true" x-text="sortMark('online')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('address')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('address')"><span>Tunnel addresses</span><span aria-hidden="true" x-text="sortMark('address')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('bandwidth')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('bandwidth')"><span>Bandwidth</span><span aria-hidden="true" x-text="sortMark('bandwidth')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('usage')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('usage')"><span>Data usage</span><span aria-hidden="true" x-text="sortMark('usage')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('group')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('group')"><span>Group</span><span aria-hidden="true" x-text="sortMark('group')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('profiles')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('profiles')"><span>Profiles</span><span aria-hidden="true" x-text="sortMark('profiles')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('sessions')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('sessions')"><span>Max Sessions</span><span aria-hidden="true" x-text="sortMark('sessions')"></span></button></th>
+          <th class="tbl-th" :aria-sort="sortState('created')"><button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px;font:inherit" @click="sortBy('created')"><span>Created</span><span aria-hidden="true" x-text="sortMark('created')"></span></button></th>
           <th class="tbl-th text-right">Actions</th>
         </tr>
       </thead>
@@ -141,6 +155,7 @@
               </span>
             </td>
             <td class="tbl-td text-slate-400 text-xs" x-text="u.max_sessions > 0 ? u.max_sessions : 'default'"></td>
+            <td class="tbl-td text-xs whitespace-nowrap" :title="createdTitle(u)" x-text="fmtCreated(u)"></td>
             <td class="tbl-td text-right">
               <div class="flex items-center justify-end gap-1.5">
                 <button class="btn btn-ghost btn-sm" @click="openShare(u)" title="Share / QR">
@@ -597,6 +612,34 @@ function usersPage() {
       add(user.static_ipv6, 'fixed');
       return [...rows.values()];
     },
+    sortState(key) {
+      const [active, direction] = this.sortMode.split('_');
+      return active !== key ? 'none' : direction === 'desc' ? 'descending' : 'ascending';
+    },
+    sortMark(key) {
+      return {none:'↕', ascending:'↑', descending:'↓'}[this.sortState(key)];
+    },
+    sortBy(key) {
+      if (!['username','online','address','bandwidth','usage','group','profiles','sessions','created'].includes(key)) return;
+      const ascending = this.sortState(key) === 'descending'
+        || (this.sortState(key) === 'none' && ['username','group','profiles','address'].includes(key));
+      this.sortMode = key + (ascending ? '_asc' : '_desc');
+      this.page = 1;
+      this.refreshUserView();
+    },
+    creationTime(user) {
+      const value = user.created_at;
+      return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        && Number.isFinite(new Date(value * 1000).getTime()) ? value : null;
+    },
+    fmtCreated(user) {
+      const value = this.creationTime(user);
+      return value === null ? this.qeliT('Unknown time') : new Date(value * 1000).toLocaleString();
+    },
+    createdTitle(user) {
+      const value = this.creationTime(user);
+      return value === null ? this.qeliT('Unknown time') : new Date(value * 1000).toISOString();
+    },
     refreshUserView() {
       const q = this.search.trim().toLowerCase();
       const rows = this.users.filter(u => {
@@ -617,10 +660,21 @@ function usersPage() {
         if (key === 'online') return Number(usage.online_sessions || (usage.online ? 1 : 0));
         if (key === 'usage') return Number(usage.used_down || 0) + Number(usage.used_up || 0);
         if (key === 'lastseen') return Number(usage.last_seen || 0);
+        if (key === 'created') return this.creationTime(u);
+        if (key === 'bandwidth') return this.effectiveBandwidth(u) || Infinity;
+        if (key === 'sessions') return Number(u.max_sessions || 0);
+        if (key === 'profiles') return [...(u.profiles || [])].sort().join(',').toLowerCase();
+        if (key === 'address') return this.addressRows(u).map(row => row.address).sort().join(',').toLowerCase();
         return 0;
       };
       this.filteredUsers = [...rows].sort((a, b) => {
         const av = value(a), bv = value(b);
+        // Legacy dates stay unknown, and sort after known dates in either direction.
+        if (av === null || bv === null) {
+          if (av !== bv) return av === null ? 1 : -1;
+          return a.username.localeCompare(b.username);
+        }
+        if (av === bv) return a.username.localeCompare(b.username);
         const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
         if (cmp) return dir === 'desc' ? -cmp : cmp;
         return a.username.localeCompare(b.username);
@@ -788,7 +842,7 @@ function usersPage() {
       await this.load();
       if (this.destroyed) return;
       this.refreshTimer = qeliPoll(async () => { await this.refreshLive(); return !this.readErrors.users && !this.readErrors.usage; }, 10000);
-      this.visibilityHandler = () => { if (!this.destroyed && !document.hidden) this.refreshLive(); };
+      this.visibilityHandler = () => { if (!this.destroyed && !document.hidden && !qeliPolling.paused) this.refreshLive(); };
       document.addEventListener('visibilitychange', this.visibilityHandler);
     },
     destroy() {

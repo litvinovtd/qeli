@@ -1713,6 +1713,18 @@ The server device cap still applies to them.
 
 ## Users & groups (`[user:*]` / `[group:*]`)
 
+Click a data column header to toggle ascending/descending user sorting; the selector
+reflects the same direction. Filters and selection are retained and pagination returns
+to page one. Unknown creation dates sort last in either direction. Dates use the browser
+timezone with UTC in the tooltip. Selection and action columns are not sortable.
+
+Three consecutive errors in any background poll pause all background polling on the
+current page. Resume auto refresh explicitly restarts it; focusing the tab does not.
+Displayed data and unsaved edits are retained. Refresh makes a single manual request;
+explicit resume or reloading the page enables background reads again. Hidden tabs do
+not send background requests. Bounded recovery after an explicit server restart is a
+separate operation and is unchanged.
+
 Users live in the standalone `auth.users_file` (default `/etc/qeli/users.conf`) or inline as
 `[user:<name>]` sections in `server.conf`; groups are `[group:<name>]` sections in the same file.
 The file is flat-INI, written atomically by `add-client` and the web panel. Full annotated example
@@ -1738,6 +1750,7 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 | `data_limit_gb` | `0` | lifetime data cap in GB (`0` = unlimited), counted on **download only** (server→client, `used_down`); upload is tracked separately (`used_up`) but does NOT count against the cap. Enforced at auth and by the usage sweep (over-quota live sessions are disconnected). Consumption is tracked in the `usage.json` sidecar |
 | `expire_at` | — | account expiry as a Unix timestamp (seconds); absent = never expires. Past it the user is rejected at auth and disconnected by the sweep |
 | `metadata.<key>` | — | free-form string annotations (repeatable, one per `<key>`); stored as-is, not interpreted by the server |
+| `created_at` | — | creation time as Unix seconds UTC; panel/API and `add-client` record it once at creation. Read-only in Users API edits. Missing on legacy/manual entries means unknown, not file modification time. Backups/restores and inline INI retain it. The new key requires a version that supports it |
 
 Traffic counters are collected and persisted every ten seconds. Completed TCP/UDP
 sessions remain accounted for even when they start and end between sweeps; shutdown

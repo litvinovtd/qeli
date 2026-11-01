@@ -530,7 +530,7 @@ function dashboard() {
       this.refreshTimer = qeliPoll(async () => { await this.load(true); return !this.loadError; }, 10000);
       this.metricsTimer = qeliPoll(async () => { await this.loadMetrics(true); return !this.metricsErr; }, 2000);
       this.visibilityHandler = () => {
-        if (!this.destroyed && !document.hidden) { this.load(true); this.loadMetrics(true); }
+        if (!this.destroyed && !document.hidden && !qeliPolling.paused) { this.load(true); this.loadMetrics(true); }
       };
       document.addEventListener('visibilitychange', this.visibilityHandler);
     },

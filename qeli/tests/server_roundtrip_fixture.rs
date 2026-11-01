@@ -31,4 +31,5 @@ fn generated_server_fixture_round_trips_every_field() {
         );
     }
     assert_eq!(restored.profiles.len(), 2);
+    assert_eq!(restored.auth.users[0].created_at, Some(1793531495));
 }

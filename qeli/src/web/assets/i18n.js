@@ -36,6 +36,23 @@
   // English-string -> translation. 'en' is identity (no entry needed).
   const DICT = {
     ru: {
+      'Created': 'Создан',
+      'Paused': 'Приостановлено',
+      'Resume auto refresh': 'Возобновить автообновление',
+      'Automatic refresh paused after repeated read errors. Your displayed data is retained.': 'Автообновление приостановлено после повторных ошибок чтения. Показанные данные сохранены.',
+      'Offline first': 'Сначала не в сети',
+      'Least data used': 'Меньше трафика',
+      'Address ascending': 'Адреса по возрастанию',
+      'Address descending': 'Адреса по убыванию',
+      'Highest bandwidth': 'Выше лимит скорости',
+      'Lowest bandwidth': 'Ниже лимит скорости',
+      'Group Z–A': 'Группа Я–А',
+      'Profiles A–Z': 'Профили А–Я',
+      'Profiles Z–A': 'Профили Я–А',
+      'Most sessions': 'Больше сессий',
+      'Fewest sessions': 'Меньше сессий',
+      'Newest users': 'Сначала новые',
+      'Oldest users': 'Сначала старые',
       "Invalid INI section": "Некорректная секция INI",
       "Duplicate [qeli] section": "Повторная секция [qeli]",
       "INI key before [qeli]": "Параметр INI до секции [qeli]",

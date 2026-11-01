@@ -1399,6 +1399,9 @@ fn user_to(u: &UserEntry) -> Section {
     if u.data_limit_gb > 0 {
         put(&mut s, "data_limit_gb", u.data_limit_gb);
     }
+    if let Some(created_at) = u.created_at {
+        put(&mut s, "created_at", created_at);
+    }
     if let Some(exp) = u.expire_at {
         put(&mut s, "expire_at", exp);
     }
@@ -1441,6 +1444,7 @@ fn user_from(s: &Section) -> UserEntry {
         .collect();
     UserEntry {
         username: s.instance.clone().unwrap_or_default(),
+        created_at: opt_parse(s, "created_at"),
         password_hash: s.str_or("password_hash", "").to_string(),
         password_enc: s
             .get("password_enc")
@@ -1524,6 +1528,30 @@ fn group_from(s: &Section) -> GroupTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_user_creation_date_survives_server_ini_and_json_round_trips() {
+        let mut config =
+            crate::config::parse_server_config("[profile:tcp]\nbind.port=443\n").unwrap();
+        config.auth.users = vec![
+            UserEntry {
+                username: "old".into(),
+                ..Default::default()
+            },
+            UserEntry {
+                username: "new".into(),
+                created_at: Some(1_793_531_495),
+                ..Default::default()
+            },
+        ];
+        let ini = config.to_ini_string();
+        let restored = crate::config::parse_server_config(&ini).unwrap();
+        assert_eq!(restored.auth.users[0].created_at, None);
+        assert_eq!(restored.auth.users[1].created_at, Some(1_793_531_495));
+        let json = serde_json::to_value(&restored).unwrap();
+        let json_restored: ServerConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(json_restored.auth.users[1].created_at, Some(1_793_531_495));
+    }
 
     #[test]
     fn websocket_host_clears_and_round_trips_independently_of_sni() {

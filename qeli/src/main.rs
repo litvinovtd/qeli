@@ -1213,6 +1213,7 @@ fn add_client(
 
     let entry = UserEntry {
         username: username.clone(),
+        created_at: UserEntry::creation_time_now(),
         password_hash,
         // Reversibly-encrypted copy so the panel can re-issue this user's config/QR
         // later without the plaintext (best-effort; None if the panel key is absent).

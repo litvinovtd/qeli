@@ -501,6 +501,8 @@ pub async fn create_user(
     }
     let new_user = UserEntry {
         username: username.clone(),
+        // Read-only API metadata: do not accept a caller-supplied creation date.
+        created_at: UserEntry::creation_time_now(),
         password_hash,
         password_enc,
         enabled: body["enabled"].as_bool().unwrap_or(true),
@@ -1269,6 +1271,22 @@ mod merge_tests {
 
         let wrong_type = serde_json::json!({"static_ipv6": 6});
         assert!(nullable_trimmed_string(&wrong_type, "static_ipv6").is_err());
+    }
+
+    #[test]
+    fn creation_date_is_not_editable_and_fresh_disk_metadata_wins() {
+        let before = user("alice");
+        let mut after = before.clone();
+        after.created_at = Some(999);
+        after.password_hash = "changed".into();
+        let mut fresh = before.clone();
+        fresh.created_at = Some(123);
+        merge_changed_fields(&before, &after, &mut fresh);
+        assert_eq!(fresh.created_at, Some(123));
+        assert_eq!(fresh.password_hash, "changed");
+        let mut legacy = before.clone();
+        merge_changed_fields(&before, &after, &mut legacy);
+        assert_eq!(legacy.created_at, None);
     }
 
     #[test]

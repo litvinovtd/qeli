@@ -69,14 +69,93 @@ async function main() {
       const [key, timer] = timers.entries().next().value;
       assert.equal(timer.delay, delay); timers.delete(key); await timer.fn();
     }
-    for (const delay of [2000, 4000, 8000, 16000, 32000, 60000, 60000]) await tick(delay);
-    outcome = true; await tick(60000); assert.equal([...timers.values()][0].delay, 2000);
+    await tick(2000); await tick(4000);
+    outcome = true; await tick(8000); assert.equal([...timers.values()][0].delay, 2000);
     const count = calls; context.document.hidden = true; await tick(2000); assert.equal(calls, count);
     context.document.hidden = false; poll.stop(); assert.equal(timers.size, 0);
     const pending = context.qeliPoll(() => new Promise(resolve => { finish = resolve; }), 5000);
     const [key, timer] = timers.entries().next().value; timers.delete(key);
     const running = timer.fn(); assert.equal(timers.size, 0); pending.stop(); finish(false); await running;
     assert.equal(timers.size, 0);
+  });
+  await check('three failed cycles pause every poll and only explicit resume can restart them', async () => {
+    const timers = new Map(); let next=0, calls=0, finish;
+    const {context, model, html}=component('layout.html','app',{
+      setTimeout(fn,delay){timers.set(++next,{fn,delay});return next;},
+      clearTimeout(id){timers.delete(id);},
+    });
+    const failing=context.qeliPoll(async()=>{calls++;return false;},1000);
+    const slow=context.qeliPoll(()=>new Promise(resolve=>{finish=resolve;}),60000);
+    async function tick(delay){const entry=[...timers.entries()].find(([,t])=>t.delay===delay);assert(entry,delay);timers.delete(entry[0]);return entry[1].fn();}
+    await tick(1000); await tick(2000);
+    const pending=tick(60000); await tick(4000);
+    assert(context.qeliPolling.paused); assert.equal(timers.size,0); assert.equal(calls,3);
+    // A late successful response must not unpause or install another timer.
+    finish(true); await pending; assert.equal(timers.size,0);
+    const added=context.qeliPoll(async()=>true,9000); assert.equal(timers.size,0);
+    slow.stop();
+    model.resumePolling(); assert(!context.qeliPolling.paused);
+    assert.deepEqual([...timers.values()].map(t=>t.delay).sort((a,b)=>a-b),[1000,9000]);
+    model.resumePolling(); assert.equal(timers.size,2);
+    failing.stop();added.stop();assert.equal(timers.size,0);assert.equal(context.qeliPolling.polls.size,0);
+    assert(html.includes('@qeli-polling-change.window'));assert(html.includes('@click="resumePolling()"'));
+  });
+  await check('hidden tabs and deliberate stops do not count failures; rejected reads do', async () => {
+    const timers=new Map();let next=0,calls=0;
+    const {context}=component('layout.html','app',{
+      setTimeout(fn,delay){timers.set(++next,{fn,delay});return next;},clearTimeout(id){timers.delete(id);},
+    });
+    const poll=context.qeliPoll(async()=>{calls++;throw Error('offline');},1000);
+    async function tick(){const [id,t]=[...timers.entries()][0];timers.delete(id);await t.fn();}
+    context.document.hidden=true;for(let i=0;i<5;i++)await tick();assert.equal(calls,0);assert(!context.qeliPolling.paused);
+    context.document.hidden=false;for(let i=0;i<3;i++)await tick();assert.equal(calls,3);assert(context.qeliPolling.paused);
+    poll.stop();context.qeliResumePolling();assert.equal(timers.size,0);
+  });
+  await check('resume during an old in-flight read discards the obsolete failure', async () => {
+    const timers=new Map();let next=0,finish;
+    const {context}=component('layout.html','app',{
+      setTimeout(fn,delay){timers.set(++next,{fn,delay});return next;},clearTimeout(id){timers.delete(id);},
+    });
+    const poll=context.qeliPoll(()=>new Promise(resolve=>{finish=resolve;}),1000);
+    const [id,t]=[...timers.entries()][0];timers.delete(id);const pending=t.fn();
+    context.qeliPausePolling();context.qeliResumePolling();assert.equal(timers.size,0);
+    finish(false);await pending;assert(!context.qeliPolling.paused);assert.equal([...timers.values()][0].delay,1000);
+    poll.stop();
+  });
+  await check('visibility handlers cannot bypass the paused circuit breaker', async () => {
+    for(const [file,factory] of [['users.html','usersPage'],['dashboard.html','dashboard']]){
+      let handler,calls=0;
+      const {model,context}=component(file,factory,{document:{hidden:false,addEventListener(_name,fn){handler=fn;},removeEventListener(){}},apiFetch:async()=>{calls++;return {ok:false,error:'offline'};}});
+      await model.init();context.qeliPausePolling();const before=calls;handler();await Promise.resolve();assert.equal(calls,before);
+      model.destroy();
+    }
+  });
+  await check('every user data column sorts in both directions without changing selection', async () => {
+    const {model,html}=component('users.html','usersPage');
+    model.users=[{username:'zeta',enabled:true,static_ip:'10.9.0.9',group:'z',profiles:['z'],max_sessions:9,bandwidth:{limit_mbps:9},created_at:200},
+      {username:'alpha',enabled:true,static_ip:'10.9.0.1',group:'a',profiles:['a'],max_sessions:1,bandwidth:{limit_mbps:1},created_at:100}];
+    model.usageByUser={zeta:{online:true,online_sessions:2,used_up:9},alpha:{online:false,online_sessions:0,used_up:1}};
+    model.selected=['zeta'];
+    for(const key of ['username','online','address','bandwidth','usage','group','profiles','sessions','created']){
+      model.sortMode=key+'_desc';model.page=4;model.sortBy(key);assert.equal(model.sortMode,key+'_asc');assert.equal(model.page,1);
+      assert.equal(model.filteredUsers[0].username,'alpha',key);assert.equal(model.sortState(key),'ascending');
+      model.sortBy(key);assert.equal(model.filteredUsers[0].username,'zeta',key);assert.equal(model.sortState(key),'descending');
+      assert(html.includes(':aria-sort="sortState(\''+key+'\')"'));assert(html.includes('@click="sortBy(\''+key+'\')"'));
+      assert(html.includes('value="'+key+'_asc"'));assert(html.includes('value="'+key+'_desc"'));
+    }
+    assert.deepEqual([...model.selected],['zeta']);
+    const mode=model.sortMode;model.sortBy('__proto__');assert.equal(model.sortMode,mode);
+  });
+  await check('creation dates are honest for legacy users, stable on ties and unknown last in either direction', async () => {
+    const {model}=component('users.html','usersPage');
+    model.users=[{username:'legacy'},{username:'beta',created_at:100},{username:'alpha',created_at:100},{username:'new',created_at:200}];
+    for(const [mode,expected] of [['created_asc',['alpha','beta','new','legacy']],['created_desc',['new','alpha','beta','legacy']]]){
+      model.sortMode=mode;model.refreshUserView();assert.deepEqual([...model.filteredUsers].map(u=>u.username),expected);
+    }
+    for(const created_at of [undefined,null,'100',-1,Infinity,Number.MAX_SAFE_INTEGER])assert.equal(model.fmtCreated({created_at}),'Unknown time');
+    assert.equal(model.createdTitle({created_at:0}),'1970-01-01T00:00:00.000Z');
+    assert.notEqual(model.fmtCreated({created_at:100}),'Unknown time');
+    model.search='beta';model.refreshUserView();assert.equal(model.filteredUsers.length,1);
   });
   await check('GET timeout covers the response body and leaves writes and caller cancellation untouched', async () => {
     const timers = new Map(); let id = 0, request, bodyStarted = false;

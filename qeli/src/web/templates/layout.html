@@ -31,23 +31,57 @@
      NB: never write a placeholder name in a comment — the Rust side substitutes with
      str::replace, which rewrites EVERY occurrence, including ones inside comments. -->
 <script>
-// One request cycle at a time; failed reads double the delay up to one minute.
-// Callers return their read outcome because their UI already handles errors.
-// Manual refresh is independent, and hidden tabs make no background requests.
+// Shared circuit breaker: three consecutive failed cycles in any poll pause ALL
+// background polls on this page. No focus/visibility event silently resumes them.
+// Manual reads remain possible. Only the explicit resume control resets the breaker.
+var qeliPolling = { paused: false, epoch: 0, polls: new Set() };
+function qeliPollingChanged() {
+  if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('qeli-polling-change', {detail: {paused:qeliPolling.paused}}));
+  }
+}
+function qeliPausePolling() {
+  if (qeliPolling.paused) return;
+  qeliPolling.paused = true; qeliPolling.epoch++;
+  for (const poll of qeliPolling.polls) poll.pause();
+  qeliPollingChanged();
+}
+function qeliResumePolling() {
+  if (!qeliPolling.paused) return;
+  qeliPolling.paused = false; qeliPolling.epoch++;
+  qeliPollingChanged();
+  for (const poll of qeliPolling.polls) poll.resume();
+}
 function qeliPoll(read, interval) {
-  let stopped = false, timer = null, delay = interval;
-  const schedule = () => { if (!stopped) timer = setTimeout(tick, delay); };
+  let stopped = false, busy = false, timer = null, delay = interval, failures = 0;
+  const clear = () => { clearTimeout(timer); timer = null; };
+  const schedule = () => {
+    if (!stopped && !busy && !qeliPolling.paused && timer === null) timer = setTimeout(tick, delay);
+  };
   const tick = async () => {
-    if (stopped) return;
+    timer = null;
+    if (stopped || busy || qeliPolling.paused) return;
     if (!document.hidden) {
-      let ok = false;
+      const epoch = qeliPolling.epoch;
+      let ok = false; busy = true;
       try { ok = (await read()) !== false; } catch {}
-      delay = ok ? interval : Math.min(60000, delay * 2);
+      finally { busy = false; }
+      if (!stopped && epoch === qeliPolling.epoch) {
+        failures = ok ? 0 : failures + 1;
+        delay = ok ? interval : Math.min(60000, delay * 2);
+        if (failures >= 3) qeliPausePolling();
+      }
     }
     schedule();
   };
+  const poll = {
+    pause() { clear(); },
+    resume() { failures = 0; delay = interval; clear(); schedule(); },
+    stop() { stopped = true; clear(); qeliPolling.polls.delete(poll); },
+  };
+  qeliPolling.polls.add(poll);
   schedule();
-  return { stop() { stopped = true; clearTimeout(timer); } };
+  return poll;
 }
 function qeliStopPoll(poll) { if (poll) poll.stop(); }
 
@@ -77,7 +111,8 @@ async function apiFetch(url, opts = {}) {
 <body class="flex h-screen overflow-hidden" x-data="app" @notify.window="notify($event.detail.msg, $event.detail.type, $event.detail.timeout)"
   @qeli-confirm.window="onConfirmRequest($event.detail)"
   @focusin.window="confirmFocusIn($event)"
-      @keydown.escape.window="sidebarOpen = false">
+      @keydown.escape.window="sidebarOpen = false"
+      @qeli-polling-change.window="pollPaused = $event.detail.paused">
 
 <div class="bg-grid"></div>
 <div class="bg-glow bg-glow--1"></div>
@@ -204,7 +239,7 @@ async function apiFetch(url, opts = {}) {
       <span>Inbound sessions: <strong class="text-white" x-text="activeInboundSessions">0</strong></span>
       <span class="flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full" style="background:#16c8b6"></span>
-        Auto-refresh <strong class="text-white">10s · ≤60s on error</strong>
+        Auto-refresh <strong class="text-white" x-text="pollPaused ? qeliT('Paused') : '10s'">10s</strong>
       </span>
     </div>
   </header>
@@ -241,6 +276,10 @@ async function apiFetch(url, opts = {}) {
        while pages still get their top spacing. -->
   <main class="flex-1 overflow-auto px-4 md:px-6 pb-6">
     <div id="page-content" class="pt-6">
+      <div x-cloak x-show="pollPaused" role="status" class="card p-3 mb-4 flex items-center justify-between gap-3">
+        <span class="text-sm">Automatic refresh paused after repeated read errors. Your displayed data is retained.</span>
+        <button type="button" class="btn btn-ghost btn-sm" @click="resumePolling()">Resume auto refresh</button>
+      </div>
       <div x-show="statusError" role="alert" class="card p-3 mb-4 text-xs text-red-400" x-text="statusError"></div>
       {{content}}
     </div>
@@ -329,6 +368,7 @@ function app() {
     hostname: '',
     page: '{{page}}',
     serverOk: false, statusLoaded: false, statusError: '',
+    pollPaused: qeliPolling.paused,
     destroyed: false, statusSequence: 0, statusPending: 0, statusTimer: null,
     activeInboundSessions: 0,
     toast: { show: false, msg: '', type: 'success', _t: null },
@@ -350,6 +390,9 @@ function app() {
     init() {
       this.fetchStatus();
       this.statusTimer = qeliPoll(async () => { await this.fetchStatus(true); return !this.statusError; }, 10000);
+    },
+    resumePolling() {
+      if (!this.destroyed) qeliResumePolling();
     },
 
     destroy() {
