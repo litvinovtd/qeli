@@ -625,7 +625,7 @@ the strict source gate. This is an export/prepare check, not a fresh full SDK/IP
 compiler-bootstrap or physical-router run. Earlier runtime evidence retains its
 original source and scope.
 
-### Current 0.8.2 integrated source cut (17 October 2026)
+### Historical 0.8.2 integrated source cut (17 October 2026)
 
 The recipe now pins `b8a5cbd1417b0d3da9dad645d4942c202ba46977`, included in the
 `dev` preparation history, with the Linux client `tun.tx_queue_len` change merged,
@@ -646,9 +646,9 @@ build or physical router test. It does not publish a tag or GitHub Release.
 проверки источника релиза. Это не повторная сборка компилятора, полного SDK/IPK и не
 проверка физического роутера. Тег и GitHub Release этим действием не публикуются.
 
-### 0.8.3 source cut — 25 October 2026
+### Historical 0.8.3 source cut — 25 October 2026
 
-The current recipe pins `421fc5cde5dd56a139e658391e3fbabd1e3c743b`.
+That 0.8.3 recipe pinned `421fc5cde5dd56a139e658391e3fbabd1e3c743b`.
 Two stock SDK 24.10.4 downloads with empty, independent caches and distinct private
 Git URLs produced identical `qeli-0.8.3.tar.zst` archives: SHA-256
 `0dabf6838fa905d402af1dbf3e49d6c34aced49383d03040a50bf50bb7b2de9b`
@@ -656,8 +656,36 @@ Git URLs produced identical `qeli-0.8.3.tar.zst` archives: SHA-256
 that commit. This qualifies source export/prepare, not a full SDK/IPK build or a
 physical router test. The public Git URL remains unchanged; no release is published.
 
-Текущий рецепт 0.8.3 закреплён на указанном выше commit. Два независимых экспорта
+Рецепт того среза 0.8.3 был закреплён на указанном выше commit. Два независимых экспорта
 штатным SDK 24.10.4 дали одинаковый архив и SHA-256; после prepare проверено
 содержимое всех 3 572 отслеживаемых файлов. Это проверка экспорта/подготовки
 исходников, не полная SDK/IPK-сборка и не тест физического роутера. Публичный Git URL
 не изменён; релиз не публикуется.
+
+
+### Current 0.8.4 source cut — 1 November 2026
+
+The recipe pins `1a3bf11cbe109bda7f959089787cc8e03bd8401d`. Its complete `qeli/` tree includes the candidate audit
+fixes and the webpki-roots 1.0.11 lock/legal update, and must match the release
+crate tree exactly. Stock SDK 24.10.4 `download`/`prepare` verified all 3780
+prepared tracked files and modes. Two empty download caches and distinct private
+Git URLs produced identical `qeli-0.8.4.tar.zst` bytes: SHA-256
+`b379becde87a706223f3f250ac1b8aa85067beffb881ac82b294edf75182eaf7` (29187561 bytes).
+
+The production HTTPS Git URL is unchanged; the pinned commit must be reachable
+there before using the feed. This qualifies source export/prepare and the actual
+mirror archive, not a compiler bootstrap, fresh full SDK/IPK build or physical
+router run. Current release CI and the strict archive/source gate remain separate
+requirements. Unused non-router files in the Git snapshot are not router build inputs.
+
+Рецепт 0.8.4 закреплён на `1a3bf11cbe109bda7f959089787cc8e03bd8401d`. Полное дерево `qeli/` включает исправления
+аудита кандидата и обновление lock/лицензий webpki-roots 1.0.11; оно должно точно
+совпадать с Rust-деревом выпуска. Штатный SDK 24.10.4 проверил содержимое и режимы
+всех 3780 подготовленных отслеживаемых файлов. Два экспорта в пустые кэши с
+разными приватными Git URL дали одинаковый архив и указанный SHA-256.
+
+Публичный HTTPS Git URL не меняется; перед использованием feed закреплённый
+коммит должен быть доступен в нём. Это проверка экспорта/подготовки исходников,
+не повторная сборка компилятора, полного SDK/IPK или тест физического роутера.
+CI выпуска и строгая проверка архива/исходников остаются отдельными требованиями.
+Неиспользуемые файлы других компонентов снимка не являются входами сборки роутера.
