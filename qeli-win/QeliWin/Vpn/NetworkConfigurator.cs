@@ -639,6 +639,11 @@ public sealed class NetworkConfigurator : IDisposable
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         foreach (var net in nets)
         {
+            if(PersistentState is { } state && PersistentWintunNetwork.WasRoutePresent(state,new(net,"::",1)))
+            {
+                _log($"Keeping pre-existing IPv6 route {net} on owned persistent adapter");
+                continue;
+            }
             Run("netsh", $"interface ipv6 add route {net} \"{alias}\" metric=1 store=active");
             string captured = net;
             _undo.Add(() => Run("netsh",

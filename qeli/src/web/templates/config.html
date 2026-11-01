@@ -827,9 +827,9 @@
               </div>
               <div class="flex flex-wrap gap-4 text-sm">
                 <label><input type="checkbox" x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_router" @change="markDirty()"> Router flag</label>
-                <label><input type="checkbox" x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_override" @change="markDirty()"> Override flag</label>
+                <label><input type="checkbox" x-model="cfg.profiles[activeTab].routing.ipv6.ndp_proxy_override" @change="markDirty()"> Override flag (unsolicited announcements only)</label>
               </div>
-              <p class="field-desc">Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; DAD replies never set it.</p>
+              <p class="field-desc">Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; solicited proxy replies and DAD replies never set it.</p>
             </div>
             <div class="field-toggle">
               <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private, markDirty()]">

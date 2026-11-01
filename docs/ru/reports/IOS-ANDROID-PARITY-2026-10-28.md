@@ -18,7 +18,7 @@
 | Защита маршрутов / запрет обхода | Apple-механизм, не эквивалент Android lockdown | `TunnelManager.makeTunnelProtocol`: `enforceRoutes` также для split; full-tunnel capture сохраняется |
 | Профили: создать, изменить, удалить, копировать, выбрать, упорядочить | Есть | `ProfilesView`, `ProfileEditorView`, `AppModel`; ограничения активного профиля и stale editor сохранены |
 | INI, URI, clipboard, deep link, файл, QR; обмен ссылкой/QR | Есть; устранены два различия | `ProfileImportPolicy` сохраняет INI; `QRCode` использует AVFoundation без порога A12 |
-| Ручная проверка доступности | Есть | Общий UDP probe / TCP connect; при VPN проверяется согласованный gateway |
+| Ручная проверка доступности | Есть | Отключённые профили: общий UDP probe / TCP connect. Активный VPN iOS: состояние подключения провайдера и «RTT недоступен», без protocol probe внутреннего шлюза. Android использует проверенный ICMP внутри туннеля; измерение RTT отличается |
 | Автопроверка профилей и интервал | Добавлено | `ProfileAutoProbePolicy`, `AppModel`, `SettingsView`; только foreground и отключённый системный VPN |
 | Шифрованное хранилище и перенос backup между Android/iOS | Есть | `ProfileStore`, `BackupCrypto`, backup в `SettingsView`; QELI-ENC-1, общий формат; Keychain runtime не подтверждён этим прогоном |
 | Логи, формат времени, уровень, очистка после disconnect | Есть | `SharedTunnelStore`, `LogsView`, `AppSettings`; ошибки не стираются обычной автоочисткой |

@@ -31,9 +31,10 @@
 - CRUD профилей, блокировка выбора/удаления активного профиля при подключении
   с alert и затемнением недоступных строк, reorder и reachability. TCP — connect
   probe, UDP — ABI 1.8 `qeli_client_udp_probe`, использующий общий Rust
-  X25519+ML-KEM first-flight/fragment/QUIC/obfs builder. При активном VPN оба
-  протокола измеряют точный authenticated tunnel gateway, не public endpoint;
-  UDP остаётся first-flight probe.
+  X25519+ML-KEM first-flight/fragment/QUIC/obfs builder. Для активного профиля iOS
+  Ping показывает состояние провайдера с недоступным RTT: handshake на внутренний
+  шлюз не отправляется, задержка не выдумывается. Android измеряет ICMP RTT внутри
+  туннеля. Результаты прежних сессий и профилей отбрасываются.
 - RU/EN UI и выбор языка в приложении. Как на Android, default English на каждом
   устройстве: приложение не следует системной локали.
 - Карточка свойств появляется только при Connected и следует общим решениям

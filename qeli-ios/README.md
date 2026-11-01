@@ -243,3 +243,19 @@ Rebuild the XCFramework with `sh build_native.sh` after updating source; no Swif
 See [shared configuration](../docs/eng/plans/CLIENT-CONFIG-CORE.md) for migration and pending release gates.
 
 Profile archive publication belongs to the single app AppModel. PacketTunnel reads without initializing missing profiles or creating a missing master key; widgets do not access profile secrets. A missing archive/key fails until the app creates a profile or restores a backup. Arbitrary external writers are unsupported. Reconnect after editing an active INI; see [Q25-F210 and platform exclusions](../docs/eng/plans/AUDIT-DEBT.md).
+
+### Active-tunnel Ping
+
+For a connected profile, Ping displays **Connected · RTT unavailable** from the provider state.
+The inner gateway is not assumed to listen on the public VPN port. An unavailable latency
+does not mark a working VPN down. Disconnected profiles retain TCP/UDP endpoint probes.
+Late results from an earlier connection/profile are discarded. Android's in-tunnel ICMP RTT
+is not currently implemented on iOS; this status is not an RTT or data-plane measurement.
+
+### Ping активного туннеля
+
+Для подключённого профиля Ping показывает **Подключено · RTT недоступен** по состоянию провайдера.
+Внутренний шлюз не обязан слушать внешний VPN-порт. Недоступность RTT не означает отказ VPN.
+Для отключённых профилей сохраняются TCP/UDP-проверки внешнего адреса. Результаты прежнего
+подключения или профиля отбрасываются. ICMP-измерение RTT внутри туннеля, как на Android,
+на iOS пока не реализовано: этот статус не является измерением RTT или передачи данных.

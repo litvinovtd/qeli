@@ -4172,12 +4172,7 @@ async fn run_worker_inner(
             crate::profile_teardown::blocking("qeli-owned-cleanup", nat::finish_owned_cleanup)
                 .await
                 .and_then(|result| result);
-        let flush_state = state.clone();
-        let usage_flush = crate::profile_teardown::blocking("qeli-usage-flush", move || {
-            flush_state.usage.flush()
-        })
-        .await
-        .and_then(|result| result);
+        let usage_flush = state.usage.shutdown_async().await;
         crate::server_shutdown::result(
             fatal_reason,
             task_failures.result(),

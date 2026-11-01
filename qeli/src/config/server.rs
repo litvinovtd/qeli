@@ -1252,6 +1252,7 @@ pub struct Ipv6RoutingConfig {
     pub ndp_proxy_source: String,
     #[serde(default)]
     pub ndp_proxy_router: bool,
+    /// Expert Override for unsolicited announcements only; never for solicited/DAD replies.
     #[serde(default)]
     pub ndp_proxy_override: bool,
     /// Zero disables periodic refresh (initial announcements and NS replies remain enabled).

@@ -18,7 +18,7 @@ server-identity, transport and website changes are outside this snapshot.
 | Route enforcement / bypass prevention | Apple mechanism, not Android lockdown equivalence | `TunnelManager.makeTunnelProtocol`: `enforceRoutes` also for split; full-tunnel capture retained |
 | Profile create/edit/delete/copy/select/reorder | Available | `ProfilesView`, `ProfileEditorView`, `AppModel`; active-profile and stale-editor protections retained |
 | INI, URI, clipboard, deep link, file, QR; link/QR sharing | Available; two differences fixed | `ProfileImportPolicy` preserves INI; `QRCode` uses AVFoundation without an A12 threshold |
-| Manual availability probe | Available | Shared UDP probe / TCP connect; active VPN probes the authenticated gateway |
+| Manual availability probe | Available | Disconnected profiles: shared UDP probe / TCP connect. Active iOS VPN: provider connection state with “RTT unavailable”; no protocol probe to the inner gateway. Android uses validated in-tunnel ICMP; RTT behavior differs |
 | Automatic profile probes and interval | Added | `ProfileAutoProbePolicy`, `AppModel`, `SettingsView`; foreground only, with system VPN disconnected |
 | Encrypted storage and Android/iOS backup transfer | Available | `ProfileStore`, `BackupCrypto`, `SettingsView`; shared QELI-ENC-1; Keychain runtime not established by this run |
 | Logs, time format, level, clearing after disconnect | Available | `SharedTunnelStore`, `LogsView`, `AppSettings`; ordinary automatic clearing retains errors |

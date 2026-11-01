@@ -263,3 +263,5 @@
 "Open Qeli to choose an active profile." = "Open Qeli to choose an active profile.";
 "Qeli VPN Status" = "Qeli VPN Status";
 "View VPN status and connect or disconnect the active profile." = "View VPN status and connect or disconnect the active profile.";
+
+"Connected · RTT unavailable" = "Connected · RTT unavailable";

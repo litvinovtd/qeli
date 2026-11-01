@@ -758,8 +758,10 @@ fn build_advertisement_with_policy(
     override_flag: bool,
     unsolicited: bool,
 ) -> Advertisement {
-    // Proxy Override defaults to zero (RFC 4861 7.2.8). Expert opt-in never sets
-    // Solicited/Override on a DAD reply; unsolicited refreshes are a separate case.
+    // RFC 4861 7.2.8: every solicited proxy reply keeps Override clear.
+    // The unsolicited builder reuses the DAD destination shape (all-nodes,
+    // Solicited=0), so its explicit mode, not request.dad, admits expert Override.
+    // Real DAD replies always enter with unsolicited=false and keep S=O=0.
     let (destination_ip, destination_mac, flags) = if request.dad {
         (
             "ff02::1".parse::<Ipv6Addr>().expect("constant IPv6"),
@@ -771,7 +773,7 @@ fn build_advertisement_with_policy(
     };
     let flags = flags
         | if router { 0x8000_0000 } else { 0 }
-        | if override_flag && (!request.dad || unsolicited) {
+        | if override_flag && unsolicited {
             0x2000_0000
         } else {
             0
@@ -994,7 +996,30 @@ mod tests {
                 );
                 assert_eq!(
                     u32::from_be_bytes(reply.bytes[58..62].try_into().unwrap()),
-                    expected | 0x4000_0000
+                    (if router { 0x8000_0000 } else { 0 }) | 0x4000_0000
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn solicited_proxy_override_is_clear_for_multicast_and_unicast_ns() {
+        let source = "fe80::1".parse().unwrap();
+        let target = "2001:db8::42".parse().unwrap();
+        let mac = [2, 1, 2, 3, 4, 5];
+        for unicast in [false, true] {
+            for router in [false, true] {
+                let frame = solicitation("fe80::1234".parse().unwrap(), target, unicast);
+                let request = parse_solicitation(&frame).unwrap();
+                let reply = build_advertisement_with_policy(
+                    &frame, request, mac, source, router, true, false,
+                );
+                let flags = u32::from_be_bytes(reply.bytes[58..62].try_into().unwrap());
+                assert_eq!(flags & 0x6000_0000, 0x4000_0000, "NS reply: S=1, O=0");
+                assert_eq!(flags & 0x8000_0000 != 0, router);
+                assert_eq!(
+                    icmpv6_checksum(source, request.source_ip, &reply.bytes[54..]),
+                    0
                 );
             }
         }

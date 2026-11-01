@@ -31,8 +31,9 @@ The following list describes implementation, not an assertion of Apple runtime p
   rows that cannot be picked are dimmed), reorder and reachability — TCP by a connect
   probe, UDP through ABI 1.8 `qeli_client_udp_probe`, which invokes the same Rust
   X25519+ML-KEM first-flight/fragment/QUIC/obfs builder as Android and the live tunnel.
-  While the active tunnel is up both protocols measure the exact authenticated tunnel
-  gateway rather than the public endpoint; UDP remains a UDP first-flight probe.
+  For an active iOS profile, Ping shows provider connection state with RTT unavailable;
+  it does not send a VPN handshake to the inner gateway or invent a latency. Android
+  measures in-tunnel ICMP RTT. Stale results are rejected across session/profile changes.
 - English / Russian UI with an in-app language picker. English is the default on every
   device, matching Android — the app does not follow the system locale.
 - Connection-properties card, shown only while connected and driven by the shared

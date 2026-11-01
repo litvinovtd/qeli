@@ -11,7 +11,7 @@ internal static class WindowsSessionLease
         StorageLayout.EnsureRoot();
         FileStream owner;
         try {owner=TrustedLease.Open(Path.Combine(StorageLayout.Root,"tunnel-owner.lock"));}
-        catch(IOException error) when((error.HResult&0xffff)==32) {throw new InvalidOperationException("Another Qeli GUI, CLI or service owns the VPN",error);}
+        catch(IOException error) when((error.HResult&0xffff)==32) {throw new Qeli.Shared.Vpn.TunnelBusyException("Another Qeli GUI, CLI or service owns the VPN",error);}
         try {
             // Recovery is mutating and belongs only to the exclusive tunnel owner.
             KillSwitch.Sweep();

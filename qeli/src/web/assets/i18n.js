@@ -365,9 +365,9 @@
         '0 отключает периодические объявления. Допустимы значения 10–86400; объявляются только адреса активных клиентов.',
       'Enter 0 or a whole number from 10 to 86400.': 'Введите 0 или целое число от 10 до 86400.',
       'Router flag': 'Флаг Router',
-      'Override flag': 'Флаг Override',
-      'Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; DAD replies never set it.':
-        'Экспертные настройки: оставьте оба флага выключенными, если их не требует вышестоящая сеть. Override может заменить существующую запись соседей; в ответах на DAD этот флаг не устанавливается.',
+      'Override flag (unsolicited announcements only)': 'Флаг Override (только unsolicited-анонсы)',
+      'Expert settings: leave both flags off unless required by your upstream. Override may replace an existing neighbor entry; solicited proxy replies and DAD replies never set it.':
+        'Экспертные настройки: оставьте оба флага выключенными, если их не требует вышестоящая сеть. Override может заменить существующую запись соседей; в solicited proxy-ответах и ответах на DAD этот флаг не устанавливается.',
       'Answer only for active client IPv6 addresses and client_subnet prefixes; needed when the provider treats the delegated prefix as on-link':
         'Отвечает только за IPv6-адреса активных клиентов и префиксы client_subnet; нужен, когда провайдер считает делегированный префикс on-link',
       'IPv6 listen address': 'IPv6-адрес прослушивания',

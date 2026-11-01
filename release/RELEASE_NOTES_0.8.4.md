@@ -12,6 +12,18 @@ macOS, OpenWrt и Keenetic.
 гибридный обмен ключами для opt-in compact REALITY. Это не обещание одинакового
 ускорения или одинаковой маскировки во всех сетях.
 
+### Исправления по аудиту кандидата
+
+- Отмена записи usage не делает синхронный join на Tokio: используется ограниченная
+  FIFO-очередь I/O с дренированием перед финальным сохранением при остановке.
+- NDP Override применяется только к unsolicited-анонсам, а не к proxy-ответам на NS/DAD.
+- Windows CLI отменяет probe до dial и во время handshake; конфликт владельца через
+  службу сохраняет exit code `5` (`busy`). Постоянный Wintun сохраняет точные прежние
+  IPv6-маршруты и не удаляет их при очистке; конфликтующие маршруты отклоняются.
+- iOS показывает «Подключено · RTT недоступен» для активного VPN вместо ошибочного
+  handshake на внутренний шлюз. Это состояние провайдера, а не измерение RTT.
+- Уточнены RU/EN руководства, parity-ограничения и комментарии MTU/dev_node в примере.
+
 ### Основные изменения
 
 - **Windows CLI:** отдельный `qeli-cli.exe` для CMD, batch и PowerShell 5.1/7.
@@ -84,8 +96,9 @@ Windows GUI по-прежнему поставляется отдельными 
 ### Статус черновика
 
 Это описание изменений исходников `dev`, не новая сертификация готовых файлов.
-Изменения macOS GUI и Android Ping добавлены после ранее квалифицированного
-комплекта: перед публикацией для них нужны актуальные пакеты и проверки.
+Последние исправления ядра, desktop-клиентов, iOS и Android Ping добавлены после
+ранее квалифицированного комплекта: перед публикацией нужны актуальные затронутые
+пакеты и сертификация точного кандидата. Старые PASS автоматически не переносятся.
 Датированные результаты ниже относятся только к указанному SHA Linux-бинарника,
 а не ко всем приложениям или любому более позднему коммиту. Релиз пока не опубликован.
 
@@ -129,6 +142,18 @@ The main themes are Windows automation without a GUI, portable Linux packages
 for two architectures, batching without waiting for new packets, and a hybrid
 key exchange for opt-in compact REALITY. Universal speed gains or identical
 traffic camouflage across networks are not promised.
+
+### Candidate audit fixes
+
+- Cancelling usage persistence no longer synchronously joins on Tokio: a bounded FIFO
+  I/O worker drains accepted jobs before the final shutdown flush.
+- NDP Override applies only to unsolicited announcements, never solicited proxy/DAD replies.
+- Windows CLI honours probe cancellation before dial and during handshake; service owner
+  conflicts retain exit code `5` (`busy`). Persistent Wintun preserves exact pre-existing
+  IPv6 routes without deleting them during cleanup; conflicting routes are refused.
+- Active iOS VPN shows “Connected · RTT unavailable” instead of an invalid handshake to
+  the inner gateway. This is provider state, not an RTT measurement.
+- RU/EN guides, parity limitations and example MTU/dev_node comments were corrected.
 
 ### Highlights
 
@@ -198,8 +223,9 @@ qualification; unavailable hardware checks are not reported as passed.
 ### Draft status
 
 This describes `dev` source changes, not renewed qualification of existing files.
-The macOS GUI and Android Ping changes postdate the previously qualified package
-set and require current packages and checks before publication. Dated results
+The latest core, desktop, iOS and Android Ping fixes postdate the previously qualified
+package set. Affected packages and exact-candidate certification must be refreshed
+before publication; earlier PASS results are not automatically transferred. Dated results
 below cover only the named Linux binary SHA, not every app or later commit.
 The release remains unpublished.
 

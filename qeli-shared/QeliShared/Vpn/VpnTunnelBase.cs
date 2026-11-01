@@ -201,6 +201,8 @@ public abstract class VpnTunnelBase
             }
             try {config=AcquireRunResources(config);}
             catch(Exception error) {
+                if (error is TunnelBusyException)
+                    Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Busy);
                 Log($"platform run preparation failed: {error.Message}");
                 Status(VpnStatus.Error,error.Message);return false;
             }
@@ -305,17 +307,23 @@ public abstract class VpnTunnelBase
 
     /// <summary>Headless test: connect + full handshake only (no TUN, no admin), return the
     /// server-assigned tunnel IP. Throws on any protocol/auth failure.</summary>
-    public string TestHandshake(VpnConfig config)
+    public string TestHandshake(VpnConfig config) => TestHandshake(config, CancellationToken.None);
+
+    public string TestHandshake(VpnConfig config, CancellationToken cancellation)
     {
         Volatile.Write(ref _failureKind, (int)TunnelFailureKind.Transport);
         _handshakeOnly = true;
         _handshakeIp = null;
         _userRequestedDisconnect = true; // no reconnect loop
-        using var cts = new CancellationTokenSource();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         // Clear the handshake-only latch on EVERY exit, success or throw: it used to stay set
         // for the lifetime of the object, so a later Start() on the same tunnel skipped the TUN
         // entirely and reported a connection that carried no traffic. (Audit 2026-07-27, N5)
-        try { RunVpnConnection(config, cts.Token); }
+        try {
+            cts.Token.ThrowIfCancellationRequested();
+            RunVpnConnection(config, cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+        }
         finally { _handshakeOnly = false; CloseTransports(); }
         return _handshakeIp ?? throw new Exception("handshake produced no IP");
     }

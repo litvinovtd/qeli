@@ -221,13 +221,14 @@ struct ProfilesView: View {
         switch model.reachability[profile.id] ?? .idle {
         case .checking: return "…"
         case .reachable(let milliseconds): return "\(milliseconds) ms"
+        case .connectedWithoutRTT: return model.localized("Connected · RTT unavailable")
         case .idle, .unavailable: return ""
         }
     }
 
     private func reachabilityColor(_ profile: Profile) -> Color {
         switch model.reachability[profile.id] ?? .idle {
-        case .reachable: return QeliTheme.connected
+        case .reachable, .connectedWithoutRTT: return QeliTheme.connected
         case .checking: return QeliTheme.connecting
         case .unavailable: return QeliTheme.error
         case .idle: return .secondary.opacity(0.5)

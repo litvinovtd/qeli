@@ -384,6 +384,7 @@ struct ConnectionView: View {
         case .idle: return model.localized("tap Ping to check")
         case .checking: return model.localized("checking…")
         case .reachable(let milliseconds): return String(format: model.localized("reachable · %lld ms"), Int64(milliseconds))
+        case .connectedWithoutRTT: return model.localized("Connected · RTT unavailable")
         case .unavailable(let reason): return reason
         }
     }
@@ -391,7 +392,7 @@ struct ConnectionView: View {
     private var reachabilityColor: Color {
         guard let id = model.activeProfile?.id else { return .secondary }
         switch model.reachability[id] ?? .idle {
-        case .reachable: return QeliTheme.connected
+        case .reachable, .connectedWithoutRTT: return QeliTheme.connected
         case .unavailable: return QeliTheme.error
         case .checking: return QeliTheme.connecting
         case .idle: return .secondary

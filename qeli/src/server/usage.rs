@@ -73,9 +73,21 @@ struct SessionCounters {
     up: Arc<AtomicU64>,
 }
 
+type UsageJob = Box<dyn FnOnce() + Send + 'static>;
+
+/// A single bounded FIFO per store. Dropping a waiter never joins this thread.
+/// Jobs retain their store until completion; shutdown drains it before releasing
+/// the server's exclusive network lease. An interrupted server keeps its armed
+/// lease until process exit, exactly as for unfinished profile cleanup.
+struct UsageIo {
+    sender: Option<tokio::sync::mpsc::Sender<UsageJob>>,
+    finished: tokio::sync::watch::Receiver<bool>,
+}
+
 pub struct UsageStore {
     path: String,
     inner: Mutex<Inner>,
+    io: Mutex<Option<UsageIo>>,
     /// When set, this handle NEVER writes: `flush` is a no-op and `Drop` does nothing.
     ///
     /// The supervisor and the worker are separate processes (`qeli _worker`) that each
@@ -106,6 +118,7 @@ impl UsageStore {
                 usage,
                 ..Inner::default()
             }),
+            io: Mutex::new(None),
             read_only: false,
         })
     }
@@ -131,6 +144,7 @@ impl UsageStore {
                 usage,
                 ..Inner::default()
             }),
+            io: Mutex::new(None),
             read_only: true,
         }
     }
@@ -290,8 +304,76 @@ impl UsageStore {
         self.lock().usage.clone()
     }
 
-    /// Keep mutex waits as well as disk I/O off the reactor. The owned host
-    /// worker joins on cancellation; no flush can outlive the worker's lease.
+    fn io_sender(&self) -> anyhow::Result<tokio::sync::mpsc::Sender<UsageJob>> {
+        let mut io = self.io.lock().unwrap_or_else(|p| p.into_inner());
+        if io.is_none() {
+            let (sender, mut queue) = tokio::sync::mpsc::channel::<UsageJob>(64);
+            let (done, finished) = tokio::sync::watch::channel(false);
+            std::thread::Builder::new()
+                .name("qeli-usage-io".into())
+                .spawn(move || {
+                    while let Some(job) = queue.blocking_recv() {
+                        job();
+                    }
+                    let _ = done.send(true);
+                })?;
+            *io = Some(UsageIo {
+                sender: Some(sender),
+                finished,
+            });
+        }
+        io.as_ref()
+            .and_then(|io| io.sender.clone())
+            .ok_or_else(|| anyhow::anyhow!("usage I/O is shutting down"))
+    }
+
+    async fn run_io<R: Send + 'static>(
+        self: &Arc<Self>,
+        operation: impl FnOnce() -> R + Send + 'static,
+    ) -> anyhow::Result<R> {
+        let sender = self.io_sender()?;
+        let (reply, result) = tokio::sync::oneshot::channel();
+        sender
+            .send(Box::new(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))
+                    .map_err(|_| anyhow::anyhow!("usage I/O operation panicked"));
+                let _ = reply.send(result);
+            }))
+            .await
+            .map_err(|_| anyhow::anyhow!("usage I/O queue closed"))?;
+        drop(sender);
+        result
+            .await
+            .map_err(|_| anyhow::anyhow!("usage I/O worker stopped"))?
+    }
+
+    /// Stop admission, drain accepted jobs (including cancelled callers), then
+    /// persist final counters. The enclosing server keeps its lease until this
+    /// completes; cancellation cannot synchronously join on a Tokio executor.
+    pub async fn shutdown_async(self: &Arc<Self>) -> anyhow::Result<()> {
+        let mut finished = {
+            // Initialize even an unused store so subsequent admission is refused.
+            let admission = self.io_sender();
+            let mut guard = self.io.lock().unwrap_or_else(|p| p.into_inner());
+            if guard.is_none() {
+                return Err(admission.expect_err("worker initialization failed"));
+            }
+            drop(admission);
+            let io = guard.as_mut().expect("initialized usage I/O");
+            io.sender.take();
+            io.finished.clone()
+        };
+        while !*finished.borrow_and_update() {
+            finished
+                .changed()
+                .await
+                .map_err(|_| anyhow::anyhow!("usage I/O worker failed to drain"))?;
+        }
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || store.flush()).await?
+    }
+
+    /// Mutex waits and persistence run on the store's bounded FIFO worker.
     pub async fn track_async(
         self: &Arc<Self>,
         session_id: u64,
@@ -300,7 +382,7 @@ impl UsageStore {
         up: Arc<AtomicU64>,
     ) -> anyhow::Result<()> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-read", move || {
+        self.run_io(move || {
             store.track(session_id, &user, down, up);
         })
         .await
@@ -310,7 +392,7 @@ impl UsageStore {
         self: &Arc<Self>,
     ) -> anyhow::Result<HashMap<String, UserUsage>> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-read", move || {
+        self.run_io(move || {
             store.collect();
             store.snapshot()
         })
@@ -319,20 +401,19 @@ impl UsageStore {
 
     pub async fn used_down_async(self: &Arc<Self>, user: String) -> anyhow::Result<u64> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-read", move || store.used_down(&user)).await
+        self.run_io(move || store.used_down(&user)).await
     }
 
     pub async fn reset_and_flush_async(self: &Arc<Self>, user: String) -> anyhow::Result<()> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-save", move || store.reset_and_flush(&user))
-            .await?
+        self.run_io(move || store.reset_and_flush(&user)).await?
     }
 
     pub async fn reload_snapshot_async(
         self: &Arc<Self>,
     ) -> anyhow::Result<HashMap<String, UserUsage>> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-read", move || {
+        self.run_io(move || {
             store.reload()?;
             Ok(store.snapshot())
         })
@@ -349,8 +430,7 @@ impl UsageStore {
         write: impl FnOnce(&str, &[u8]) -> anyhow::Result<()> + Send + 'static,
     ) -> anyhow::Result<()> {
         let store = self.clone();
-        crate::profile_teardown::blocking("qeli-usage-save", move || store.flush_with_writer(write))
-            .await?
+        self.run_io(move || store.flush_with_writer(write)).await?
     }
 
     /// Re-read the on-disk file — used by the supervisor/panel to observe the
@@ -408,6 +488,89 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn cancelled_usage_waiter_does_not_join_io_on_the_reactor() {
+        let path = empty_store_path("cancel-flush");
+        let store = Arc::new(UsageStore::load(&path).unwrap());
+        let (down, up) = counters(&store, 171);
+        down.store(700, Ordering::Relaxed);
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let saving = store.clone();
+        let flush = tokio::spawn(async move {
+            saving
+                .flush_with_writer_async(move |path, bytes| {
+                    let _ = entered.send(());
+                    held.recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap();
+                    crate::util::write_atomic(path, bytes)
+                })
+                .await
+        });
+        waiting.await.unwrap();
+        flush.abort();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(200), flush)
+                .await
+                .unwrap()
+                .unwrap_err()
+                .is_cancelled()
+        );
+        // In particular this timer must run BEFORE the blocked writer is released.
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            tokio::time::sleep(std::time::Duration::from_millis(2)),
+        )
+        .await
+        .unwrap();
+        let resetting = store.clone();
+        let reset =
+            tokio::spawn(async move { resetting.reset_and_flush_async("alice".into()).await });
+        release.send(()).unwrap();
+        reset.await.unwrap().unwrap();
+        down.fetch_add(20, Ordering::Relaxed);
+        store.shutdown_async().await.unwrap();
+        assert_eq!(UsageStore::load_read_only(&path).used_down("alice"), 20);
+        assert!(store.used_down_async("alice".into()).await.is_err());
+        store.shutdown_async().await.unwrap(); // A cancelled/finished drain can be retried.
+        drop((down, up, store));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn usage_queue_is_bounded_and_drain_waits_for_cancelled_callers() {
+        let path = empty_store_path("bounded-io");
+        let store = Arc::new(UsageStore::load(&path).unwrap());
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let saving = store.clone();
+        let operation = tokio::spawn(async move {
+            saving
+                .run_io(move || {
+                    let _ = entered.send(());
+                    held.recv().unwrap();
+                })
+                .await
+        });
+        waiting.await.unwrap();
+        let sender = store.io_sender().unwrap();
+        for _ in 0..64 {
+            assert!(sender.try_send(Box::new(|| {})).is_ok());
+        }
+        assert!(sender.try_send(Box::new(|| {})).is_err());
+        drop(sender);
+        operation.abort();
+        assert!(operation.await.unwrap_err().is_cancelled());
+        let ending = store.clone();
+        let shutdown = tokio::spawn(async move { ending.shutdown_async().await });
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        assert!(!shutdown.is_finished());
+        release.send(()).unwrap();
+        shutdown.await.unwrap().unwrap();
+        drop(store);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn blocked_usage_persistence_leaves_reactor_live_and_reset_ordered() {
         let path = empty_store_path("async-blocked-flush");
         let store = Arc::new(UsageStore::load(&path).unwrap());
@@ -420,7 +583,7 @@ mod tests {
         let flush = tokio::spawn(async move {
             saving
                 .flush_with_writer_async(move |path, bytes| {
-                    assert_eq!(std::thread::current().name(), Some("qeli-usage-save"));
+                    assert_eq!(std::thread::current().name(), Some("qeli-usage-io"));
                     let _ = entered.send(());
                     held.recv_timeout(std::time::Duration::from_secs(2))
                         .unwrap();
@@ -679,6 +842,7 @@ mod tests {
         let store = UsageStore {
             path: unwritable_path.to_string_lossy().into_owned(),
             inner: Mutex::new(Inner::default()),
+            io: Mutex::new(None),
             read_only: false,
         };
         let down = Arc::new(AtomicU64::new(700));

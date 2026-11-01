@@ -32,6 +32,17 @@ internal static class Tests
             Check(Program.Classify(new UnauthorizedAccessException()).ExitCode==4,"access code");
             Check(Program.Classify(new TimeoutException()).ExitCode==6,"deadline code");
             Check(Program.Classify(new OperationCanceledException()).ExitCode==12,"cancel code");
+            Check(Program.Classify(new TunnelBusyException("localized")).ExitCode==5,"typed busy exception");
+            Check(Program.TransportFailure("localized status",TunnelFailureKind.Busy).ExitCode==5,"typed service busy");
+            Check(Program.TransportFailure("Another Qeli GUI, CLI or service owns the VPN").ExitCode==5,"legacy service busy");
+            using(var cancelled=new CancellationTokenSource()) {
+                cancelled.Cancel();
+                var tunnel=new QeliWin.Vpn.VpnTunnel();
+                bool stopped=false;
+                try {tunnel.TestHandshake(new VpnConfig(),cancelled.Token);}
+                catch(OperationCanceledException) {stopped=true;}
+                Check(stopped,"cancelled handshake must not start a transport");
+            }
             Check(Program.Classify(new InvalidOperationException("secret")).Message.Contains("secret")==false,"exception does not leak secret");
             Check(Program.TransportFailure("SERVER KEY MISMATCH").ExitCode==8,"identity mismatch");
             Check(Program.TransportFailure("authentication failed").ExitCode==7,"auth classification");
@@ -40,6 +51,26 @@ internal static class Tests
             Check(TunnelFailurePolicy.FromNativeError("auth failed: rejected")==TunnelFailureKind.Authentication,"native auth category");
             Check(TunnelFailurePolicy.FromNativeError("SERVER KEY MISMATCH - possible MITM")==TunnelFailureKind.ServerKeyMismatch,"native key category");
             Check(TunnelFailurePolicy.FromNativeError("socket closed")==TunnelFailureKind.Transport,"unknown native error remains transport");
+            var routeCalls=new List<string>();
+            var existingRoute=new QeliWin.Vpn.PersistentWintunNetwork.Route("::/1","::",1);
+            var borrowedState=new QeliWin.Vpn.PersistentWintunNetwork.State {
+                Before=new() {Routes=[existingRoute]}, Routes=[existingRoute]
+            };
+            using(var network=new QeliWin.Vpn.NetworkConfigurator(_=>{},(file,args,optional)=>{routeCalls.Add(args);return true;})) {
+                network.PersistentState=borrowedState;
+                network.PersistentInterfaceIndex=123;
+                network.SetFullTunnelRoutesV6("owned");
+            }
+            Check(!routeCalls.Any(x=>x.Contains(" route ::/1 ")),"pre-existing IPv6 route never added or deleted");
+            Check(routeCalls.Count(x=>x.Contains(" add route "))==4,"other full-tunnel routes installed");
+            Check(routeCalls.Count(x=>x.Contains(" delete route "))==4,"only created routes undone");
+            Check(QeliWin.Vpn.PersistentWintunNetwork.WasRoutePresent(borrowedState,new("0:0:0:0:0:0:0:0/1","0:0:0:0:0:0:0:0",1)),"canonical route identity");
+            foreach(var conflict in new[] {new QeliWin.Vpn.PersistentWintunNetwork.Route("::/1","::",2),new("::/1","fe80::1",1)}) {
+                bool rejected=false;
+                try {QeliWin.Vpn.PersistentWintunNetwork.WasRoutePresent(borrowedState,conflict);}
+                catch(InvalidOperationException) {rejected=true;}
+                Check(rejected,"existing IPv6 metric/next-hop conflict refused");
+            }
             var snapshot=new ServiceStatus {Status="Connected",ControlProtocolVersion=1,ProfileId="new",SessionId="session",Time=DateTime.Now,MonotonicTimeMs=100};
             var observation=new ServiceObservation(VpnStatus.Connected,null,snapshot);
             Check(ServiceResultPolicy.Connected(observation,"new",100),"correlated connected status");
@@ -59,6 +90,24 @@ internal static class Tests
                 var parsed=Program.ReadConfig(ini);
                 Check(parsed.ServerAddress=="192.0.2.1","actual native INI parser");
                 Check(parsed.Id==Program.ReadConfig(ini).Id,"stable file profile identity across invocations");
+                using var listener=new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,0);
+                listener.Start();
+                int port=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+                File.WriteAllText(ini,$"[qeli]\nserver = 127.0.0.1:{port}\nproto = tcp\nuser = fixture\npass = canary-password\nmode = fake-tls\ntimeout = 3\n");
+                using(var cancelled=new CancellationTokenSource()) {
+                    cancelled.Cancel();bool stopped=false;
+                    try {Program.Execute(CommandLine.Parse(["probe","--config",ini]),cancelled.Token);}
+                    catch(OperationCanceledException) {stopped=true;}
+                    Check(stopped && !listener.Pending(),"CLI pre-cancelled probe does not dial");
+                }
+                using(var cancellation=new CancellationTokenSource()) {
+                    var probing=Task.Run(()=>Program.Execute(CommandLine.Parse(["probe","--config",ini]),cancellation.Token));
+                    using var peer=listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+                    cancellation.Cancel();bool stopped=false;
+                    try {probing.WaitAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();}
+                    catch(OperationCanceledException) {stopped=true;}
+                    Check(stopped,"CLI in-flight probe cancellation stops and frees native owner");
+                }
             } finally {File.Delete(ini);}
             using(var entered=new ManualResetEventSlim())
             using(var release=new ManualResetEventSlim()) {

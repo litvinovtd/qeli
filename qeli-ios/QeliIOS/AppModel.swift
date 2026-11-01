@@ -9,7 +9,13 @@ enum ReachabilityState: Equatable {
     case idle
     case checking
     case reachable(milliseconds: Int)
+    /// Provider state is known, but no valid in-tunnel RTT was measured.
+    case connectedWithoutRTT
     case unavailable(String)
+
+    static func activeTunnel(_ phase: TunnelPhase) -> Self {
+        phase == .connected ? .connectedWithoutRTT : .idle
+    }
 }
 
 struct AppAlert: Identifiable {
@@ -25,7 +31,14 @@ struct AppAlert: Identifiable {
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var profiles: [Profile] = []
-    @Published private(set) var activeProfileID: UUID?
+    @Published private(set) var activeProfileID: UUID? {
+        didSet {
+            if oldValue != activeProfileID {
+                probeRevision &+= 1
+                reachability.removeAll()
+            }
+        }
+    }
     @Published var settings: AppSettings
     @Published private(set) var tunnelSnapshot: TunnelSnapshot
     @Published private(set) var reachability: [UUID: ReachabilityState] = [:]
@@ -57,6 +70,7 @@ final class AppModel: ObservableObject {
     private var isForeground = false
     private var tunnelStatePrepared = false
     private var lastProbeSweep: TimeInterval?
+    private var probeRevision: UInt64 = 0
     private var queuedOrActiveProbeIDs = Set<UUID>()
     private var startupSigningInvalid = false
     private var profileStoreLoadRejected = false
@@ -128,6 +142,14 @@ final class AppModel: ObservableObject {
             .sink { [weak self] value in
                 guard let self else { return }
                 let previousPhase = tunnelSnapshot.phase
+                if previousPhase != value.phase || tunnelSnapshot.connectedAt != value.connectedAt
+                    || tunnelSnapshot.tunnelGateway != value.tunnelGateway {
+                    probeRevision &+= 1
+                    reachability.removeAll()
+                    if let id = activeProfileID, value.phase == .connected {
+                        reachability[id] = .connectedWithoutRTT
+                    }
+                }
                 tunnelSnapshot = value
                 logLines = sharedTunnelStore.logLines()
                 if previousPhase != value.phase {
@@ -587,50 +609,38 @@ final class AppModel: ObservableObject {
     }
 
     private func runProbe(_ profile: Profile) async {
+        let revision = probeRevision
+        let activeID = activeProfileID
+        let phase = tunnelSnapshot.phase
+        let connectedAt = tunnelSnapshot.connectedAt
         let result: ReachabilityState
         do {
             let config = try VPNConfig(parsing: profile.configText)
-            // While THIS profile's tunnel is up, dialing the public endpoint measures a
-            // looped-back path (or is carried by the tunnel it is probing) and reports a
-            // meaningless RTT. Probe the tunnel gateway instead, like Android does.
-            let viaTunnel = tunnelSnapshot.phase.isActive && profile.id == activeProfileID
-            let host = viaTunnel
-                ? (tunnelSnapshot.tunnelGateway ?? config.serverAddress)
-                : config.serverAddress
-            let milliseconds: Int
-            if config.isUDP {
-                // The native probe parses its target from the profile. When this is the
-                // active tunnel, replace only that target with the in-tunnel gateway;
-                // probing the public UDP endpoint through itself is meaningless, while
-                // falling through to a TCP connect marks every UDP-only listener down.
-                let profileText: String
-                if viaTunnel {
-                    // Keep identity/SNI/REALITY credentials unchanged and replace only the
-                    // validated network endpoint used by the handle-free UDP probe.
-                    var probeConfig = config
-                    probeConfig.serverAddress = host
-                    profileText = try probeConfig.toTransportCoreINI()
-                } else {
-                    profileText = profile.configText
-                }
-                milliseconds = try await Task.detached(priority: .utility) {
+            if phase.isActive && profile.id == activeID {
+                // The inner gateway is not a VPN protocol listener. Sending AUTH
+                // or TCP SYN to the external port at that address falsely marked
+                // a working tunnel down. iOS currently has no qualified in-tunnel
+                // RTT probe; publish provider state without inventing a latency.
+                result = .activeTunnel(phase)
+            } else if config.isUDP {
+                let profileText = profile.configText
+                let milliseconds = try await Task.detached(priority: .utility) {
                     Int(try QeliNativeCore.udpProbe(
-                        config: profileText,
-                        timeoutMilliseconds: 2_000
+                        config: profileText, timeoutMilliseconds: 2_000
                     ))
                 }.value
+                result = .reachable(milliseconds: milliseconds)
             } else {
-                milliseconds = try await ReachabilityProbe.tcp(
-                    host: host,
-                    port: config.port,
-                    timeout: 4
+                let milliseconds = try await ReachabilityProbe.tcp(
+                    host: config.serverAddress, port: config.port, timeout: 4
                 )
+                result = .reachable(milliseconds: milliseconds)
             }
-            result = .reachable(milliseconds: milliseconds)
         } catch {
             result = .unavailable(error.localizedDescription)
         }
-        guard !Task.isCancelled,
+        guard !Task.isCancelled, probeRevision == revision, activeProfileID == activeID,
+              tunnelSnapshot.phase == phase, tunnelSnapshot.connectedAt == connectedAt,
               profiles.contains(where: { $0.id == profile.id && $0.configText == profile.configText }) else { return }
         reachability[profile.id] = result
     }

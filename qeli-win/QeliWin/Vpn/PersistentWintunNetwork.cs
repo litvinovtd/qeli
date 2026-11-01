@@ -74,6 +74,7 @@ internal static class PersistentWintunNetwork
         foreach(var address in state.Addresses)
             if(before.Addresses.Any(a=>IPAddress.Parse(a.Ip).Equals(IPAddress.Parse(address.Ip)) && a.Prefix!=address.Prefix))
                 throw new InvalidOperationException("Persistent adapter has a conflicting pre-existing address prefix");
+        foreach(var route in state.Routes) _=WasRoutePresent(state,route);
         lease.SaveNetwork(state); // Durable before the first IP/DNS/route mutation.
     }
 
@@ -88,6 +89,15 @@ internal static class PersistentWintunNetwork
 
     internal static bool WasAddressPresent(State state,string ip,int prefix) =>
         state.Before.Addresses.Any(a=>IPAddress.Parse(a.Ip).Equals(IPAddress.Parse(ip)) && a.Prefix==prefix);
+
+    internal static bool WasRoutePresent(State state, Route route)
+    {
+        route=CanonicalRoute(route);
+        var existing=state.Before.Routes.Select(CanonicalRoute).Where(r=>r.Cidr==route.Cidr).ToArray();
+        if(existing.Any(r=>r!=route))
+            throw new InvalidOperationException("Persistent adapter has a conflicting pre-existing route");
+        return existing.Length!=0;
+    }
 
     private static Route CanonicalRoute(Route route)
     {

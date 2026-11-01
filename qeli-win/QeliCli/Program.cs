@@ -78,7 +78,7 @@ Exit codes: 0 success, 2 usage, 3 config, 4 access, 5 busy, 6 timeout,
         if(!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
             throw new CliFailure(4,"access_denied","Run this command in an administrator CMD or PowerShell terminal. No UAC dialog is opened.");
     }
-    private static object Execute(CommandLine args,CancellationToken cancellation)
+    internal static object Execute(CommandLine args,CancellationToken cancellation)
     {
         if(args.Command=="help") return Help;
         if(args.Command=="version") return new {version=typeof(Program).Assembly.GetName().Version?.ToString(3),platform="win-x64"};
@@ -95,8 +95,8 @@ Exit codes: 0 success, 2 usage, 3 config, 4 access, 5 busy, 6 timeout,
             {
                 var tunnel=new VpnTunnel();
                 // This is a full authenticated handshake, not proof that system routes work.
-                try {return new {assigned_address=tunnel.TestHandshake(config),test="handshake"};}
-                catch(Exception error) when(error is not (DllNotFoundException or BadImageFormatException or EntryPointNotFoundException or KeyNotFoundException or UnauthorizedAccessException))
+                try {return new {assigned_address=tunnel.TestHandshake(config,cancellation),test="handshake"};}
+                catch(Exception error) when(error is not (OperationCanceledException or DllNotFoundException or BadImageFormatException or EntryPointNotFoundException or KeyNotFoundException or UnauthorizedAccessException))
                 {throw TransportFailure(null,tunnel.FailureKind);}
             }
             RequireAdministrator();
@@ -146,6 +146,7 @@ Exit codes: 0 success, 2 usage, 3 config, 4 access, 5 busy, 6 timeout,
         if(error is KeyNotFoundException) return new(11,"native_schema_mismatch","Managed bindings and native configuration schema differ; use a matching CLI/native build.");
         if(error is DllNotFoundException or BadImageFormatException or EntryPointNotFoundException) return new(11,"native_unavailable","The matching Windows native core could not be loaded.");
         if(error is IOException io && (io.HResult&0xffff)==32) return new(5,"busy","Another Qeli control operation owns the resource.");
+        if(error is Qeli.Shared.Vpn.TunnelBusyException) return new(5,"busy","Another Qeli GUI, CLI or service owns the VPN.");
         if(error is OperationCanceledException) return new(12,"cancelled","Operation cancelled.");
         if(error is UnauthorizedAccessException || error is System.ComponentModel.Win32Exception w && w.NativeErrorCode is 5 or 740 or 1314
             || error.InnerException is System.ComponentModel.Win32Exception inner && inner.NativeErrorCode==5)
@@ -156,6 +157,8 @@ Exit codes: 0 success, 2 usage, 3 config, 4 access, 5 busy, 6 timeout,
     }
     internal static CliFailure TransportFailure(string? message,Qeli.Shared.Vpn.TunnelFailureKind kind=Qeli.Shared.Vpn.TunnelFailureKind.Transport)
     {
+        if(kind==Qeli.Shared.Vpn.TunnelFailureKind.Busy || string.Equals(message,"Another Qeli GUI, CLI or service owns the VPN",StringComparison.Ordinal))
+            return new(5,"busy","Another Qeli GUI, CLI or service owns the VPN.");
         if(kind==Qeli.Shared.Vpn.TunnelFailureKind.ServerKeyMismatch || message?.Contains("key mismatch",StringComparison.OrdinalIgnoreCase)==true) return new(8,"server_key_mismatch","Server identity verification failed.");
         if(kind==Qeli.Shared.Vpn.TunnelFailureKind.Authentication || message?.Contains("authentication",StringComparison.OrdinalIgnoreCase)==true || message?.Contains("auth failed",StringComparison.OrdinalIgnoreCase)==true)
             return new(7,"authentication_failed","Server authentication failed.");
