@@ -2,7 +2,7 @@
 // LZ4 block storage only; every exported byte remains canonical.
 pub const UNPACKED_LEN: usize = 4416570;
 #[rustfmt::skip]
-pub const UNPACKED_SHA256: [u8; 32] = [188, 33, 48, 227, 27, 2, 14, 49, 125, 94, 210, 95, 170, 174, 199, 58, 250, 57, 205, 188, 181, 71, 10, 243, 55, 249, 16, 22, 134, 127, 144, 43];
+pub const UNPACKED_SHA256: [u8; 32] = [169, 83, 4, 119, 135, 91, 209, 207, 61, 16, 252, 124, 240, 246, 251, 56, 236, 247, 89, 2, 218, 84, 55, 34, 14, 234, 169, 142, 114, 166, 53, 104];
 pub const PACKED: &[u8] = include_bytes!("embedded_licenses.lz4");
 #[rustfmt::skip]
 pub const FILES: &[(&str, usize, usize)] = &[
@@ -413,7 +413,7 @@ pub const FILES: &[(&str, usize, usize)] = &[
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/1b7a45280246f35fb01cab2d321fa3a6e3f65d9a30857a5372d928db90cf7231.txt", 51754, 10847),
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt", 50731, 1023),
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/cbb5871a3262b0451ff62fd5ebdd4d54da9c573ff7aa0e99b3b0622d12bb024a.txt", 445827, 12243),
-    ("rust/files/webpki-roots/1.0.10/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt", 458070, 2371),
+    ("rust/files/webpki-roots/1.0.11/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt", 458070, 2371),
     ("rust/files/winapi-util/0.1.11/242c87e94bc0e81a2fe2f85cd6958fbf4872ae058c2503067aea4828f81a4717.txt", 26170, 1211),
     ("rust/files/winapi-util/0.1.11/400d38e5cfee181230373a8b02d38f50271a5bf62c62410382efddb8e8b19e22.txt", 27381, 126),
     ("rust/files/winapi-util/0.1.11/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt", 392496, 1081),
@@ -954,7 +954,7 @@ pub const ORIGINALS: &[(&str, &[u8])] = &[
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/1b7a45280246f35fb01cab2d321fa3a6e3f65d9a30857a5372d928db90cf7231.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/wasi/0.11.1+wasi-snapshot-preview1/1b7a45280246f35fb01cab2d321fa3a6e3f65d9a30857a5372d928db90cf7231.txt"))),
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/wasi/0.11.1+wasi-snapshot-preview1/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt"))),
     ("rust/files/wasi/0.11.1+wasi-snapshot-preview1/cbb5871a3262b0451ff62fd5ebdd4d54da9c573ff7aa0e99b3b0622d12bb024a.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/wasi/0.11.1+wasi-snapshot-preview1/cbb5871a3262b0451ff62fd5ebdd4d54da9c573ff7aa0e99b3b0622d12bb024a.txt"))),
-    ("rust/files/webpki-roots/1.0.10/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/webpki-roots/1.0.10/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt"))),
+    ("rust/files/webpki-roots/1.0.11/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/webpki-roots/1.0.11/c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7.txt"))),
     ("rust/files/winapi-util/0.1.11/242c87e94bc0e81a2fe2f85cd6958fbf4872ae058c2503067aea4828f81a4717.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/winapi-util/0.1.11/242c87e94bc0e81a2fe2f85cd6958fbf4872ae058c2503067aea4828f81a4717.txt"))),
     ("rust/files/winapi-util/0.1.11/400d38e5cfee181230373a8b02d38f50271a5bf62c62410382efddb8e8b19e22.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/winapi-util/0.1.11/400d38e5cfee181230373a8b02d38f50271a5bf62c62410382efddb8e8b19e22.txt"))),
     ("rust/files/winapi-util/0.1.11/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt", include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/third-party-notices/rust/files/winapi-util/0.1.11/421f8eecf75a1acdd7907667d6c14e9f8870cb90a7cc499459c8418a93cdc8b0.txt"))),

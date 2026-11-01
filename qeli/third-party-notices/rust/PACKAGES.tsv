@@ -207,7 +207,7 @@ utf8parse	0.2.2	Apache-2.0 OR MIT	06abde3611657adf66d383f00b093d7faecc7fa57071cc
 version_check	0.9.5	MIT/Apache-2.0	0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a	https://static.crates.io/crates/version_check/version_check-0.9.5.crate
 walkdir	2.5.0	Unlicense/MIT	29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b	https://static.crates.io/crates/walkdir/walkdir-2.5.0.crate
 wasi	0.11.1+wasi-snapshot-preview1	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT	ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b	https://static.crates.io/crates/wasi/wasi-0.11.1+wasi-snapshot-preview1.crate
-webpki-roots	1.0.10	CDLA-Permissive-2.0	1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9	https://static.crates.io/crates/webpki-roots/webpki-roots-1.0.10.crate
+webpki-roots	1.0.11	CDLA-Permissive-2.0	f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171	https://static.crates.io/crates/webpki-roots/webpki-roots-1.0.11.crate
 winapi-util	0.1.11	Unlicense OR MIT	c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22	https://static.crates.io/crates/winapi-util/winapi-util-0.1.11.crate
 windows-link	0.2.1	MIT OR Apache-2.0	f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5	https://static.crates.io/crates/windows-link/windows-link-0.2.1.crate
 windows-sys	0.45.0	MIT OR Apache-2.0	75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0	https://static.crates.io/crates/windows-sys/windows-sys-0.45.0.crate
