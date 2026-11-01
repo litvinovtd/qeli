@@ -428,13 +428,6 @@ class NativeRecipeTests(unittest.TestCase):
         )
         self.assertIn("waitsForConnectivity = false", ios_checker)
         self.assertIn("multipathServiceType = .none", ios_checker)
-        run_probe = ios_model.split("private func runProbe(_ profile: Profile) async", 1)[1].split(
-            "func pingAll()", 1
-        )[0]
-        self.assertIn("tunnelSnapshot.tunnelGateway", run_probe)
-        self.assertIn("toTransportCoreINI()", run_probe)
-        self.assertNotIn("gateway(forClientAddress:", run_probe)
-
         ios_manager = (root / "qeli-ios/QeliCore/VPN/TunnelManager.swift").read_text(
             encoding="utf-8"
         )
@@ -442,6 +435,26 @@ class NativeRecipeTests(unittest.TestCase):
             "func refreshSnapshot()", 1
         )[0]
         self.assertLess(stop.index("publish(value)"), stop.index("stopVPNTunnel()"))
+
+    def test_ios_profile_ping_does_not_probe_a_listener_on_the_inner_gateway(self):
+        root = Path(__file__).parent.parent
+        model = (root / "qeli-ios/QeliIOS/AppModel.swift").read_text(encoding="utf-8")
+        run_probe = model.split("private func runProbe(_ profile: Profile) async", 1)[1].split(
+            "func pingAll()", 1
+        )[0]
+        active, offline = run_probe.split("} else if config.isUDP {", 1)
+        self.assertIn("if phase.isActive && profile.id == activeID", active)
+        self.assertIn("result = .activeTunnel(phase)", active)
+        self.assertNotIn("ReachabilityProbe.tcp(", active)
+        self.assertNotIn("QeliNativeCore.udpProbe(", active)
+        self.assertIn("QeliNativeCore.udpProbe(", offline)
+        self.assertIn("config: profileText", offline)
+        self.assertIn("host: config.serverAddress, port: config.port", offline)
+        self.assertNotIn("tunnelSnapshot.tunnelGateway", run_probe)
+        self.assertNotIn("gateway(forClientAddress:", run_probe)
+        self.assertIn("probeRevision == revision", run_probe)
+        self.assertIn("tunnelSnapshot.phase == phase", run_probe)
+        self.assertIn("tunnelSnapshot.connectedAt == connectedAt", run_probe)
 
     def test_client_subnet_admission_is_non_destructive_and_fail_closed(self):
         root = Path(__file__).parent.parent
