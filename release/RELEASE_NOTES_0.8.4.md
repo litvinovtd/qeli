@@ -90,6 +90,11 @@ Windows GUI по-прежнему поставляется отдельными 
 размещены в `bin/`, полные инструкции — в `docs/`, шаблон INI — в `examples/`.
 Прямой запуск без обёртки: `bin\qeli-cli.exe`; распаковывайте и переносите всю папку.
 
+Compact — существующий режим TCP `reality-tls` с уменьшенным стартовым TLS-приветствием
+ClientHello; он уже был доступен в 0.8.3. В 0.8.4 для него добавлен обязательный
+внутренний гибридный обмен X25519 + ML-KEM-768. Режим выключен по умолчанию
+(`reality_compact=false`); меньший ClientHello не гарантирует один TCP-пакет или обход DPI.
+
 Для compact REALITY сначала обновите сервер, затем клиенты с новым native core.
 Новый compact-клиент не подключается к серверу без `INNER_PQ_V1` и не переключается
 скрыто на legacy. Обычный noncompact REALITY сохраняет прежний путь. Защита
@@ -244,6 +249,12 @@ control require Administrator.
 The package root contains `qeli-cli.cmd` and a command README; the EXE and
 dependencies are in `bin/`, manuals in `docs/`, and an INI template in `examples/`.
 For direct execution use `bin\qeli-cli.exe`; always extract and move the whole folder.
+
+Compact is an existing TCP `reality-tls` mode with a smaller initial TLS ClientHello;
+it was already available in 0.8.3. Version 0.8.4 adds a mandatory inner hybrid
+X25519 + ML-KEM-768 exchange for this mode. Compact is disabled by default
+(`reality_compact=false`); a smaller ClientHello guarantees neither one TCP packet
+nor DPI evasion.
 
 Upgrade the server before compact REALITY clients. A new compact client refuses
 a server without `INNER_PQ_V1`; noncompact REALITY retains the legacy path.
