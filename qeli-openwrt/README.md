@@ -694,7 +694,7 @@ Unused non-router files in the Git snapshot are not router build inputs.
 CI выпуска и строгая проверка архива/исходников остаются отдельными требованиями.
 Неиспользуемые файлы других компонентов снимка не являются входами сборки роутера.
 
-### Current 0.8.4 source cut — 2 November 2026
+### Previous 0.8.4 Wintun-only source cut — 2 November 2026
 
 The recipe now pins `a7b894b4d185dc05a71ca8b5555185489f018f18`, including the
 Windows Software Device callback bridge in the shared Rust source tree. Its
@@ -721,3 +721,30 @@ Windows callback bridge в общем Rust-дереве. Полное дерев
 использованием feed закреплённый коммит должен быть доступен в нём. Неиспользуемые
 Windows/native-файлы снимка не являются входами компиляции роутера. CI выпуска
 и строгая проверка архива/исходников остаются отдельными требованиями.
+
+### Current 0.8.4 Wintun + UDP source cut — 2 November 2026
+
+The recipe pins `2f8ff8d44d83c48acf5a91669a31d3ba2fec3368`: the shared Rust tree
+includes both the native Windows callback bridge and the bounded Linux UDP client
+receive-buffer/migration changes. Its complete `qeli/` tree must match the release
+crate tree exactly. Two actual stock SDK 24.10.4 `download` runs with empty caches
+and distinct private Git URLs produced identical `qeli-0.8.4.tar.zst` archives:
+SHA-256 `804b60e482f7950c87d6f45ba029ca1a5ae1302815ee52b5c780e2896e55bb8f`.
+SDK `prepare` verified all 3795 tracked file contents and modes.
+
+This qualifies source export/prepare, not a fresh full SDK/IPK build or a physical
+router test. The production HTTPS Git URL is unchanged; the pinned commit must be
+available there before using the feed. Release CI, target-architecture checks and
+the strict source archive gate remain separate requirements.
+
+Рецепт закреплён на `2f8ff8d44d83c48acf5a91669a31d3ba2fec3368`: общее Rust-дерево
+включает Windows callback bridge и ограниченную памятью настройку UDP-приёма
+Linux-клиента с сохранением контроллера при смене пути. Полное дерево `qeli/`
+должно точно совпадать с исходниками выпуска. Два реальных экспорта штатного
+SDK 24.10.4 в пустые кэши с разными приватными Git URL дали одинаковый архив
+с указанным SHA-256. После `prepare` проверены содержимое и режимы всех 3795 файлов.
+
+Это проверка экспорта/подготовки исходников, не полная SDK/IPK-сборка и не тест
+физического роутера. Публичный HTTPS Git URL не изменён; перед использованием
+feed закреплённый коммит должен быть доступен в нём. CI выпуска, проверки целевых
+архитектур и строгая проверка SDK-архива остаются отдельными требованиями.
