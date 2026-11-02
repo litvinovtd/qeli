@@ -749,7 +749,7 @@ SDK 24.10.4 в пустые кэши с разными приватными Git 
 feed закреплённый коммит должен быть доступен в нём. CI выпуска, проверки целевых
 архитектур и строгая проверка SDK-архива остаются отдельными требованиями.
 
-### Current 0.8.4 source cut after pinned CI test correction — 2 November 2026
+### Previous 0.8.4 source cut after pinned CI test correction — 2 November 2026
 
 The recipe pins `0c52aa60a523d294d6f8edeb0ae251e5d40258ac`. It retains the Wintun
 and UDP changes and corrects a test-only Clippy warning under the pinned Rust 1.97.0
@@ -778,3 +778,33 @@ Exact-source release CI, target checks and the strict archive gate remain requir
 роутера. Публичный HTTPS Git URL не изменён; закреплённый коммит должен быть
 доступен в нём до использования feed. CI точного среза, проверки архитектур
 и строгая проверка SDK-архива остаются обязательными.
+
+### Current 0.8.4 panel-navigation source cut — 2 November 2026
+
+The recipe pins `80f500fa2d2ac200c4fd36408e0ef221b8528437`, including the completed
+configuration-panel navigation changes alongside the Wintun and UDP fixes.
+The complete `qeli/` tree must match the release crate tree exactly. Fresh independent
+A/B builds qualify all four native cores against this source; their release bytes
+remain identical to the preceding qualified cores, with new source-bound evidence.
+Two actual stock SDK 24.10.4 downloads using empty caches and distinct private Git URLs
+produced identical `qeli-0.8.4.tar.zst` archives: SHA-256
+`d8d0831690d268bbaf0551e7fdbbfc0a5aba91cba02a9e577c2f72e925f869c0`.
+SDK prepare verified the contents and modes of all 3796 tracked files.
+
+This qualifies source export/prepare, not a full SDK/IPK build or physical router
+test. The unchanged production HTTPS Git URL must contain the pin before feed use.
+Exact-source release CI, target checks and the strict archive gate remain required.
+
+Рецепт закреплён на `80f500fa2d2ac200c4fd36408e0ef221b8528437`: включены завершённые
+изменения навигации панели конфигурации вместе с исправлениями Wintun и UDP.
+Полное дерево `qeli/` должно точно совпадать с Rust-исходниками выпуска.
+Свежие независимые A/B-сборки квалифицируют все четыре нативных ядра для этого
+источника; байты совпали с предыдущими ядрами, новые квитанции сохраняют точный
+источник. Два реальных экспорта штатного SDK 24.10.4 в пустые кэши с разными
+приватными Git URL дали одинаковый архив с указанным SHA-256. После prepare
+проверены содержимое и режимы всех 3796 отслеживаемых файлов.
+
+Это проверка экспорта/подготовки, не полная SDK/IPK-сборка и не испытание физического
+роутера. Публичный HTTPS Git URL не изменён; закреплённый коммит должен быть доступен
+в нём до использования feed. CI точного среза, проверки архитектур и строгая проверка
+SDK-архива остаются обязательными.
