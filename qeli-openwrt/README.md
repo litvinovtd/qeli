@@ -779,7 +779,7 @@ Exact-source release CI, target checks and the strict archive gate remain requir
 доступен в нём до использования feed. CI точного среза, проверки архитектур
 и строгая проверка SDK-архива остаются обязательными.
 
-### Current 0.8.4 panel-navigation source cut — 2 November 2026
+### Previous 0.8.4 panel-navigation source cut — 2 November 2026
 
 The recipe pins `80f500fa2d2ac200c4fd36408e0ef221b8528437`, including the completed
 configuration-panel navigation changes alongside the Wintun and UDP fixes.
@@ -808,3 +808,40 @@ Exact-source release CI, target checks and the strict archive gate remain requir
 роутера. Публичный HTTPS Git URL не изменён; закреплённый коммит должен быть доступен
 в нём до использования feed. CI точного среза, проверки архитектур и строгая проверка
 SDK-архива остаются обязательными.
+
+### Current 0.8.4 source cut after panel-test correction — 2 November 2026
+
+The recipe pins `9aeee840963a9fe1a59c89d60733cff8ca20c86d`. It includes the
+Wintun, UDP and panel-navigation changes and corrects the obsolete selector in an
+embedded-asset test without changing production logic or weakening its assertions.
+Fresh independent A/B builds qualified all four native cores for this exact source;
+their bytes match the preceding cores, with new source-bound evidence.
+Two actual stock SDK 24.10.4 downloads using empty caches and distinct private Git
+URLs produced identical `qeli-0.8.4.tar.zst` archives (29265220 bytes): SHA-256
+`06ae98de06a866ac6cffdb30f6e2f34fba4eea6251847d30eb44b568dc067df0`.
+All 3796 file contents and Git regular/executable modes were verified against the
+original commit, and actual archive permissions match SDK prepare. The unchanged
+SDK export uses Git archive's default `tar.umask=0002` (0664/0775 permissions),
+not literal 0644/0755 filesystem permissions; no SDK/global settings were changed.
+See [Git archive configuration](https://git-scm.com/docs/git-archive#_configuration).
+
+This qualifies source export/prepare, not a full SDK/IPK build or physical router
+test. The complete `qeli/` tree must match the release crate exactly. The unchanged
+public HTTPS URL must contain the pin before feed use. Exact-source release CI,
+target checks and the strict source archive gate remain separate requirements.
+
+Рецепт закреплён на `9aeee840963a9fe1a59c89d60733cff8ca20c86d`: сохранены Wintun,
+UDP и новая навигация панели, исправлен устаревший селектор только в автотесте без
+изменения рабочей логики и ослабления проверки. Новые независимые A/B-сборки всех
+четырёх нативных ядер подтвердили прежние байты с квитанциями для точного среза.
+Два реальных экспорта штатного SDK 24.10.4 с пустыми кэшами и разными приватными
+Git URL дали одинаковый архив с указанными размером и SHA-256. Проверены содержимое
+и Git-режимы обычных/исполняемых файлов для всех 3796 файлов, а также совпадение
+фактических прав архива и SDK prepare. Штатный экспорт Git использует
+`tar.umask=0002` и права 0664/0775, а не буквальные файловые права 0644/0755;
+SDK и глобальные настройки не изменялись.
+
+Это проверка экспорта/подготовки, не полная SDK/IPK-сборка и не испытание физического
+роутера. Полное дерево `qeli/` должно совпадать с исходниками выпуска. Закреплённый
+коммит должен быть доступен по неизменённому публичному HTTPS URL до использования
+feed. CI точного среза, проверки архитектур и строгая проверка архива обязательны.
