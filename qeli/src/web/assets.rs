@@ -120,7 +120,7 @@ mod tests {
         assert!(APP_CSS.contains("repeat(6,minmax(0,1fr))"));
         assert!(has_declarations(
             APP_CSS,
-            ".config-profile-list",
+            ".config-profile-nav-body",
             &[("display", "flex"), ("flex-wrap", "wrap")]
         ));
         assert!(has_declarations(
@@ -137,6 +137,9 @@ mod tests {
         assert!(APP_CSS.contains(".inp[type=search]{"));
         assert!(APP_CSS.contains("html[data-theme=light] .badge-udp{"));
         assert!(APP_CSS.contains(".server-host-badge{"));
+        assert!(I18N_JS.contains("'Settings':"));
+        assert!(I18N_JS.contains("'General settings':"));
+        assert!(I18N_JS.contains("'Configuration sections':"));
         assert!(I18N_JS.contains("'PACKET_MUX recordizer':"));
         assert!(I18N_JS.contains("'Batch mode':"));
         assert!(I18N_JS.contains("'Low latency ready batches':"));
