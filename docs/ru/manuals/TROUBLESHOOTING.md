@@ -556,6 +556,8 @@ Windows, macOS и Android используют общий транспорт в 
 | `NOTE: a Wintun driver (X.Y) is already loaded by another app…` | Win | другой VPN (OpenVPN/WireGuard/Tailscale) держит общий Wintun-драйвер иной версии — возможны конфликты; нужен совпадающий 0.14.x |
 | `WintunCreateAdapter failed (err …; fresh name/GUID retries also failed)` | Win | не создать адаптер (нет прав администратора / повреждён драйвер). Запускать от админа |
 | `WintunStartSession failed` / `WintunReceivePacket failed` | Win | сбой сессии Wintun |
+| `SwDeviceCreate failed (HRESULT 0x8007007E)` при постоянном адаптере | Win | в прежней реализации Windows не могла найти нативный модуль управляемого callback; исправлено нативным callback в `qeli.dll`. Обновить комплект GUI/CLI вместе с native core; это не доказательство отсутствия `wintun.dll` |
+| `Software Device callback bridge is missing` | Win | клиент смешан со старой `qeli.dll`; обновить весь комплект или пересобрать native core перед GUI/CLI |
 | `utun: socket(PF_SYSTEM) failed (errno …) — are you root?` | mac | нет root — запустить через `sudo` или включить launchd-демон |
 | `utun: connect failed / getsockopt(IFNAME) failed …` | mac | не открыть utun |
 | `Failed to establish VPN interface` | Android | `VpnService.Builder.establish()` вернул null |

@@ -263,6 +263,12 @@ def verify_exports(client: LabConnection) -> None:
     )
     if carrier.strip() != "1":
         raise RuntimeError("Windows artifact lacks the ABI 1.17 carrier diagnostics API")
+    swdevice = client.checked(
+        f"x86_64-w64-mingw32-objdump -p {shlex.quote(win)} 2>/dev/null | grep -c 'qeli_windows_swdevice_callback_address$' || true",
+        "Windows Software Device callback export",
+    )
+    if swdevice.strip() != "1":
+        raise RuntimeError("Windows artifact lacks the native Software Device callback bridge")
     print(
         f"[win] qeli.dll={win_size} bytes, qeli_realtls exports={reality}, "
         f"qeli_client exports={core}"

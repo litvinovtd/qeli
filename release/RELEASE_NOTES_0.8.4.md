@@ -30,6 +30,11 @@ macOS, OpenWrt и Keenetic.
   Запуск VPN в терминале, управление службой, INI validation, status/wait/logs,
   JSON-ответы и коды завершения. GUI, CLI и служба используют общий runtime и
   защиту от одновременного владения сетевым состоянием.
+- **Постоянный Wintun в Windows GUI/CLI/службе:** устранена найденная причина
+  отказа `SwDeviceCreate` с `0x8007007E`: callback Software Device API теперь
+  находится в нативной `qeli.dll`, а не в управляемом .NET trampoline. Ошибки
+  показывают этап и исходный HRESULT. Обновляйте Windows-клиенты вместе с native
+  core; смешанный комплект со старой DLL отклоняется до создания устройства.
 - **Linux ARM64:** серверный бинарник и `.deb` наравне с amd64. Обе архитектуры
   собираются с jemalloc и целевым glibc 2.28; архитектура и содержимое пакета
   проверяются, а не определяются только именем файла.
@@ -193,6 +198,11 @@ traffic camouflage across networks are not promised.
   foreground VPN, service control, INI validation, status/wait/logs, JSON output
   and exit codes. GUI, CLI and service share the Windows runtime and exclusive
   network-state ownership safeguards.
+- **Persistent Wintun in Windows GUI/CLI/service:** addresses the identified cause
+  of `SwDeviceCreate` failing with `0x8007007E`: the Software Device API callback
+  now lives in native `qeli.dll`, not a managed .NET trampoline. Errors retain
+  the operation and original HRESULT. Update Windows clients and the native core
+  together; a mixed package with the old DLL is rejected before device creation.
 - **Linux ARM64:** server executable and `.deb`, alongside amd64. Both target
   glibc 2.28 with jemalloc; gates verify ELF architecture and package payloads.
 - **Windows/macOS:** off/per-profile/global persistent Wintun policies on Windows,

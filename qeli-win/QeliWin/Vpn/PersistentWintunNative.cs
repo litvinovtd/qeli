@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -36,23 +35,9 @@ internal sealed class PersistentWintunNative : PersistentWintunDevice.IPlatform
     private static readonly Key HardwareKey = new() {Id=new("a45c254e-df1c-4efd-8020-67d146a850e0"),Pid=3};
     private const int WaitMs=30_000;
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void Created(IntPtr device,int result,IntPtr context,IntPtr instance);
-    // One process-rooted callback remains valid even after a timed-out operation. Contexts
-    // are monotonic numeric IDs, not pointers to freed managed memory/GCHandles.
-    private static readonly Created Callback=OnCreated;
-    private static readonly ConcurrentDictionary<IntPtr,TaskCompletionSource<(int result,string id)>> Pending=new();
-    private static long _nextContext;
-    private static void OnCreated(IntPtr device,int result,IntPtr context,IntPtr instance)
-    {
-        try
-        {
-            if(Pending.TryGetValue(context,out var completion))
-                completion.TrySetResult((result,Marshal.PtrToStringUni(instance) ?? ""));
-        }
-        catch { /* Never let a managed exception cross a native callback boundary. */ }
-    }
-
-    [DllImport("cfgmgr32.dll",CharSet=CharSet.Unicode,ExactSpelling=true)] private static extern int SwDeviceCreate(string enumerator,string parent,ref CreateInfo info,uint count,[In] Property[] properties,Created callback,IntPtr context,out IntPtr device);
+    // IntPtr deliberately: a directly marshaled managed delegate has no native
+    // module owner, so Windows rejects it with ERROR_MOD_NOT_FOUND (0x8007007E).
+    [DllImport("cfgmgr32.dll",CharSet=CharSet.Unicode,ExactSpelling=true)] private static extern int SwDeviceCreate(string enumerator,string parent,ref CreateInfo info,uint count,[In] Property[] properties,IntPtr callback,IntPtr context,out IntPtr device);
     [DllImport("cfgmgr32.dll",ExactSpelling=true)] private static extern int SwDeviceSetLifetime(IntPtr device,int lifetime);
     [DllImport("cfgmgr32.dll",ExactSpelling=true)] private static extern void SwDeviceClose(IntPtr device);
     [DllImport("cfgmgr32.dll",CharSet=CharSet.Unicode,ExactSpelling=true)] private static extern uint CM_Locate_DevNodeW(out uint node,string? id,uint flags);
@@ -126,6 +111,8 @@ internal sealed class PersistentWintunNative : PersistentWintunDevice.IPlatform
 
     public (IntPtr device,string deviceId) Create(PersistentWintunDevice.Record record)
     {
+        // Refuse a mismatched old core before touching any PnP device.
+        var callback=PersistentWintunCallbacks.Address;
         // Installing the bundled signed driver uses its public installer entrypoint.
         // Existing devices are never removed or replaced explicitly by this implementation.
         if(Find(record.Name)==null)
@@ -148,16 +135,13 @@ internal sealed class PersistentWintunNative : PersistentWintunDevice.IPlatform
         var info=new CreateInfo {Size=(uint)Marshal.SizeOf<CreateInfo>(),Instance=record.Instance,
             HardwareIds=Allocate("Wintun\0\0"),Capabilities=0xA,Description="Qeli Persistent Tunnel"};
         var properties=new[] {StringProperty(NameKey,record.Name),StringProperty(OwnerKey,record.Token.ToString("D")),StringProperty(FriendlyKey,"Qeli Persistent Tunnel")};
-        var context=new IntPtr(Interlocked.Increment(ref _nextContext));
-        var completion=new TaskCompletionSource<(int result,string id)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if(!Pending.TryAdd(context,completion)) throw new InvalidOperationException("Persistent creation context collision");
+        using var completion=new PersistentWintunCallbacks.Registration();
         IntPtr device=IntPtr.Zero;
         try
         {
-            Marshal.ThrowExceptionForHR(SwDeviceCreate("Wintun",parent.ToString(),ref info,(uint)properties.Length,properties,Callback,context,out device));
-            if(!completion.Task.Wait(WaitMs)) throw new TimeoutException("Persistent Wintun enumeration timed out");
-            var created=completion.Task.GetAwaiter().GetResult();
-            Marshal.ThrowExceptionForHR(created.result);
+            CheckResult(SwDeviceCreate("Wintun",parent.ToString(),ref info,(uint)properties.Length,properties,callback,completion.Context,out device),"SwDeviceCreate");
+            var created=completion.Wait(WaitMs);
+            CheckResult(created.result,"SwDeviceCreate callback");
             if(!created.id.StartsWith("SWD\\Wintun\\",StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Unexpected software device identity");
             var watch=Stopwatch.StartNew();
             while(true)
@@ -174,12 +158,17 @@ internal sealed class PersistentWintunNative : PersistentWintunDevice.IPlatform
         finally
         {
             if(device!=IntPtr.Zero) SwDeviceClose(device);
-            Pending.TryRemove(context,out _);
             foreach(var pointer in allocated) Marshal.FreeHGlobal(pointer);
         }
     }
 
-    public void SetLifetime(IntPtr device,bool persistent) => Marshal.ThrowExceptionForHR(SwDeviceSetLifetime(device,persistent?1:0));
+    internal static void CheckResult(int result,string operation)
+    {
+        // These HRESULT APIs do not publish COM IErrorInfo. Ignore stale error info
+        // from unrelated earlier exceptions; retain the actual code and stage.
+        if(result<0) throw new COMException($"{operation} failed (HRESULT 0x{result:X8}): {Marshal.GetExceptionForHR(result,new IntPtr(-1))!.Message}",result);
+    }
+    public void SetLifetime(IntPtr device,bool persistent) => CheckResult(SwDeviceSetLifetime(device,persistent?1:0),"SwDeviceSetLifetime");
     public void CloseDevice(IntPtr device) => SwDeviceClose(device);
     public PersistentWintunDevice.Handle OpenAdapter(string name)
     {

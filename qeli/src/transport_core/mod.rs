@@ -70,6 +70,11 @@ mod config_jni;
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
+// Windows Software Device callbacks must have a native image owner. Managed
+// GUI/CLI hosts share this bridge; no extra DLL or driver is introduced.
+#[cfg(all(target_os = "windows", feature = "transport-core-ffi"))]
+mod windows_swdevice;
+
 // Android consumes the same generation-checked control-plane ABI through JNI. Keep the
 // adapter behind the opt-in whole-client feature so a compatibility-only realtls build
 // cannot accidentally ship Kotlin declarations without their native implementation.

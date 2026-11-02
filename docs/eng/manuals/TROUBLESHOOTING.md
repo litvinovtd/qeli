@@ -550,6 +550,8 @@ retries; Android — `[SECURITY]` + stop):**
 | `NOTE: a Wintun driver (X.Y) is already loaded by another app…` | Win | another VPN (OpenVPN/WireGuard/Tailscale) holds the shared Wintun driver at a different version — possible conflicts; a matching 0.14.x is needed |
 | `WintunCreateAdapter failed (err …; fresh name/GUID retries also failed)` | Win | can't create the adapter (no admin rights / corrupted driver). Run as administrator |
 | `WintunStartSession failed` / `WintunReceivePacket failed` | Win | a Wintun session failure |
+| `SwDeviceCreate failed (HRESULT 0x8007007E)` with a persistent adapter | Win | the previous implementation passed a managed callback without a native module owner. Fixed by a native callback in `qeli.dll`; update GUI/CLI and native core together. This does not prove `wintun.dll` is missing |
+| `Software Device callback bridge is missing` | Win | a new client is paired with an old `qeli.dll`; update the complete bundle or rebuild the native core before GUI/CLI |
 | `utun: socket(PF_SYSTEM) failed (errno …) — are you root?` | mac | not root — run via `sudo` or enable the launchd daemon |
 | `utun: connect failed / getsockopt(IFNAME) failed …` | mac | can't open utun |
 | `Failed to establish VPN interface` | Android | `VpnService.Builder.establish()` returned null |

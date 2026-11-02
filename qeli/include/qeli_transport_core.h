@@ -428,6 +428,18 @@ int32_t qeli_client_free(uint64_t handle);
 int32_t qeli_config_request(const uint8_t *input, size_t input_len,
                             uint8_t *output, size_t capacity, size_t *out_len);
 
+#ifdef _WIN32
+/* Windows host helper, not a wire/control-plane ABI revision. SwDeviceCreate must
+ * receive this native-image callback, never a directly marshaled CLR thunk.
+ * forward must remain rooted until process exit and must not throw/unwind.
+ * Repeated registration of the same target is idempotent; NULL or a different
+ * target returns NULL. Registration itself does not create a PnP device. */
+typedef void (__stdcall *qeli_windows_swdevice_created_fn)(
+    void *device, int32_t result, void *context, const uint16_t *instance);
+qeli_windows_swdevice_created_fn qeli_windows_swdevice_callback_address(
+    qeli_windows_swdevice_created_fn forward);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

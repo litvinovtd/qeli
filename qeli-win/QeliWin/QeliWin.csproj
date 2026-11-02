@@ -113,6 +113,7 @@
     <Compile Remove="Vpn/NetworkConfigurator.cs" />
     <Compile Remove="Vpn/PendingFragmentBuffer.cs" />
     <Compile Remove="Vpn/PersistentWintunCommands.cs" />
+    <Compile Remove="Vpn/PersistentWintunCallbacks.cs" />
     <Compile Remove="Vpn/PersistentWintunDevice.cs" />
     <Compile Remove="Vpn/PersistentWintunNative.cs" />
     <Compile Remove="Vpn/PersistentWintunNetwork.cs" />

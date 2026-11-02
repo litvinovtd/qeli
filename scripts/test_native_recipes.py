@@ -705,6 +705,8 @@ class NativeRecipeTests(unittest.TestCase):
             def checked(self, _command, label):
                 if label.endswith("carrier diagnostics export"):
                     return "0" if label.startswith(self.missing) else "1"
+                if label == "Windows Software Device callback export":
+                    return "1"
                 if label.endswith("Reality exports"):
                     return "6"
                 if label.endswith("client exports"):
@@ -727,6 +729,22 @@ class NativeRecipeTests(unittest.TestCase):
             with self.subTest(platform=missing):
                 with self.assertRaisesRegex(RuntimeError, "ABI 1.17 carrier diagnostics API"):
                     android.verify_exports(ExportClient(missing))
+
+    def test_windows_export_guard_rejects_missing_swdevice_bridge(self):
+        class ExportClient:
+            def checked(self, _command, label):
+                if label == "Windows Software Device callback export":
+                    return "0"
+                if label.endswith("Reality exports"):
+                    return "6"
+                if label.endswith("client exports"):
+                    return "23"
+                if label.endswith("stat"):
+                    return "12345"
+                return "1"
+
+        with self.assertRaisesRegex(RuntimeError, "Software Device callback bridge"):
+            desktop.verify_exports(ExportClient())
 
     def test_native_library_target_avoids_qeli_executable_pdb_collision(self):
         root = Path(__file__).resolve().parents[1]

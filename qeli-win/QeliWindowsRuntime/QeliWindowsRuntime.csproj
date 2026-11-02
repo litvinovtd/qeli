@@ -21,6 +21,7 @@
     <Compile Include="../QeliWin/Vpn/NetworkConfigurator.cs" Link="Vpn/NetworkConfigurator.cs" />
     <Compile Include="../QeliWin/Vpn/PendingFragmentBuffer.cs" Link="Vpn/PendingFragmentBuffer.cs" />
     <Compile Include="../QeliWin/Vpn/PersistentWintunCommands.cs" Link="Vpn/PersistentWintunCommands.cs" />
+    <Compile Include="../QeliWin/Vpn/PersistentWintunCallbacks.cs" Link="Vpn/PersistentWintunCallbacks.cs" />
     <Compile Include="../QeliWin/Vpn/PersistentWintunDevice.cs" Link="Vpn/PersistentWintunDevice.cs" />
     <Compile Include="../QeliWin/Vpn/PersistentWintunNative.cs" Link="Vpn/PersistentWintunNative.cs" />
     <Compile Include="../QeliWin/Vpn/PersistentWintunNetwork.cs" Link="Vpn/PersistentWintunNetwork.cs" />

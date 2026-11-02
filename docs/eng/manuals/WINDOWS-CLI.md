@@ -76,6 +76,12 @@ selects Per-profile mode; the GUI's Global adapter is not selected implicitly.
 One machine-wide owner covers the current GUI, CLI and service through reconnect
 and incomplete cleanup.
 
+Persistent adapters require matching GUI/CLI and native-core builds: `qeli.dll`
+contains the native Software Device callback. Do not mix a new client with an old
+DLL. `Software Device callback bridge is missing` means the complete bundle must
+be updated (rebuild the native core when building from source). Device creation
+still requires administrator rights; disabling UAC is not necessary.
+
 ## Commands
 
 | Command | Purpose |
