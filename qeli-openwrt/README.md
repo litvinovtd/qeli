@@ -666,7 +666,7 @@ physical router test. The public Git URL remains unchanged; no release is publis
 не изменён; релиз не публикуется.
 
 
-### Current 0.8.4 source cut — 1 November 2026
+### Previous 0.8.4 source cut — 1 November 2026
 
 The recipe pins `26152816684602ee6217897cdf9f6eebb0bd123a`. The complete `qeli/` tree includes the candidate audit
 fixes, webpki-roots 1.0.11 lock/legal update and the final user-panel changes,
@@ -693,3 +693,31 @@ Unused non-router files in the Git snapshot are not router build inputs.
 не повторная сборка компилятора, полного SDK/IPK или тест физического роутера.
 CI выпуска и строгая проверка архива/исходников остаются отдельными требованиями.
 Неиспользуемые файлы других компонентов снимка не являются входами сборки роутера.
+
+### Current 0.8.4 source cut — 2 November 2026
+
+The recipe now pins `a7b894b4d185dc05a71ca8b5555185489f018f18`, including the
+Windows Software Device callback bridge in the shared Rust source tree. Its
+complete `qeli/` tree must match the release crate tree exactly. Two actual
+SDK 24.10.4 `download` runs using empty caches and distinct private Git URLs
+produced identical `qeli-0.8.4.tar.zst` archives: SHA-256
+`7689bd24d44952c709e2aad788d9978016b3b4b2d8d1c68f2e3ce05c67dfd930`
+(29235374 bytes). SDK `prepare` verified all 3794 tracked file contents and modes.
+
+This qualifies source export/prepare, not a fresh full SDK/IPK build or a physical
+router test. The production HTTPS Git URL is unchanged; the pinned commit must be
+available there before using the feed. Unused Windows/native application files
+in the snapshot are not router compilation inputs. Release CI and the strict
+archive/source gate remain separate requirements.
+
+Текущий рецепт закреплён на `a7b894b4d185dc05a71ca8b5555185489f018f18`, включая
+Windows callback bridge в общем Rust-дереве. Полное дерево `qeli/` должно точно
+совпадать с исходниками выпуска. Два реальных экспорта SDK 24.10.4 с пустыми
+кэшами и разными приватными Git URL дали одинаковый архив с указанным SHA-256
+и размером; после `prepare` проверены содержимое и режимы всех 3794 файлов.
+
+Это проверка экспорта и подготовки исходников, не новая полная SDK/IPK-сборка
+и не испытание физического роутера. Публичный HTTPS Git URL не изменён; перед
+использованием feed закреплённый коммит должен быть доступен в нём. Неиспользуемые
+Windows/native-файлы снимка не являются входами компиляции роутера. CI выпуска
+и строгая проверка архива/исходников остаются отдельными требованиями.
