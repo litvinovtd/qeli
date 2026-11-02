@@ -174,6 +174,18 @@ curl -s https://api.ipify.org ; echo      # == server IP when gateway=1
 
 ---
 
+## UDP buffers: 2 November 2026 dev change
+
+The shared Linux client automatically tries `SO_RCVBUFFORCE` when the OS clips
+the ordinary UDP receive request. It needs `CAP_NET_ADMIN` and an absent
+`recv_buffer_size`; no separate UCI/sysctl configuration is required. All
+architectures and UDP modes share it. Memory, handover and permission refusal
+are accounted for. Earlier 0.8.4 binaries need an update containing this change.
+
+Inspect `logread -e qeli`: `UDP socket buffers:` reports actual size and
+`receive_set_method`. For `receive_clamped=true` or `receive_budget_limited=true`,
+see [limits and diagnostics](UDP-BUFFERS.md).
+
 ## 5. Troubleshooting
 
 | Symptom | Check |

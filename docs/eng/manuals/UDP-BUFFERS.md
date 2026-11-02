@@ -65,6 +65,55 @@ limit change, recreate the socket by reconnecting/restarting its listener for
 reliable application. Larger buffers absorb brief stalls, not sustained overload
 or hypervisor CPU steal.
 
+## Linux/OpenWrt client automatic setup in dev
+
+The 2 November 2026 change is in `dev` sources; an earlier 0.8.4 candidate needs a
+rebuild/update to acquire it. All OpenWrt architectures and UDP-FakeTLS, QUIC
+masking, padding/AWG and obfs use the shared controller.
+
+With `recv_buffer_size` absent, the Linux client requests ordinary `SO_RCVBUF`
+and checks the actual grant. If clipped, it tries per-socket `SO_RCVBUFFORCE`
+and verifies readback again. This requires `CAP_NET_ADMIN`, normally held by
+root on standard OpenWrt. Successful FORCE does not require a higher global
+`rmem_max` and does not change sysctls. Failure keeps the connection working
+with the actual grant; permission/unsupported failures are not retried every
+second. After successful FORCE, growth uses FORCE so an ordinary request
+cannot shrink the queue back to the host ceiling.
+
+Automatic client sockets within one process share at most 12.5% of observed
+`MemAvailable`. Reservations include Linux's doubled receive accounting and
+the actual send buffer. Growth is reserved before the request; unknown readback
+retains the conservative reservation. Low/unknown memory authorizes no increase
+and does not shrink a live queue. The 16 MiB per-auto-socket cap remains; actual
+requests can be lower. A network candidate retains its controller after COMMIT;
+the previous controller retains its reservation until the old receiver drains.
+
+Explicit fixed/`0`, sending, TCP and server socket policy keep their meaning.
+FORCE is enabled for Linux auto clients, not Android/iOS/macOS/Windows builds.
+
+## Android and other clients
+
+| Platform | Can UDP reception be limited? | Applicability |
+|---|---|---|
+| OpenWrt/Keenetic/Linux with `CAP_NET_ADMIN` | Yes, including `rmem_max` | Auto clients use bounded FORCE |
+| Linux without that capability | Yes | FORCE refusal preserves the connection and clipped-size diagnostics |
+| Ordinary Android app | Yes: Linux socket caps and the same UDP controller | VPN permission does not grant `CAP_NET_ADMIN`; Android FORCE is disabled |
+| Windows | Small receive queues remain possible; Linux `rmem_max` does not apply | Ordinary auto and SO_RCVBUF readback remain |
+| macOS/iOS | Their own socket-memory limits may apply | Platform APIs/readback remain; Linux FORCE does not apply |
+
+Android needs live `receive_normalized_bytes`, `receive_clamped` and socket
+kernel-drop evidence. VPN permission and `protect(fd)` control routing, not
+root privileges. See [Android VPN](https://developer.android.com/develop/connectivity/vpn),
+[the application sandbox](https://source.android.com/docs/security/app-sandbox), and
+[the kernel CAP_NET_ADMIN check](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c#L1277).
+Similar symptoms do not establish the same cause on a phone.
+
+An isolated Windows 10 probe obtained full 4/8/16 MiB grants with ordinary
+SO_RCVBUF. That is one PC's socket-option check, not a throughput test or a
+guarantee for other devices. [Winsock SO_RCVBUF](https://learn.microsoft.com/en-us/windows/win32/winsock/sol-socket-socket-options)
+and [Apple socket-memory code](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/uipc_socket2.c)
+describe their separate platform mechanisms.
+
 ## Linux installation and upgrade
 
 [31 October installation/upgrade and Recordizer-default audit](../reports/UDP-INSTALL-DEFAULTS-2026-10-31.md).
@@ -99,6 +148,9 @@ Socket creation/state changes log `UDP socket buffers: {…}` with:
 | `receive_normalized_bytes` / `send_normalized_bytes` | Linux/Android raw / 2; other OSes unchanged |
 | `receive_clamped` / `send_clamped` | Normalized grant below the nonzero request |
 | `socket_inode` | Linux/Android inode for matching `ss`, when available |
+| `receive_set_method` | `standard`, `force`, or `os-default` |
+| `receive_force_error` | Last FORCE errno, or `null` |
+| `receive_budget_limited` | Growth was limited by the automatic-client memory budget |
 
 **Failed readback is `null`, never the requested size.** Successful `setsockopt`
 does not prove a full grant. Growth counts only an observed actual increase.

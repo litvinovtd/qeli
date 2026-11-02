@@ -9840,6 +9840,8 @@ struct UdpClientDrainingPath {
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     expires_at: tokio::time::Instant,
     receive_task: crate::transport_core::tasks::TaskHandle,
+    // Keep the old socket's memory reservation until its receive pump finishes.
+    _udp_buffer: UdpBufferController,
 }
 
 /// One pooled datagram tagged by the path epoch of the socket that received it. The tag is local
@@ -10183,6 +10185,7 @@ struct UdpClientLiveCandidate {
     epoch: u64,
     socket: Arc<crate::protocol::obfs::ObfsUdp>,
     receive_task: crate::transport_core::tasks::TaskHandle,
+    udp_buffer: UdpBufferController,
 }
 
 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
@@ -10192,12 +10195,14 @@ impl UdpClientLiveCandidate {
         epoch: u64,
         socket: Arc<crate::protocol::obfs::ObfsUdp>,
         receive_task: crate::transport_core::tasks::TaskHandle,
+        udp_buffer: UdpBufferController,
     ) -> Self {
         Self {
             prepared,
             epoch,
             socket,
             receive_task,
+            udp_buffer,
         }
     }
 
@@ -10211,8 +10216,14 @@ impl UdpClientLiveCandidate {
         PreparedPathCandidate,
         Arc<crate::protocol::obfs::ObfsUdp>,
         crate::transport_core::tasks::TaskHandle,
+        UdpBufferController,
     ) {
-        (self.prepared, self.socket, self.receive_task)
+        (
+            self.prepared,
+            self.socket,
+            self.receive_task,
+            self.udp_buffer,
+        )
     }
 
     async fn stop(mut self) {
@@ -10331,6 +10342,7 @@ pub(crate) async fn run_udp_tunnel(
             send_bytes: config.performance.send_buffer_size,
             receive_bytes: config.performance.recv_buffer_size,
             automatic_receive: config.performance.recv_buffer_auto,
+            client: true,
             max_receive_bytes: AUTO_MAX_RECV_BYTES,
         },
         runtime_counters.udp.clone(),
@@ -11693,14 +11705,15 @@ pub(crate) async fn run_udp_tunnel(
                     drop(raw_candidate);
                     continue;
                 }
-                // Apply the same socket policy before PATH_INIT. The temporary controller may
-                // drop after setsockopt; a fresh controller owns periodic tuning after COMMIT.
-                let _ = UdpBufferController::configure(
+                // The candidate keeps its controller/reservation through COMMIT; resetting it
+                // would lose FORCE state and could shrink a socket back to the OS ceiling.
+                let candidate_udp_buffer = UdpBufferController::configure(
                     &raw_candidate,
                     UdpBufferPolicy {
                         send_bytes: config.performance.send_buffer_size,
                         receive_bytes: config.performance.recv_buffer_size,
                         automatic_receive: config.performance.recv_buffer_auto,
+                        client: true,
                         max_receive_bytes: AUTO_MAX_RECV_BYTES,
                     },
                     runtime_counters.udp.clone(),
@@ -11746,6 +11759,7 @@ pub(crate) async fn run_udp_tunnel(
                     epoch,
                     candidate_socket.clone(),
                     receive_task,
+                    candidate_udp_buffer,
                 ));
                 if let Err(error) = send_udp_path_transmit(
                     &candidate_socket,
@@ -12586,7 +12600,7 @@ pub(crate) async fn run_udp_tunnel(
                             let candidate = live_udp_candidate
                                 .take()
                                 .expect("committed candidate retains live socket");
-                            let (prepared, next_socket, next_receive_task) = candidate.into_active();
+                            let (prepared, next_socket, next_receive_task, next_udp_buffer) = candidate.into_active();
                             if let Some(mut previous) = draining_udp_path.take() {
                                 previous.receive_task.finish().await;
                             }
@@ -12598,8 +12612,10 @@ pub(crate) async fn run_udp_tunnel(
                                 expires_at: tokio::time::Instant::now()
                                     + crate::protocol::data_frag::REASSEMBLY_TIMEOUT,
                                 receive_task: old_receive_task,
+                                _udp_buffer: std::mem::replace(&mut udp_buffer, next_udp_buffer),
                             });
                             socket = next_socket;
+                            udp_buffer.relabel(socket.raw_socket(), "client UDP migrated");
                             udp_framing = next_framing;
                             let Some(mut buffered) =
                                 early_candidate_data.take_committed(commit.epoch())
@@ -12610,17 +12626,6 @@ pub(crate) async fn run_udp_tunnel(
                                 break 'udp;
                             };
                             committed_early_data.append(&mut buffered);
-                            udp_buffer = UdpBufferController::configure(
-                                socket.raw_socket(),
-                                UdpBufferPolicy {
-                                    send_bytes: config.performance.send_buffer_size,
-                                    receive_bytes: config.performance.recv_buffer_size,
-                                    automatic_receive: config.performance.recv_buffer_auto,
-                                    max_receive_bytes: AUTO_MAX_RECV_BYTES,
-                                },
-                                runtime_counters.udp.clone(),
-                                "client UDP migrated",
-                            );
                             udp_budget_revision = udp_budget_revision.wrapping_add(1);
                             next_mtu_growth = tokio::time::Instant::now();
                             uplink_udp_payload_budget = next_payload_budget;
@@ -14563,6 +14568,28 @@ mod udp_task_shutdown_tests {
         }
     }
 
+    fn test_udp_buffer(socket: &crate::protocol::obfs::ObfsUdp) -> UdpBufferController {
+        test_udp_buffer_with_counters(socket, Arc::new(Default::default()))
+    }
+
+    fn test_udp_buffer_with_counters(
+        socket: &crate::protocol::obfs::ObfsUdp,
+        counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
+    ) -> UdpBufferController {
+        UdpBufferController::configure(
+            socket.raw_socket(),
+            UdpBufferPolicy {
+                send_bytes: 0,
+                receive_bytes: 0,
+                automatic_receive: false,
+                client: true,
+                max_receive_bytes: AUTO_MAX_RECV_BYTES,
+            },
+            counters,
+            "test UDP path",
+        )
+    }
+
     fn test_receive_queue() -> Arc<crate::transport_core::receive_queue::ReceiveQueue> {
         crate::transport_core::receive_queue::ReceiveQueue::new(Default::default(), "test client")
     }
@@ -14641,8 +14668,13 @@ mod udp_task_shutdown_tests {
             &tasks.spawner(),
             test_receive_queue(),
         );
-        let candidate =
-            UdpClientLiveCandidate::new(prepared(7), 1, candidate_socket.clone(), candidate_task);
+        let candidate = UdpClientLiveCandidate::new(
+            prepared(7),
+            1,
+            candidate_socket.clone(),
+            candidate_task,
+            test_udp_buffer(&candidate_socket),
+        );
         candidate_peer.send(b"candidate").await.unwrap();
         receive_epoch(&mut rx, 1).await;
         tokio::time::timeout(DEADLINE, candidate.stop())
@@ -14658,6 +14690,7 @@ mod udp_task_shutdown_tests {
 
     #[tokio::test]
     async fn committed_candidate_transfers_task_while_old_receive_drains() {
+        let counters = Arc::new(crate::transport_core::udp_buffer::UdpBufferCounters::default());
         let mut tasks = crate::transport_core::tasks::TaskGroup::default();
         let (old_socket, old_peer) = socket_pair().await;
         let (new_socket, new_peer) = socket_pair().await;
@@ -14676,9 +14709,15 @@ mod udp_task_shutdown_tests {
             &tasks.spawner(),
             test_receive_queue(),
         );
-        let candidate =
-            UdpClientLiveCandidate::new(prepared(8), 1, new_socket.clone(), candidate_task);
-        let (identity, committed_socket, next_receive) = candidate.into_active();
+        let candidate = UdpClientLiveCandidate::new(
+            prepared(8),
+            1,
+            new_socket.clone(),
+            candidate_task,
+            test_udp_buffer_with_counters(&new_socket, counters.clone()),
+        );
+        assert_eq!(counters.socket_diagnostics().len(), 1);
+        let (identity, committed_socket, next_receive, next_buffer) = candidate.into_active();
         assert_eq!(identity.candidate_id, 8);
         let mut draining = UdpClientDrainingPath {
             epoch: 0,
@@ -14687,7 +14726,9 @@ mod udp_task_shutdown_tests {
             ),
             expires_at: tokio::time::Instant::now(),
             receive_task: std::mem::replace(&mut active, next_receive),
+            _udp_buffer: test_udp_buffer_with_counters(&old_socket, counters.clone()),
         };
+        assert_eq!(counters.socket_diagnostics().len(), 2);
         old_peer.send(b"draining").await.unwrap();
         receive_epoch(&mut rx, 0).await;
         new_peer.send(b"committed").await.unwrap();
@@ -14696,6 +14737,10 @@ mod udp_task_shutdown_tests {
             .await
             .unwrap();
         assert_eq!(Arc::strong_count(&old_socket), 1);
+        drop(draining);
+        assert_eq!(counters.socket_diagnostics().len(), 1);
+        drop(next_buffer);
+        assert!(counters.socket_diagnostics().is_empty());
         new_peer.send(b"after drain").await.unwrap();
         receive_epoch(&mut rx, 1).await;
         tasks.finish().await;

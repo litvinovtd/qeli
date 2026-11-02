@@ -159,6 +159,18 @@ ip route                       # full-tunnel: 0.0.0.0/1 + 128.0.0.0/1 via qeli0
 curl -s https://api.ipify.org ; echo      # == server IP when gateway=1
 ```
 
+## UDP-буферы: доработка в dev от 2 ноября 2026
+
+Общий Linux-клиент автоматически пробует `SO_RCVBUFFORCE`, если ОС ограничила
+обычный приёмный UDP-буфер. Это работает при `CAP_NET_ADMIN` и отсутствующем
+`recv_buffer_size`; отдельные UCI/sysctl-настройки не нужны. Все архитектуры и
+UDP-режимы используют одну реализацию. Учтены память, смена сети и отказ прав.
+Ранее собранный кандидат 0.8.4 нужно обновить на сборку с этой правкой.
+
+Проверка: `logread -e qeli` — строки `UDP socket buffers:` должны показывать
+фактический размер и `receive_set_method`. При `receive_clamped=true` либо
+`receive_budget_limited=true` изучите [лимиты и диагностику](UDP-BUFFERS.md).
+
 ## 5. Диагностика
 
 | Симптом | Проверка |

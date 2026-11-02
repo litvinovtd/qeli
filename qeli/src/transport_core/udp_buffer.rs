@@ -2,7 +2,7 @@
 //!
 //! UDP has no receive-window autotuner.  A small kernel queue therefore drops datagrams
 //! whenever the userspace receive task is descheduled briefly.  This controller keeps the
-//! proven 4 MiB value as the initial floor, measures the actual value granted by the OS and,
+//! proven 4 MiB value as the initial request, measures the actual value granted by the OS and,
 //! only for an implicit/default setting, grows in two bounded rungs (8/16 MiB).  It never
 //! shrinks a live socket and never reacts to wire sequence gaps: those may be real network
 //! loss, which allocating local memory cannot repair.
@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 
 use portable_atomic::{AtomicU64, Ordering};
 use tokio::net::UdpSocket;
+
+mod receive;
+use receive::ReceiveBufferRequest;
 
 pub(crate) const AUTO_INITIAL_RECV_BYTES: u32 = 4 * 1024 * 1024;
 pub(crate) const AUTO_MAX_RECV_BYTES: u32 = 16 * 1024 * 1024;
@@ -146,6 +149,9 @@ pub(crate) struct UdpSocketBufferSnapshot {
     pub receive_clamped: Option<bool>,
     pub send_clamped: Option<bool>,
     pub accounting: &'static str,
+    pub receive_set_method: &'static str,
+    pub receive_force_error: Option<i32>,
+    pub receive_budget_limited: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -240,6 +246,9 @@ pub(crate) struct UdpBufferPolicy {
     /// True only when `recv_buffer_size` was absent.  An explicit number is a fixed manual
     /// override and `0` keeps the OS default exactly as before.
     pub automatic_receive: bool,
+    /// Linux clients may use a bounded per-socket FORCE fallback in auto mode.
+    /// Server limits and explicit fixed/zero overrides keep their existing policy.
+    pub client: bool,
     pub max_receive_bytes: u32,
 }
 
@@ -316,6 +325,7 @@ pub(crate) struct UdpBufferController {
     socket_inode: Option<u64>,
     last_kernel_drops: Option<u64>,
     socket_id: u64,
+    receive_request: ReceiveBufferRequest,
 }
 
 impl UdpBufferController {
@@ -341,14 +351,19 @@ impl UdpBufferController {
                 );
             }
         }
-        if policy.receive_bytes > 0 {
-            if let Err(error) = socket_ref.set_recv_buffer_size(policy.receive_bytes as usize) {
-                log::warn!(
-                    "{label}: could not request UDP SO_RCVBUF={}: {error}; using kernel value",
-                    policy.receive_bytes
-                );
-            }
-        }
+        let mut receive_request =
+            ReceiveBufferRequest::new(&socket_ref, policy.client, policy.automatic_receive);
+        let requested_recv_bytes = receive_request
+            .request(&socket_ref, policy.receive_bytes, &label)
+            .unwrap_or_else(|| {
+                if policy.receive_bytes == 0 {
+                    0
+                } else {
+                    effective_receive_bytes(&socket_ref)
+                        .unwrap_or(0)
+                        .min(u32::MAX as usize) as u32
+                }
+            });
 
         let granted = effective_receive_bytes(&socket_ref).unwrap_or(0);
         counters
@@ -364,7 +379,7 @@ impl UdpBufferController {
         if granted > 0 {
             log::info!(
                 "{label}: UDP receive buffer mode={mode}, requested={} KiB, granted={} KiB{}",
-                policy.receive_bytes / 1024,
+                requested_recv_bytes / 1024,
                 granted / 1024,
                 if policy.automatic_receive {
                     format!(", auto cap={} KiB", policy.max_receive_bytes / 1024)
@@ -372,10 +387,10 @@ impl UdpBufferController {
                     String::new()
                 }
             );
-            if policy.receive_bytes > 0 && granted < policy.receive_bytes as usize {
+            if requested_recv_bytes > 0 && granted < requested_recv_bytes as usize {
                 log::warn!(
                     "{label}: UDP receive buffer was capped by the OS (requested {} KiB, granted {} KiB)",
-                    policy.receive_bytes / 1024,
+                    requested_recv_bytes / 1024,
                     granted / 1024
                 );
             }
@@ -392,7 +407,7 @@ impl UdpBufferController {
             label,
             policy,
             counters,
-            requested_recv_bytes: policy.receive_bytes,
+            requested_recv_bytes,
             granted_recv_bytes: granted.min(u32::MAX as usize) as u32,
             bytes_in_window: 0,
             smoothed_bytes_per_second: 0,
@@ -400,9 +415,20 @@ impl UdpBufferController {
             socket_inode,
             last_kernel_drops,
             socket_id,
+            receive_request,
         };
         controller.refresh_diagnostics(&socket_ref);
         controller
+    }
+
+    #[cfg(all(
+        feature = "client",
+        feature = "experimental-roaming",
+        any(unix, windows)
+    ))]
+    pub(crate) fn relabel(&mut self, socket: &UdpSocket, label: &str) {
+        self.label = label.to_owned();
+        self.refresh_diagnostics(&socket2::SockRef::from(socket));
     }
 
     pub(crate) fn note_receive(&mut self, bytes: usize) {
@@ -467,20 +493,14 @@ impl UdpBufferController {
             return;
         }
         let socket_ref = socket2::SockRef::from(socket);
-        if let Err(error) = socket_ref.set_recv_buffer_size(next as usize) {
-            log::warn!(
-                "{}: UDP receive-buffer auto-grow {} -> {} KiB failed: {error}",
-                self.label,
-                self.requested_recv_bytes / 1024,
-                next / 1024
-            );
-            // Do not retry the same forbidden request every second.
-            self.requested_recv_bytes = next;
-            self.refresh_diagnostics(&socket_ref);
+        let attempted = self.receive_request.request(&socket_ref, next, &self.label);
+        if let Some(requested) = attempted {
+            self.requested_recv_bytes = requested;
+        }
+        self.refresh_diagnostics(&socket_ref);
+        if attempted.is_none() {
             return;
         }
-        self.requested_recv_bytes = next;
-        self.refresh_diagnostics(&socket_ref);
         let effective = self.granted_recv_bytes as usize;
         if granted > 0 && effective > granted as usize {
             self.counters.grow_events.fetch_add(1, Ordering::Relaxed);
@@ -488,7 +508,7 @@ impl UdpBufferController {
         log::info!(
             "{}: UDP receive-buffer auto-grow requested {} KiB, granted {} (reason: {}, rate={} Mbit/s, local kernel drops +{})",
             self.label,
-            next / 1024,
+            self.requested_recv_bytes / 1024,
             if effective > 0 { format!("{} KiB", effective / 1024) } else { "unknown".to_string() },
             if kernel_drop_delta > 0 { "kernel overflow" } else { "measured rate/stall budget" },
             self.smoothed_bytes_per_second.saturating_mul(8) / 1_000_000,
@@ -497,7 +517,7 @@ impl UdpBufferController {
     }
 
     fn refresh_diagnostics(&mut self, socket: &socket2::SockRef<'_>) {
-        let state = socket_buffer_snapshot(
+        let mut state = socket_buffer_snapshot(
             &self.label,
             self.policy,
             self.requested_recv_bytes,
@@ -505,6 +525,9 @@ impl UdpBufferController {
             socket.recv_buffer_size().ok(),
             socket.send_buffer_size().ok(),
         );
+        state.receive_set_method = self.receive_request.method();
+        state.receive_force_error = self.receive_request.force_error();
+        state.receive_budget_limited = self.receive_request.budget_limited();
         let old = self.granted_recv_bytes;
         let actual = state
             .receive_normalized_bytes
@@ -634,6 +657,13 @@ fn socket_buffer_snapshot(
         } else {
             "fixed"
         },
+        receive_set_method: if requested_receive == 0 {
+            "os-default"
+        } else {
+            "standard"
+        },
+        receive_force_error: None,
+        receive_budget_limited: false,
         socket_inode: inode,
         requested_receive_bytes: requested_receive,
         requested_send_bytes: policy.send_bytes,
@@ -713,6 +743,7 @@ mod tests {
             send_bytes: 262144,
             receive_bytes,
             automatic_receive: automatic,
+            client: false,
             max_receive_bytes: AUTO_MAX_RECV_BYTES,
         }
     }

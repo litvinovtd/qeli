@@ -1712,6 +1712,7 @@ pub(crate) fn bind_reuseport(
                 perf.recv_buffer_size
             },
             automatic_receive: perf.recv_buffer_auto,
+            client: false,
             max_receive_bytes: if perf.recv_buffer_auto && perf.recv_buffer_size > 0 {
                 aggregate_budget.auto_max_recv_bytes
             } else {

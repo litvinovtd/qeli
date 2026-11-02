@@ -55,6 +55,13 @@ macOS, OpenWrt и Keenetic.
   маскировки трафика или прироста скорости в любой сети.
   Уточнение PMTU до байта учитывает внешний путь отдельно от внутреннего TUN MTU;
   повторная проверка уже известного размера требует меньше служебных echo.
+- **UDP-клиент Linux/OpenWrt:** auto-режим может обойти ограничение обычного
+  `SO_RCVBUF` через `SO_RCVBUFFORCE` при наличии `CAP_NET_ADMIN`, не меняя
+  глобальные sysctl. Рост учитывает общий бюджет памяти клиентских сокетов;
+  контроллер и резерв сохраняются при смене пути до завершения старого приёмника.
+  При отказе прав или нехватке памяти соединение продолжает работать с фактическим
+  буфером. FORCE не включается для Android/iOS/macOS/Windows и серверных сокетов;
+  это не обещание устранить перегрузку или одинаково ускорить все устройства.
 - **Мобильные клиенты:** Android/iOS сохраняют лог неуспешного подключения,
   включая SERVER KEY MISMATCH, после повторного открытия приложения. Обычный Stop
   сохраняет настройку автоматической очистки; отчёт последней ошибки — отдельный
@@ -222,6 +229,13 @@ traffic camouflage across networks are not promised.
   not promised.
   Byte-precise PMTU discovery separates the outer path from the inner TUN MTU;
   rechecking a known size uses fewer maintenance echoes.
+- **Linux/OpenWrt UDP client:** automatic mode may bypass an ordinary `SO_RCVBUF`
+  ceiling using `SO_RCVBUFFORCE` with `CAP_NET_ADMIN`, without changing global
+  sysctls. Growth respects a shared client-socket memory budget; controllers and
+  reservations survive path migration until the old receiver finishes draining.
+  Permission or memory limits leave the connection using its actual buffer.
+  FORCE is not enabled for Android/iOS/macOS/Windows or server sockets; this does
+  not promise to eliminate overload or deliver uniform speed gains.
 - **Mobile clients:** Android/iOS retain failed-connection logs, including
   SERVER KEY MISMATCH, across reopening the app. Normal Stop retains the
   auto-clear preference; last-error reports require separate opt-in. Android
