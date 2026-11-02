@@ -42,38 +42,38 @@
   <!-- ═══ FORM VIEW ═══ -->
   <div x-show="view === 'form' && loaded" x-cloak>
 
-    <!-- Profile tabs (top level only — each profile's settings live on one page) -->
+    <!-- One navigation row: server-wide settings, then individual profiles. -->
     <div class="config-profile-nav">
       <div class="config-profile-nav-head">
         <div class="config-profile-nav-heading">
-          <span class="config-profile-nav-title">Profiles</span>
-          <span class="config-profile-nav-count" x-text="(cfg.profiles || []).length"></span>
+          <span class="config-profile-nav-title">Settings</span>
         </div>
         <button type="button" class="config-profile-add" @click="addProfile()" :disabled="action || !defaultProfile || loading || saving || restarting" title="Add profile">
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
           <span>Add profile</span>
         </button>
       </div>
-      <div class="config-profile-nav-body">
+      <div class="config-profile-nav-body" role="group" aria-label="Configuration sections">
         <button type="button" class="config-profile-tab config-profile-global"
           :class="activeTab === '__global' ? 'active' : ''"
+          :aria-pressed="activeTab === '__global'"
           @click="activeTab = '__global'">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
-          <span class="config-profile-tab-name">Global</span>
+          <svg class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2" stroke-width="1.8"/><circle cx="9" cy="17" r="2" stroke-width="1.8"/></svg>
+          <span class="config-profile-tab-name">General settings</span>
         </button>
-        <div class="config-profile-list">
-          <template x-for="(p, i) in cfg.profiles || []" :key="i">
-            <button type="button" class="config-profile-tab"
-              :class="activeTab === i ? 'active' : ''"
-              :title="p.name || ('Profile ' + (i+1))"
-              @click="activeTab = i">
-              <span class="transport-kind" :class="p.bind.transport === 'udp' ? 'transport-kind-udp' : 'transport-kind-tcp'"
-                x-text="p.bind.transport === 'udp' ? 'UDP' : 'TCP'"></span>
-              <span class="config-profile-tab-name" x-text="p.name || ('Profile ' + (i+1))"></span>
-              <span x-show="p.enabled === false" class="badge badge-off" style="font-size:.6rem">off</span>
-            </button>
-          </template>
-        </div>
+        <span class="config-profile-separator" aria-hidden="true" x-show="(cfg.profiles || []).length > 0"></span>
+        <template x-for="(p, i) in cfg.profiles || []" :key="i">
+          <button type="button" class="config-profile-tab"
+            :class="activeTab === i ? 'active' : ''"
+            :aria-pressed="activeTab === i"
+            :title="p.name || ('Profile ' + (i+1))"
+            @click="activeTab = i">
+            <span class="transport-kind" :class="p.bind.transport === 'udp' ? 'transport-kind-udp' : 'transport-kind-tcp'"
+              x-text="p.bind.transport === 'udp' ? 'UDP' : 'TCP'"></span>
+            <span class="config-profile-tab-name" x-text="p.name || ('Profile ' + (i+1))"></span>
+            <span x-show="p.enabled === false" class="badge badge-off" style="font-size:.6rem">off</span>
+          </button>
+        </template>
       </div>
     </div>
 

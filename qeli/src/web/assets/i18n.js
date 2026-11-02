@@ -574,6 +574,9 @@
       'saves and does a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled); your login survives if web.persist_session_key is on (default).':
         'сохраняет и выполняет полный systemctl restart — применяет всё, включая изменения сокета панели (web.bind/port/tls/enabled); сессия входа сохранится, если включён web.persist_session_key (по умолчанию).',
       'Global': 'Общие',
+      'Settings': 'Настройки',
+      'General settings': 'Общие настройки',
+      'Configuration sections': 'Разделы конфигурации',
       'profile name': 'имя профиля',
       'Enabled': 'Включён',
       'Disabled': 'Выключен',

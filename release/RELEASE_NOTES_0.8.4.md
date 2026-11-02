@@ -83,6 +83,10 @@ macOS, OpenWrt и Keenetic.
   аккаунта. У старых записей без даты отображается «Время неизвестно»; редактирование
   не подменяет дату создания. После трёх неудачных циклов опроса автообновление
   текущей страницы приостанавливается с сохранением данных и явной кнопкой возобновления.
+- **Настройки в web-панели:** общие настройки и профили объединены в одну строку
+  навигации с разделителем, переносом длинных названий и TCP/UDP-баджами.
+  Переключение разделов не меняет конфигурацию и признак несохранённых правок;
+  добавлены состояния клавиатурного фокуса и переводы RU/EN.
 - **Keenetic/Entware:** клиентский режим совместимости с ядрами без
   `CONFIG_NET_NS`, с сохранением журнала и блокировок восстановления. DNS остаётся
   у прошивки; чужие глобальные sysctl не меняются, строгие Linux-проверки сохранены.
@@ -256,6 +260,10 @@ traffic camouflage across networks are not promised.
   Legacy entries without a timestamp show Unknown time; editing preserves the
   original creation date. Three failed polling cycles pause page auto refresh,
   retaining displayed data and providing an explicit resume control.
+- **Web-panel settings:** general settings and profiles share one navigation row,
+  with a separator, wrapping long names and TCP/UDP badges. Switching sections
+  preserves the configuration and unsaved-change state; keyboard focus styling
+  and RU/EN translations were added.
 - **Keenetic/Entware:** compatibility with kernels lacking `CONFIG_NET_NS`,
   retaining recovery journals and locks. Firmware keeps DNS ownership; unrelated
   global sysctls are not changed, and strict Linux checks remain in place.

@@ -31,6 +31,53 @@ function component(file, factory, overrides = {}) {
 }
 async function check(name, fn) { await fn(); passed++; console.log('PASS ' + name); }
 async function main() {
+  await check('configuration navigation shares one wrapping row without changing config or dirty state', async () => {
+    const {model,html}=component('config.html','configPage');
+    const navigation=html.split('<!-- ── GLOBAL TAB ── -->')[0];
+    assert(navigation.includes('config-profile-nav-title">Settings</span>'));
+    assert(navigation.includes('General settings</span>'));
+    assert(navigation.includes('role="group" aria-label="Configuration sections"'));
+    assert(!navigation.includes('config-profile-list'));
+    assert(!navigation.includes('config-profile-nav-count'));
+    const common=navigation.match(/<button[^>]*class="config-profile-tab config-profile-global"[\s\S]*?<\/button>/)[0];
+    const profile=navigation.match(/<button[^>]*class="config-profile-tab"[\s\S]*?<\/button>/)[0];
+    const expression=(markup,attribute)=>markup.match(new RegExp(attribute+'="([^"]+)"'))[1];
+    for (const dirty of [false,true]) {
+      model.dirty=dirty;
+      model.cfg={profiles:[{name:'reality-tls',bind:{transport:'tcp'}},{name:'fake-tls',bind:{transport:'tcp'}},{name:'udp-quic',bind:{transport:'udp'},enabled:false}]};
+      const before=JSON.stringify(model.cfg);
+      for (let i=0;i<model.cfg.profiles.length;i++) {
+        const scope=vm.createContext({...model,i});
+        new vm.Script(expression(profile,'@click')).runInContext(scope);
+        assert.equal(scope.activeTab,i);
+        assert.equal(new vm.Script(expression(profile,':aria-pressed')).runInContext(scope),true);
+        assert.equal(new vm.Script(expression(common,':aria-pressed')).runInContext(scope),false);
+        new vm.Script(expression(common,'@click')).runInContext(scope);
+        assert.equal(scope.activeTab,'__global');
+        assert.equal(new vm.Script(expression(common,':aria-pressed')).runInContext(scope),true);
+        assert.equal(scope.dirty,dirty);
+        assert.equal(JSON.stringify(scope.cfg),before);
+      }
+    }
+    const separator=navigation.match(/<span class="config-profile-separator"[\s\S]*?<\/span>/)[0];
+    const visible=expression(separator,'x-show');
+    for(const profiles of [[],[{}],null]) {
+      assert.equal(new vm.Script(visible).runInNewContext({cfg:{profiles}}),(profiles||[]).length>0);
+    }
+    const css=fs.readFileSync(path.join(templates,'../../../web-assets/input.css'),'utf8');
+    assert.match(css,/\.config-profile-nav-body\{[^}]*display:flex;[^}]*flex-wrap:wrap;/);
+    assert.match(css,/@media \(max-width:639px\)\{[^}]*\}[\s\S]*?\.config-profile-separator\{ display:none; \}/);
+    assert.match(css,/\.config-profile-tab:focus-visible/);
+    assert(!/\.config-profile-global\s*\{[^}]*margin-bottom/.test(css));
+    const built=fs.readFileSync(path.join(templates,'../assets/app.css'),'utf8');
+    assert(built.includes('.config-profile-separator'));
+    const dictionary=fs.readFileSync(path.join(templates,'../assets/i18n.js'),'utf8');
+    const context={window:{},document:{readyState:'loading',addEventListener(){}},localStorage:{getItem(){return 'ru';}}};
+    vm.createContext(context);new vm.Script(dictionary).runInContext(context);
+    assert.equal(context.window.qeliT('Settings'),'Настройки');
+    assert.equal(context.window.qeliT('General settings'),'Общие настройки');
+    assert.equal(context.window.qeliT('Configuration sections'),'Разделы конфигурации');
+  });
   await check('Recordizer defaults to opportunistic and preserves explicit timed plus rollback delays', async () => {
     const {model,html}=component('config.html','configPage');
     const cfg={profiles:[{obfuscation:{recordizer:{policy:'required',batch:{mode:'opportunistic',delay_min_ms:3,delay_max_ms:11}}}},{}]};

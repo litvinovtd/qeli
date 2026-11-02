@@ -156,9 +156,13 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 }
 .config-profile-nav-heading{ display:flex; align-items:baseline; gap:.55rem; min-width:0; }
 .config-profile-nav-title{ color:var(--txt); font-size:.875rem; font-weight:600; }
-.config-profile-nav-count{ color:var(--txt-dim); font-size:.72rem; }
-.config-profile-nav-body{ padding:.75rem .875rem .875rem; }
-.config-profile-list{ display:flex; flex-wrap:wrap; align-items:stretch; gap:.5rem; }
+.config-profile-nav-body{
+  display:flex; flex-wrap:wrap; align-items:stretch; gap:.5rem;
+  padding:.75rem 1rem 1rem;
+}
+.config-profile-separator{
+  align-self:center; flex:0 0 1px; height:1.5rem; margin-inline:.5rem; background:var(--line);
+}
 .config-profile-add{
   display:inline-flex; align-items:center; gap:.4rem; flex:0 0 auto;
   padding:.45rem .7rem; border:1px solid rgba(74,158,255,.28); border-radius:9px;
@@ -176,8 +180,10 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 .config-profile-tab.active{
   color:var(--txt); background:rgba(74,158,255,.12); border-color:rgba(74,158,255,.32);
 }
+.config-profile-tab:focus-visible,.config-profile-add:focus-visible{
+  outline:2px solid var(--blue); outline-offset:2px;
+}
 .config-profile-tab-name{ min-width:0; white-space:normal; overflow-wrap:anywhere; text-align:left; }
-.config-profile-global{ margin-bottom:.625rem; color:var(--txt-mut); background:transparent; }
 .transport-kind{
   display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
   min-width:34px; padding:3px 5px; border-radius:6px; font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
@@ -187,6 +193,7 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 .transport-kind-udp{ color:#ddd6fe; background:rgba(124,58,237,.2); border:1px solid rgba(167,139,250,.28); }
 @media (max-width:639px){
   .config-profile-nav-head{ align-items:flex-start; }
+  .config-profile-separator{ display:none; }
 }
 
 /* Identity rows must accommodate a full bracketed IPv6 endpoint without hiding the

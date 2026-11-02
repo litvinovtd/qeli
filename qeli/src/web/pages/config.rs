@@ -58,6 +58,23 @@ mod tests {
     }
 
     #[test]
+    fn general_settings_share_the_profile_navigation_row() {
+        let navigation = CONFIG_PAGE
+            .split("<!-- ── GLOBAL TAB ── -->")
+            .next()
+            .unwrap();
+        assert!(navigation.contains("config-profile-nav-title\">Settings</span>"));
+        assert!(navigation.contains("General settings</span>"));
+        assert!(navigation.contains("role=\"group\" aria-label=\"Configuration sections\""));
+        assert!(navigation.contains(":aria-pressed=\"activeTab === '__global'\""));
+        assert!(navigation.contains(":aria-pressed=\"activeTab === i\""));
+        assert!(navigation.contains("config-profile-separator\" aria-hidden=\"true\" x-show=\"(cfg.profiles || []).length > 0\""));
+        assert!(!navigation.contains("config-profile-list"));
+        assert!(!navigation.contains("config-profile-nav-count"));
+        assert!(!navigation.contains(">Global</span>"));
+    }
+
+    #[test]
     fn profile_form_exposes_lossless_roaming_policy() {
         assert!(CONFIG_PAGE.contains("id=\"sec-roaming\""));
         assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.enabled"));
