@@ -2,6 +2,10 @@ package com.qeli
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import androidx.test.core.app.ApplicationProvider
@@ -225,7 +229,37 @@ class TransportLifecycleInstrumentedTest {
         }
     }
 
+    private fun awaitPhysicalWifi(cm: ConnectivityManager): Triple<Network, NetworkCapabilities, LinkProperties> {
+        // Framework Wi-Fi/capability publication is asynchronous, including after another
+        // test closes a TUN. Wait off the main looper, but retain the real Wi-Fi prerequisite:
+        // no synthetic Network, other-transport fallback, assumption/skip or radio changes.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (System.nanoTime() < deadline) {
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                val links = cm.getLinkProperties(network) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    return Triple(network, caps, links)
+                }
+            }
+            Thread.sleep(50)
+        }
+        val observed = cm.allNetworks.joinToString { network ->
+            val caps = cm.getNetworkCapabilities(network)
+            "${network.networkHandle}:wifi=${caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}," +
+                "vpn=${caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN)}," +
+                "internet=${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}," +
+                "links=${cm.getLinkProperties(network) != null}"
+        }
+        throw AssertionError("real physical Wi-Fi required within 20s; observed=[$observed]")
+    }
+
     private fun observer(method: String, replace: Boolean = false, stopping: Boolean = false) {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        val (network, caps, links) = awaitPhysicalWifi(cm)
+        // A failed environment prerequisite must not leak a native core or service fixture.
         val core = core(); val service = fixture(core)
         val register = VpnServiceImpl::class.java.getDeclaredMethod("registerNetworkCallback")
             .apply { isAccessible = true }
@@ -233,14 +267,6 @@ class TransportLifecycleInstrumentedTest {
             .apply { isAccessible = true }
         val callbackField = VpnServiceImpl::class.java.getDeclaredField("netCallback")
             .apply { isAccessible = true }
-        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
-        val network = requireNotNull(cm.allNetworks.firstOrNull {
-            val caps = cm.getNetworkCapabilities(it)
-            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true &&
-                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        }) { "real physical Wi-Fi required" }
-        val caps = requireNotNull(cm.getNetworkCapabilities(network))
-        val links = requireNotNull(cm.getLinkProperties(network))
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         try {
             instrumentation.runOnMainSync {
