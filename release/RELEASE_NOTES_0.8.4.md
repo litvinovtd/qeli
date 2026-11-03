@@ -98,18 +98,29 @@ macOS, OpenWrt и Keenetic.
 - **Размер Rust CLI:** оригинальные лицензии хранятся в детерминированном
   LZ4-комплекте; `licenses --file` / `--export` возвращают исходные тексты
   с проверкой SHA-256. В сетевом тракте декодер не вызывается.
+- **TLS:** набор корневых сертификатов `webpki-roots` обновлён с `1.0.10`
+  до `1.0.11`; лицензионные записи приведены в соответствие.
 
 ### Установка и совместимость
 
-Windows GUI по-прежнему поставляется отдельными EXE: `QeliWin-net-required.exe`
-и `QeliWin-standalone.exe`. Новый CLI — в
+Windows GUI по-прежнему поставляется отдельными EXE: для
+`QeliWin-net-required.exe` нужен **.NET 10 Desktop Runtime**,
+`QeliWin-standalone.exe` включает runtime. Новый CLI — в
 `qeli-cli-windows-x64-net-required.zip` и `qeli-cli-windows-x64-standalone.zip`:
 **распакуйте весь архив**, а не один EXE. CLI net-required требует .NET 10 Runtime,
 но не WPF/Desktop Runtime; standalone включает runtime. Устанавливать службу
 нужно из защищённого каталога, а `run`/управление службой требуют администратора.
 В корне CLI-пакета находятся `qeli-cli.cmd` и README с командами; EXE и зависимости
 размещены в `bin/`, полные инструкции — в `docs/`, шаблон INI — в `examples/`.
-Прямой запуск без обёртки: `bin\qeli-cli.exe`; распаковывайте и переносите всю папку.
+Прямой запуск из корня распакованной папки: `.\bin\qeli-cli.exe`.
+
+Для Linux выберите ELF или `.deb` под свою архитектуру — amd64 либо arm64.
+Android APK требует Android 9 (API 28) или новее. Оба архива macOS требуют
+**macOS 15 или новее**: arm64 для Apple Silicon, x86_64 для Intel. Они подписаны
+ad-hoc, не нотаризованы Apple и предназначены для обычного VPN (`apps_mode=all`):
+per-app-расширение не включено. Для первого запуска см.
+[руководство macOS](https://github.com/litvinovtd/qeli/blob/v0.8.4/qeli-mac/README.md).
+Изменения iOS входят в исходники, но подписанного `.ipa` в комплекте нет.
 
 Compact — существующий режим TCP `reality-tls` с уменьшенным стартовым TLS-приветствием
 ClientHello; он уже был доступен в 0.8.3. В 0.8.4 для него добавлен обязательный
@@ -118,24 +129,34 @@ ClientHello; он уже был доступен в 0.8.3. В 0.8.4 для не�
 
 Для compact REALITY сначала обновите сервер, затем клиенты с новым native core.
 Новый compact-клиент не подключается к серверу без `INNER_PQ_V1` и не переключается
-скрыто на legacy. Обычный noncompact REALITY сохраняет прежний путь. Защита
+скрыто на legacy. Новый сервер продолжает принимать старых compact-клиентов
+через legacy-обмен; гибридная защита у них появится только после обновления.
+Обычный noncompact REALITY сохраняет прежний путь. Защита
 личности остаётся классической; постквантовая аутентификация и независимый
 криптографический аудит реализации не заявляются.
 
-Проверяйте скачанные файлы по `SHA256SUMS`. Автоматические тесты и воспроизводимая
-сборка не заменяют физические Windows install/exit/reboot, macOS/iOS и роутерные
-испытания; не выполненные аппаратные проверки не считаются успешными.
+Проверяйте скачанные файлы по `SHA256SUMS`.
 
 ### Проверка поставки
 
-Комплект 0.8.4 обновлён после исправлений аудита и доработок панели. Проверены
-переносимые Linux amd64/arm64 с glibc 2.28 и jemalloc, пакеты Windows GUI/CLI,
-macOS и подписанный Android APK. Для Linux выполнены 20 обязательных строк
+Проверен весь комплект 0.8.4 из 21 файла с актуальными исправлениями Wintun,
+панели и мобильных клиентов. [CI проверенного комплекта](https://github.com/litvinovtd/qeli/actions/runs/41620400706)
+и штатная финальная проверка прошли. В комплекте — переносимые Linux amd64/arm64
+с glibc 2.28 и jemalloc, пакеты Windows GUI/CLI, macOS, роутерные сборки и
+подписанный Android APK. На Linux прошли 19 сценариев, закрывающих 20 обязательных пунктов
 [runtime-сертификации](https://github.com/litvinovtd/qeli/blob/v0.8.4/release/certification/0.8.4.json),
-включая IPv4/IPv6, DNS, MTU, legacy peer и 100 переключений пути для TCP и UDP.
-Недоступные аппаратные проверки сохранены отдельными статусами и не считаются PASS.
+включая IPv4/IPv6, DNS, MTU, совместимость с 0.7.16 в обе стороны и по 100
+переключений пути для TCP и UDP.
 Файлы сверены по `SHA256SUMS`; версия, JNI/native provenance и лицензии проверены.
 Статус публикации и доступность загрузок указаны на странице GitHub Releases.
+
+**Границы проверки:** iOS проверен на симуляторе. Реальное удаление и пересоздание
+Wintun, а также цикл установки, выхода и перезагрузки Windows не квалифицированы.
+Недоступные физические проверки macOS/iOS и роутеров не считаются успешными.
+На испытанном образе Android API 34 универсальный запрос `DnsResolver`
+с сетью `null` по-прежнему может вернуть `ENONET`; см.
+[аудит Android DNS](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/ru/reports/audit-0.8.2/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md).
+Это не общее утверждение о DNS на Android.
 
 Скоростные измерения ниже относятся к раннему кандидату с SHA `2a527ccd…`.
 Они не измеряют производительность пересобранного комплекта и не заменяют
@@ -279,10 +300,13 @@ traffic camouflage across networks are not promised.
   global sysctls are not changed, and strict Linux checks remain in place.
 - **Rust CLI size:** legal resources use deterministic LZ4 storage with exact,
   SHA-256-verified original-text export, outside the networking path.
+- **TLS:** the `webpki-roots` root certificate bundle was updated from `1.0.10`
+  to `1.0.11`, with matching license records.
 
 ### Installation and compatibility
 
-Windows GUI remains two single EXEs, net-required and standalone. The new console
+Windows GUI remains two single EXEs: `QeliWin-net-required.exe` needs the
+**.NET 10 Desktop Runtime**, and `QeliWin-standalone.exe` bundles its runtime. The new console
 packages are `qeli-cli-windows-x64-net-required.zip` and
 `qeli-cli-windows-x64-standalone.zip`: **extract the whole archive**. CLI
 net-required needs .NET 10 Runtime, not WindowsDesktop; standalone includes it.
@@ -290,7 +314,15 @@ Use a protected directory for service installation; foreground VPN and service
 control require Administrator.
 The package root contains `qeli-cli.cmd` and a command README; the EXE and
 dependencies are in `bin/`, manuals in `docs/`, and an INI template in `examples/`.
-For direct execution use `bin\qeli-cli.exe`; always extract and move the whole folder.
+For direct execution from the extracted package root, use `.\bin\qeli-cli.exe`.
+
+On Linux, choose the ELF or `.deb` for your architecture: amd64 or arm64.
+The Android APK requires Android 9 (API 28) or later. Both macOS archives require
+**macOS 15 or later**: arm64 for Apple Silicon, x86_64 for Intel. They are ad-hoc
+signed, not notarized by Apple, and intended for ordinary VPN use (`apps_mode=all`);
+the per-app extension is not included. For first launch, see the
+[macOS guide](https://github.com/litvinovtd/qeli/blob/v0.8.4/qeli-mac/README.md).
+iOS changes are in the source tree; no signed `.ipa` ships in this package set.
 
 Compact is an existing TCP `reality-tls` mode with a smaller initial TLS ClientHello;
 it was already available in 0.8.3. Version 0.8.4 adds a mandatory inner hybrid
@@ -299,24 +331,34 @@ X25519 + ML-KEM-768 exchange for this mode. Compact is disabled by default
 nor DPI evasion.
 
 Upgrade the server before compact REALITY clients. A new compact client refuses
-a server without `INNER_PQ_V1`; noncompact REALITY retains the legacy path.
+a server without `INNER_PQ_V1` and does not fall back automatically. The new server
+still accepts older compact clients using the legacy exchange; those clients gain
+hybrid protection only after upgrading. Noncompact REALITY retains the legacy path.
 Server identity authentication remains classical. Post-quantum authentication
 and an independent cryptographic audit are not claimed.
 
-Verify downloads using `SHA256SUMS`. Automated tests and reproducible builds do
-not substitute for physical Windows install/exit/reboot, Apple-platform or router
-qualification; unavailable hardware checks are not reported as passed.
+Verify downloads using `SHA256SUMS`.
 
 ### Distribution qualification
 
-The 0.8.4 package set was updated after the audit fixes and panel changes. Portable
-Linux amd64/arm64 with glibc 2.28 and jemalloc, Windows GUI/CLI packages, macOS
-and the signed Android APK were checked. Linux passed all 20 mandatory
+All 21 files in the 0.8.4 package set were checked, including the latest Wintun,
+panel and mobile fixes. [CI for the verified package set](https://github.com/litvinovtd/qeli/actions/runs/41620400706)
+and release preflight passed. Portable Linux amd64/arm64 with glibc 2.28 and jemalloc,
+Windows GUI/CLI packages, macOS, router builds and the signed Android APK were checked.
+Linux passed 19 scenarios covering all 20 mandatory
 [runtime certification rows](https://github.com/litvinovtd/qeli/blob/v0.8.4/release/certification/0.8.4.json),
-including IPv4/IPv6, DNS, MTU, legacy peers and 100 path flips each for TCP and UDP.
-Unavailable physical checks retain separate statuses and are not counted as PASS.
+including IPv4/IPv6, DNS, MTU, compatibility with 0.7.16 in both directions and
+100 path flips each for TCP and UDP.
 Files match `SHA256SUMS`; versions, JNI/native provenance and legal resources were checked.
 Publication status and download availability are shown on the GitHub Releases page.
+
+**Scope limits:** iOS was tested in the simulator. Actual removal and recreation of
+a Wintun adapter and the Windows install/exit/reboot cycle were not qualified.
+Unavailable physical macOS/iOS and router checks are not reported as passed.
+On the tested Android API 34 image, a generic `DnsResolver` query with a `null`
+network can still return `ENONET`; see the
+[Android DNS audit](https://github.com/litvinovtd/qeli/blob/v0.8.4/docs/eng/reports/audit-0.8.2/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md).
+This is not a general claim about DNS on Android.
 
 The throughput measurements below describe an earlier candidate with SHA `2a527ccd…`.
 They do not measure the rebuilt package set or replace its runtime qualification.
